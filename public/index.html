@@ -74,6 +74,20 @@
     .line-block.claimed-other { background: #451a03; border-color: #f59e0b; }
     .line-block.recorded { background: #054f31; border-color: #10b981; }
     .line-block > :not(.wave-canvas) { position: relative; z-index: 1; }
+    .line-block.draggable { cursor: grab; }
+    .line-block.dragging { cursor: grabbing; transform: none; border-color: #34d399; box-shadow: 0 0 0 2px #34d39955; z-index: 16; }
+    .drag-hint { position: absolute !important; right: 4px; bottom: 3px; background: #065f46; color: #d1fae5; font-size: 10px; font-weight: bold; padding: 1px 5px; border-radius: 3px; }
+
+    .take-panel { background: #202024; padding: 8px 10px; border-radius: 6px; display: flex; flex-direction: column; gap: 6px; font-size: 11px; color: #a1a1aa; }
+    .take-row { display: flex; align-items: center; gap: 6px; }
+    .take-row > span:first-child { font-weight: bold; color: #e1e1e6; white-space: nowrap; }
+    .take-row select { flex: 1; background: #27272a; color: #fff; border: 1px solid #3f3f46; border-radius: 4px; padding: 3px 6px; font-size: 11px; }
+    .take-row button { padding: 3px 6px; font-size: 10px; }
+    .take-row button:disabled { opacity: 0.4; cursor: default; }
+    .take-val { color: #71717a; font-variant-numeric: tabular-nums; margin-left: auto; white-space: nowrap; }
+    .take-hint { font-size: 10px; color: #52525b; }
+    .inspector { overflow-y: auto; }
+    .inspector > * { flex-shrink: 0; }
     .wave-canvas { position: absolute; top: 0; height: 100%; pointer-events: none; z-index: 0; }
 
     .tile-nick { font-size: 9px; font-weight: bold; padding: 1px 4px; border-radius: 3px; }
@@ -311,6 +325,7 @@
     <div class="timeline-wrapper" id="timeline"></div>
   </div>
 
+  <script src="audio-fx.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

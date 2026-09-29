@@ -25,9 +25,10 @@ let isVisualizerRunning = false;
 let recordState = 'idle';
 let recordStopTimeout = null;
 let previewAudio = null;
-let activeAudios = [];
-let lastPlayTime = 0;
+let previewSource = null;
 let currentRecordingStartTime = 0;
+let recordingLineId = null;
+let renderInProgress = false;
 
 const volumes = { original: 0.0, backing: 1.0, recorded: 1.0, isMuted: false };
 
@@ -238,15 +239,10 @@ const volBackingVal = document.getElementById('volBackingVal');
 const volRecordedVal = document.getElementById('volRecordedVal');
 
 function applyVolumes() {
-  if (volumes.isMuted) {
-    video.volume = 0;
-    backing.volume = 0;
-    activeAudios.forEach(a => a.volume = 0);
-  } else {
-    video.volume = volumes.original;
-    backing.volume = volumes.backing;
-    activeAudios.forEach(a => a.volume = volumes.recorded);
-  }
+  const muted = volumes.isMuted;
+  video.volume = muted ? 0 : volumes.original;
+  backing.volume = muted || renderInProgress ? 0 : volumes.backing;
+  if (takesBus) takesBus.gain.value = muted ? 0 : volumes.recorded;
 }
 
 muteAllCheckbox.addEventListener('change', (e) => { volumes.isMuted = e.target.checked; applyVolumes(); });
@@ -273,66 +269,144 @@ function syncPlayheadLoop() {
       timelineContainer.scrollLeft = currentPos - 300;
     }
 
-    if (session && session.lines && current > lastPlayTime && (current - lastPlayTime) < 0.5) {
-      session.lines.forEach(line => {
-        if (line.audioUrl) {
-          const triggerTime = (line.audioStart !== null && line.audioStart !== undefined) ? line.audioStart : line.start;
-          if (lastPlayTime <= triggerTime && current >= triggerTime) {
-            playSceneLine(line);
-          }
-        }
-      });
-    }
-
-    lastPlayTime = current;
+    if (session && session.lines && !renderInProgress) scheduleTakes(current);
     requestAnimationFrame(syncPlayheadLoop);
   }
 }
 
-function playSceneLine(line) {
-  const sound = new Audio(line.audioUrl);
-  const targetVol = volumes.isMuted ? 0 : volumes.recorded;
-  sound.volume = 0;
+// ==========================================
+// ВОСПРОИЗВЕДЕНИЕ ДУБЛЕЙ (Web Audio, с эффектами и обрезкой)
+// ==========================================
+const TAKE_LOOKAHEAD = 0.25; // запускаем дубль заранее и точно планируем старт по аудиочасам
+const rawTakeCache = new Map();       // url -> Promise<AudioBuffer | null>
+const processedTakeCache = new Map(); // url|effect|pitch -> Promise<AudioBuffer | null>
+let playCtx = null;
+let takesBus = null;
+let playGeneration = 0;
+const startedTakes = new Set();
+const activeTakeSources = new Map(); // lineId -> AudioBufferSourceNode
 
-  sound.play().then(() => {
-    let v = 0;
-    const fadeTimer = setInterval(() => {
-      v += targetVol * 0.25;
-      if (v >= targetVol) {
-        sound.volume = targetVol;
-        clearInterval(fadeTimer);
-      } else {
-        sound.volume = v;
-      }
-    }, 12);
-  }).catch(() => {});
+function ensurePlayCtx() {
+  if (!playCtx) {
+    playCtx = new (window.AudioContext || window.webkitAudioContext)();
+    takesBus = playCtx.createGain();
+    takesBus.connect(playCtx.destination);
+    applyVolumes();
+  }
+  if (playCtx.state === 'suspended') playCtx.resume();
+  return playCtx;
+}
 
-  activeAudios.push(sound);
-  sound.onended = () => {
-    activeAudios = activeAudios.filter(a => a !== sound);
+function takeStartTime(line) {
+  return (line.audioStart !== null && line.audioStart !== undefined) ? line.audioStart : line.start;
+}
+
+// Какая часть файла дубля звучит (с учетом автообрезки тишины)
+function takeBounds(line, duration = Infinity) {
+  const trimOn = line.trimEnabled !== false && line.trimStart != null && line.trimEnd != null;
+  const from = trimOn ? Math.max(0, line.trimStart) : 0;
+  const to = trimOn ? Math.min(duration, line.trimEnd) : duration;
+  return { from, to };
+}
+
+function getRawTake(url) {
+  if (!rawTakeCache.has(url)) rawTakeCache.set(url, fetchAndDecode(url).catch(() => null));
+  return rawTakeCache.get(url);
+}
+
+function getProcessedTake(line) {
+  if (!line.audioUrl) return Promise.resolve(null);
+  const key = `${line.audioUrl}|${line.effect || 'none'}|${line.pitch || 0}`;
+  if (!processedTakeCache.has(key)) {
+    const job = getRawTake(line.audioUrl)
+      .then(buf => buf && renderVoice(buf, line.effect || 'none', line.pitch || 0))
+      .catch(err => {
+        console.error('[Dubline] Не удалось обработать дубль:', err);
+        return null;
+      });
+    processedTakeCache.set(key, job);
+  }
+  return processedTakeCache.get(key);
+}
+
+function precacheTakes() {
+  if (!session || !session.lines) return;
+  session.lines.forEach(line => { if (line.audioUrl) getProcessedTake(line); });
+}
+
+function scheduleTakes(current) {
+  session.lines.forEach(line => {
+    if (!line.audioUrl || startedTakes.has(line.id) || line.id === recordingLineId) return;
+    const start = takeStartTime(line);
+    const { from, to } = takeBounds(line);
+    const end = Number.isFinite(to) ? start + to : start + 60;
+    if (current >= start + from - TAKE_LOOKAHEAD && current < end) startTake(line);
+  });
+}
+
+async function startTake(line) {
+  startedTakes.add(line.id);
+  const generation = playGeneration;
+  const buffer = await getProcessedTake(line);
+  if (!buffer || generation !== playGeneration || video.paused) return;
+
+  const ctx = ensurePlayCtx();
+  const start = takeStartTime(line);
+  const { from, to } = takeBounds(line, buffer.duration);
+  const now = video.currentTime;
+  const when = start + from;
+  const offset = from + Math.max(0, now - when);
+  if (offset >= to) return;
+
+  const src = ctx.createBufferSource();
+  src.buffer = buffer;
+  // Короткий fade-in, чтобы не было щелчка при старте с середины
+  const fade = ctx.createGain();
+  const at = ctx.currentTime + Math.max(0, when - now);
+  fade.gain.setValueAtTime(0, at);
+  fade.gain.linearRampToValueAtTime(1, at + 0.012);
+  src.connect(fade);
+  fade.connect(takesBus);
+  src.start(at, offset, to - offset);
+
+  stopTake(line.id);
+  activeTakeSources.set(line.id, src);
+  src.onended = () => {
+    if (activeTakeSources.get(line.id) === src) activeTakeSources.delete(line.id);
   };
 }
 
+function stopTake(lineId) {
+  const src = activeTakeSources.get(lineId);
+  if (!src) return;
+  try { src.stop(); } catch (e) {}
+  activeTakeSources.delete(lineId);
+}
+
+function stopAllTakes() {
+  playGeneration++;
+  startedTakes.clear();
+  [...activeTakeSources.keys()].forEach(stopTake);
+}
+
 video.addEventListener('play', () => {
-  lastPlayTime = video.currentTime;
+  ensurePlayCtx();
+  stopAllTakes();
   applyVolumes();
   backing.currentTime = video.currentTime;
-  backing.play().catch(() => {});
+  if (!renderInProgress) backing.play().catch(() => {});
   requestAnimationFrame(syncPlayheadLoop);
 });
 
 video.addEventListener('pause', () => {
   backing.pause();
-  activeAudios.forEach(a => { a.pause(); a.currentTime = 0; });
-  activeAudios = [];
+  stopAllTakes();
   playhead.style.left = `${labelWidth + video.currentTime * pxPerSec}px`;
 });
 
 video.addEventListener('seeked', () => {
-  lastPlayTime = video.currentTime;
   backing.currentTime = video.currentTime;
-  activeAudios.forEach(a => { a.pause(); a.currentTime = 0; });
-  activeAudios = [];
+  stopAllTakes();
   playhead.style.left = `${labelWidth + video.currentTime * pxPerSec}px`;
 });
 
@@ -374,6 +448,7 @@ socket.on('session_updated', (data) => {
 
   applyVolumes();
   renderTimeline();
+  precacheTakes();
   if (selectedLine) {
     const updated = session.lines.find(l => l.id === selectedLine.id);
     if (updated) {
@@ -387,8 +462,14 @@ socket.on('line_updated', (updatedLine) => {
   if (!session || !session.lines) return;
   const idx = session.lines.findIndex(l => l.id === updatedLine.id);
   if (idx !== -1) {
+    // Сдвиг/эффекты меняются на лету: если дубль сейчас звучит, перезапускаем его с новыми параметрами
+    if (!video.paused) {
+      stopTake(updatedLine.id);
+      startedTakes.delete(updatedLine.id);
+    }
     session.lines[idx] = updatedLine;
     updateLineBlock(updatedLine);
+    if (updatedLine.audioUrl) getProcessedTake(updatedLine);
     if (selectedLine && selectedLine.id === updatedLine.id) {
       selectedLine = updatedLine;
       showInspector(updatedLine);
@@ -488,7 +569,13 @@ function renderTimeline() {
 
       updateLineBlockVisual(block, line);
 
-      block.onclick = () => selectLine(line);
+      block.onclick = () => {
+        if (block.dataset.justDragged) {
+          delete block.dataset.justDragged;
+          return;
+        }
+        selectLine(session.lines.find(l => l.id === line.id) || line);
+      };
       trackArea.appendChild(block);
 
       if (line.originalAudioUrl) {
@@ -534,14 +621,77 @@ function updateLineBlockVisual(el, line) {
   `;
 
   attachWaveform(el, line);
+  if (line.audioUrl && owner === myName) enableTakeDrag(el, line.id);
 }
+
+// ==========================================
+// ПЕРЕТАСКИВАНИЕ ДУБЛЯ ПО ТАЙМЛАЙНУ
+// ==========================================
+function enableTakeDrag(el, lineId) {
+  el.classList.add('draggable');
+  el.title = 'Перетащите, чтобы сдвинуть дубль по времени';
+
+  el.onpointerdown = (e) => {
+    if (e.button !== 0) return;
+    const line = session.lines.find(l => l.id === lineId);
+    if (!line) return;
+
+    const startX = e.clientX;
+    const origStart = takeStartTime(line);
+    let newStart = origStart;
+    let moved = false;
+    const canvas = el.querySelector('.wave-canvas');
+    const hint = document.createElement('span');
+    hint.className = 'drag-hint';
+
+    const onMove = (ev) => {
+      const dx = ev.clientX - startX;
+      if (!moved && Math.abs(dx) < 4) return;
+      if (!moved) {
+        moved = true;
+        el.classList.add('dragging');
+        el.appendChild(hint);
+      }
+      newStart = Math.max(0, origStart + dx / pxPerSec);
+      if (canvas) canvas.style.left = `${(newStart - line.start) * pxPerSec}px`;
+      const shift = newStart - (line.recordedStart ?? origStart);
+      hint.innerText = `${shift >= 0 ? '+' : ''}${shift.toFixed(2)}с`;
+    };
+
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      el.classList.remove('dragging');
+      hint.remove();
+      if (!moved) return;
+      el.dataset.justDragged = '1';
+      setTakeProps(lineId, { audioStart: Number(newStart.toFixed(3)) });
+    };
+
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  };
+}
+
+window.setTakeProps = function(lineId, props) {
+  socket.emit('set_take_props', { lineId, ...props });
+};
+
+window.nudgeTake = function(lineId, delta) {
+  const line = session.lines.find(l => l.id === lineId);
+  if (line) setTakeProps(lineId, { audioStart: Number(Math.max(0, takeStartTime(line) + delta).toFixed(3)) });
+};
+
+window.resetTakeShift = function(lineId) {
+  const line = session.lines.find(l => l.id === lineId);
+  if (line && line.recordedStart != null) setTakeProps(lineId, { audioStart: line.recordedStart });
+};
 
 // ==========================================
 // ФОРМА ВОЛНЫ НА ТАЙМЛАЙНЕ
 // ==========================================
 const PEAKS_PER_SEC = 100;
 const peaksCache = new Map(); // url -> Promise<Float32Array | null>
-let decodeCtx = null;
 
 function computePeaks(audio) {
   const bucket = Math.max(1, Math.floor(audio.sampleRate / PEAKS_PER_SEC));
@@ -569,20 +719,11 @@ function computePeaks(audio) {
   return peaks;
 }
 
-function loadPeaks(url) {
+function loadPeaks(url, isTake) {
   if (!peaksCache.has(url)) {
-    const job = fetch(url)
-      .then(res => {
-        if (!res.ok) throw new Error(res.status);
-        return res.arrayBuffer();
-      })
-      .then(buf => {
-        // OfflineAudioContext умеет декодировать без жеста пользователя
-        if (!decodeCtx) decodeCtx = new OfflineAudioContext(1, 1, 44100);
-        return decodeCtx.decodeAudioData(buf);
-      })
-      .then(computePeaks)
-      .catch(() => null);
+    // Дубли декодируются один раз и переиспользуются для воспроизведения
+    const decoded = isTake ? getRawTake(url) : fetchAndDecode(url);
+    const job = decoded.then(buf => (buf ? computePeaks(buf) : null)).catch(() => null);
     peaksCache.set(url, job);
   }
   return peaksCache.get(url);
@@ -593,20 +734,20 @@ function attachWaveform(block, line) {
   if (!url) return;
 
   const isTake = !!line.audioUrl;
-  // Дубль начинается раньше реплики на длину pre-roll, поэтому сдвигаем волну влево
-  const takeStart = (line.audioStart !== null && line.audioStart !== undefined) ? line.audioStart : line.start;
-  const offsetSec = isTake ? takeStart - line.start : 0;
+  // Дубль начинается раньше реплики на длину pre-roll (и может быть сдвинут вручную)
+  const offsetSec = isTake ? takeStartTime(line) - line.start : 0;
+  const bounds = isTake ? takeBounds(line) : { from: 0, to: Infinity };
 
   const canvas = document.createElement('canvas');
   canvas.className = 'wave-canvas';
   block.prepend(canvas);
 
-  loadPeaks(url).then(peaks => {
-    if (peaks && canvas.isConnected) drawWaveform(canvas, peaks, offsetSec, isTake);
+  loadPeaks(url, isTake).then(peaks => {
+    if (peaks && canvas.isConnected) drawWaveform(canvas, peaks, offsetSec, isTake, bounds);
   });
 }
 
-function drawWaveform(canvas, peaks, offsetSec, isTake) {
+function drawWaveform(canvas, peaks, offsetSec, isTake, bounds = { from: 0, to: Infinity }) {
   const width = Math.max(1, Math.round((peaks.length / PEAKS_PER_SEC) * pxPerSec));
   const height = canvas.parentElement.clientHeight || 46;
   const dpr = window.devicePixelRatio || 1;
@@ -618,7 +759,8 @@ function drawWaveform(canvas, peaks, offsetSec, isTake) {
 
   const ctx = canvas.getContext('2d');
   ctx.scale(dpr, dpr);
-  ctx.fillStyle = isTake ? 'rgba(52, 211, 153, 0.55)' : 'rgba(161, 161, 170, 0.22)';
+  const activeColor = isTake ? 'rgba(52, 211, 153, 0.55)' : 'rgba(161, 161, 170, 0.22)';
+  const trimmedColor = 'rgba(161, 161, 170, 0.12)'; // обрезанная тишина — бледнее
 
   const mid = height / 2;
   const perPx = PEAKS_PER_SEC / pxPerSec;
@@ -628,6 +770,8 @@ function drawWaveform(canvas, peaks, offsetSec, isTake) {
     let peak = 0;
     for (let i = from; i < to; i++) if (peaks[i] > peak) peak = peaks[i];
     const h = Math.max(1, peak * (height - 6));
+    const t = x / pxPerSec;
+    ctx.fillStyle = (t >= bounds.from && t <= bounds.to) ? activeColor : trimmedColor;
     ctx.fillRect(x, mid - h / 2, 1, h);
   }
 }
@@ -694,7 +838,7 @@ function showInspector(line) {
     } else {
       recordBtnHtml = `
         <div style="display:flex; gap:6px;">
-          <button class="btn-play" style="flex:2;" onclick="playAudio(${jsArg(line.audioUrl)})">▶ Дубль</button>
+          <button class="btn-play" style="flex:2;" onclick="previewTake(${line.id})">▶ Дубль</button>
           <button class="btn-record" id="recBtn" style="flex:2;" onclick="handleStudioRecord(${line.id})">Переписать (R)</button>
           <button class="btn-delete" style="flex:1;" onclick="deleteLineAudio(${line.id})" title="Стереть дубль">🗑️</button>
         </div>
@@ -703,7 +847,7 @@ function showInspector(line) {
   } else if (isOwnedByOther) {
     recordBtnHtml = `<button class="btn-record" disabled title="Реплика занята другим игроком">🔒 Занято игроком ${esc(owner)}</button>`;
     if (line.audioUrl) {
-      recordBtnHtml += `<button class="btn-play" onclick="playAudio(${jsArg(line.audioUrl)})">▶ Послушать дубль игрока ${esc(owner)}</button>`;
+      recordBtnHtml += `<button class="btn-play" onclick="previewTake(${line.id})">▶ Послушать дубль игрока ${esc(owner)}</button>`;
     }
   } else {
     recordBtnHtml = `<button class="btn-record" disabled title="Сначала займите реплику">Сначала займите реплику для записи</button>`;
@@ -729,10 +873,62 @@ function showInspector(line) {
         oninput="updateUserMicGain(this.value)">
     </div>
 
+    ${takePanelHtml(line, isOwnedByMe)}
+
     <div style="display:flex; flex-direction:column; gap:6px; margin-top:4px;">
       ${line.originalAudioUrl ? `<button class="btn-outline" onclick="playAudio(${jsArg(line.originalAudioUrl)})">🎧 Слушать оригинал</button>` : ''}
       ${actionsHtml}
       ${recordBtnHtml}
+    </div>
+  `;
+}
+
+// Настройки записанного дубля: голос, питч, обрезка тишины, сдвиг
+function takePanelHtml(line, editable) {
+  if (!line.audioUrl) return '';
+  const effect = line.effect || 'none';
+  const pitch = line.pitch || 0;
+  const shift = line.recordedStart != null ? takeStartTime(line) - line.recordedStart : 0;
+  const hasTrim = line.trimStart != null && line.trimEnd != null;
+  const signed = (v, digits) => `${v > 0 ? '+' : ''}${Number(v).toFixed(digits)}`;
+
+  if (!editable) {
+    const parts = [VOICE_EFFECTS[effect] || effect];
+    if (pitch) parts.push(`питч ${signed(pitch, 0)}`);
+    if (Math.abs(shift) >= 0.005) parts.push(`сдвиг ${signed(shift, 2)}с`);
+    return `<p style="font-size:11px; color:#a1a1aa;">🎚 Голос дубля: ${esc(parts.join(', '))}</p>`;
+  }
+
+  const options = Object.entries(VOICE_EFFECTS)
+    .map(([key, label]) => `<option value="${key}" ${key === effect ? 'selected' : ''}>${label}</option>`)
+    .join('');
+
+  return `
+    <div class="take-panel">
+      <div class="take-row">
+        <span>🎚 Голос:</span>
+        <select onchange="setTakeProps(${line.id}, { effect: this.value })">${options}</select>
+      </div>
+      <div class="take-row">
+        <span>Питч:</span>
+        <input type="range" min="-12" max="12" step="1" value="${pitch}" style="flex:1; accent-color:#8257e5;"
+          oninput="document.getElementById('pitchVal').innerText = (this.value > 0 ? '+' : '') + this.value"
+          onchange="setTakeProps(${line.id}, { pitch: Number(this.value) })">
+        <span id="pitchVal" class="take-val">${signed(pitch, 0)}</span>
+      </div>
+      <label class="take-row" style="cursor:pointer;">
+        <input type="checkbox" ${line.trimEnabled !== false ? 'checked' : ''} ${hasTrim ? '' : 'disabled'}
+          onchange="setTakeProps(${line.id}, { trimEnabled: this.checked })">
+        <span>✂ Обрезать тишину</span>
+        <span class="take-val">${hasTrim ? `речь ${line.trimStart.toFixed(2)}–${line.trimEnd.toFixed(2)}с` : 'речь не найдена'}</span>
+      </label>
+      <div class="take-row">
+        <span>Сдвиг: <b>${signed(shift, 2)}с</b></span>
+        <button class="btn-outline" onclick="nudgeTake(${line.id}, -0.05)" title="Раньше на 50 мс">◀ 50мс</button>
+        <button class="btn-outline" onclick="nudgeTake(${line.id}, 0.05)" title="Позже на 50 мс">50мс ▶</button>
+        <button class="btn-outline" onclick="resetTakeShift(${line.id})" ${Math.abs(shift) < 0.005 ? 'disabled' : ''}>Сброс</button>
+      </div>
+      <p class="take-hint">Дубль можно перетащить мышкой прямо на таймлайне</p>
     </div>
   `;
 }
@@ -759,14 +955,39 @@ window.unclaimCharacter = function(char) { socket.emit('unclaim_character', { ch
 window.claimSingleLine = function(lineId) { socket.emit('claim_line', { lineId }); };
 window.unclaimSingleLine = function(lineId) { socket.emit('unclaim_line', { lineId }); };
 
-window.playAudio = function(url) {
+function stopPreview() {
   if (previewAudio) {
     previewAudio.pause();
     previewAudio = null;
   }
+  if (previewSource) {
+    try { previewSource.stop(); } catch (e) {}
+    previewSource = null;
+  }
+}
+
+window.playAudio = function(url) {
+  stopPreview();
   previewAudio = new Audio(url);
   previewAudio.volume = volumes.isMuted ? 0 : volumes.recorded;
   previewAudio.play().catch(err => console.error(err));
+};
+
+// Прослушать дубль так, как он прозвучит в ролике: с эффектом, питчем и обрезкой
+window.previewTake = async function(lineId) {
+  stopPreview();
+  const line = session.lines.find(l => l.id === lineId);
+  if (!line) return;
+  const ctx = ensurePlayCtx();
+  const buffer = await getProcessedTake(line);
+  if (!buffer) return alert('Не удалось загрузить дубль');
+
+  const { from, to } = takeBounds(line, buffer.duration);
+  const src = ctx.createBufferSource();
+  src.buffer = buffer;
+  src.connect(takesBus);
+  src.start(0, from, Math.max(0.05, to - from));
+  previewSource = src;
 };
 
 function startVisualizer(stream) {
@@ -862,6 +1083,7 @@ window.handleStudioRecord = async function(lineId) {
   recordState = 'preparing';
   audioChunks = [];
   discardTake = false;
+  recordingLineId = lineId;
 
   const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : '';
   mediaRecorder = mimeType ? new MediaRecorder(audioDest.stream, { mimeType }) : new MediaRecorder(audioDest.stream);
@@ -875,6 +1097,8 @@ window.handleStudioRecord = async function(lineId) {
       micStream.getTracks().forEach(t => t.stop());
       micStream = null;
     }
+
+    recordingLineId = null;
 
     // Запись прервана хостом — дубль не сохраняем
     if (discardTake) {
@@ -891,11 +1115,24 @@ window.handleStudioRecord = async function(lineId) {
       return;
     }
 
+    // Автоопределение тишины: ищем, где в записи начинается и заканчивается речь
+    btn.innerText = '✂ Ищу тишину...';
+    let speech = null;
+    try {
+      speech = detectSpeechBounds(await decodeAudio(await audioBlob.arrayBuffer()));
+    } catch (err) {
+      console.warn('[Dubline] Не удалось проанализировать дубль:', err);
+    }
+
     const formData = new FormData();
     formData.append('lineId', lineId);
     formData.append('userName', myName);
     formData.append('clientId', clientId);
     formData.append('audioStart', currentRecordingStartTime);
+    if (speech) {
+      formData.append('trimStart', speech.start);
+      formData.append('trimEnd', speech.end);
+    }
     formData.append('audio', audioBlob);
 
     btn.innerText = 'Сохранение...';
@@ -908,10 +1145,9 @@ window.handleStudioRecord = async function(lineId) {
     const resData = await res.json();
 
     if (resData.success) {
-      line.audioUrl = resData.audioUrl;
-      line.audioStart = currentRecordingStartTime;
-      selectedLine = line;
-      showInspector(line);
+      const fresh = session.lines.find(l => l.id === lineId) || line;
+      selectedLine = fresh;
+      showInspector(fresh);
     }
   };
 
@@ -1037,15 +1273,158 @@ window.closeRenderModal = function() {
   renderModal.style.display = 'none';
 };
 
-window.startVideoRender = async function() {
-  const startBtn = document.getElementById('startRenderBtn');
-  const progressBox = document.getElementById('renderProgressBox');
-  const progressBar = document.getElementById('renderProgressBar');
-  const statusText = document.getElementById('renderStatusText');
+function readRenderGains() {
+  return {
+    dub: renderDubVol.value / 100,
+    backing: renderBackingVol.value / 100,
+    original: renderOrigVol.value / 100
+  };
+}
 
-  startBtn.disabled = true;
-  progressBox.style.display = 'block';
-  statusText.innerText = '⏳ Подготовка видео и аудиодорожек...';
+function downloadBlob(blob, ext) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `Dubline_${session.title}_export.${ext}`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
+// Офлайн-сведение всей звуковой дорожки: интершум + оригинал + дубли с эффектами и обрезкой
+async function mixSoundtrack(duration, gains, onStep) {
+  const rate = 48000;
+  const ctx = new OfflineAudioContext(2, Math.max(1, Math.ceil(duration * rate)), rate);
+
+  // Мягкий лимитер на мастере, чтобы громкие места не хрипели после кодирования
+  const limiter = ctx.createDynamicsCompressor();
+  limiter.threshold.value = -2;
+  limiter.knee.value = 0;
+  limiter.ratio.value = 20;
+  limiter.attack.value = 0.003;
+  limiter.release.value = 0.1;
+  limiter.connect(ctx.destination);
+
+  const place = (buffer, gain, when, from = 0, to = buffer ? buffer.duration : 0) => {
+    if (!buffer || gain <= 0 || to <= from) return;
+    const skip = Math.max(0, -when);
+    if (from + skip >= to) return;
+    const src = ctx.createBufferSource();
+    src.buffer = buffer;
+    const g = ctx.createGain();
+    g.gain.value = gain;
+    src.connect(g);
+    g.connect(limiter);
+    src.start(Math.max(0, when), from + skip, to - from - skip);
+  };
+
+  if (session.backingUrl && gains.backing > 0) {
+    onStep('Декодирую интершум...');
+    place(await fetchAndDecode(session.backingUrl).catch(() => null), gains.backing, 0);
+  }
+  if (session.videoUrl && gains.original > 0) {
+    onStep('Декодирую оригинальный звук...');
+    place(await fetchAndDecode(session.videoUrl).catch(() => null), gains.original, 0);
+  }
+
+  const takes = session.lines.filter(l => l.audioUrl);
+  for (let i = 0; i < takes.length; i++) {
+    onStep(`Обрабатываю дубли (${i + 1}/${takes.length})...`);
+    const line = takes[i];
+    const buffer = await getProcessedTake(line);
+    if (!buffer) continue;
+    const { from, to } = takeBounds(line, buffer.duration);
+    place(buffer, gains.dub, takeStartTime(line) + from, from, to);
+  }
+
+  onStep('Свожу звук...');
+  return ctx.startRendering();
+}
+
+function sliceAudioBuffer(buffer, fromSample, toSample) {
+  const length = Math.max(1, toSample - fromSample);
+  const chunk = new AudioBuffer({ length, numberOfChannels: buffer.numberOfChannels, sampleRate: buffer.sampleRate });
+  for (let c = 0; c < buffer.numberOfChannels; c++) {
+    chunk.copyToChannel(buffer.getChannelData(c).subarray(fromSample, toSample), c);
+  }
+  return chunk;
+}
+
+function supportsWebCodecsRender() {
+  return typeof window.AudioEncoder === 'function' && typeof window.EncodedVideoChunk === 'function';
+}
+
+// Рендер через WebCodecs: видеодорожка копируется без перекодирования, звук кодируется AudioEncoder'ом.
+// Работает в разы быстрее реального времени и не зависит от того, свернута ли вкладка.
+async function renderWithWebCodecs(progress) {
+  const mb = await import('/vendor/mediabunny/mediabunny.min.mjs');
+
+  progress(1, 'Читаю видео...');
+  const input = new mb.Input({ source: new mb.UrlSource(session.videoUrl), formats: mb.ALL_FORMATS });
+  const videoTrack = await input.getPrimaryVideoTrack();
+  if (!videoTrack) throw new Error('В паке нет видеодорожки');
+  const videoCodec = await videoTrack.getCodec();
+  const decoderConfig = await videoTrack.getDecoderConfig();
+  const duration = await videoTrack.computeDuration();
+  if (!videoCodec || !decoderConfig) throw new Error('Неизвестный видеокодек');
+
+  const soundtrack = await mixSoundtrack(duration, readRenderGains(), text => progress(5, text));
+
+  const audioCodec = await mb.getFirstEncodableAudioCodec(['aac', 'opus'], {
+    numberOfChannels: soundtrack.numberOfChannels,
+    sampleRate: soundtrack.sampleRate
+  });
+  if (!audioCodec) throw new Error('Браузер не умеет кодировать звук через WebCodecs');
+
+  const output = new mb.Output({
+    format: new mb.Mp4OutputFormat({ fastStart: 'in-memory' }),
+    target: new mb.BufferTarget()
+  });
+  const videoSource = new mb.EncodedVideoPacketSource(videoCodec);
+  const audioSource = new mb.AudioBufferSource({ codec: audioCodec, quality: mb.QUALITY_HIGH });
+  output.addVideoTrack(videoSource);
+  output.addAudioTrack(audioSource);
+  await output.start();
+
+  // Звук добавляем порциями вперемешку с видео, чтобы дорожки в файле шли чередуясь
+  const rate = soundtrack.sampleRate;
+  let audioPos = 0;
+  const pushAudioUntil = async (seconds) => {
+    const target = Math.min(soundtrack.length, Math.ceil(seconds * rate));
+    while (audioPos < target) {
+      const next = Math.min(target, audioPos + rate);
+      await audioSource.add(sliceAudioBuffer(soundtrack, audioPos, next));
+      audioPos = next;
+    }
+  };
+
+  const sink = new mb.EncodedPacketSink(videoTrack);
+  let first = true;
+  let lastUiUpdate = 0;
+  for await (const packet of sink.packets()) {
+    await videoSource.add(packet, first ? { decoderConfig } : undefined);
+    first = false;
+    await pushAudioUntil(packet.timestamp + 1);
+
+    const now = performance.now();
+    if (now - lastUiUpdate > 100) {
+      lastUiUpdate = now;
+      const pct = Math.min(95, 10 + 85 * (packet.timestamp / duration));
+      progress(pct, `Собираю MP4: ${Math.round(packet.timestamp)}с / ${Math.round(duration)}с`);
+    }
+  }
+  await pushAudioUntil(Infinity);
+
+  videoSource.close();
+  audioSource.close();
+  progress(97, 'Финализирую файл...');
+  await output.finalize();
+  return new Blob([output.target.buffer], { type: 'video/mp4' });
+}
+
+// Запасной вариант для браузеров без WebCodecs: запись с экрана в реальном времени
+async function renderRealtime(progress) {
+  const duration = video.duration;
+  const soundtrack = await mixSoundtrack(duration, readRenderGains(), text => progress(2, text));
 
   const renderCanvas = document.createElement('canvas');
   renderCanvas.width = video.videoWidth || 1280;
@@ -1054,36 +1433,12 @@ window.startVideoRender = async function() {
 
   const actx = new (window.AudioContext || window.webkitAudioContext)();
   const dest = actx.createMediaStreamDestination();
+  const mixSource = actx.createBufferSource();
+  mixSource.buffer = soundtrack;
+  mixSource.connect(dest);
 
-  const dubGain = actx.createGain();
-  dubGain.gain.value = renderDubVol.value / 100;
-  dubGain.connect(dest);
-
-  const backingGain = actx.createGain();
-  backingGain.gain.value = renderBackingVol.value / 100;
-  backingGain.connect(dest);
-
-  const origGain = actx.createGain();
-  origGain.gain.value = renderOrigVol.value / 100;
-  origGain.connect(dest);
-
-  // Используем независимые аудио-элементы, чтобы не ломать основной плеер!
-  const renderBacking = new Audio(session.backingUrl);
-  renderBacking.crossOrigin = 'anonymous';
-  const backSource = actx.createMediaElementSource(renderBacking);
-  backSource.connect(backingGain);
-
-  let renderOrig = null;
-  if (renderOrigVol.value > 0 && session.videoUrl) {
-    renderOrig = new Audio(session.videoUrl);
-    renderOrig.crossOrigin = 'anonymous';
-    const origSource = actx.createMediaElementSource(renderOrig);
-    origSource.connect(origGain);
-  }
-
-  const canvasStream = renderCanvas.captureStream(30);
   const combinedStream = new MediaStream([
-    ...canvasStream.getVideoTracks(),
+    ...renderCanvas.captureStream(30).getVideoTracks(),
     ...dest.stream.getAudioTracks()
   ]);
 
@@ -1093,79 +1448,86 @@ window.startVideoRender = async function() {
 
   const recorder = new MediaRecorder(combinedStream, { mimeType });
   const recordedChunks = [];
-
   recorder.ondataavailable = e => { if (e.data.size > 0) recordedChunks.push(e.data); };
-  recorder.onstop = () => {
-    actx.close();
-    const ext = mimeType.includes('mp4') ? 'mp4' : 'webm';
-    const blob = new Blob(recordedChunks, { type: mimeType });
-    const url = URL.createObjectURL(blob);
+  const stopped = new Promise(resolve => { recorder.onstop = resolve; });
 
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `Dubline_${session.title}_export.${ext}`;
-    a.click();
-
-    statusText.innerText = '✅ Видео успешно сохранено!';
-    progressBar.style.width = '100%';
-    setTimeout(() => {
-      closeRenderModal();
-      startBtn.disabled = false;
-      progressBox.style.display = 'none';
-    }, 1500);
-  };
-
+  const savedMuted = video.muted;
+  video.muted = true;
   video.currentTime = 0;
-  renderBacking.currentTime = 0;
-  if (renderOrig) renderOrig.currentTime = 0;
+  await new Promise(resolve => video.addEventListener('seeked', resolve, { once: true }));
 
   recorder.start();
-  video.play();
-  renderBacking.play().catch(() => {});
-  if (renderOrig) renderOrig.play().catch(() => {});
+  await video.play();
+  mixSource.start();
 
-  let isRendering = true;
-  let renderLastTime = 0;
-
-  function drawRenderFrame() {
-    if (!isRendering) return;
-    ctx.drawImage(video, 0, 0, renderCanvas.width, renderCanvas.height);
-
-    const progress = (video.currentTime / video.duration) * 100;
-    progressBar.style.width = `${progress}%`;
-    statusText.innerText = `⏳ Рендеринг: ${Math.round(progress)}% (${Math.round(video.currentTime)}с / ${Math.round(video.duration)}с)`;
-
-    const cur = video.currentTime;
-    if (cur > renderLastTime && (cur - renderLastTime) < 0.5) {
-      session.lines.forEach(line => {
-        if (line.audioUrl) {
-          const trigger = (line.audioStart !== null && line.audioStart !== undefined) ? line.audioStart : line.start;
-          if (renderLastTime <= trigger && cur >= trigger) {
-            const dubSound = new Audio(line.audioUrl);
-            dubSound.crossOrigin = 'anonymous';
-            const dubSrc = actx.createMediaElementSource(dubSound);
-            dubSrc.connect(dubGain);
-            dubSound.play().catch(() => {});
-          }
-        }
-      });
+  await new Promise(resolve => {
+    function drawRenderFrame() {
+      ctx.drawImage(video, 0, 0, renderCanvas.width, renderCanvas.height);
+      const pct = (video.currentTime / duration) * 100;
+      progress(pct, `Запись в реальном времени: ${Math.round(video.currentTime)}с / ${Math.round(duration)}с`);
+      if (video.ended || video.currentTime >= duration - 0.1) return resolve();
+      requestAnimationFrame(drawRenderFrame);
     }
-    renderLastTime = cur;
-
-    if (video.ended || video.currentTime >= video.duration - 0.1) {
-      isRendering = false;
-      video.pause();
-      renderBacking.pause();
-      if (renderOrig) renderOrig.pause();
-      recorder.stop();
-      return;
-    }
-
     requestAnimationFrame(drawRenderFrame);
-  }
+  });
 
-  requestAnimationFrame(drawRenderFrame);
+  video.pause();
+  video.muted = savedMuted;
+  recorder.stop();
+  await stopped;
+  actx.close();
+
+  return { blob: new Blob(recordedChunks, { type: mimeType }), ext: mimeType.includes('mp4') ? 'mp4' : 'webm' };
+}
+
+window.startVideoRender = async function() {
+  const startBtn = document.getElementById('startRenderBtn');
+  const progressBox = document.getElementById('renderProgressBox');
+  const progressBar = document.getElementById('renderProgressBar');
+  const statusText = document.getElementById('renderStatusText');
+
+  const progress = (pct, text) => {
+    progressBar.style.width = `${pct}%`;
+    statusText.innerText = `⏳ ${text}`;
+  };
+
+  startBtn.disabled = true;
+  progressBox.style.display = 'block';
+  video.pause();
+  renderInProgress = true;
+  applyVolumes();
+  const startedAt = performance.now();
+
+  try {
+    let result = null;
+    if (supportsWebCodecsRender()) {
+      try {
+        result = { blob: await renderWithWebCodecs(progress), ext: 'mp4' };
+      } catch (err) {
+        console.error('[Dubline] WebCodecs-рендер не удался, переключаюсь на запись в реальном времени:', err);
+        progress(0, 'WebCodecs не справился, пишу в реальном времени...');
+      }
+    }
+    if (!result) result = await renderRealtime(progress);
+
+    downloadBlob(result.blob, result.ext);
+    const seconds = ((performance.now() - startedAt) / 1000).toFixed(1);
+    progressBar.style.width = '100%';
+    statusText.innerText = `✅ Видео сохранено за ${seconds}с!`;
+    setTimeout(() => {
+      closeRenderModal();
+      progressBox.style.display = 'none';
+    }, 2000);
+  } catch (err) {
+    console.error('[Dubline] Ошибка рендера:', err);
+    statusText.innerText = `❌ Ошибка рендера: ${err.message}`;
+  } finally {
+    renderInProgress = false;
+    applyVolumes();
+    startBtn.disabled = false;
+  }
 };
+
 // ==========================================
 // ТЕКСТОВЫЙ ЧАТ
 // ==========================================

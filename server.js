@@ -24,12 +24,17 @@ const MAX_NICK_LENGTH = 16;
 const MAX_CHAT_LENGTH = 500;
 const MAX_CHAT_HISTORY = 100;
 const CHAT_RATE_LIMIT = { count: 5, windowMs: 5000 };
+const VOICE_EFFECTS = ['none', 'robot', 'radio', 'monster'];
+const MAX_PITCH = 12;         // полутонов вверх/вниз
+const MAX_TAKE_SHIFT = 30;    // насколько далеко (в секундах) дубль можно утащить от реплики
 
 for (const dir of [UPLOAD_DIR, PACKS_DIR, DATA_DIR]) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 }
 
 app.use(express.static(PUBLIC_DIR));
+// Mediabunny (MP4-мультиплексор для рендера через WebCodecs) раздаем прямо из node_modules
+app.use('/vendor/mediabunny', express.static(path.join(__dirname, 'node_modules', 'mediabunny', 'dist', 'bundles')));
 app.use(express.json());
 
 class HttpError extends Error {
@@ -246,9 +251,27 @@ function parseLineContent(content, fileName, fallbackId, originalAudioUrl, audio
     end: Number(end.toFixed(2)),
     originalAudioUrl: originalAudioUrl || null,
     claimedBy: null,
-    audioUrl: null,
-    audioStart: null
+    ...emptyTake()
   };
+}
+
+// Поля записанного дубля. Эффекты, питч, обрезка и сдвиг не меняют файл — применяются при воспроизведении
+function emptyTake() {
+  return {
+    audioUrl: null,
+    audioStart: null,     // когда на таймлайне начинается файл дубля (с учетом ручного сдвига)
+    recordedStart: null,  // исходное audioStart сразу после записи (для кнопки «сбросить сдвиг»)
+    trimStart: null,      // найденные границы речи внутри файла, в секундах
+    trimEnd: null,
+    trimEnabled: true,
+    effect: 'none',
+    pitch: 0
+  };
+}
+
+function parseSeconds(raw) {
+  const num = parseFloat(raw);
+  return Number.isFinite(num) ? Number(num.toFixed(3)) : null;
 }
 
 // Пак распаковывается один раз в uploads/pack_<имя>, повторные запуски используют готовую папку
@@ -468,7 +491,9 @@ app.post('/api/upload-line-audio', acceptFile('audio', MAX_TAKE_MB), (req, res) 
 
     const lineId = parseInt(req.body.lineId, 10);
     const userName = sanitizeNick(req.body.userName);
-    const audioStart = req.body.audioStart !== undefined ? parseFloat(req.body.audioStart) : null;
+    const audioStart = parseSeconds(req.body.audioStart);
+    const trimStart = parseSeconds(req.body.trimStart);
+    const trimEnd = parseSeconds(req.body.trimEnd);
 
     if (!req.file || !lineId) throw new HttpError(400, 'Некорректные данные');
     if (!isAuthorized(room, userName, req.body.clientId)) throw new HttpError(403, 'Ник не подтвержден — перезайдите в комнату');
@@ -484,7 +509,15 @@ app.post('/api/upload-line-audio', acceptFile('audio', MAX_TAKE_MB), (req, res) 
 
     deleteTakeFile(line.audioUrl);
     line.audioUrl = `/uploads/${encodeURIComponent(fileName)}`;
-    line.audioStart = audioStart !== null && !isNaN(audioStart) ? audioStart : line.start;
+    line.audioStart = audioStart !== null ? Math.max(0, audioStart) : line.start;
+    line.recordedStart = line.audioStart;
+    // Выбранный голос (эффект/питч) переживает перезапись дубля
+    const hasTrim = trimStart !== null && trimEnd !== null && trimStart >= 0 && trimEnd > trimStart;
+    line.trimStart = hasTrim ? trimStart : null;
+    line.trimEnd = hasTrim ? trimEnd : null;
+    if (line.trimEnabled === undefined) line.trimEnabled = true;
+    if (!line.effect) line.effect = 'none';
+    if (!line.pitch) line.pitch = 0;
 
     saveRooms();
     io.to(roomId).emit('line_updated', line);
@@ -511,8 +544,8 @@ app.post('/api/delete-line-audio', (req, res) => {
     }
 
     deleteTakeFile(line.audioUrl);
-    line.audioUrl = null;
-    line.audioStart = null;
+    const { effect, pitch, trimEnabled } = line;
+    Object.assign(line, emptyTake(), { effect: effect || 'none', pitch: pitch || 0, trimEnabled: trimEnabled !== false });
 
     saveRooms();
     io.to(roomId).emit('line_updated', line);
@@ -666,6 +699,31 @@ io.on('connection', socket => {
     saveRooms();
     io.to(roomId).emit('line_updated', line);
     if (owner !== nick) addSystemMessage(roomId, `👑 Хост освободил реплику #${line.id} игрока ${owner}`);
+  });
+
+  // Настройки своего дубля: эффект, питч, обрезка тишины, ручной сдвиг по таймлайну
+  socket.on('set_take_props', (data = {}) => {
+    if (!roomId || !nick) return;
+    const room = getRoom(roomId);
+    const line = room.lines.find(l => l.id === data.lineId);
+    if (!line || getLineOwner(room, line) !== nick) return;
+
+    if (VOICE_EFFECTS.includes(data.effect)) line.effect = data.effect;
+    if (data.pitch !== undefined) {
+      const pitch = Math.round(Number(data.pitch));
+      if (Number.isFinite(pitch)) line.pitch = Math.max(-MAX_PITCH, Math.min(MAX_PITCH, pitch));
+    }
+    if (typeof data.trimEnabled === 'boolean') line.trimEnabled = data.trimEnabled;
+    if (data.audioStart !== undefined && line.audioUrl) {
+      const start = parseSeconds(data.audioStart);
+      if (start !== null) {
+        const min = Math.max(0, line.start - MAX_TAKE_SHIFT);
+        line.audioStart = Number(Math.max(min, Math.min(line.start + MAX_TAKE_SHIFT, start)).toFixed(3));
+      }
+    }
+
+    saveRooms();
+    io.to(roomId).emit('line_updated', line);
   });
 
   // ---------- Права хоста ----------
