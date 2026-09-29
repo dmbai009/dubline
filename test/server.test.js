@@ -22,12 +22,12 @@ test('ASS parser skips typesetting drawings and cleans \\h / \\N', () => {
     'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text',
     'Dialogue: 0,0:00:01.00,0:00:02.00,Sign,,0,0,0,,{\\p1\\pos(10,10)}m 0 0 l 157 0 157 26 0 26',
     'Dialogue: 0,0:00:01.00,0:00:02.00,Sign,,0,0,0,,m 0 0 l 490 0 490 271 0 271',
-    'Dialogue: 0,0:00:03.00,0:00:04.00,Sign,,0,0,0,,{\\an8}1\\hИмя:\\hАноним',
-    'Dialogue: 0,0:00:05.00,0:00:06.00,Default,Makoto,0,0,0,,Школа\\Nнадежды',
-    'Comment: 0,0:00:07.00,0:00:08.00,Default,,0,0,0,,закомментировано'
+    'Dialogue: 0,0:00:03.00,0:00:04.00,Sign,,0,0,0,,{\\an8}1\\hName:\\hAnonymous',
+    'Dialogue: 0,0:00:05.00,0:00:06.00,Default,Makoto,0,0,0,,School\\Nof hope',
+    'Comment: 0,0:00:07.00,0:00:08.00,Default,,0,0,0,,commented out'
   ].join('\n');
   const lines = parseSubtitles(Buffer.from(ass), 'sample.ass');
-  assert.deepEqual(lines.map(l => l.caption), ['1 Имя: Аноним', 'Школа надежды']);
+  assert.deepEqual(lines.map(l => l.caption), ['1 Name: Anonymous', 'School of hope']);
   assert.equal(lines[1].character, 'Makoto');
 });
 
@@ -39,6 +39,13 @@ test('SRT parser supports plain and bracketed character prefixes', () => {
   assert.equal(lines[0].caption, 'First line');
   assert.equal(lines[1].character, 'Alice');
   assert.equal(lines[1].caption, 'Second line');
+});
+
+test('SRT prefix accepts non-Latin character names', () => {
+  // Unicode test data on purpose: speaker names are not limited to Latin letters
+  const srt = `1\n00:00:01,000 --> 00:00:02,000\nАлиса: Hi\n\n2\n00:00:03,000 --> 00:00:04,000\n春香: Hello\n`;
+  const lines = parseSubtitles(Buffer.from(srt), 'sample.srt');
+  assert.deepEqual(lines.map(l => [l.character, l.caption]), [['Алиса', 'Hi'], ['春香', 'Hello']]);
 });
 
 test('input sanitizers keep identifiers bounded and path-safe', () => {

@@ -1,11 +1,14 @@
 // ==========================================
-// РАЗБОР ПАКОВ (Voxalike / The Choicer Voicer) И СУБТИТРОВ
+// PACK (Voxalike / The Choicer Voicer) AND SUBTITLE PARSING
 // ==========================================
 const AdmZip = require('adm-zip');
 const fs = require('fs');
 const path = require('path');
 const { UPLOAD_DIR, MAX_UNPACKED_MB, HttpError } = require('./config');
 const { probeAudioDuration, getWavDuration } = require('./media');
+
+// Track name for lines whose pack or subtitles give no speaker
+const DEFAULT_CHARACTER = 'Character';
 
 function parseLineContent(content, fileName, fallbackId, originalAudioUrl, audioDuration) {
   if (content.charCodeAt(0) === 0xFEFF) content = content.slice(1);
@@ -14,11 +17,11 @@ function parseLineContent(content, fileName, fallbackId, originalAudioUrl, audio
   const capMatch = content.match(/caption\s*=\s*(.*?)(\r?\n|$)/i);
   if (capMatch) caption = capMatch[1].trim().replace(/^["']|["']$/g, '');
 
-  let character = 'Персонаж';
+  let character = DEFAULT_CHARACTER;
   const charMatch = content.match(/dub_characters\s*=\s*(.*?)(\r?\n|$)/i);
   if (charMatch) {
     let raw = charMatch[1].trim().replace(/[\[\]"']/g, '');
-    if (raw) character = raw.split(',')[0].trim() || 'Персонаж';
+    if (raw) character = raw.split(',')[0].trim() || DEFAULT_CHARACTER;
   }
 
   let start = 0;
@@ -53,19 +56,19 @@ function parseLineContent(content, fileName, fallbackId, originalAudioUrl, audio
   };
 }
 
-// Поля записанного дубля. Эффекты, питч, обрезка и сдвиг не меняют файл — применяются при воспроизведении
+// Fields of a recorded take. Effects, pitch, trimming and shifting never change the file; they are applied during playback
 function emptyTake() {
   return {
     audioUrl: null,
-    audioStart: null,     // когда на таймлайне начинается файл дубля (с учетом ручного сдвига)
-    recordedStart: null,  // исходное audioStart сразу после записи (для кнопки «сбросить сдвиг»)
-    trimStart: null,      // найденные границы речи внутри файла, в секундах
+    audioStart: null,     // where the take file starts on the timeline (including a manual shift)
+    recordedStart: null,  // audioStart right after recording (for the "reset shift" button)
+    trimStart: null,      // detected speech bounds inside the file, in seconds
     trimEnd: null,
     trimEnabled: true,
     effect: 'none',
     pitch: 0,
-    recordedBy: null,     // кто записал дубль (чтобы его можно было послушать, даже когда реплика освобождена)
-    uploadId: null        // id отправки: повтор той же отправки не сохраняется дважды
+    recordedBy: null,     // who recorded the take (so it can be played even after the line is released)
+    uploadId: null        // upload id: a repeat of the same upload is not stored twice
   };
 }
 
@@ -74,19 +77,19 @@ function parseSeconds(raw) {
   return Number.isFinite(num) ? Number(num.toFixed(3)) : null;
 }
 
-// Пак распаковывается один раз в uploads/pack_<имя>, повторные запуски используют готовую папку
+// A pack is extracted once into uploads/pack_<name>; later launches reuse that folder
 function readPack(buffer, packName, forceExtract) {
   let zip;
   try {
     zip = new AdmZip(buffer);
   } catch (err) {
-    throw new HttpError(400, 'Файл не похож на .zip архив');
+    throw new HttpError(400, 'The file does not look like a .zip archive', 'error.notZip');
   }
 
   const entries = zip.getEntries().filter(e => !e.isDirectory);
   const unpackedBytes = entries.reduce((sum, e) => sum + (e.header.size || 0), 0);
   if (unpackedBytes > MAX_UNPACKED_MB * 1024 * 1024) {
-    throw new HttpError(413, `Распакованный пак больше ${MAX_UNPACKED_MB} МБ`);
+    throw new HttpError(413, `The unpacked pack is larger than ${MAX_UNPACKED_MB} MB`, 'error.packTooBig', { max: MAX_UNPACKED_MB });
   }
 
   const dirName = 'pack_' + packName.replace(/\.zip$/i, '');
@@ -105,7 +108,7 @@ function readPack(buffer, packName, forceExtract) {
   const audioDurations = {};
 
   entries.forEach(entry => {
-    // Плоская распаковка: берем только имя файла (защита от "../" в путях архива)
+    // Flat extraction: keep only the file name (protects against "../" in archive paths)
     const name = entry.entryName.split(/[\\/]/).pop();
     if (!name || name.startsWith('.')) return;
 
@@ -151,7 +154,7 @@ function readPack(buffer, packName, forceExtract) {
 
   if (needExtract) fs.writeFileSync(readyMarker, '');
 
-  // Длины оригинальных голосов в MP3/OGG (для WAV уже прочитаны из заголовка)
+  // Durations of original MP3/OGG voices (WAV durations are already read from the header)
   Object.values(audioFilesMap).forEach(name => {
     if (audioDurations[name] === undefined) {
       const duration = probeAudioDuration(path.join(targetDir, name));
@@ -214,13 +217,13 @@ function parseSrtTime(h, m, s, ms) {
   return hours * 3600 + minutes * 60 + seconds + millis / 1000;
 }
 
-// Строка ASS в режиме рисования ({\p1} и т.п.) или сама похожа на векторные команды «m 0 0 l 157 0…»
+// An ASS line in drawing mode ({\p1} etc.) or one that itself looks like vector commands "m 0 0 l 157 0…"
 function isAssDrawing(rawText) {
   if (/\{[^}]*\\p[1-9]/i.test(rawText)) return true;
   return /^m\s+-?\d+(\.\d+)?\s+-?\d+(\.\d+)?(\s+[mlbspc]?\s*-?\d+(\.\d+)?)*\s*$/i.test(rawText.replace(/\{[^}]*\}/g, '').trim());
 }
 
-// Убираем теги оформления; \N, \n и неразрывный \h превращаем в пробелы
+// Strip styling tags; \N, \n and the non-breaking \h become spaces
 function cleanAssText(rawText) {
   return rawText.replace(/\{[^}]*\}/g, '').replace(/\\[Nnh]/g, ' ').replace(/\s+/g, ' ').trim();
 }
@@ -253,7 +256,7 @@ function parseSubtitles(buffer, fileName) {
         }
         parts.push(curr.trim());
 
-        let start = 0, end = 0, character = 'Персонаж', caption = '';
+        let start = 0, end = 0, character = DEFAULT_CHARACTER, caption = '';
         if (formatFields.length > 0) {
           const sIdx = formatFields.indexOf('start');
           const eIdx = formatFields.indexOf('end');
@@ -261,22 +264,22 @@ function parseSubtitles(buffer, fileName) {
           const tIdx = formatFields.indexOf('text');
           if (sIdx !== -1 && parts[sIdx]) start = parseAssTime(parts[sIdx]);
           if (eIdx !== -1 && parts[eIdx]) end = parseAssTime(parts[eIdx]);
-          if (nIdx !== -1 && parts[nIdx]) character = parts[nIdx] || 'Персонаж';
+          if (nIdx !== -1 && parts[nIdx]) character = parts[nIdx] || DEFAULT_CHARACTER;
           if (tIdx !== -1 && parts[tIdx]) caption = parts[tIdx];
         } else {
           start = parseAssTime(parts[1] || '0');
           end = parseAssTime(parts[2] || '0');
-          character = parts[4] || 'Персонаж';
+          character = parts[4] || DEFAULT_CHARACTER;
           caption = parts[9] || '';
         }
 
-        // Векторные рисунки тайпсеттеров (\p1…) — это не реплики, пропускаем
+        // Typesetters' vector drawings (\p1…) are not lines: skip them
         if (isAssDrawing(caption)) continue;
         caption = cleanAssText(caption);
         if (caption) {
           lines.push({
             id: idCounter++,
-            character: character || 'Персонаж',
+            character: character || DEFAULT_CHARACTER,
             caption,
             start: Number(start.toFixed(2)),
             end: Number(Math.max(start + 0.5, end).toFixed(2)),
@@ -308,9 +311,9 @@ function parseSubtitles(buffer, fileName) {
       let caption = bLines.slice(timeLineIdx + 1).join(' ').trim();
       caption = caption.replace(/<[^>]+>/g, '').trim();
 
-      let character = 'Персонаж';
+      let character = DEFAULT_CHARACTER;
       const bracketed = caption.match(/^(?:\[([^\]]+)\]|\(([^)]+)\)):\s*(.*)$/);
-      const prefixed = caption.match(/^([A-Za-zА-Яа-яЁёІіЇїЄєҐґ0-9_ .'-]{2,30}):\s*(.*)$/);
+      const prefixed = caption.match(/^([\p{L}\p{N}_ .'-]{2,30}):\s*(.*)$/u);
       if (bracketed) {
         character = (bracketed[1] || bracketed[2]).trim();
         caption = bracketed[3].trim();

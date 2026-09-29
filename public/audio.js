@@ -13,7 +13,7 @@
       isRenderInProgress,
       getRecordingLineId,
       getLatency = () => 0,
-      originalTrack = null   // отдельный <audio> с выбранной звуковой дорожкой видео (если их несколько)
+      originalTrack = null   // a separate <audio> with the chosen video audio track (if there are several)
     } = options;
 
     const TAKE_LOOKAHEAD = 0.25;
@@ -51,7 +51,7 @@
         backingGain = playCtx.createGain();
         videoSourceNode.connect(videoGain).connect(playCtx.destination);
         backingSourceNode.connect(backingGain).connect(playCtx.destination);
-        // Выбранная дорожка видео идет в тот же канал «Оригинал», что и звук самого видео
+        // The chosen video track goes to the same "Original" channel as the video's own sound
         if (originalTrack) {
           playCtx.createMediaElementSource(originalTrack).connect(videoGain);
           originalTrack.volume = 1;
@@ -108,12 +108,12 @@
       }
     }
 
-    // Где дубль лежит на таймлайне по данным сервера (с ручным сдвигом)
+    // Where the take sits on the timeline according to the server (with the manual shift)
     function rawTakeStart(line) {
       return (line.audioStart !== null && line.audioStart !== undefined) ? line.audioStart : line.start;
     }
 
-    // Где дубль реально звучит: минус поправка задержки микрофона того, кто его записал
+    // Where the take actually sounds: minus the microphone delay correction of whoever recorded it
     function takeStartTime(line) {
       return rawTakeStart(line) - (Number(getLatency(line.recordedBy)) || 0);
     }

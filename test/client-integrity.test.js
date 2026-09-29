@@ -6,7 +6,7 @@ const vm = require('node:vm');
 const html = fs.readFileSync('public/index.html', 'utf8');
 const CLIENT_MODULES = ['player.js', 'recording.js', 'import.js', 'export.js', 'room.js', 'p2p.js', 'chat.js', 'ui.js'];
 const app = CLIENT_MODULES.map(name => fs.readFileSync(`public/${name}`, 'utf8')).join('\n');
-// Код сервера разнесен по модулям в server/ — проверяем их все вместе с точкой входа
+// Server code is split into modules under server/: check all of them together with the entry point
 const serverFiles = ['server.js', ...fs.readdirSync('server', { recursive: true })
   .filter(name => name.endsWith('.js')).map(name => `server/${name}`)];
 const server = serverFiles.map(file => fs.readFileSync(file, 'utf8')).join('\n');

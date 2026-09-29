@@ -13,8 +13,8 @@ if not defined CF if exist "%ProgramFiles(x86)%\cloudflared\cloudflared.exe" set
 if defined CF goto run
 if defined TRIED_INSTALL goto fallback
 
-echo [Dubline] cloudflared не найден. Он дает стабильную ссылку без страницы с паролем.
-choice /c YN /m "Установить cloudflared через winget сейчас"
+echo [Dubline] cloudflared was not found. It gives a stable link without a password page.
+choice /c YN /m "Install cloudflared via winget now"
 if errorlevel 2 goto fallback
 set "TRIED_INSTALL=1"
 winget install --id Cloudflare.cloudflared -e --accept-source-agreements --accept-package-agreements
@@ -22,9 +22,9 @@ goto find
 
 :run
 echo.
-echo [Dubline] Создаем публичную ссылку для друзей...
-echo [Dubline] Ищите ниже адрес вида https://....trycloudflare.com и отправьте его друзьям.
-echo [Dubline] Не закрывайте это окно, пока идет игра.
+echo [Dubline] Creating a public link for friends...
+echo [Dubline] Look below for an address like https://....trycloudflare.com and send it to your friends.
+echo [Dubline] Keep this window open while you play.
 echo.
 "%CF%" tunnel --no-autoupdate --url http://localhost:3000
 pause
@@ -32,6 +32,6 @@ goto :eof
 
 :fallback
 echo.
-echo [Dubline] Запускаю запасной туннель localtunnel (может показывать страницу с паролем).
+echo [Dubline] Starting the fallback localtunnel tunnel (it may show a password page).
 npx localtunnel --port 3000
 pause

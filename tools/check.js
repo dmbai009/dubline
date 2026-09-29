@@ -1,4 +1,4 @@
-// Синтаксическая проверка всех скриптов сервера и клиента (npm run check)
+// Syntax check of all server and client scripts (npm run check)
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');

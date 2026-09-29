@@ -1,8 +1,8 @@
 // ==========================================
 // EXPORT
-// Сведение звука, рендер видео (WebCodecs / реальное время), стемы
+// Audio mixdown, video render (WebCodecs / real time), stems
 // ==========================================
-// БЕЗОПАСНЫЙ СТУДИЙНЫЙ РЕНДЕР
+// SAFE STUDIO RENDER
 // ==========================================
 const renderDubVol = document.getElementById('renderDubVol');
 const renderBackingVol = document.getElementById('renderBackingVol');
@@ -56,12 +56,12 @@ function downloadBlob(blob, ext) {
   setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
 
-// Офлайн-сведение всей звуковой дорожки: интершум + оригинал + дубли с эффектами и обрезкой
+// Offline mixdown of the whole soundtrack: background + original + takes with effects and trimming
 async function mixSoundtrack(duration, gains, onStep) {
   const rate = 48000;
   const ctx = new OfflineAudioContext(2, Math.max(1, Math.ceil(duration * rate)), rate);
 
-  // Мягкий лимитер на мастере, чтобы громкие места не хрипели после кодирования
+  // Soft limiter on the master so loud parts don't distort after encoding
   const limiter = ctx.createDynamicsCompressor();
   limiter.threshold.value = -2;
   limiter.knee.value = 0;
@@ -99,7 +99,7 @@ async function mixSoundtrack(duration, gains, onStep) {
     onStep(t('render.decodeBackground'));
     place(await fetchAndDecode(mediaUrl(session.backingUrl)).catch(() => null), 1, 0, 0, Infinity, backingBus);
   }
-  // Оригинал — выбранная звуковая дорожка видео (если их несколько) или звук самого видео
+  // Original is the chosen video audio track (if there are several) or the video's own sound
   const originalTrack = selectedOriginalTrack();
   const originalUrl = originalTrack === undefined ? session.videoUrl : originalTrack && originalTrack.url;
   if (originalUrl && originalBase > 0) {
@@ -262,13 +262,13 @@ function supportsWebCodecsRender() {
   return typeof window.AudioEncoder === 'function' && typeof window.EncodedVideoChunk === 'function';
 }
 
-// Рендер через WebCodecs: видеодорожка копируется без перекодирования, звук кодируется AudioEncoder'ом.
-// Работает в разы быстрее реального времени и не зависит от того, свернута ли вкладка.
+// WebCodecs render: the video track is copied without re-encoding, the audio is encoded by AudioEncoder.
+// Many times faster than real time and works even when the tab is minimized.
 async function renderWithWebCodecs(progress) {
   const mb = await import('/vendor/mediabunny/mediabunny.min.mjs');
 
   progress(1, t('render.readVideo'));
-  // Если видео выбрано с диска — читаем его локально, а не через туннель
+  // If the video was picked from disk, read it locally instead of through the tunnel
   const source = localMedia && localMedia.forVideoUrl === session.videoUrl
     ? new mb.BlobSource(localMedia.videoBlob)
     : new mb.UrlSource(session.videoUrl);
@@ -298,7 +298,7 @@ async function renderWithWebCodecs(progress) {
   output.addAudioTrack(audioSource);
   await output.start();
 
-  // Звук добавляем порциями вперемешку с видео, чтобы дорожки в файле шли чередуясь
+  // Add audio in chunks mixed with video so the tracks are interleaved in the file
   const rate = soundtrack.sampleRate;
   let audioPos = 0;
   const pushAudioUntil = async (seconds) => {
@@ -334,7 +334,7 @@ async function renderWithWebCodecs(progress) {
   return new Blob([output.target.buffer], { type: 'video/mp4' });
 }
 
-// Запасной вариант для браузеров без WebCodecs: запись с экрана в реальном времени
+// Fallback for browsers without WebCodecs: real-time capture
 async function renderRealtime(progress) {
   const duration = video.duration;
   const soundtrack = await mixSoundtrack(duration, readRenderGains(), text => progress(2, text));
@@ -417,7 +417,7 @@ window.startVideoRender = async function() {
       try {
         result = { blob: await renderWithWebCodecs(progress), ext: 'mp4' };
       } catch (err) {
-        console.error('[Dubline] WebCodecs-рендер не удался, переключаюсь на запись в реальном времени:', err);
+        console.error('[Dubline] WebCodecs render failed, falling back to real-time capture:', err);
         progress(0, t('render.fallback'));
       }
     }
@@ -432,7 +432,7 @@ window.startVideoRender = async function() {
       progressBox.style.display = 'none';
     }, 2000);
   } catch (err) {
-    console.error('[Dubline] Ошибка рендера:', err);
+    console.error('[Dubline] Render failed:', err);
     statusText.innerText = t('render.error', { message: err.message });
   } finally {
     renderInProgress = false;
@@ -444,7 +444,7 @@ window.startVideoRender = async function() {
 // ==========================================
 
 // ==========================================
-// КНОПКИ СКАЧИВАНИЯ С РАЗМЕРАМИ
+// DOWNLOAD BUTTONS WITH SIZES
 // ==========================================
 const downloadVideoBtn = document.getElementById('downloadVideoBtn');
 

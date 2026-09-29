@@ -21,7 +21,7 @@ function loadPackIntoRoom(roomId, packName, buffer, forceExtract) {
   const room = getRoom(roomId);
   const pack = readPack(buffer, packName, forceExtract);
 
-  // Новый пак — новая сессия: прошлые сессии и их дубли остаются
+  // A new pack starts a new session: earlier sessions and their takes are kept
   startNewSession(room, {
     title: pack.title,
     kind: 'pack',
@@ -33,16 +33,27 @@ function loadPackIntoRoom(roomId, packName, buffer, forceExtract) {
   });
   forgetFileSizes(room.zipUrl, room.videoUrl, room.backingUrl);
   delete recordingNow[roomId];
-  endWatch(roomId, null, '🎬 Совместный просмотр остановлен: сменился пак');
+  endWatch(roomId, null, '🎬 Watch-together stopped: the pack changed');
   delete p2pSeeders[roomId];
 
   saveRooms();
   emitSession(roomId);
   broadcastRecording(roomId);
   ensureAudioTracks(roomId);
-  logEvent(roomId, `🎬 Запущен пак «${pack.title}» (${pack.lines.length} реплик)`);
-  addSystemMessage(roomId, 'system.packLoaded', { title: pack.title }, `🎬 Хост запустил пак «${pack.title}»`);
+  logEvent(roomId, `🎬 Pack "${pack.title}" started (${pack.lines.length} lines)`);
+  addSystemMessage(roomId, 'system.packLoaded', { title: pack.title }, `🎬 The host started the pack "${pack.title}"`);
   return room;
+}
+
+function uploadErrorHandler(handler, maxMb) {
+  return (req, res, next) => handler(req, res, err => {
+    if (!err) return next();
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      logEvent(null, `⚠ Upload rejected: file is larger than ${maxMb} MB`, 'warn');
+      return sendJsonError(res, 413, `File is too large (max ${maxMb} MB)`, 'error.fileTooBig', { max: maxMb });
+    }
+    sendJsonError(res, 400, `Upload failed: ${err.message}`, 'error.uploadFailed', { message: err.message });
+  });
 }
 
 function acceptFile(field, maxMb) {
@@ -50,15 +61,7 @@ function acceptFile(field, maxMb) {
     storage: multer.memoryStorage(),
     limits: { fileSize: maxMb * 1024 * 1024, files: 1 }
   }).single(field);
-
-  return (req, res, next) => handler(req, res, err => {
-    if (!err) return next();
-    if (err.code === 'LIMIT_FILE_SIZE') {
-      logEvent(null, `⚠ Отклонена загрузка: файл больше ${maxMb} МБ`, 'warn');
-      return res.status(413).send(`Файл слишком большой (максимум ${maxMb} МБ)`);
-    }
-    res.status(400).send('Ошибка загрузки: ' + err.message);
-  });
+  return uploadErrorHandler(handler, maxMb);
 }
 
 function acceptCustomFiles(maxMb) {
@@ -69,53 +72,50 @@ function acceptCustomFiles(maxMb) {
     { name: 'video', maxCount: 1 },
     { name: 'subtitles', maxCount: 1 }
   ]);
+  return uploadErrorHandler(handler, maxMb);
+}
 
-  return (req, res, next) => handler(req, res, err => {
-    if (!err) return next();
-    if (err.code === 'LIMIT_FILE_SIZE') {
-      logEvent(null, `⚠ Отклонена загрузка: файл больше ${maxMb} МБ`, 'warn');
-      return res.status(413).send(`Файл слишком большой (максимум ${maxMb} МБ)`);
-    }
-    res.status(400).send('Ошибка загрузки: ' + err.message);
-  });
+// The client shows `key` translated into the player's language and falls back to the English `error`
+function sendJsonError(res, status, message, key = null, params = {}) {
+  res.status(status).json({ error: message, key, params });
 }
 
 function sendError(res, err) {
   if (err instanceof HttpError) {
-    logEvent(null, `⚠ Отклонен запрос (${err.status}): ${err.message}`, 'warn');
-    return res.status(err.status).send(err.message);
+    logEvent(null, `⚠ Request rejected (${err.status}): ${err.message}`, 'warn');
+    return sendJsonError(res, err.status, err.message, err.key, err.params);
   }
-  logEvent(null, `💥 Ошибка при обработке запроса: ${err.stack || err}`, 'error');
-  res.status(500).send('Внутренняя ошибка сервера');
+  logEvent(null, `💥 Request failed: ${err.stack || err}`, 'error');
+  sendJsonError(res, 500, 'Internal server error', 'error.internal');
 }
 
-// Загрузка ZIP-мода (сохраняется в библиотеку модов). Только для хоста.
+// Upload a ZIP mod (kept in the mod library). Host only.
 app.post('/api/upload-pack', acceptFile('pack', MAX_PACK_MB), (req, res) => {
   try {
     const roomId = sanitizeRoomId(req.query.room);
     const room = getRoom(roomId);
 
-    if (!isHost(room, req.body.clientId)) throw new HttpError(403, 'Менять пак может только хост комнаты');
-    if (!req.file) throw new HttpError(400, 'Файл не передан');
+    if (!isHost(room, req.body.clientId)) throw new HttpError(403, 'Only the room host can change the pack', 'error.hostOnlyPack');
+    if (!req.file) throw new HttpError(400, 'No file was sent', 'error.noFile');
 
     const packName = sanitizePackName(req.file.originalname);
-    if (!packName) throw new HttpError(400, 'Нужен .zip архив');
+    if (!packName) throw new HttpError(400, 'A .zip archive is required', 'error.needZip');
 
-    // Сначала проверяем, что архив читается, и только потом сохраняем его в библиотеку
+    // Make sure the archive can be read before saving it to the library
     const updatedRoom = loadPackIntoRoom(roomId, packName, req.file.buffer, true);
     fs.writeFileSync(path.join(PACKS_DIR, packName), req.file.buffer);
-    // Архив записан только что — разошлем сессию еще раз уже с его размером
+    // The archive has just been written: send the session again, now with its size
     forgetFileSizes(updatedRoom.zipUrl);
     emitSession(roomId);
 
-    console.log(`[Dubline] Загружен мод [${packName}] в комнату [${roomId}]`);
+    console.log(`[Dubline] Mod [${packName}] uploaded to room [${roomId}]`);
     res.json({ success: true, session: publicRoom(updatedRoom) });
   } catch (err) {
     sendError(res, err);
   }
 });
 
-// Список сохраненных модов на сервере
+// Mods saved on the server
 app.get('/api/server-packs', (req, res) => {
   try {
     const files = fs.readdirSync(PACKS_DIR).filter(f => f.toLowerCase().endsWith('.zip'));
@@ -134,18 +134,18 @@ app.get('/api/server-packs', (req, res) => {
   }
 });
 
-// Загрузить в комнату мод, уже сохраненный на сервере. Только для хоста.
+// Load a mod already saved on the server into the room. Host only.
 app.post('/api/load-server-pack', (req, res) => {
   try {
     const { filename, room, clientId } = req.body;
     const roomId = sanitizeRoomId(room);
-    if (!isHost(getRoom(roomId), clientId)) throw new HttpError(403, 'Менять пак может только хост комнаты');
+    if (!isHost(getRoom(roomId), clientId)) throw new HttpError(403, 'Only the room host can change the pack', 'error.hostOnlyPack');
 
     const packName = sanitizePackName(filename);
-    if (!packName || packName !== filename) throw new HttpError(400, 'Некорректное имя мода');
+    if (!packName || packName !== filename) throw new HttpError(400, 'Invalid mod name', 'error.badPackName');
 
     const filePath = path.join(PACKS_DIR, packName);
-    if (!fs.existsSync(filePath)) throw new HttpError(404, 'Мод не найден на сервере');
+    if (!fs.existsSync(filePath)) throw new HttpError(404, 'Mod not found on the server', 'error.packNotFound');
 
     const updatedRoom = loadPackIntoRoom(roomId, packName, fs.readFileSync(filePath), false);
     res.json({ success: true, session: publicRoom(updatedRoom) });
@@ -154,21 +154,23 @@ app.post('/api/load-server-pack', (req, res) => {
   }
 });
 
-// Раздельная загрузка Видео (.mp4) + Субтитров (.ass / .srt / .vtt)
+// Separate upload of a video (.mp4 / .mkv) and subtitles (.ass / .ssa / .srt / .vtt)
 app.post('/api/upload-custom', acceptCustomFiles(MAX_PACK_MB), async (req, res) => {
   let targetDir = null;
   try {
     const roomId = sanitizeRoomId(req.query.room);
     const room = getRoom(roomId);
-    if (!isHost(room, req.body.clientId)) throw new HttpError(403, 'Создавать сцену может только хост комнаты');
+    if (!isHost(room, req.body.clientId)) throw new HttpError(403, 'Only the room host can create a scene', 'error.hostOnlyScene');
 
     const videoFile = req.files && req.files['video'] ? req.files['video'][0] : null;
     const subFile = req.files && req.files['subtitles'] ? req.files['subtitles'][0] : null;
 
-    if (!videoFile) throw new HttpError(400, 'Не передан видеофайл (.mp4 / .mkv)');
-    if (!isMp4File(videoFile) && !isMkvFile(videoFile)) throw new HttpError(400, 'Поддерживаются только видео .mp4 и .mkv');
-    if (subFile && !isSubtitleFile(subFile)) throw new HttpError(400, 'Поддерживаются субтитры .ass, .ssa, .srt и .vtt');
-    if (subFile && subFile.size > MAX_SUBTITLE_MB * 1024 * 1024) throw new HttpError(413, `Субтитры больше ${MAX_SUBTITLE_MB} МБ`);
+    if (!videoFile) throw new HttpError(400, 'No video file was sent (.mp4 / .mkv)', 'error.noVideo');
+    if (!isMp4File(videoFile) && !isMkvFile(videoFile)) throw new HttpError(400, 'Only .mp4 and .mkv videos are supported', 'error.videoFormat');
+    if (subFile && !isSubtitleFile(subFile)) throw new HttpError(400, 'Supported subtitles: .ass, .ssa, .srt and .vtt', 'error.subtitleFormat');
+    if (subFile && subFile.size > MAX_SUBTITLE_MB * 1024 * 1024) {
+      throw new HttpError(413, `Subtitles are larger than ${MAX_SUBTITLE_MB} MB`, 'error.subtitlesTooBig', { max: MAX_SUBTITLE_MB });
+    }
 
     const customTitle = String(req.body.title || path.basename(videoFile.originalname, path.extname(videoFile.originalname)))
       .replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 80) || 'Custom_Scene';
@@ -189,21 +191,23 @@ app.post('/api/upload-custom', acceptCustomFiles(MAX_PACK_MB), async (req, res) 
       if (!subtitleBuffer) {
         const extractedPath = path.join(targetDir, 'embedded.ass');
         const subtitleMap = findEmbeddedSubtitleMap(mkvPath);
-        if (!subtitleMap) throw new HttpError(400, 'В MKV нет встроенных субтитров ASS/SSA/SRT');
+        if (!subtitleMap) throw new HttpError(400, 'The MKV has no embedded ASS/SSA/SRT subtitles', 'error.noEmbeddedSubtitles');
         try {
-          await runFfmpeg(['-i', mkvPath, '-map', subtitleMap, '-c:s', 'ass', extractedPath], 'Не удалось извлечь встроенные субтитры');
+          await runFfmpeg(['-i', mkvPath, '-map', subtitleMap, '-c:s', 'ass', extractedPath], 'Could not extract embedded subtitles');
           subtitleBuffer = fs.readFileSync(extractedPath);
           subtitleName = 'embedded.ass';
-          if (subtitleBuffer.length > MAX_SUBTITLE_MB * 1024 * 1024) throw new HttpError(413, `Встроенные субтитры больше ${MAX_SUBTITLE_MB} МБ`);
+          if (subtitleBuffer.length > MAX_SUBTITLE_MB * 1024 * 1024) {
+            throw new HttpError(413, `Embedded subtitles are larger than ${MAX_SUBTITLE_MB} MB`, 'error.subtitlesTooBig', { max: MAX_SUBTITLE_MB });
+          }
         } finally {
           fs.rmSync(extractedPath, { force: true });
         }
       }
 
       try {
-        await runFfmpeg(['-i', mkvPath, '-map', '0:v:0', '-map', '0:a?', '-c', 'copy', '-movflags', '+faststart', videoPath], 'Не удалось ремуксить MKV в MP4');
+        await runFfmpeg(['-i', mkvPath, '-map', '0:v:0', '-map', '0:a?', '-c', 'copy', '-movflags', '+faststart', videoPath], 'Could not remux MKV to MP4');
       } catch (copyError) {
-        await runFfmpeg(['-i', mkvPath, '-map', '0:v:0', '-map', '0:a?', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', videoPath], 'Не удалось ремуксить MKV в MP4 с AAC-аудио');
+        await runFfmpeg(['-i', mkvPath, '-map', '0:v:0', '-map', '0:a?', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', videoPath], 'Could not remux MKV to MP4 with AAC audio');
       } finally {
         fs.rmSync(mkvPath, { force: true });
       }
@@ -213,13 +217,13 @@ app.post('/api/upload-custom', acceptCustomFiles(MAX_PACK_MB), async (req, res) 
 
     if (!subtitleBuffer) {
       fs.rmSync(targetDir, { recursive: true, force: true });
-      throw new HttpError(400, 'Передайте файл субтитров или MKV со встроенной дорожкой субтитров');
+      throw new HttpError(400, 'Send a subtitle file or an MKV with an embedded subtitle track', 'error.needSubtitles');
     }
 
     const lines = parseSubtitles(subtitleBuffer, subtitleName);
     if (!lines.length) {
       fs.rmSync(targetDir, { recursive: true, force: true });
-      throw new HttpError(400, 'В файле субтитров не найдено реплик');
+      throw new HttpError(400, 'No lines found in the subtitle file', 'error.noSubtitleLines');
     }
 
     startNewSession(room, {
@@ -233,15 +237,15 @@ app.post('/api/upload-custom', acceptCustomFiles(MAX_PACK_MB), async (req, res) 
     });
     forgetFileSizes(room.videoUrl);
     delete recordingNow[roomId];
-    endWatch(roomId, null, '🎬 Совместный просмотр остановлен: сменилась сцена');
+    endWatch(roomId, null, '🎬 Watch-together stopped: the scene changed');
     delete p2pSeeders[roomId];
 
     saveRooms();
     emitSession(roomId);
     broadcastRecording(roomId);
     ensureAudioTracks(roomId);
-    addSystemMessage(roomId, 'system.customScene', { title: customTitle, count: lines.length }, `🎬 Хост создал новую сцену «${customTitle}» (${lines.length} реплик)`);
-    console.log(`[Dubline] Создана пользовательская сцена [${customTitle}] (${lines.length} реплик) в комнате [${roomId}]`);
+    addSystemMessage(roomId, 'system.customScene', { title: customTitle, count: lines.length }, `🎬 The host created a new scene "${customTitle}" (${lines.length} lines)`);
+    console.log(`[Dubline] Custom scene [${customTitle}] (${lines.length} lines) created in room [${roomId}]`);
     res.json({ success: true, session: publicRoom(room) });
   } catch (err) {
     if (targetDir) fs.rmSync(targetDir, { recursive: true, force: true });
@@ -249,7 +253,7 @@ app.post('/api/upload-custom', acceptCustomFiles(MAX_PACK_MB), async (req, res) 
   }
 });
 
-// Загрузка дубля
+// Take upload
 app.post('/api/upload-line-audio', acceptFile('audio', MAX_TAKE_MB), (req, res) => {
   try {
     const roomId = sanitizeRoomId(req.query.room);
@@ -264,26 +268,26 @@ app.post('/api/upload-line-audio', acceptFile('audio', MAX_TAKE_MB), (req, res) 
     const uploadId = String(req.body.uploadId || '').slice(0, 64);
     const sessionId = String(req.body.sessionId || '');
 
-    if (!req.file || !lineId) throw new HttpError(400, 'Некорректные данные');
-    if (!isAuthorized(room, userName, req.body.clientId)) throw new HttpError(403, 'Ник не подтвержден — перезайдите в комнату');
+    if (!req.file || !lineId) throw new HttpError(400, 'Invalid request', 'error.badRequest');
+    if (!isAuthorized(room, userName, req.body.clientId)) throw new HttpError(403, 'Nickname not confirmed: rejoin the room', 'error.nickNotConfirmed');
 
-    // Дубль мог прийти с задержкой (повторная отправка после обрыва связи): кладем его в ту сессию,
-    // где он был записан, даже если хост уже переключился на другую
+    // A take may arrive late (re-sent after a dropped connection): put it into the session
+    // it was recorded in, even if the host has switched to another one
     snapshotActive(room);
     const isActiveSession = !sessionId || sessionId === room.activeSessionId;
     const target = isActiveSession ? room : room.sessions[sessionId];
-    if (!target) throw new HttpError(410, 'Сессия, в которой записан дубль, уже удалена');
+    if (!target) throw new HttpError(410, 'The session this take was recorded in has been deleted', 'error.sessionDeleted');
 
     const line = target.lines.find(l => l.id === lineId);
-    if (!line) throw new HttpError(404, 'Реплика не найдена');
+    if (!line) throw new HttpError(404, 'Line not found', 'error.lineNotFound');
 
-    // Повтор той же отправки (ответ сервера потерялся) — второй раз не сохраняем
+    // A repeat of the same upload (the server's reply was lost): don't store it twice
     if (uploadId && line.uploadId === uploadId && line.audioUrl) {
       return res.json({ success: true, audioUrl: line.audioUrl, audioStart: line.audioStart, duplicate: true });
     }
 
     const owner = target.characterClaims[line.character] || line.claimedBy || null;
-    if (owner !== userName) throw new HttpError(403, 'Реплика занята другим игроком');
+    if (owner !== userName) throw new HttpError(403, 'The line is claimed by another player', 'error.lineTaken');
 
     const fileName = `line_${roomId}_${lineId}_${Date.now()}.webm`;
     fs.writeFileSync(path.join(UPLOAD_DIR, fileName), req.file.buffer);
@@ -295,7 +299,7 @@ app.post('/api/upload-line-audio', acceptFile('audio', MAX_TAKE_MB), (req, res) 
     line.recordedBy = userName;
     line.uploadId = uploadId || null;
     target.updatedAt = Date.now();
-    // Выбранный голос (эффект/питч) переживает перезапись дубля
+    // The chosen voice (effect/pitch) survives re-recording the take
     const hasTrim = trimStart !== null && trimEnd !== null && trimStart >= 0 && trimEnd > trimStart;
     line.trimStart = hasTrim ? trimStart : null;
     line.trimEnd = hasTrim ? trimEnd : null;
@@ -305,15 +309,15 @@ app.post('/api/upload-line-audio', acceptFile('audio', MAX_TAKE_MB), (req, res) 
 
     saveRooms();
     if (isActiveSession) io.to(roomId).emit('line_updated', line);
-    else emitSession(roomId); // дубль ушел в неактивную сессию — обновим только ее прогресс в списке
-    logEvent(roomId, `💾 ${userName} сохранил дубль реплики #${lineId} (${Math.round(req.file.size / 1024)} КБ)${isActiveSession ? '' : ` в сессию «${target.title}»`}`);
+    else emitSession(roomId); // the take went to an inactive session: only refresh its progress in the list
+    logEvent(roomId, `💾 ${userName} saved a take for line #${lineId} (${Math.round(req.file.size / 1024)} KB)${isActiveSession ? '' : ` to session "${target.title}"`}`);
     res.json({ success: true, audioUrl: line.audioUrl, audioStart: line.audioStart });
   } catch (err) {
     sendError(res, err);
   }
 });
 
-// Удаление дубля (стереть неудачную запись)
+// Delete a take (erase a failed recording)
 app.post('/api/delete-line-audio', (req, res) => {
   try {
     const { lineId, userName, clientId } = req.body;
@@ -321,12 +325,12 @@ app.post('/api/delete-line-audio', (req, res) => {
     const room = getRoom(roomId);
 
     const line = room.lines.find(l => l.id === parseInt(lineId, 10));
-    if (!line) throw new HttpError(404, 'Реплика не найдена');
+    if (!line) throw new HttpError(404, 'Line not found', 'error.lineNotFound');
 
     const nick = sanitizeNick(userName);
     const owner = getLineOwner(room, line);
     if (!isAuthorized(room, nick, clientId) || (owner && owner !== nick)) {
-      throw new HttpError(403, 'Нельзя удалить чужой дубль');
+      throw new HttpError(403, "You cannot delete someone else's take", 'error.notYourTake');
     }
 
     deleteTakeFile(line.audioUrl);
@@ -335,7 +339,7 @@ app.post('/api/delete-line-audio', (req, res) => {
 
     saveRooms();
     io.to(roomId).emit('line_updated', line);
-    logEvent(roomId, `🗑 ${nick} удалил дубль реплики #${line.id}`);
+    logEvent(roomId, `🗑 ${nick} deleted the take for line #${line.id}`);
     res.json({ success: true });
   } catch (err) {
     sendError(res, err);

@@ -2,19 +2,19 @@ const { rooms, roomSockets } = require('./state');
 const { io } = require('./app');
 
 // ==========================================
-// ЖУРНАЛ СОБЫТИЙ: консоль сервера + консоль браузера у хоста комнаты
+// EVENT LOG: the server console plus the browser console of the room host
 // ==========================================
 const DISCONNECT_REASONS = {
-  'transport close': 'закрыл вкладку или пропал интернет',
-  'ping timeout': 'связь оборвалась (нет ответа от браузера)',
-  'transport error': 'ошибка соединения',
-  'client namespace disconnect': 'вышел сам',
-  'server namespace disconnect': 'отключен сервером',
-  'server shutting down': 'сервер выключается'
+  'transport close': 'closed the tab or lost internet',
+  'ping timeout': 'connection dropped (no reply from the browser)',
+  'transport error': 'connection error',
+  'client namespace disconnect': 'left',
+  'server namespace disconnect': 'disconnected by the server',
+  'server shutting down': 'server shutting down'
 };
 
 function logEvent(roomId, text, level = 'info') {
-  const time = new Date().toLocaleTimeString('ru-RU', { hour12: false });
+  const time = new Date().toLocaleTimeString('en-GB', { hour12: false });
   const line = `[${time}] ${roomId ? `[${roomId}] ` : ''}${text}`;
   if (level === 'error') console.error(line);
   else if (level === 'warn') console.warn(line);

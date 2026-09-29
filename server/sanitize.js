@@ -2,10 +2,10 @@ const path = require('path');
 const { MAX_NICK_LENGTH, MAX_CHAT_LENGTH } = require('./config');
 
 // ==========================================
-// ОЧИСТКА ВХОДНЫХ ДАННЫХ
+// INPUT SANITIZING
 // ==========================================
 function sanitizeRoomId(raw) {
-  const clean = String(raw || '').trim().replace(/[^a-zA-Z0-9_\-Ѐ-ӿ]/g, '_').slice(0, 40);
+  const clean = String(raw || '').trim().replace(/[^a-zA-Z0-9_\-\u0400-\u04FF]/g, '_').slice(0, 40);
   return clean || 'main';
 }
 
@@ -15,7 +15,7 @@ function sanitizeNick(raw) {
 
 function sanitizePackName(raw) {
   let name = path.basename(String(raw || ''))
-    .replace(/[^a-zA-Z0-9_\-Ѐ-ӿ.]/g, '_')
+    .replace(/[^a-zA-Z0-9_\-\u0400-\u04FF.]/g, '_')
     .replace(/^\.+/, '');
   if (!/\.zip$/i.test(name) || name.length <= 4) return null;
   if (name.length > 120) name = name.slice(0, 116) + '.zip';

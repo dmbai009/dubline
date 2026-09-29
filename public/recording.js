@@ -1,6 +1,6 @@
 // ==========================================
 // RECORDING
-// Запись дубля с микрофона, визуализатор, автообрезка тишины
+// Recording a take from the microphone, visualizer, automatic silence trimming
 // ==========================================
 function startVisualizer(stream) {
   const canvas = document.getElementById('visualizerCanvas');
@@ -50,7 +50,7 @@ function stopVisualizer() {
   if (canvas) canvas.style.display = 'none';
 }
 
-// Подготовка перед репликой: видео отматывается назад, игрок успевает сориентироваться
+// Pre-roll before the line: the video rewinds so the player can get ready
 const PRE_ROLL = 2.0;
 
 window.handleStudioRecord = async function(lineId) {
@@ -89,7 +89,7 @@ window.handleStudioRecord = async function(lineId) {
     alert(t('error.mic'));
     return;
   }
-  // Пока спрашивали разрешение на микрофон, запись могли начать заново — проверяем
+  // Recording may have been restarted while the microphone prompt was open: check
   if (recordState !== 'idle') return;
 
   if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -101,7 +101,7 @@ window.handleStudioRecord = async function(lineId) {
   const audioDest = audioCtx.createMediaStreamDestination();
   micSource.connect(gainNode);
   gainNode.connect(audioDest);
-  // Отдельный анализатор уровня голоса: по нему понимаем, что игрок договорил
+  // A separate voice level analyser tells us when the player has finished speaking
   const voiceMeter = audioCtx.createAnalyser();
   voiceMeter.fftSize = 2048;
   gainNode.connect(voiceMeter);
@@ -133,7 +133,7 @@ window.handleStudioRecord = async function(lineId) {
 
     recordingLineId = null;
 
-    // Запись прервана хостом — дубль не сохраняем
+    // Recording was interrupted by the host: don't save the take
     if (discardTake) {
       discardTake = false;
       if (selectedLine) showInspector(selectedLine);
@@ -148,13 +148,13 @@ window.handleStudioRecord = async function(lineId) {
       return;
     }
 
-    // Автоопределение тишины: ищем, где в записи начинается и заканчивается речь
+    // Silence detection: find where speech starts and ends in the recording
     btn.innerText = t('record.trim');
     let speech = null;
     try {
       speech = detectSpeechBounds(await decodeAudio(await audioBlob.arrayBuffer()));
     } catch (err) {
-      console.warn('[Dubline] Не удалось проанализировать дубль:', err);
+      console.warn('[Dubline] Could not analyse the take:', err);
     }
 
     btn.innerText = t('record.saving');
@@ -176,7 +176,7 @@ window.handleStudioRecord = async function(lineId) {
   socket.emit('recording_status', { lineId, recording: true });
   btn.className = 'btn-prep';
   btn.innerText = t('record.preparing');
-  video.play().catch(() => {}); // запись могли сразу прервать (пауза у всех) — это не ошибка
+  video.play().catch(() => {}); // recording may have been stopped right away (pause for everyone): not an error
   startRecordCue(line, preRoll);
 
   const checkSpeechInterval = setInterval(() => {
@@ -190,8 +190,8 @@ window.handleStudioRecord = async function(lineId) {
     }
   }, 25);
 
-  // Запись не обрывается по таймингу оригинала: после конца реплики ждем, пока игрок замолчит.
-  // Страховка — не дольше чем длина реплики (минимум 4 с) сверх ее конца.
+  // Recording doesn't stop at the original's timing: after the line ends we wait for the player to go quiet.
+  // Safety limit: no longer than the line length (at least 4 s) past its end.
   const lineDuration = Math.max(0.5, line.end - line.start);
   const maxOverrun = Math.max(MIN_OVERRUN_LIMIT, lineDuration);
   const samples = new Float32Array(voiceMeter.fftSize);
@@ -207,13 +207,13 @@ window.handleStudioRecord = async function(lineId) {
     const level = Math.sqrt(sum / samples.length);
 
     const now = video.currentTime;
-    // Шум микрофона меряем в начале подготовки, пока игрок еще молчит
+    // Measure microphone noise at the start of the pre-roll while the player is still silent
     if (now < line.start - 0.6) {
       noiseSum += level;
       noiseCount++;
     }
     const noise = noiseCount ? noiseSum / noiseCount : 0.003;
-    // Порог голоса: заметно громче шума микрофона, но достаточно низкий для тихих окончаний фраз
+    // Voice threshold: clearly louder than the mic noise, but low enough for quiet phrase endings
     if (level > Math.max(noise * 2.5, 0.004)) lastVoiceAt = performance.now();
 
     const pastLine = now - line.end;
@@ -224,9 +224,9 @@ window.handleStudioRecord = async function(lineId) {
   }, 50);
 };
 
-const MIN_TAIL_AFTER_LINE = 0.6; // сек записи после конца реплики в любом случае
-const SILENCE_TO_STOP = 0.8;     // сек тишины после конца реплики — игрок договорил
-const MIN_OVERRUN_LIMIT = 4;     // сколько минимум можно говорить сверх реплики
+const MIN_TAIL_AFTER_LINE = 0.6; // seconds recorded after the line ends in any case
+const SILENCE_TO_STOP = 0.8;     // seconds of silence after the line ends: the player has finished
+const MIN_OVERRUN_LIMIT = 4;     // minimum time allowed to speak past the line
 
 function finishRecording({ discard = false } = {}) {
   clearInterval(recordStopTimeout);
@@ -269,9 +269,9 @@ window.updateUserMicGain = function(val) {
 };
 
 // ==========================================
-// ВИЗУАЛЬНЫЙ ОТСЧЁТ ПЕРЕД ЗАПИСЬЮ (без звука)
-// Полоса проходит по видео, три точки загораются по очереди, затем «Говорите!».
-// Все привязано ко времени видео, поэтому не разъезжается с картинкой.
+// VISUAL COUNTDOWN BEFORE RECORDING (silent)
+// A bar sweeps across the video, three dots light up in turn, then "Speak!".
+// Everything follows the video clock, so it never drifts from the picture.
 // ==========================================
 const recordCue = document.getElementById('recordCue');
 const recordCueBar = document.getElementById('recordCueBar');
@@ -295,7 +295,7 @@ function startRecordCue(line, preRoll) {
     if (mode === 'ready') {
       const progress = preRoll > 0 ? Math.min(1, Math.max(0, 1 - untilSpeech / preRoll)) : 1;
       recordCueBar.style.left = `${progress * 100}%`;
-      // Точки загораются за 3/4, 2/4 и 1/4 подготовки до реплики
+      // Dots light up at 3/4, 2/4 and 1/4 of the pre-roll before the line
       recordCueDots.forEach((dot, i) => {
         dot.classList.toggle('on', untilSpeech <= ((recordCueDots.length - i) / (recordCueDots.length + 1)) * preRoll);
       });
@@ -313,12 +313,12 @@ function stopRecordCue() {
 }
 
 // ==========================================
-// НАДЕЖНАЯ ОТПРАВКА ДУБЛЕЙ
-// Если связь моргнула, дубль не теряется: он лежит в браузере (IndexedDB) и
-// отправляется повторно, пока сервер его не примет. Повтор той же отправки
-// сервер узнает по uploadId и второй раз не сохраняет.
+// RELIABLE TAKE UPLOADS
+// If the connection blinks, the take is not lost: it stays in the browser (IndexedDB) and
+// is re-sent until the server accepts it. The server recognizes a repeat of the same
+// upload by uploadId and doesn't store it twice.
 // ==========================================
-const pendingTakes = new Map(); // uploadId -> запись
+const pendingTakes = new Map(); // uploadId -> entry
 let retryTimer = null;
 let retryDelay = 2000;
 let queuedToastShown = false;
@@ -351,7 +351,7 @@ const takeStore = (() => {
         tx.onerror = () => reject(tx.error);
       });
     } catch (err) {
-      return null; // приватный режим и т.п. — остаемся с очередью в памяти
+      return null; // private mode etc.: keep the queue in memory only
     }
   }
   return {
@@ -377,13 +377,13 @@ function refreshPendingUi(lineId) {
   if (selectedLine && selectedLine.id === lineId && recordState === 'idle') showInspector(selectedLine);
 }
 
-// Сервер точно не примет этот дубль — повторять бессмысленно
+// The server will never accept this take: retrying is pointless
 function isPermanentFailure(status) {
   return status === 400 || status === 403 || status === 404 || status === 410 || status === 413;
 }
 
 async function submitTake(entry) {
-  // Новый дубль той же реплики заменяет старый неотправленный
+  // A new take of the same line replaces the old unsent one
   for (const [id, old] of pendingTakes) {
     if (old.lineId === entry.lineId && old.sessionId === entry.sessionId && id !== entry.uploadId) {
       pendingTakes.delete(id);
@@ -414,7 +414,7 @@ async function sendTake(entry) {
   try {
     res = await fetch(`/api/upload-line-audio?room=${encodeURIComponent(entry.room)}`, { method: 'POST', body: form });
   } catch (err) {
-    res = null; // сеть недоступна
+    res = null; // network unavailable
   }
 
   if (res && res.ok) {
@@ -439,7 +439,7 @@ async function sendTake(entry) {
     return false;
   }
 
-  // Обрыв связи или сервер/туннель временно недоступен (502/503/504) — попробуем позже
+  // Connection dropped or the server/tunnel is temporarily down (502/503/504): try later
   entry.attempts = (entry.attempts || 0) + 1;
   if (!queuedToastShown) {
     showToast(t('toast.takeQueued'));
@@ -459,7 +459,7 @@ async function flushPendingTakes() {
   clearTimeout(retryTimer);
   for (const entry of [...pendingTakes.values()]) {
     if (!pendingTakes.has(entry.uploadId)) continue;
-    if (!await sendTake(entry)) break; // сервер все еще недоступен — дальше не ломимся
+    if (!await sendTake(entry)) break; // the server is still down: stop trying for now
   }
 }
 
@@ -468,14 +468,14 @@ window.retryPendingTakes = function() {
   flushPendingTakes();
 };
 
-// Связь вернулась — сразу отправляем, что накопилось (вызывается из room.js при подключении сокета)
+// The connection is back: send whatever has queued up (called from room.js when the socket connects)
 function onConnectionRestored() {
   if (!pendingTakes.size) return;
   retryDelay = 2000;
   setTimeout(flushPendingTakes, 500);
 }
 
-// Дубли, не отправленные до перезагрузки страницы
+// Takes not sent before the page was reloaded
 takeStore.all().then(entries => {
   (entries || []).filter(entry => entry.room === currentRoom).forEach(entry => pendingTakes.set(entry.uploadId, entry));
   if (pendingTakes.size) {

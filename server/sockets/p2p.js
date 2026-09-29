@@ -5,8 +5,8 @@ const { getRoom } = require('../rooms');
 const { clearSocketSeeds, broadcastSeeders } = require('../presence');
 
 module.exports = function registerP2pHandlers(socket, conn) {
-  // ---------- P2P-раздача видео между игроками ----------
-  // Сервер только сводит игроков: сами куски видео идут напрямую браузер-браузер (WebRTC)
+  // ---------- P2P video sharing between players ----------
+  // The server only introduces players: video pieces go directly browser to browser (WebRTC)
   socket.on('p2p_have', ({ urls } = {}) => {
     if (!conn.roomId || !Array.isArray(urls)) return;
     const room = getRoom(conn.roomId);
@@ -34,7 +34,7 @@ module.exports = function registerP2pHandlers(socket, conn) {
   socket.on('p2p_report', ({ url, p2pBytes, httpBytes, peers } = {}) => {
     if (!conn.roomId) return;
     const mb = bytes => (Math.max(0, Number(bytes) || 0) / 1048576).toFixed(1);
-    const name = decodeURIComponent(String(url || '').split('/').pop() || 'файл');
-    logEvent(conn.roomId, `⚡ ${conn.nick || 'игрок'} получил ${name}: ${mb(p2pBytes)} МБ от игроков (${Number(peers) || 0}), ${mb(httpBytes)} МБ с сервера`);
+    const name = decodeURIComponent(String(url || '').split('/').pop() || 'file');
+    logEvent(conn.roomId, `⚡ ${conn.nick || 'player'} received ${name}: ${mb(p2pBytes)} MB from players (${Number(peers) || 0}), ${mb(httpBytes)} MB from the server`);
   });
 };

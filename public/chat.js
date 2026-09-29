@@ -1,8 +1,8 @@
 // ==========================================
 // CHAT
-// Текстовый чат комнаты
+// Room text chat
 // ==========================================
-// ТЕКСТОВЫЙ ЧАТ
+// TEXT CHAT
 // ==========================================
 const chatPanel = document.getElementById('chatPanel');
 const chatMessages = document.getElementById('chatMessages');

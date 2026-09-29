@@ -1,6 +1,6 @@
 // ==========================================
 // UI
-// Модалки настроек и файлов, инспектор реплики, горячие клавиши, запуск приложения
+// Settings and files modals, line inspector, hotkeys, app startup
 // ==========================================
 function refreshViews() {
   if (!session || !session.loaded) return;
@@ -15,7 +15,7 @@ window.copyInviteLink = function() {
 
 // ==========================================
 
-// НАСТРОЙКИ И ФАЙЛЫ
+// SETTINGS AND FILES
 // ==========================================
 const settingsModal = document.getElementById('settingsModal');
 const filesModal = document.getElementById('filesModal');
@@ -133,26 +133,26 @@ window.addEventListener('dubline-language-changed', () => {
 });
 
 // ==========================================
-// ГОРЯЧИЕ КЛАВИШИ (HOTKEYS)
+// HOTKEYS
 // ==========================================
 window.addEventListener('keydown', (e) => {
   if (['INPUT', 'TEXTAREA'].includes(e.target.tagName)) return;
 
-  // Пробел — плей/пауза
+  // Space: play/pause
   if (e.code === 'Space') {
     e.preventDefault();
     if (video.paused) video.play().catch(() => {});
     else video.pause();
   }
 
-  // R или К — запись выбранной реплики
+  // R (same physical key on any layout): record the selected line
   if (e.code === 'KeyR') {
     e.preventDefault();
     if (selectedLine) handleStudioRecord(selectedLine.id);
     else showToast(t('toast.selectLine'));
   }
 
-  // Стрелки — перемотка на 3 секунды
+  // Arrows: seek 3 seconds
   if (e.code === 'ArrowLeft') {
     e.preventDefault();
     video.currentTime = Math.max(0, video.currentTime - 3);
@@ -162,7 +162,7 @@ window.addEventListener('keydown', (e) => {
     video.currentTime = Math.min(video.duration || 0, video.currentTime + 3);
   }
 
-  // Ctrl+Z — хост отменяет последнее удаление реплик
+  // Ctrl+Z: the host undoes the last line deletion
   if (e.code === 'KeyZ' && (e.ctrlKey || e.metaKey) && !e.shiftKey) {
     if (!amHost()) return;
     e.preventDefault();
@@ -171,7 +171,7 @@ window.addEventListener('keydown', (e) => {
     return;
   }
 
-  // Esc — закрыть модалки
+  // Esc: close modals
   if (e.code === 'Escape') {
     closeSettingsModal();
     closeFilesModal();
@@ -195,7 +195,7 @@ function showInspector(line) {
   const isFree = !owner;
   const author = line.recordedBy || owner;
 
-  // Статус — компактной плашкой в заголовке
+  // Status as a compact badge in the header
   const chip = isOwnedByMe
     ? `<span class="insp-chip me">${t(charOwner ? 'chip.role' : 'chip.you')}</span>`
     : isOwnedByOther
@@ -206,7 +206,7 @@ function showInspector(line) {
     ? `<button class="btn-outline" onclick="playAudio(${jsArg(line.originalAudioUrl)})" title="${esc(t('listenOriginal'))}">${t('insp.original')}</button>`
     : '';
 
-  // Главные действия — одной строкой сразу под текстом реплики
+  // Main actions in one row right under the line text
   let primary = '';
   if (isOwnedByMe) {
     primary = line.audioUrl
@@ -216,7 +216,7 @@ function showInspector(line) {
          <button class="btn-delete" onclick="deleteLineAudio(${line.id})" title="${esc(t('confirm.delete'))}">🗑</button>`
       : `<button class="btn-record grow" id="recBtn" onclick="handleStudioRecord(${line.id})">${t('record')}</button>${originalBtn}`;
   } else {
-    // Готовый дубль можно послушать всегда — даже если реплика освобождена или роли сброшены
+    // A finished take can always be played, even if the line was released or roles were reset
     const listen = line.audioUrl
       ? `<button class="btn-play grow" onclick="previewTake(${line.id})">${author ? t('listenTake', { owner: esc(author) }) : t('listenTakeAnon')}</button>`
       : '';
@@ -224,7 +224,7 @@ function showInspector(line) {
     primary = claim + listen + originalBtn;
   }
 
-  // Второстепенные действия — мелкими кнопками
+  // Secondary actions as small buttons
   const secondary = [];
   if (isFree && allowCharacterClaims) {
     secondary.push(`<button class="btn-outline" onclick="claimCharacter(${jsArg(line.character)})">${t('claim.role', { character: esc(line.character) })}</button>`);
@@ -239,12 +239,12 @@ function showInspector(line) {
       : `<button class="btn-host" onclick="unclaimSingleLine(${line.id})">${t('host.releaseLine', { owner: esc(owner) })}</button>`);
   }
 
-  // Дубль записан, но еще не дошел до сервера
+  // The take is recorded but hasn't reached the server yet
   const pendingNotice = isOwnedByMe && pendingTakeLines.has(line.id)
     ? `<div class="insp-pending"><span>${t('take.pendingNotice')}</span><button class="btn-outline" onclick="retryPendingTakes()">${t('take.sendNow')}</button></div>`
     : '';
 
-  // Подсказка новичкам: запись начинается не сразу, а после отсчёта (пока нет своего дубля)
+  // Hint for newcomers: recording starts after the countdown, not right away (until they have a take)
   const hint = isOwnedByMe && !line.audioUrl && recordState === 'idle' ? `<p class="take-hint">${t('record.hint')}</p>` : '';
 
   const micRow = isOwnedByMe ? `
@@ -254,7 +254,7 @@ function showInspector(line) {
       <span id="gainDisplay" class="take-val">${Math.round(userMicGain * 100)}%</span>
     </div>` : '';
 
-  // Сменить персонажа может хост, владелец реплики или кто угодно, если реплика свободна
+  // The character can be changed by the host, the line's owner, or anyone if the line is free
   const canRename = amHost() || !owner || owner === myName;
   const characterNames = [...new Set(session.lines.map(l => l.character))].sort((a, b) => a.localeCompare(b));
   const characterRow = canRename ? `
@@ -284,7 +284,7 @@ function showInspector(line) {
   `;
 }
 
-// Инспектор для нескольких выделенных реплик: массовое назначение персонажа
+// Inspector for several selected lines: assign a character in bulk
 function showMultiInspector() {
   const lines = session.lines.filter(l => multiSelection.has(l.id)).sort((a, b) => a.start - b.start);
   const characters = [...new Set(session.lines.map(l => l.character))].sort((a, b) => a.localeCompare(b));
@@ -321,7 +321,7 @@ window.releaseSelectedLines = function() {
   socket.emit('host_release_lines', { lineIds: [...multiSelection] });
 };
 
-// Смена персонажа реплики: она переезжает на дорожку этого персонажа
+// Changing a line's character moves it to that character's track
 window.startCharacterEdit = function(lineId) {
   const line = session.lines.find(l => l.id === lineId);
   if (!line) return;
@@ -343,18 +343,18 @@ window.saveLineCharacter = function(e, lineId) {
     showToast(t('char.roleTaken', { name, owner: roleOwner }));
     return;
   }
-  revealLineId = lineId; // после перерисовки прокрутим к реплике на ее новой дорожке
+  revealLineId = lineId; // after the redraw, scroll to the line on its new track
   socket.emit('set_line_character', { lineId, character: name });
 };
 
-// Хост удаляет реплики (например, надписи на экране, которые не нужно озвучивать)
+// The host deletes lines (e.g. on-screen signs that shouldn't be dubbed)
 window.deleteLines = function(lineIds) {
   if (!lineIds.length || !confirm(t('line.deleteConfirm', { n: lineIds.length }))) return;
   socket.emit('host_delete_lines', { lineIds });
   if (lineIds.length > 1) clearMultiSelection();
 };
 
-// Настройки записанного дубля: голос, питч, обрезка тишины, сдвиг — плотной сеткой
+// Recorded take settings in a compact grid: voice, pitch, silence trimming, shift
 function takePanelHtml(line, editable) {
   if (!line.audioUrl) return '';
   const effect = line.effect || 'none';
@@ -402,13 +402,13 @@ function takePanelHtml(line, editable) {
 }
 
 // ==========================================
-// ВСПЛЫВАЮЩИЕ ПОДСКАЗКИ И «КАК ИГРАТЬ»
+// TOASTS AND "HOW TO PLAY"
 // ==========================================
 const toastEl = document.getElementById('toast');
 const helpModal = document.getElementById('helpModal');
 let toastTimer = null;
 
-// Подсказка внизу экрана; action — необязательная кнопка (например, «Отменить»)
+// Toast at the bottom of the screen; action is an optional button (e.g. "Undo")
 function showToast(text, action = null) {
   toastEl.textContent = text;
   if (action) {
@@ -435,7 +435,7 @@ window.closeHelpModal = function() {
   localStorage.setItem('dubline_help_seen', '1');
 };
 
-// При первом заходе показываем правила (после ввода ника, если его еще нет)
+// Show the rules on the first visit (after entering a nick, if there isn't one yet)
 function maybeShowHelp() {
   if (!localStorage.getItem('dubline_help_seen') && myName) openHelpModal();
 }
@@ -447,7 +447,7 @@ settingsCue.addEventListener('change', () => {
 });
 
 // ==========================================
-// РАЗМЕРЫ ПАНЕЛЕЙ (разделители как в Vegas / Photoshop)
+// PANEL SIZES (dividers like in Vegas / Photoshop)
 // ==========================================
 const LAYOUT_KEY = 'dubline_layout';
 const layoutLimits = {
@@ -459,7 +459,7 @@ const layoutLimits = {
 const layoutVars = { lobby: '--lobby-w', inspector: '--inspector-w', chat: '--chat-w', top: '--top-h' };
 
 function layoutDefaults() {
-  // На небольших экранах оставляем видео больше места
+  // On small screens give the video more room
   const compact = window.innerWidth < 1500;
   return {
     lobby: compact ? 210 : 250,
@@ -540,14 +540,14 @@ window.resetLayout = function() {
   saveLayout();
 };
 
-// Запуск
+// Startup
 applyLayout();
 maybeShowHelp();
 syncSettingsUi();
 
 // ==========================================
-// СОВЕТ ИГРАТЬ В CHROME / EDGE
-// Запись, экспорт и P2P проверены только в браузерах на Chromium
+// HINT TO PLAY IN CHROME / EDGE
+// Recording, export and P2P are tested only in Chromium-based browsers
 // ==========================================
 const browserBanner = document.getElementById('browserBanner');
 
@@ -558,11 +558,11 @@ function isChromiumBrowser() {
 
 window.dismissBrowserBanner = function() {
   browserBanner.style.display = 'none';
-  try { localStorage.setItem('dubline_browser_hint', '1'); } catch (err) { /* приватный режим */ }
+  try { localStorage.setItem('dubline_browser_hint', '1'); } catch (err) { /* private mode */ }
 };
 
 if (!isChromiumBrowser()) {
   let dismissed = false;
-  try { dismissed = localStorage.getItem('dubline_browser_hint') === '1'; } catch (err) { /* приватный режим */ }
+  try { dismissed = localStorage.getItem('dubline_browser_hint') === '1'; } catch (err) { /* private mode */ }
   if (!dismissed) browserBanner.style.display = 'flex';
 }

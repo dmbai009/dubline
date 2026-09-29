@@ -1,17 +1,17 @@
-// Файлы на диске: пути по адресам /uploads и /packs, размеры и хеши, удаление дублей
+// Files on disk: paths behind /uploads and /packs, sizes and hashes, take deletion
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { UPLOAD_DIR, PACKS_DIR } = require('./config');
 
-// Папка сцены внутри uploads (pack_… или custom_…), если url указывает на нее
+// The scene folder inside uploads (pack_… or custom_…) if the url points into one
 function sceneDirOf(url) {
   const match = /^\/uploads\/([^/]+)\//.exec(decodeURIComponent(url || ''));
   return match && /^(pack_|custom_)/.test(match[1]) ? match[1] : null;
 }
 
-// Размеры медиафайлов показываем на кнопках скачивания. Кэшируем, чтобы не дергать диск
-// на каждую рассылку сессии; неизвестные размеры (файл еще пишется) не кэшируем.
+// Media file sizes are shown on the download buttons. They are cached so the disk is not hit
+// on every session broadcast; unknown sizes (the file is still being written) are not cached.
 const fileSizeCache = new Map();
 const fileHashCache = new Map();
 
@@ -38,7 +38,7 @@ function fileSizeForUrl(url) {
   }
 }
 
-// SHA-256 медиафайла: игроки проверяют им видео, полученное от других игроков по P2P
+// SHA-256 of a media file: players use it to verify video received from other players over P2P
 function fileHashForUrl(url) {
   if (!url) return null;
   if (fileHashCache.has(url)) return fileHashCache.get(url);

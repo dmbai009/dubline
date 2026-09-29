@@ -9,9 +9,9 @@ const { extractAudioTracks, probeAudioDuration, getWavDuration } = require('./me
 const { isAssDrawing, cleanAssText } = require('./parsers');
 
 // ==========================================
-// КОМНАТЫ (с сохранением на диск)
+// ROOMS (persisted to disk)
 // ==========================================
-// Поля сцены, которые принадлежат сессии (см. раздел «Сессии» ниже)
+// Scene fields that belong to a session (see "Sessions" below)
 const SESSION_FIELDS = ['loaded', 'title', 'kind', 'zipUrl', 'videoUrl', 'backingUrl', 'lines', 'characterClaims', 'createdAt', 'updatedAt',
   'audioTracks', 'originalTrack', 'backingTrack', 'baseBackingUrl', 'deletedLines'];
 let repairedOnLoad = false;
@@ -20,31 +20,31 @@ function loadRooms() {
   try {
     if (fs.existsSync(ROOMS_FILE)) {
       const loaded = JSON.parse(fs.readFileSync(ROOMS_FILE, 'utf8')) || {};
-      // После чтения из JSON поля активной сессии и ее запись в sessions — разные объекты; связываем обратно
+      // After reading JSON, the active session fields and its entry in sessions are different objects: link them back
       for (const room of Object.values(loaded)) {
         const active = room.sessions && room.activeSessionId && room.sessions[room.activeSessionId];
         if (active) SESSION_FIELDS.forEach(field => { room[field] = active[field]; });
         [room, ...Object.values(room.sessions || {})].forEach(repairLineDurations);
         [room, ...Object.values(room.sessions || {})].forEach(cleanImportedCaptions);
-        delete room.audioTracksPending; // извлечение дорожек не пережило перезапуск — начнем заново
+        delete room.audioTracksPending; // track extraction did not survive the restart: start over
       }
       return loaded;
     }
   } catch (err) {
-    console.error('[Dubline] Не удалось прочитать сохраненные комнаты:', err.message);
+    console.error('[Dubline] Could not read saved rooms:', err.message);
   }
   return {};
 }
 
-// Сессии, загруженные до исправления: у реплик с MP3/OGG без явного конца стояли 3 секунды.
-// Один раз пересчитываем длину по оригинальному голосу.
+// Sessions loaded before the fix: lines with MP3/OGG voices and no explicit end were 3 seconds long.
+// Recompute the length from the original voice once.
 function repairLineDurations(session) {
   let fixed = 0;
   for (const line of (session && session.lines) || []) {
     if (line.durationChecked || !line.originalAudioUrl) continue;
     line.durationChecked = true;
     repairedOnLoad = true;
-    if (Math.abs((line.end - line.start) - 3) > 0.001) continue; // конец был указан в паке
+    if (Math.abs((line.end - line.start) - 3) > 0.001) continue; // the end was given in the pack
     const file = diskPathForUrl(line.originalAudioUrl);
     if (!file || !fs.existsSync(file)) continue;
     const duration = path.extname(file).toLowerCase() === '.wav' ? getWavDuration(fs.readFileSync(file)) : probeAudioDuration(file);
@@ -53,10 +53,10 @@ function repairLineDurations(session) {
       fixed++;
     }
   }
-  if (fixed) console.log(`[Dubline] Исправлены длины реплик в «${session.title}»: ${fixed} шт.`);
+  if (fixed) console.log(`[Dubline] Fixed line lengths in "${session.title}": ${fixed}`);
 }
 
-// Сцены, импортированные до исправления разбора ASS: убираем реплики-рисунки (без дублей) и теги \h, \N
+// Scenes imported before the ASS parsing fix: drop drawing lines (without takes) and \h, \N tags
 function cleanImportedCaptions(session) {
   if (!session || !Array.isArray(session.lines) || session.captionsCleaned) return;
   session.captionsCleaned = true;
@@ -66,8 +66,8 @@ function cleanImportedCaptions(session) {
   const kept = session.lines.filter(line => line.audioUrl || !isAssDrawing(line.caption || ''));
   kept.forEach(line => { line.caption = cleanAssText(line.caption || ''); });
   if (kept.length !== before) {
-    session.lines.splice(0, session.lines.length, ...kept); // тот же массив — связь активной сессии не рвется
-    console.log(`[Dubline] Из «${session.title}» убраны реплики-рисунки из субтитров: ${before - kept.length} шт.`);
+    session.lines.splice(0, session.lines.length, ...kept); // same array, so the link to the active session stays intact
+    console.log(`[Dubline] Removed subtitle drawing lines from "${session.title}": ${before - kept.length}`);
   }
 }
 
@@ -78,7 +78,7 @@ function writeRoomsNow() {
     fs.writeFileSync(tmpFile, JSON.stringify(rooms));
     fs.renameSync(tmpFile, ROOMS_FILE);
   } catch (err) {
-    console.error('[Dubline] Не удалось сохранить комнаты:', err.message);
+    console.error('[Dubline] Could not save rooms:', err.message);
   }
 }
 
@@ -108,11 +108,11 @@ function getRoom(roomId) {
     hostClientId: null,
     nickOwners: {},
     chat: [],
-    latency: {},          // поправка задержки микрофона игроков: ник -> мс
-    passwordHash: null,   // пароль комнаты (scrypt), сам пароль не хранится
+    latency: {},          // players' microphone delay correction: nick -> ms
+    passwordHash: null,   // room password (scrypt); the password itself is not stored
     passwordSalt: null,
-    admitted: [],         // устройства, уже вводившие пароль (повторно не спрашиваем)
-    banned: []            // устройства, которых хост выгнал
+    admitted: [],         // devices that already entered the password (not asked again)
+    banned: []            // devices the host kicked
   };
   for (const key in defaults) {
     if (rooms[roomId][key] === undefined) rooms[roomId][key] = defaults[key];
@@ -120,7 +120,7 @@ function getRoom(roomId) {
   const room = rooms[roomId];
   if (!room.sessions) room.sessions = {};
   if (room.activeSessionId === undefined) room.activeSessionId = null;
-  // Комнаты из старых версий: текущая сцена становится первой сессией
+  // Rooms from older versions: the current scene becomes the first session
   if (room.loaded && !room.activeSessionId) {
     room.activeSessionId = newSessionId();
     room.kind = room.zipUrl ? 'pack' : 'custom';
@@ -131,19 +131,19 @@ function getRoom(roomId) {
 }
 
 // ==========================================
-// СЕССИИ: в комнате несколько сцен со своими дублями и ролями, активна одна.
-// Активная сессия лежит прямо в полях комнаты (с ними работает весь остальной код),
-// а room.sessions[id] ссылается на те же массивы.
+// SESSIONS: a room has several scenes with their own takes and roles; one is active.
+// The active session lives directly in the room fields (all other code works with them),
+// and room.sessions[id] points to the same arrays.
 // ==========================================
 
 function emptySession() {
   return {
     loaded: false, title: '', kind: null, zipUrl: '', videoUrl: '', backingUrl: '', lines: [], characterClaims: {}, createdAt: null, updatedAt: null,
-    audioTracks: undefined,   // звуковые дорожки видео отдельными файлами (если их несколько); undefined — еще не проверяли
-    originalTrack: 0,         // какая дорожка играет как «Оригинал» (-1 — никакая)
-    backingTrack: -1,         // какая дорожка играет как «Интершум» (-1 — родной интершум пака или никакой)
-    baseBackingUrl: undefined, // родной интершум пака, к которому возвращаемся при «нет»
-    deletedLines: []          // «корзина» удалений хоста для отмены (Ctrl+Z), последние MAX_UNDO_BATCHES
+    audioTracks: undefined,   // video audio tracks as separate files (if there are several); undefined = not checked yet
+    originalTrack: 0,         // which track plays as "Original" (-1 = none)
+    backingTrack: -1,         // which track plays as "Background" (-1 = the pack's own backing track or none)
+    baseBackingUrl: undefined, // the pack's own backing track, restored when "none" is picked
+    deletedLines: []          // trash of the host's deletions for undo (Ctrl+Z), the last MAX_UNDO_BATCHES
   };
 }
 
@@ -166,7 +166,7 @@ function activateSession(room, id) {
   room.activeSessionId = target ? id : null;
 }
 
-// Каждый импорт — новая сессия; предыдущие остаются вместе с дублями
+// Every import is a new session; earlier ones are kept with their takes
 function startNewSession(room, fields) {
   snapshotActive(room);
   const now = Date.now();
@@ -191,15 +191,15 @@ function sessionSummaries(room) {
     .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 }
 
-// Используется ли папка сцены еще какой-нибудь сессией в любой комнате
+// Whether any other session in any room still uses the scene folder
 function isSceneDirUsed(dir) {
   return Object.values(rooms).some(room => [room, ...Object.values(room.sessions || {})]
     .some(session => sceneDirOf(session.videoUrl) === dir || sceneDirOf(session.backingUrl) === dir));
 }
 
-// Реплики в сессии всегда идут по возрастанию номера (так их создает импорт, и список не пересортировывается),
-// поэтому возвращенную реплику ставим перед первой с большим номером — порядок восстанавливается точно,
-// в каком бы порядке и из каких удалений ни возвращали
+// Lines in a session are always sorted by id (the import creates them that way and the list is never re-sorted),
+// so a restored line goes before the first one with a larger id: the order is restored exactly,
+// whatever order and whichever deletions lines are restored from
 function insertLineInOrder(lines, line) {
   const position = lines.findIndex(other => other.id > line.id);
   if (position === -1) lines.push(line);
@@ -224,7 +224,7 @@ function deleteSessionFiles(session) {
   return takes;
 }
 
-// Секреты (clientId игроков) никогда не уходят клиентам
+// Secrets (players' clientIds) never reach clients
 function publicRoom(room) {
   const { hostClientId, nickOwners, chat, sessions, passwordHash, passwordSalt, admitted, banned, deletedLines, ...rest } = room;
   return {
@@ -246,7 +246,7 @@ function emitSession(roomId) {
   io.to(roomId).emit('session_updated', publicRoom(getRoom(roomId)));
 }
 
-// Если у открытой сессии дорожки еще не проверяли — проверяем в фоне и сообщаем всем, когда готово
+// If the open session's tracks were not checked yet, check them in the background and tell everyone when done
 function ensureAudioTracks(roomId) {
   const room = getRoom(roomId);
   if (!room.loaded || room.audioTracks !== undefined || !sceneDirOf(room.videoUrl) || room.audioTracksPending) return;
@@ -264,18 +264,18 @@ function ensureAudioTracks(roomId) {
     snapshotActive(room);
     saveRooms();
     if (target === room) emitSession(roomId);
-    if (tracks.length) logEvent(roomId, `🎧 Найдено звуковых дорожек: ${tracks.length} (${tracks.map(t => t.label).join(', ')})`);
+    if (tracks.length) logEvent(roomId, `🎧 Audio tracks found: ${tracks.length} (${tracks.map(t => t.label || t.language).join(', ')})`);
   });
 }
 
-// Роль без единой реплики больше не нужна
+// A role with no lines left is no longer needed
 function dropEmptyRoleClaims(room) {
   for (const character of Object.keys(room.characterClaims)) {
     if (!room.lines.some(l => l.character === character)) delete room.characterClaims[character];
   }
 }
 
-// Загружаем сохраненные комнаты; починку таймингов сразу сохраняем, чтобы она выполнялась один раз
+// Load saved rooms; save the timing repair right away so it runs only once
 Object.assign(rooms, loadRooms());
 if (repairedOnLoad) writeRoomsNow();
 

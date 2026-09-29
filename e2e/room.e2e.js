@@ -1,5 +1,5 @@
-// Комната: хост, статус записи, совместный просмотр, сессии, надежная отправка дублей,
-// пароль и «выгнать», плашка связи при перезапуске сервера
+// Room: host, recording status, watch-together, sessions, reliable take uploads,
+// password and kicking, the connection banner on a server restart
 const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -38,7 +38,7 @@ describe('room', { skip: skipReason }, () => {
     await bob.evaluate(id => handleStudioRecord(id), line.id);
     await waitFor(host, id => document.getElementById(`line-block-${id}`).classList.contains('live-recording'), 5000, line.id);
     assert.ok(await host.evaluate(() => [...document.querySelectorAll('.player-card.recording')].some(c => c.innerText.includes('Bob'))));
-    assert.match(server.log, /Bob записывает реплику/);
+    assert.match(server.log, /Bob is recording line/);
 
     host.dialogs.length = 0;
     await host.evaluate(() => hostForcePause());
@@ -64,7 +64,7 @@ describe('room', { skip: skipReason }, () => {
     assert.ok(Math.abs(a2 - b2) < 0.6, `drift corrected (${a2} vs ${b2})`);
 
     await bob.evaluate(id => handleStudioRecord(id), FIXTURE_LINES[1].id);
-    await waitFor(bob, () => /просмотр|watching/i.test(document.getElementById('toast').textContent), 3000);
+    await waitFor(bob, () => /watching/i.test(document.getElementById('toast').textContent), 3000);
 
     await host.evaluate(() => video.pause());
     await waitFor(bob, () => video.paused, 3000);
@@ -101,12 +101,12 @@ describe('room', { skip: skipReason }, () => {
     await host.evaluate(id => switchSession(id), withTake);
     await waitFor(bob, (id, lineId) => session.activeSessionId === id && !!session.lines.find(l => l.id === lineId).audioUrl, 5000, withTake, line.id);
 
-    host.promptAnswer = 'Переименованная';
+    host.promptAnswer = 'Renamed';
     await host.evaluate(id => renameSession(id), withTake);
-    await waitFor(bob, () => session.title === 'Переименованная', 5000);
+    await waitFor(bob, () => session.title === 'Renamed', 5000);
 
     await server.restart();
-    await waitFor(host, id => socket.connected && session && session.activeSessionId === id && session.title === 'Переименованная', 20000, withTake);
+    await waitFor(host, id => socket.connected && session && session.activeSessionId === id && session.title === 'Renamed', 20000, withTake);
 
     await host.evaluate(id => { window.confirm = () => true; deleteSession(id); }, withTake);
     await waitFor(host, id => session.activeSessionId !== id && !session.sessionList.some(s => s.id === id), 5000, withTake);
@@ -116,7 +116,7 @@ describe('room', { skip: skipReason }, () => {
   test('reliable upload: a failed upload waits in the browser and is delivered later', async () => {
     const line = FIXTURE_LINES[2];
     await claimAndSelect(host, line.id);
-    // Имитируем обрыв: первые отправки дубля падают (сеть, затем «502 от туннеля»)
+    // Simulate a drop: the first take uploads fail (network, then "502 from the tunnel")
     let failures = 0;
     await host.setRequestInterception(true);
     const handler = request => {
@@ -131,7 +131,7 @@ describe('room', { skip: skipReason }, () => {
     await host.evaluate(id => handleStudioRecord(id), line.id);
     await waitFor(host, id => document.getElementById(`line-block-${id}`).classList.contains('pending-upload'), 20000, line.id);
     assert.ok(await host.evaluate(() => !!document.querySelector('.insp-pending')), 'inspector shows the pending notice');
-    assert.match(await host.evaluate(() => document.getElementById('toast').textContent), /связи|connection/i);
+    assert.match(await host.evaluate(() => document.getElementById('toast').textContent), /connection/i);
 
     const url = await waitFor(host, id => { const l = session.lines.find(x => x.id === id); return l.audioUrl && !document.getElementById(`line-block-${id}`).classList.contains('pending-upload') && l.audioUrl; }, 25000, line.id);
     assert.ok(url && failures === 2, `delivered after ${failures} failures`);
@@ -191,7 +191,7 @@ describe('room', { skip: skipReason }, () => {
     assert.ok(second.duplicate, 'second send recognized as duplicate');
     assert.equal(uploadFileCount(server), afterFirst, 'the repeat did not store another file');
 
-    // Дубль записан в сессии A, но дошел, когда хост уже открыл сессию B
+    // The take was recorded in session A but arrived after the host had opened session B
     const line = FIXTURE_LINES[0];
     await claimAndSelect(host, line.id);
     const sessionA = await host.evaluate(() => session.activeSessionId);
@@ -201,7 +201,7 @@ describe('room', { skip: skipReason }, () => {
     host.on('request', handler);
     await host.evaluate(id => handleStudioRecord(id), line.id);
     await waitFor(host, id => document.getElementById(`line-block-${id}`).classList.contains('pending-upload'), 20000, line.id);
-    await loadFixture(host); // сессия B
+    await loadFixture(host); // session B
     const sessionB = await host.evaluate(() => session.activeSessionId);
     assert.notEqual(sessionA, sessionB);
     block = false;
@@ -234,7 +234,7 @@ describe('room', { skip: skipReason }, () => {
       await mallory.evaluate(n => { document.getElementById('passwordInput').value = `guess${n}`; submitRoomPassword(new Event('submit')); }, i);
       await wait(250);
     }
-    await waitFor(mallory, () => /много|many/i.test(document.getElementById('passwordError').textContent), 5000);
+    await waitFor(mallory, () => /many/i.test(document.getElementById('passwordError').textContent), 5000);
     await mallory.evaluate(() => { document.getElementById('passwordInput').value = 'secret123'; submitRoomPassword(new Event('submit')); });
     await wait(500);
     assert.equal(await mallory.evaluate(() => session), null, 'blocked after too many attempts');
@@ -262,14 +262,14 @@ describe('room', { skip: skipReason }, () => {
 
   test('connection banner on server restart, then automatic rejoin', async () => {
     await server.stop();
-    await waitFor(bob, () => document.getElementById('connectionBanner').style.display === 'block' && /Нет связи|No connection/.test(document.getElementById('connectionBanner').textContent), 8000);
+    await waitFor(bob, () => document.getElementById('connectionBanner').style.display === 'block' && /No connection/.test(document.getElementById('connectionBanner').textContent), 8000);
     await server.start();
     await waitFor(bob, () => socket.connected && session && session.loaded && document.querySelectorAll('.line-block').length === 4, 20000);
     await waitFor(bob, () => document.getElementById('connectionBanner').style.display === 'none', 6000);
   });
 
   test('server log records joins, takes, sessions and security events', () => {
-    for (const pattern of [/→ Bob зашел/, /💾 Alice сохранил дубль/, /открыл сессию/, /удалил сессию/, /поставил пароль/, /выгнал Carol/, /Неверный пароль/]) {
+    for (const pattern of [/→ Bob joined/, /💾 Alice saved a take/, /opened session/, /deleted session/, /set a room password/, /kicked Carol/, /Wrong room password/]) {
       assert.match(server.log, pattern);
     }
   });

@@ -1,4 +1,4 @@
-// Права хоста: пауза у всех, пароль, кик, сессии, звуковые дорожки, совместный просмотр
+// Host rights: pause for everyone, password, kick, sessions, audio tracks, watch-together
 const { roomSockets, recordingNow, p2pSeeders, watchState } = require('../state');
 const { io } = require('../app');
 const { sanitizeNick, sanitizeChatText } = require('../sanitize');
@@ -8,33 +8,33 @@ const { WATCH_COUNTDOWN_MS, endWatch, broadcastRecording, broadcastSeeders, onli
 const { setRoomPassword, isHost } = require('../auth');
 
 module.exports = function registerHostHandlers(socket, conn) {
-  // ---------- Права хоста ----------
+  // ---------- Host rights ----------
   socket.on('host_force_pause', () => {
     if (!conn.roomId) return;
     const room = getRoom(conn.roomId);
     if (!isHost(room, conn.clientId)) return;
 
     io.to(conn.roomId).emit('force_pause', { by: conn.nick });
-    logEvent(conn.roomId, `⏸ ${conn.nick} поставил паузу у всех`);
-    addSystemMessage(conn.roomId, 'system.forcePause', { nick: conn.nick }, `⏸ Хост ${conn.nick} поставил видео на паузу у всех`);
+    logEvent(conn.roomId, `⏸ ${conn.nick} paused for everyone`);
+    addSystemMessage(conn.roomId, 'system.forcePause', { nick: conn.nick }, `⏸ Host ${conn.nick} paused the video for everyone`);
   });
-  // ---------- Пароль комнаты и выгнанные (управляет хост) ----------
+  // ---------- Room password and kicked players (host only) ----------
   socket.on('host_set_password', ({ password } = {}) => {
     if (!conn.roomId) return;
     const room = getRoom(conn.roomId);
     if (!isHost(room, conn.clientId)) return;
     const clean = String(password || '').slice(0, 64);
     setRoomPassword(room, clean);
-    // Все, кто уже в комнате, остаются: их устройства считаем допущенными
+    // Everyone already in the room stays: their devices count as admitted
     if (clean) room.admitted = [...new Set(onlineMembers(conn.roomId).map(m => m.clientId))];
     saveRooms();
     emitSession(conn.roomId);
     if (clean) {
-      addSystemMessage(conn.roomId, 'system.passwordSet', { nick: conn.nick }, `🔒 ${conn.nick} поставил пароль на комнату`);
-      logEvent(conn.roomId, `🔒 ${conn.nick} поставил пароль на комнату`);
+      addSystemMessage(conn.roomId, 'system.passwordSet', { nick: conn.nick }, `🔒 ${conn.nick} set a room password`);
+      logEvent(conn.roomId, `🔒 ${conn.nick} set a room password`);
     } else {
-      addSystemMessage(conn.roomId, 'system.passwordRemoved', { nick: conn.nick }, `🔓 ${conn.nick} убрал пароль комнаты`);
-      logEvent(conn.roomId, `🔓 ${conn.nick} убрал пароль комнаты`);
+      addSystemMessage(conn.roomId, 'system.passwordRemoved', { nick: conn.nick }, `🔓 ${conn.nick} removed the room password`);
+      logEvent(conn.roomId, `🔓 ${conn.nick} removed the room password`);
     }
   });
 
@@ -63,8 +63,8 @@ module.exports = function registerHostHandlers(socket, conn) {
       }
     });
     emitSession(conn.roomId);
-    addSystemMessage(conn.roomId, 'system.kicked', { nick: victim }, `⛔ ${victim} удален из комнаты`);
-    logEvent(conn.roomId, `⛔ ${conn.nick} выгнал ${victim}`);
+    addSystemMessage(conn.roomId, 'system.kicked', { nick: victim }, `⛔ ${victim} was removed from the room`);
+    logEvent(conn.roomId, `⛔ ${conn.nick} kicked ${victim}`);
   });
 
   socket.on('host_unban_all', () => {
@@ -75,10 +75,10 @@ module.exports = function registerHostHandlers(socket, conn) {
     room.banned = [];
     saveRooms();
     emitSession(conn.roomId);
-    logEvent(conn.roomId, `✅ ${conn.nick} разрешил вернуться выгнанным (${count})`);
+    logEvent(conn.roomId, `✅ ${conn.nick} let kicked players back (${count})`);
   });
 
-  // ---------- Сессии (управляет хост) ----------
+  // ---------- Sessions (host only) ----------
   function resetSceneState(reason) {
     delete recordingNow[conn.roomId];
     endWatch(conn.roomId, null, reason);
@@ -92,12 +92,12 @@ module.exports = function registerHostHandlers(socket, conn) {
     const room = getRoom(conn.roomId);
     if (!isHost(room, conn.clientId) || !room.sessions[id] || id === room.activeSessionId) return;
     activateSession(room, id);
-    resetSceneState('🎬 Совместный просмотр остановлен: сменилась сессия');
+    resetSceneState('🎬 Watch-together stopped: the session changed');
     ensureAudioTracks(conn.roomId);
     saveRooms();
     emitSession(conn.roomId);
-    addSystemMessage(conn.roomId, 'system.sessionSwitched', { nick: conn.nick, title: room.title }, `🎬 ${conn.nick} открыл сессию «${room.title}»`);
-    logEvent(conn.roomId, `🎬 ${conn.nick} открыл сессию «${room.title}»`);
+    addSystemMessage(conn.roomId, 'system.sessionSwitched', { nick: conn.nick, title: room.title }, `🎬 ${conn.nick} opened session "${room.title}"`);
+    logEvent(conn.roomId, `🎬 ${conn.nick} opened session "${room.title}"`);
   });
 
   socket.on('host_rename_session', ({ id, title } = {}) => {
@@ -110,7 +110,7 @@ module.exports = function registerHostHandlers(socket, conn) {
     snapshotActive(room);
     saveRooms();
     emitSession(conn.roomId);
-    logEvent(conn.roomId, `✎ Сессия переименована: «${clean}»`);
+    logEvent(conn.roomId, `✎ Session renamed: "${clean}"`);
   });
 
   socket.on('host_delete_session', ({ id } = {}) => {
@@ -121,25 +121,25 @@ module.exports = function registerHostHandlers(socket, conn) {
     const doomed = room.sessions[id];
 
     if (id === room.activeSessionId) {
-      // Удаляем открытую — переходим на самую свежую из оставшихся (или на пустую комнату)
+      // Deleting the open session: switch to the most recent remaining one (or an empty room)
       room.activeSessionId = null;
       const next = Object.values(room.sessions)
         .filter(session => session.id !== id)
         .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0];
       if (next) activateSession(room, next.id);
       else Object.assign(room, emptySession());
-      resetSceneState('🎬 Совместный просмотр остановлен: сессия удалена');
+      resetSceneState('🎬 Watch-together stopped: the session was deleted');
     }
     delete room.sessions[id];
     const takes = deleteSessionFiles(doomed);
 
     saveRooms();
     emitSession(conn.roomId);
-    addSystemMessage(conn.roomId, 'system.sessionDeleted', { nick: conn.nick, title: doomed.title, takes }, `🗑 ${conn.nick} удалил сессию «${doomed.title}» (${takes} дублей)`);
-    logEvent(conn.roomId, `🗑 ${conn.nick} удалил сессию «${doomed.title}» и ее файлы (${takes} дублей)`);
+    addSystemMessage(conn.roomId, 'system.sessionDeleted', { nick: conn.nick, title: doomed.title, takes }, `🗑 ${conn.nick} deleted session "${doomed.title}" (${takes} takes)`);
+    logEvent(conn.roomId, `🗑 ${conn.nick} deleted session "${doomed.title}" and its files (${takes} takes)`);
   });
 
-  // ---------- Звуковые дорожки: что играет как оригинал и как интершум (выбирает хост) ----------
+  // ---------- Audio tracks: what plays as original and as background (host picks) ----------
   socket.on('host_set_audio_tracks', ({ original, backing } = {}) => {
     if (!conn.roomId) return;
     const room = getRoom(conn.roomId);
@@ -153,11 +153,11 @@ module.exports = function registerHostHandlers(socket, conn) {
     snapshotActive(room);
     saveRooms();
     emitSession(conn.roomId);
-    const name = index => (index >= 0 ? tracks[index].label || `#${index + 1}` : 'нет');
-    logEvent(conn.roomId, `🎧 ${conn.nick}: оригинал — ${name(room.originalTrack)}, интершум — ${name(room.backingTrack)}`);
+    const name = index => (index >= 0 ? tracks[index].label || tracks[index].language || `#${index + 1}` : 'none');
+    logEvent(conn.roomId, `🎧 ${conn.nick}: original = ${name(room.originalTrack)}, background = ${name(room.backingTrack)}`);
   });
 
-  // ---------- Совместный просмотр ----------
+  // ---------- Watch-together ----------
 
   socket.on('host_watch_start', ({ position } = {}) => {
     if (!conn.roomId) return;
@@ -168,8 +168,8 @@ module.exports = function registerHostHandlers(socket, conn) {
     const state = { active: true, playing: true, position: start, at: Date.now() + WATCH_COUNTDOWN_MS };
     watchState[conn.roomId] = state;
     io.to(conn.roomId).emit('watch_start', { ...state, by: conn.nick });
-    addSystemMessage(conn.roomId, 'system.watchStart', { nick: conn.nick }, `🎬 ${conn.nick} запустил совместный просмотр`);
-    logEvent(conn.roomId, `🎬 ${conn.nick} запустил совместный просмотр`);
+    addSystemMessage(conn.roomId, 'system.watchStart', { nick: conn.nick }, `🎬 ${conn.nick} started watch-together`);
+    logEvent(conn.roomId, `🎬 ${conn.nick} started watch-together`);
   });
 
   socket.on('host_watch_sync', ({ playing, position } = {}) => {
@@ -181,10 +181,10 @@ module.exports = function registerHostHandlers(socket, conn) {
 
   socket.on('host_watch_stop', () => {
     if (!conn.roomId || !isHost(getRoom(conn.roomId), conn.clientId)) return;
-    if (endWatch(conn.roomId, conn.nick, `⏹ ${conn.nick} остановил совместный просмотр`)) {
-      addSystemMessage(conn.roomId, 'system.watchStop', { nick: conn.nick }, `⏹ ${conn.nick} остановил совместный просмотр`);
+    if (endWatch(conn.roomId, conn.nick, `⏹ ${conn.nick} stopped watch-together`)) {
+      addSystemMessage(conn.roomId, 'system.watchStop', { nick: conn.nick }, `⏹ ${conn.nick} stopped watch-together`);
     } else {
-      // На сервере просмотра уже нет, а у кого-то он «завис» — сбрасываем у всех
+      // The server has no screening, but someone is stuck in one: reset it for everyone
       io.to(conn.roomId).emit('watch_stop', { by: conn.nick });
     }
   });

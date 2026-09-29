@@ -1,9 +1,9 @@
 
-// Общее состояние сервера в памяти: все модули работают с одними и теми же объектами
-const rooms = {};        // комнаты (загружаются с диска в rooms.js)
+// Shared in-memory server state: all modules work with the same objects
+const rooms = {};        // rooms (loaded from disk in rooms.js)
 const roomSockets = {};  // { roomId: { socketId: { nick, clientId } } }
 const recordingNow = {}; // roomId -> { lineId: { nick, socketId } }
-const p2pSeeders = {};   // roomId -> { url: Set(socketId) } — у кого из игроков уже есть медиафайл целиком
+const p2pSeeders = {};   // roomId -> { url: Set(socketId) }: players who already have the whole media file
 const watchState = {};   // roomId -> { active, playing, position, at }
 
 module.exports = {

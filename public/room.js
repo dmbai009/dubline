@@ -1,10 +1,10 @@
 // ==========================================
 // ROOM
-// Сокет, вход в комнату, ники, права хоста, синхронизация состояния
+// Socket, joining the room, nicks, host rights, state sync
 // ==========================================
 const socket = io();
 
-// Подключение к комнате (и повторное — после переподключения сокета)
+// Join the room (and rejoin after the socket reconnects)
 let pendingRoomPassword = '';
 let accessDenied = false;
 
@@ -14,7 +14,7 @@ function joinRoom() {
 }
 
 // ==========================================
-// ПАРОЛЬ КОМНАТЫ / ВЫГНАЛИ
+// ROOM PASSWORD / KICKED
 // ==========================================
 const passwordModal = document.getElementById('passwordModal');
 const passwordInput = document.getElementById('passwordInput');
@@ -57,7 +57,7 @@ socket.on('connect', () => {
 });
 
 // ==========================================
-// ПЛАШКА «НЕТ СВЯЗИ»
+// "NO CONNECTION" BANNER
 // ==========================================
 const connectionBanner = document.getElementById('connectionBanner');
 let connectionState = 'connecting';
@@ -85,8 +85,8 @@ function setConnectionState(next) {
 }
 
 socket.on('disconnect', reason => {
-  console.warn(`[Dubline] Связь с сервером потеряна: ${reason}`);
-  // Сервер больше не узнает, что мы записываем, — запись без связи не сохранится
+  console.warn(`[Dubline] Lost connection to the server: ${reason}`);
+  // The server can no longer tell we are recording: a recording made offline won't be saved
   liveRecordings.clear();
   setConnectionState('offline');
 });
@@ -97,7 +97,7 @@ socket.io.on('reconnect_attempt', attempt => {
 });
 
 // ==========================================
-// ЖУРНАЛ ДЛЯ ХОСТА (консоль браузера, F12)
+// HOST LOG (browser console, F12)
 // ==========================================
 socket.on('host_log', ({ ts, level, text }) => {
   const time = new Date(ts).toLocaleTimeString('ru-RU', { hour12: false });
@@ -106,9 +106,9 @@ socket.on('host_log', ({ ts, level, text }) => {
 });
 
 // ==========================================
-// СИНХРОНИЗАЦИЯ ЧАСОВ (для совместного просмотра)
+// CLOCK SYNC (for watch-together)
 // ==========================================
-let clockOffset = 0; // serverTime - localTime, мс
+let clockOffset = 0; // serverTime - localTime, ms
 
 function serverNow() {
   return Date.now() + clockOffset;
@@ -138,9 +138,9 @@ function showNickModal(error) {
   modalNickInput.focus();
 }
 
-// Сервер сообщает, какой ник за нами закреплен на самом деле
+// The server tells us which nick is actually ours
 socket.on('nick_state', ({ nick, error, errorKey, errorParams }) => {
-  // Пустили в комнату — пароль больше не нужен
+  // Let into the room: the password is no longer needed
   passwordModal.style.display = 'none';
   pendingRoomPassword = '';
   if (errorKey) error = t(errorKey, errorParams || {});
@@ -159,7 +159,7 @@ socket.on('nick_state', ({ nick, error, errorKey, errorParams }) => {
 let lastOnlineUsers = [];
 
 // ==========================================
-// ЛОББИ: список игроков, прогресс, задержка
+// LOBBY: player list, progress, delay
 // ==========================================
 const lobbyList = document.getElementById('lobbyList');
 const lobbyProgressCount = document.getElementById('lobbyProgressCount');
@@ -240,7 +240,7 @@ function renderLobby() {
   const online = [...new Set(lastOnlineUsers)];
   const order = nick => (nick === myName ? 0 : nick === roomHost ? 1 : 2);
   online.sort((a, b) => order(a) - order(b) || a.localeCompare(b));
-  // Не в сети, но что-то заняли или записали — тоже показываем, чтобы был виден их вклад
+  // Offline players who claimed or recorded something are shown too, so their contribution stays visible
   const offline = [...progress.perPlayer.keys()].filter(nick => !online.includes(nick)).sort((a, b) => a.localeCompare(b));
 
   let html = `<div class="lobby-section">${t('lobby.online', { n: online.length })}</div>`;
@@ -253,7 +253,7 @@ function renderLobby() {
 }
 
 // ==========================================
-// ОТМЕНА УДАЛЕНИЯ РЕПЛИК
+// UNDOING LINE DELETION
 // ==========================================
 window.undoDelete = function() {
   socket.emit('host_undo_delete');
@@ -271,7 +271,7 @@ function updateUndoButton() {
 }
 
 // ==========================================
-// КОРЗИНА УДАЛЕННЫХ РЕПЛИК (хост)
+// TRASH OF DELETED LINES (host)
 // ==========================================
 const trashModal = document.getElementById('trashModal');
 const trashList = document.getElementById('trashList');
@@ -378,7 +378,7 @@ window.kickPlayer = function(nick) {
   socket.emit('host_kick', { nick });
 };
 
-// Пароль комнаты в настройках: хост меняет, остальные видят статус
+// Room password in settings: the host changes it, others see the status
 function updateRoomSecurityUi() {
   const has = !!(session && session.hasPassword);
   const host = amHost();
@@ -410,7 +410,7 @@ window.unbanAll = function() {
   socket.emit('host_unban_all');
 };
 
-// Поправка задержки игрока поменялась — у всех сдвигаются его дубли
+// A player's delay correction changed: their takes shift for everyone
 socket.on('latency_updated', (latency) => {
   if (!session) return;
   session.latency = latency || {};
@@ -428,7 +428,7 @@ socket.on('room_users_updated', ({ users, host, hostOnline: online }) => {
   updateHostUi();
 });
 
-// Кто сейчас пишет дубль: подсвечиваем плитки и ники
+// Who is recording right now: highlight tiles and nicks
 socket.on('recording_state', (list) => {
   const changed = new Set([...liveRecordings.keys(), ...list.map(item => item.lineId)]);
   liveRecordings.clear();
@@ -464,14 +464,14 @@ window.handleNickSubmit = function(e) {
 };
 
 // ==========================================
-// ПРАВА ХОСТА
+// HOST RIGHTS
 // ==========================================
 function amHost() {
   return !!myName && roomHost === myName;
 }
 
-// Таймлайн и инспектор зависят от прав хоста (кнопки снятия ролей), поэтому их
-// перерисовываем только когда эти права действительно поменялись, а не на каждый вход игрока
+// The timeline and inspector depend on host rights (role release buttons), so they are
+// redrawn only when those rights actually change, not on every player join
 let renderedAsHost = null;
 
 function updateHostUi() {
@@ -531,7 +531,7 @@ socket.on('force_pause', () => {
 socket.on('session_updated', (data) => {
   session = data;
   if (!session || !session.loaded) {
-    // В комнате нет сессии (например, удалили последнюю) — очищаем студию
+    // The room has no session (e.g. the last one was deleted): clear the studio
     cancelMediaDownload();
     setMediaSource(originalTrackAudio, null);
     trackPicker.style.display = 'none';
@@ -552,10 +552,10 @@ socket.on('session_updated', (data) => {
     return;
   }
 
-  // Не перезагружаем видео, если пак не поменялся (например, при смене ролей)
+  // Don't reload the video if the pack hasn't changed (e.g. on role changes)
   if (loadedVideoUrl !== session.videoUrl) {
     loadedVideoUrl = session.videoUrl;
-    // Новый пак — совместный просмотр старого точно закончился
+    // A new pack: watch-together of the old one is definitely over
     if (watchMode) exitWatchMode();
     forgetStaleLocalMedia();
     loadSceneMedia();
@@ -588,7 +588,7 @@ socket.on('line_updated', (updatedLine) => {
   if (!session || !session.lines) return;
   const idx = session.lines.findIndex(l => l.id === updatedLine.id);
   if (idx !== -1) {
-    // Сдвиг/эффекты меняются на лету: если дубль сейчас звучит, перезапускаем его с новыми параметрами
+    // Shift/effects change on the fly: if the take is playing, restart it with the new settings
     if (!video.paused) {
       resetLine(updatedLine.id);
     }
@@ -609,13 +609,13 @@ window.claimSingleLine = function(lineId) { socket.emit('claim_line', { lineId }
 window.unclaimSingleLine = function(lineId) { socket.emit('unclaim_line', { lineId }); };
 
 // ==========================================
-// «СМОТРИМ ВМЕСТЕ»: хост запускает ролик у всех одновременно
+// WATCH TOGETHER: the host starts the video for everyone at once
 // ==========================================
 const watchOverlay = document.getElementById('watchOverlay');
 const watchCountdown = document.getElementById('watchCountdown');
 const watchLabel = document.getElementById('watchLabel');
 const watchLeaveBtn = document.getElementById('watchLeaveBtn');
-const WATCH_DRIFT_LIMIT = 0.35; // секунд расхождения, после которых подтягиваемся к хосту
+const WATCH_DRIFT_LIMIT = 0.35; // seconds of drift after which we catch up with the host
 let watchMode = false;
 let watchLeftLocally = false;
 let watchStartTimer = null;
@@ -652,9 +652,9 @@ socket.on('watch_start', ({ position, at }) => {
   video.pause();
   video.currentTime = position;
 
-  // Обратный отсчет, затем старт по серверным часам — у всех в один момент
+  // Countdown, then start by the server clock: at the same moment for everyone
   const tick = () => {
-    // Часы игрока могут отставать от серверных на миллисекунды — не показываем «4» на трехсекундном отсчете
+    // The player's clock may lag the server's by milliseconds: don't show "4" on a three-second countdown
     const left = Math.min(3, Math.ceil((at - serverNow()) / 1000));
     watchCountdown.textContent = left > 0 ? String(left) : '';
     watchCountdown.style.display = left > 0 ? 'block' : 'none';
@@ -670,7 +670,7 @@ socket.on('watch_start', ({ position, at }) => {
   }, Math.max(0, at - serverNow()));
 });
 
-// Периодическая сверка с хостом: пауза, перемотка и расхождение во времени
+// Periodic check against the host: pause, seeking and time drift
 socket.on('watch_sync', ({ playing, position, at }) => {
   if (amHost() || watchLeftLocally) return;
   if (!watchMode) enterWatchMode();

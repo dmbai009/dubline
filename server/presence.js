@@ -1,4 +1,4 @@
-// Кто онлайн, статус записи, P2P-раздающие, совместный просмотр и чат комнаты
+// Who is online, recording status, P2P seeders, watch-together and room chat
 const { MAX_CHAT_HISTORY } = require('./config');
 const { roomSockets, recordingNow, p2pSeeders, watchState } = require('./state');
 const { io } = require('./app');
@@ -10,12 +10,12 @@ function onlineCount(roomId) {
 }
 
 // ==========================================
-// СТАТУС ЗАПИСИ И СОВМЕСТНЫЙ ПРОСМОТР (живут только в памяти)
+// RECORDING STATUS AND WATCH-TOGETHER (kept in memory only)
 // ==========================================
 const WATCH_COUNTDOWN_MS = 3000;
 
-// Завершает совместный просмотр и обязательно сообщает об этом всем браузерам,
-// иначе у игроков останется включенным режим просмотра (и заблокированная запись)
+// Ends watch-together and always tells every browser about it,
+// otherwise players stay stuck in watch mode (with recording blocked)
 function endWatch(roomId, by, reason) {
   if (!watchState[roomId]) return false;
   delete watchState[roomId];

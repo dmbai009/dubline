@@ -1,16 +1,16 @@
 // ==========================================
-// ОБРАБОТКА ГОЛОСА: декодирование, эффекты, питч-шифтер, поиск тишины
-// Всё считается офлайн в браузере — исходный файл дубля на сервере не меняется.
+// VOICE PROCESSING: decoding, effects, pitch shifter, silence detection
+// Everything is rendered offline in the browser; the original take file on the server never changes.
 // ==========================================
 const VOICE_EFFECTS = {
-  none: 'Без эффекта',
-  robot: '🤖 Робот',
-  radio: '📻 Рация',
-  monster: '👹 Монстр',
-  thoughts: '💭 Мысли',
-  cave: '🪨 Пещера',
-  behindDoor: '🚪 За дверью',
-  megaphone: '📣 Мегафон'
+  none: 'No effect',
+  robot: '🤖 Robot',
+  radio: '📻 Radio',
+  monster: '👹 Monster',
+  thoughts: '💭 Thoughts',
+  cave: '🪨 Cave',
+  behindDoor: '🚪 Behind a door',
+  megaphone: '📣 Megaphone'
 };
 
 const EFFECT_TAIL_SECONDS = {
@@ -29,7 +29,7 @@ function effectTailSeconds(effect) {
 
 let sharedDecodeCtx = null;
 
-// OfflineAudioContext умеет декодировать без жеста пользователя
+// OfflineAudioContext can decode without a user gesture
 function decodeAudio(arrayBuffer) {
   if (!sharedDecodeCtx) sharedDecodeCtx = new OfflineAudioContext(1, 1, 44100);
   return sharedDecodeCtx.decodeAudioData(arrayBuffer);
@@ -51,8 +51,8 @@ function toMono(buffer) {
   return mono;
 }
 
-// ---------- Автоопределение тишины ----------
-// Возвращает границы речи внутри записи { start, end } в секундах или null, если речи не нашлось.
+// ---------- Silence detection ----------
+// Returns the speech bounds inside a recording { start, end } in seconds, or null if there is no speech.
 function detectSpeechBounds(buffer, { frameMs = 10, padBefore = 0.08, padAfter = 0.35 } = {}) {
   const data = toMono(buffer);
   const frame = Math.max(1, Math.round(buffer.sampleRate * frameMs / 1000));
@@ -69,17 +69,17 @@ function detectSpeechBounds(buffer, { frameMs = 10, padBefore = 0.08, padAfter =
   const sorted = Array.from(rms).sort((a, b) => a - b);
   const noiseFloor = sorted[Math.floor(frames * 0.1)];
   const peak = sorted[frames - 1];
-  if (peak < 0.003) return null; // в записи одна тишина
+  if (peak < 0.003) return null; // the recording is all silence
 
-  // Речь — всё, что заметно громче шума и не тише -26 дБ от пика
+  // Speech is anything clearly louder than the noise and no quieter than -26 dB below the peak
   const threshold = Math.max(noiseFloor * 3, peak * 0.05, 0.002);
 
-  // Короткие щелчки не считаем речью: нужно хотя бы 3 кадра подряд над порогом
+  // Short clicks are not speech: at least 3 frames in a row must be above the threshold
   const isVoiced = f => rms[f] > threshold && rms[f + 1] > threshold && rms[f + 2] > threshold;
   let first = -1;
   for (let f = 0; f < frames - 2; f++) if (isVoiced(f)) { first = f; break; }
   if (first === -1) return null;
-  // Конец речи ищем по более низкому порогу: тихие окончания слов («…ла», «…ть») не должны срезаться
+  // The end of speech uses a lower threshold so quiet word endings are not cut off
   const endThreshold = Math.max(noiseFloor * 2, peak * 0.02, 0.0015);
   const isTail = f => rms[f] > endThreshold && rms[f + 1] > endThreshold;
   let last = first;
@@ -90,9 +90,9 @@ function detectSpeechBounds(buffer, { frameMs = 10, padBefore = 0.08, padAfter =
   return { start: Number(start.toFixed(3)), end: Number(end.toFixed(3)) };
 }
 
-// ---------- Питч-шифтер ----------
-// WSOLA: растягиваем звук во времени без изменения высоты, затем пересэмплируем обратно к исходной длине.
-// В итоге высота голоса меняется, а длительность (и тайминг дубля) остаются прежними.
+// ---------- Pitch shifter ----------
+// WSOLA: stretch the sound in time without changing pitch, then resample back to the original length.
+// As a result the pitch changes while the duration (and the take's timing) stays the same.
 function wsolaStretch(input, factor, rate) {
   const frame = Math.round(rate * 0.04);
   const synthesisHop = Math.floor(frame / 2);
@@ -111,7 +111,7 @@ function wsolaStretch(input, factor, rate) {
     let best = nominal;
 
     if (k > 0) {
-      // Ищем кусок, который лучше всего продолжает предыдущий (без провалов фазы)
+      // Find the chunk that best continues the previous one (no phase dropouts)
       const natural = prevPos + synthesisHop;
       let bestScore = -Infinity;
       for (let d = -tolerance; d <= tolerance; d += 2) {
@@ -148,7 +148,7 @@ function pitchShiftBuffer(buffer, semitones) {
   return result;
 }
 
-// ---------- Эффекты ----------
+// ---------- Effects ----------
 function distortionCurve(amount) {
   const n = 1024;
   const curve = new Float32Array(n);
@@ -186,10 +186,10 @@ function reverbImpulse(ctx, seconds, decay, seed = 1) {
   return impulse;
 }
 
-// Строит граф эффекта от input и возвращает выходной узел
+// Builds the effect graph from input and returns the output node
 function buildEffect(ctx, input, effect) {
   if (effect === 'robot') {
-    // Кольцевая модуляция + короткое металлическое эхо
+    // Ring modulation plus a short metallic echo
     const ring = ctx.createGain();
     ring.gain.value = 0;
     const osc = ctx.createOscillator();
@@ -214,7 +214,7 @@ function buildEffect(ctx, input, effect) {
   }
 
   if (effect === 'radio') {
-    // Узкая полоса частот, «хрип» и компрессия, как у рации
+    // Narrow band, crackle and compression, like a walkie-talkie
     const shaper = ctx.createWaveShaper();
     shaper.curve = distortionCurve(25);
     const comp = ctx.createDynamicsCompressor();
@@ -227,7 +227,7 @@ function buildEffect(ctx, input, effect) {
   }
 
   if (effect === 'monster') {
-    // Питч вниз добавляется отдельно, здесь — темный тембр и легкий перегруз
+    // The pitch drop is added separately; here it's a dark timbre and light overdrive
     const shaper = ctx.createWaveShaper();
     shaper.curve = distortionCurve(6);
     const out = ctx.createGain();
@@ -311,7 +311,7 @@ function buildEffect(ctx, input, effect) {
 
 const EFFECT_PITCH = { monster: -6 };
 
-// Применяет эффект и питч к дублю, сохраняя хвосты задержки и реверберации.
+// Applies the effect and pitch to a take, keeping delay and reverb tails.
 async function renderVoice(buffer, effect = 'none', pitch = 0, bounds = null) {
   const totalPitch = (pitch || 0) + (EFFECT_PITCH[effect] || 0);
   let working = totalPitch !== 0 ? pitchShiftBuffer(buffer, totalPitch) : buffer;
@@ -328,7 +328,7 @@ async function renderVoice(buffer, effect = 'none', pitch = 0, bounds = null) {
   return limitPeak(await ctx.startRendering());
 }
 
-// Эффекты с перегрузом и эхом могут вылезти за 0 дБ — приводим пик к безопасному уровню
+// Effects with overdrive and echo can exceed 0 dB: bring the peak down to a safe level
 function limitPeak(buffer, maxPeak = 0.95) {
   const data = buffer.getChannelData(0);
   let peak = 0;

@@ -29,8 +29,8 @@
     hostOnline: false,
     discardTake: false,
     userMicGain: parseFloat(storage.getItem('dubline_mic_gain')) || 1.0,
-    // Шумоподавление браузера по умолчанию выключено: оно «съедает» тихие фразы и искажает голос.
-    // Включается только если игрок сам включил его в настройках.
+    // Browser noise suppression is off by default: it swallows quiet phrases and distorts the voice.
+    // It is on only if the player turned it on in settings.
     noiseSuppression: storage.getItem('dubline_noise_suppression') === '1',
     autoDuckEnabled: storage.getItem('dubline_auto_duck') !== '0',
     autoDuckAmount: Number.isFinite(storedAutoDuckAmount)

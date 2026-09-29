@@ -1,5 +1,5 @@
-// Проверяет, что зависимости установлены и соответствуют package.json / package-lock.json.
-// Если нет (первый запуск после скачивания или обновление через git pull) — ставит их сам.
+// Checks that dependencies are installed and match package.json / package-lock.json.
+// If not (first run after download, or an update via git pull), installs them.
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -22,19 +22,19 @@ const wanted = depsFingerprint();
 const installed = fs.existsSync(marker) ? fs.readFileSync(marker, 'utf8').trim() : '';
 if (wanted === installed && fs.existsSync(path.join(nodeModules, 'express'))) process.exit(0);
 
-console.log('[Dubline] Устанавливаю зависимости (npm install).');
-console.log('[Dubline] Это нужно один раз после скачивания или обновления и займет минуту-другую...');
+console.log('[Dubline] Installing dependencies (npm install).');
+console.log('[Dubline] This is needed once after a download or update and takes a minute or two...');
 
-// На Windows npm — это npm.cmd, его можно запустить только через оболочку (одной строкой)
+// On Windows npm is npm.cmd, which can only be run through a shell (as one command line)
 const command = 'npm install --no-audit --no-fund';
 const result = process.platform === 'win32'
   ? spawnSync(command, { cwd: root, stdio: 'inherit', shell: true })
   : spawnSync('npm', command.split(' ').slice(1), { cwd: root, stdio: 'inherit' });
 
 if (result.status !== 0) {
-  console.error('[Dubline] npm install завершился с ошибкой. Проверьте интернет и запустите start.bat еще раз.');
+  console.error('[Dubline] npm install failed. Check your internet connection and run start.bat again.');
   process.exit(1);
 }
 
 fs.writeFileSync(marker, wanted);
-console.log('[Dubline] Зависимости установлены.');
+console.log('[Dubline] Dependencies installed.');

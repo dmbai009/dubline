@@ -1,14 +1,14 @@
 // ==========================================
 // P2P
-// Игроки передают друг другу видео сцены напрямую (WebRTC DataChannel).
-// Сервер только сводит игроков; чего не хватило — докачивается с хоста по HTTP.
+// Players send each other the scene video directly (WebRTC DataChannel).
+// The server only introduces players; whatever is missing is fetched from the host over HTTP.
 // ==========================================
 const P2P_CHUNK = 64 * 1024;
 const P2P_MAX_PEERS = 3;
-const P2P_PIPELINE = 8;            // сколько кусков одновременно запрашиваем у одного игрока
+const P2P_PIPELINE = 8;            // how many pieces to request from one player at once
 const P2P_CONNECT_TIMEOUT = 6000;
 const P2P_CHUNK_TIMEOUT = 8000;
-const HTTP_RUN = 16;               // кусков в одном HTTP Range-запросе (1 МБ)
+const HTTP_RUN = 16;               // pieces per HTTP Range request (1 MB)
 const ICE_SERVERS = [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun.cloudflare.com:3478' }];
 
 const p2pBox = document.getElementById('p2pBox');
@@ -18,9 +18,9 @@ const settingsP2P = document.getElementById('settingsP2P');
 
 let p2pEnabled = localStorage.getItem('dubline_p2p') !== '0';
 const peers = new Map();           // `${role}:${socketId}` -> { pc, channel, pending: [], remoteSet }
-let mediaDownload = null;          // текущая загрузка видео сцены
-let p2pStatus = null;              // что показывать в подвале лобби
-let uploadedBytes = 0;             // сколько мы раздали другим
+let mediaDownload = null;          // current scene video download
+let p2pStatus = null;              // what to show in the lobby footer
+let uploadedBytes = 0;             // how much we have shared with others
 let lastAnnounce = '';
 
 settingsP2P.checked = p2pEnabled;
@@ -34,7 +34,7 @@ function isOnServerMachine() {
   return ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
 }
 
-// ---------- Что у нас есть целиком ----------
+// ---------- What we have in full ----------
 function heldFiles() {
   const files = new Map();
   if (!session || !localMedia || localMedia.forVideoUrl !== session.videoUrl) return files;
@@ -69,7 +69,7 @@ function findSeeders(url) {
   });
 }
 
-// ---------- Сигнализация WebRTC через сервер ----------
+// ---------- WebRTC signaling through the server ----------
 function signal(to, data) {
   socket.emit('p2p_signal', { to, data });
 }
@@ -98,7 +98,7 @@ socket.on('p2p_signal', async ({ from, data }) => {
   if (!data || !from) return;
 
   if (data.kind === 'offer') {
-    // Нас просят раздать файл
+    // We are asked to share a file
     if (!p2pEnabled || !heldFiles().size) return;
     const key = `seed:${from}`;
     closePeer(key);
@@ -121,13 +121,13 @@ socket.on('p2p_signal', async ({ from, data }) => {
     await peer.pc.setRemoteDescription(data.sdp);
     await markRemoteSet(peer);
   } else if (data.kind === 'candidate') {
-    // Кандидат от раздающего идет в наше «скачивающее» соединение и наоборот
+    // A candidate from the sharer goes to our downloading connection, and vice versa
     const peer = peers.get(data.from === 'seed' ? `leech:${from}` : `seed:${from}`);
     if (peer) addCandidate(peer, data.candidate);
   }
 });
 
-// ---------- Раздача: отвечаем на запросы кусков ----------
+// ---------- Sharing: answer piece requests ----------
 function serveChannel(channel, key) {
   channel.binaryType = 'arraybuffer';
   channel.bufferedAmountLowThreshold = 256 * 1024;
@@ -176,7 +176,7 @@ function serveChannel(channel, key) {
   channel.onclose = () => closePeer(key);
 }
 
-// ---------- Скачивание: у игроков, остаток — с хоста ----------
+// ---------- Downloading: from players, the rest from the host ----------
 function connectToSeeder(peerId) {
   return new Promise((resolve, reject) => {
     const key = `leech:${peerId}`;
@@ -279,7 +279,7 @@ async function runHttp(job) {
     const res = await fetch(job.url, { headers: { Range: `bytes=${from}-${to}` }, signal: job.abort.signal });
     if (res.status !== 206 && res.status !== 200) throw new Error(`HTTP ${res.status}`);
     let buffer = await res.arrayBuffer();
-    if (res.status === 200) buffer = buffer.slice(from, to + 1); // сервер проигнорировал Range
+    if (res.status === 200) buffer = buffer.slice(from, to + 1); // the server ignored Range
     run.forEach((index, k) => {
       if (!job.parts[index]) job.parts[index] = buffer.slice(k * P2P_CHUNK, (k + 1) * P2P_CHUNK);
     });
@@ -289,7 +289,7 @@ async function runHttp(job) {
 }
 
 async function sha256Hex(blob) {
-  if (!window.crypto || !crypto.subtle) return null; // без HTTPS проверить не выйдет
+  if (!window.crypto || !crypto.subtle) return null; // can't verify without HTTPS
   const digest = await crypto.subtle.digest('SHA-256', await blob.arrayBuffer());
   return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('');
 }
@@ -321,7 +321,7 @@ async function downloadFile({ url, size, hash, type }, onProgress, abort) {
   return { blob, p2pBytes: job.p2pBytes, httpBytes: job.httpBytes, peers: job.peersUsed };
 }
 
-// ---------- Загрузка медиа сцены ----------
+// ---------- Scene media loading ----------
 function setHostSources() {
   video.src = mediaUrl(session.videoUrl);
   backing.src = mediaUrl(session.backingUrl);
@@ -332,14 +332,14 @@ function cancelMediaDownload() {
   mediaDownload = null;
 }
 
-// Вызывается, когда в комнате сменилось видео сцены
+// Called when the room's scene video changes
 async function loadSceneMedia() {
   cancelMediaDownload();
   p2pStatus = null;
   const current = session;
   const hasLocal = localMedia && localMedia.forVideoUrl === current.videoUrl;
 
-  // Уже есть с диска, или мы на самом сервере, или P2P выключен — играем как обычно
+  // Already have it from disk, or we are on the server itself, or P2P is off: play as usual
   if (hasLocal || isOnServerMachine() || !p2pEnabled || !window.RTCPeerConnection || !current.videoSize || !current.videoUrl) {
     setHostSources();
     updateP2pStatus();
@@ -347,7 +347,7 @@ async function loadSceneMedia() {
     return;
   }
 
-  // Качаем целиком (от игроков, остаток с хоста), потом играем локально и раздаем сами
+  // Download it all (from players, the rest from the host), then play locally and share it ourselves
   const abort = new AbortController();
   const download = { abort, videoUrl: current.videoUrl };
   mediaDownload = download;
@@ -383,9 +383,9 @@ async function loadSceneMedia() {
     setLocalMedia({ video: results.video, backing: results.backing || null, source: 'p2p' });
     p2pStatus = { state: 'done', p2p: totals.p2p, http: totals.http, size: totalSize };
   } catch (err) {
-    if (mediaDownload !== download) return; // отменили — уже грузим другое
+    if (mediaDownload !== download) return; // cancelled: already loading something else
     mediaDownload = null;
-    console.warn('[Dubline] Не удалось загрузить видео заранее, смотрим с хоста:', err.message);
+    console.warn('[Dubline] Could not preload the video, watching from the host:', err.message);
     p2pStatus = { state: 'failed' };
     setHostSources();
   }

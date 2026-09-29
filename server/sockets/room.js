@@ -1,4 +1,4 @@
-// Вход в комнату, ник, права хоста для вернувшегося, чат, задержка микрофона, часы
+// Joining a room, nicknames, host rights for a returning host, chat, microphone delay, clock
 const { CHAT_RATE_LIMIT, MAX_LATENCY_MS } = require('../config');
 const { roomSockets, watchState } = require('../state');
 const { io } = require('../app');
@@ -23,10 +23,10 @@ module.exports = function registerRoomHandlers(socket, conn) {
       broadcastRoomUsers(conn.roomId);
 
       const why = typeof reason === 'string' ? ` — ${DISCONNECT_REASONS[reason] || reason}` : '';
-      logEvent(conn.roomId, `← ${conn.nick || 'игрок без ника'} вышел${why}. Онлайн: ${onlineCount(conn.roomId)}`, reason === 'ping timeout' || reason === 'transport error' ? 'warn' : 'info');
+      logEvent(conn.roomId, `← ${conn.nick || 'player without a nickname'} left${why}. Online: ${onlineCount(conn.roomId)}`, reason === 'ping timeout' || reason === 'transport error' ? 'warn' : 'info');
 
-      // Хост ушел совсем — совместный просмотр заканчивается
-      if (wasHost && !isHostOnline(conn.roomId)) endWatch(conn.roomId, conn.nick, '🎬 Совместный просмотр остановлен: хост вышел');
+      // The host is gone for good: watch-together ends
+      if (wasHost && !isHostOnline(conn.roomId)) endWatch(conn.roomId, conn.nick, '🎬 Watch-together stopped: the host left');
     }
   }
 
@@ -52,9 +52,9 @@ module.exports = function registerRoomHandlers(socket, conn) {
     const candidateRoom = getRoom(nextRoomId);
     const isRoomHost = candidateRoom.hostClientId === nextClientId;
 
-    // Выгнанных не пускаем; в запароленную комнату — только с верным паролем (один раз на устройство)
+    // Kicked players are refused; a password-protected room needs the right password (once per device)
     if (!isRoomHost && candidateRoom.banned.includes(nextClientId)) {
-      logEvent(nextRoomId, '⛔ Выгнанный игрок пытался вернуться', 'warn');
+      logEvent(nextRoomId, '⛔ A kicked player tried to come back', 'warn');
       return socket.emit('join_denied', { reason: 'banned' });
     }
     if (!isRoomHost && candidateRoom.passwordHash && !candidateRoom.admitted.includes(nextClientId)) {
@@ -62,7 +62,7 @@ module.exports = function registerRoomHandlers(socket, conn) {
       if (!data.password) return socket.emit('join_denied', { reason: 'password' });
       if (!checkRoomPassword(candidateRoom, data.password)) {
         passwordAttempts++;
-        logEvent(nextRoomId, `⚠ Неверный пароль комнаты (попытка ${passwordAttempts} из ${MAX_PASSWORD_ATTEMPTS})`, 'warn');
+        logEvent(nextRoomId, `⚠ Wrong room password (attempt ${passwordAttempts} of ${MAX_PASSWORD_ATTEMPTS})`, 'warn');
         return socket.emit('join_denied', { reason: passwordAttempts >= MAX_PASSWORD_ATTEMPTS ? 'tooMany' : 'wrongPassword' });
       }
       candidateRoom.admitted.push(nextClientId);
@@ -80,7 +80,7 @@ module.exports = function registerRoomHandlers(socket, conn) {
     let errorKey = null;
     let errorParams = null;
     if (requested && !isNickFree(room, conn.roomId, requested, conn.clientId, socket.id)) {
-      error = `Ник «${requested}» уже занят другим игроком в этой комнате`;
+      error = `Nickname "${requested}" is already used by another player in this room`;
       errorKey = 'error.nickTaken';
       errorParams = { nick: requested };
       requested = '';
@@ -88,7 +88,7 @@ module.exports = function registerRoomHandlers(socket, conn) {
     conn.nick = requested;
     if (conn.nick) takeOverNick(room, conn.roomId, conn.nick, conn.clientId, socket.id);
 
-    // Первый зашедший в комнату становится хостом
+    // The first player in the room becomes the host
     if (!room.hostClientId) room.hostClientId = conn.clientId;
     if (room.hostClientId === conn.clientId && conn.nick) room.host = conn.nick;
 
@@ -103,15 +103,15 @@ module.exports = function registerRoomHandlers(socket, conn) {
     socket.emit('chat_history', room.chat);
     socket.emit('recording_state', recordingList(conn.roomId));
     socket.emit('p2p_seeders', seedersSummary(conn.roomId));
-    // Актуальное состояние просмотра: подхватить идущий или сбросить зависший
+    // Current screening state: join a running one or reset a stuck one
     if (watchState[conn.roomId]) socket.emit('watch_sync', watchState[conn.roomId]);
     else socket.emit('watch_stop', {});
     broadcastRoomUsers(conn.roomId);
 
-    const who = conn.nick || 'игрок без ника';
-    const returned = conn.nick && previousOwner && previousOwner !== conn.clientId ? ' (вернулся с нового адреса/устройства)' : '';
-    if (error) logEvent(conn.roomId, `⚠ Кто-то пытался зайти под занятым ником «${sanitizeNick(data.nick)}»`, 'warn');
-    logEvent(conn.roomId, `→ ${who} зашел${returned}. Онлайн: ${onlineCount(conn.roomId)}`);
+    const who = conn.nick || 'player without a nickname';
+    const returned = conn.nick && previousOwner && previousOwner !== conn.clientId ? ' (returned from a new address/device)' : '';
+    if (error) logEvent(conn.roomId, `⚠ Someone tried to join with the taken nickname "${sanitizeNick(data.nick)}"`, 'warn');
+    logEvent(conn.roomId, `→ ${who} joined${returned}. Online: ${onlineCount(conn.roomId)}`);
   });
 
   socket.on('rename_user', (data = {}) => {
@@ -123,7 +123,7 @@ module.exports = function registerRoomHandlers(socket, conn) {
     if (!isNickFree(room, conn.roomId, newName, conn.clientId, socket.id)) {
       return socket.emit('nick_state', {
         nick: conn.nick,
-        error: `Ник «${newName}» уже занят другим игроком`,
+        error: `Nickname "${newName}" is already used by another player`,
         errorKey: 'error.nickTaken',
         errorParams: { nick: newName }
       });
@@ -137,7 +137,7 @@ module.exports = function registerRoomHandlers(socket, conn) {
 
     if (oldName) renameClaims(room, oldName, newName);
     if (room.hostClientId === conn.clientId) room.host = newName;
-    logEvent(conn.roomId, `✎ ${oldName || 'игрок без ника'} теперь ${newName}`);
+    logEvent(conn.roomId, `✎ ${oldName || 'player without a nickname'} is now ${newName}`);
 
     saveRooms();
     socket.emit('nick_state', { nick: conn.nick });
@@ -145,7 +145,7 @@ module.exports = function registerRoomHandlers(socket, conn) {
     broadcastRoomUsers(conn.roomId);
   });
 
-  // Если хост ушел, любой игрок может забрать права себе
+  // If the host has left, any player can take host rights
   socket.on('claim_host', () => {
     if (!conn.roomId || !conn.nick) return;
     const room = getRoom(conn.roomId);
@@ -155,11 +155,11 @@ module.exports = function registerRoomHandlers(socket, conn) {
     room.host = conn.nick;
     saveRooms();
     broadcastRoomUsers(conn.roomId);
-    logEvent(conn.roomId, `👑 ${conn.nick} стал хостом`);
-    addSystemMessage(conn.roomId, 'system.newHost', { nick: conn.nick }, `👑 ${conn.nick} теперь хост комнаты`);
+    logEvent(conn.roomId, `👑 ${conn.nick} became the host`);
+    addSystemMessage(conn.roomId, 'system.newHost', { nick: conn.nick }, `👑 ${conn.nick} is now the room host`);
   });
 
-  // ---------- Чат ----------
+  // ---------- Chat ----------
   socket.on('chat_message', ({ text } = {}) => {
     if (!conn.roomId || !conn.nick) return;
     const clean = sanitizeChatText(text);
@@ -173,8 +173,8 @@ module.exports = function registerRoomHandlers(socket, conn) {
     addChatMessage(conn.roomId, { nick: conn.nick, text: clean });
   });
 
-  // ---------- Задержка микрофона игрока ----------
-  // Одна поправка на все дубли игрока (например, для Bluetooth-наушников)
+  // ---------- Player microphone delay ----------
+  // One correction for all of a player's takes (e.g. for Bluetooth headphones)
   socket.on('set_latency', ({ ms } = {}) => {
     if (!conn.roomId || !conn.nick) return;
     const value = Math.round(Number(ms));
@@ -185,10 +185,10 @@ module.exports = function registerRoomHandlers(socket, conn) {
     else room.latency[conn.nick] = clamped;
     saveRooms();
     io.to(conn.roomId).emit('latency_updated', room.latency);
-    logEvent(conn.roomId, `⏱ ${conn.nick}: поправка задержки ${clamped > 0 ? '+' : ''}${clamped} мс`);
+    logEvent(conn.roomId, `⏱ ${conn.nick}: delay correction ${clamped > 0 ? '+' : ''}${clamped} ms`);
   });
 
-  // Синхронизация часов: клиент узнает, насколько его время отличается от серверного
+  // Clock sync: the client learns how far its time is from the server's
   socket.on('time_sync', (clientTs, ack) => {
     if (typeof ack === 'function') ack(Date.now());
   });

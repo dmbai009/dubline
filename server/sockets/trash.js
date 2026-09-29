@@ -1,4 +1,4 @@
-// Удаление реплик хостом, отмена (Ctrl+Z) и корзина
+// Line deletion by the host, undo (Ctrl+Z) and the trash
 const { MAX_UNDO_BATCHES } = require('../config');
 const { logEvent } = require('../log');
 const { deleteTakeFile } = require('../files');
@@ -6,13 +6,13 @@ const { saveRooms, getRoom, snapshotActive, insertLineInOrder, emitSession, drop
 const { isHost } = require('../auth');
 
 module.exports = function registerTrashHandlers(socket, conn) {
-  // Хост удаляет выбранные реплики (например, надписи на экране, которые не нужно озвучивать)
+  // The host deletes selected lines (e.g. on-screen signs that should not be dubbed)
   socket.on('host_delete_lines', ({ lineIds } = {}) => {
     if (!conn.roomId || !Array.isArray(lineIds)) return;
     const room = getRoom(conn.roomId);
     if (!isHost(room, conn.clientId)) return;
     const doomed = new Set(lineIds);
-    // Запоминаем, где стояли реплики, чтобы отмена вернула их на место
+    // Remember where the lines were so undo puts them back
     const removed = room.lines.map((line, index) => ({ line, index })).filter(entry => doomed.has(entry.line.id));
     if (!removed.length) return;
     room.lines.splice(0, room.lines.length, ...room.lines.filter(line => !doomed.has(line.id)));
@@ -20,7 +20,7 @@ module.exports = function registerTrashHandlers(socket, conn) {
     dropEmptyRoleClaims(room);
     const droppedClaims = Object.fromEntries(Object.entries(claimsBefore).filter(([character]) => !room.characterClaims[character]));
 
-    // Удаление уходит в «корзину» сессии; дубли стираются с диска, только когда отменить уже нельзя
+    // Deletions go to the session trash; takes are erased from disk only when undo is no longer possible
     if (!Array.isArray(room.deletedLines)) room.deletedLines = [];
     room.deletedLines.push({ at: Date.now(), by: conn.nick, lines: removed, claims: droppedClaims });
     while (room.deletedLines.length > MAX_UNDO_BATCHES) {
@@ -30,10 +30,10 @@ module.exports = function registerTrashHandlers(socket, conn) {
     saveRooms();
     emitSession(conn.roomId);
     socket.emit('lines_deleted', { count: removed.length });
-    logEvent(conn.roomId, `🗑 ${conn.nick} удалил реплик: ${removed.length}`);
+    logEvent(conn.roomId, `🗑 ${conn.nick} deleted lines: ${removed.length}`);
   });
 
-  // Отмена последнего удаления реплик (Ctrl+Z у хоста)
+  // Undo the last line deletion (the host's Ctrl+Z)
   socket.on('host_undo_delete', () => {
     if (!conn.roomId) return;
     const room = getRoom(conn.roomId);
@@ -42,7 +42,7 @@ module.exports = function registerTrashHandlers(socket, conn) {
     const existing = new Set(room.lines.map(line => line.id));
     const restored = batch.lines.filter(entry => !existing.has(entry.line.id)).sort((a, b) => a.index - b.index);
     restored.forEach(entry => insertLineInOrder(room.lines, entry.line));
-    // Роли, снятые вместе с последними репликами персонажа, возвращаем, если их никто не занял
+    // Roles released together with a character's last lines come back if nobody has claimed them
     for (const [character, owner] of Object.entries(batch.claims || {})) {
       if (!room.characterClaims[character]) room.characterClaims[character] = owner;
     }
@@ -50,10 +50,10 @@ module.exports = function registerTrashHandlers(socket, conn) {
     saveRooms();
     emitSession(conn.roomId);
     socket.emit('lines_restored', { count: restored.length });
-    logEvent(conn.roomId, `↶ ${conn.nick} вернул удаленные реплики: ${restored.length}`);
+    logEvent(conn.roomId, `↶ ${conn.nick} restored deleted lines: ${restored.length}`);
   });
 
-  // ---------- Корзина удаленных реплик (только хост) ----------
+  // ---------- Trash of deleted lines (host only) ----------
   function trashEntries(room) {
     const list = [];
     (room.deletedLines || []).forEach(batch => batch.lines.forEach(entry => list.push({
@@ -68,7 +68,7 @@ module.exports = function registerTrashHandlers(socket, conn) {
     return list.sort((a, b) => b.at - a.at || a.start - b.start);
   }
 
-  // Достаем записи корзины по номерам реплик; пустые удаления убираем из стека
+  // Take trash entries by line id; drop emptied deletions from the stack
   function takeFromTrash(room, lineIds) {
     const wanted = new Set(lineIds);
     const taken = [];
@@ -99,7 +99,7 @@ module.exports = function registerTrashHandlers(socket, conn) {
     const existing = new Set(room.lines.map(line => line.id));
     const taken = takeFromTrash(room, lineIds).filter(item => !existing.has(item.entry.line.id));
     if (!taken.length) return;
-    // Возвращаем на прежние места
+    // Put them back where they were
     taken.forEach(item => insertLineInOrder(room.lines, item.entry.line));
     taken.forEach(item => {
       const character = item.entry.line.character;
@@ -110,10 +110,10 @@ module.exports = function registerTrashHandlers(socket, conn) {
     saveRooms();
     emitSession(conn.roomId);
     socket.emit('lines_restored', { count: taken.length });
-    logEvent(conn.roomId, `↶ ${conn.nick} вернул из корзины реплик: ${taken.length}`);
+    logEvent(conn.roomId, `↶ ${conn.nick} restored lines from the trash: ${taken.length}`);
   });
 
-  // Окончательное удаление из корзины: только тогда стираются файлы дублей
+  // Permanent deletion from the trash: only then are take files erased
   socket.on('host_trash_purge', ({ lineIds } = {}) => {
     if (!conn.roomId || !Array.isArray(lineIds)) return;
     const room = getRoom(conn.roomId);
@@ -124,6 +124,6 @@ module.exports = function registerTrashHandlers(socket, conn) {
     snapshotActive(room);
     saveRooms();
     emitSession(conn.roomId);
-    logEvent(conn.roomId, `🗑 ${conn.nick} удалил из корзины навсегда реплик: ${taken.length}`);
+    logEvent(conn.roomId, `🗑 ${conn.nick} permanently deleted lines from the trash: ${taken.length}`);
   });
 };

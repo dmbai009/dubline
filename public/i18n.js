@@ -868,6 +868,92 @@
     'help.step1': "Якщо грати через колонки, звук відео потрапить у мікрофон і в дублі буде луна. Краще дротові: Bluetooth-гарнітура з увімкненим мікрофоном переходить у режим з поганим звуком. Грайте в Chrome або Edge."
   });
 
+  // Server errors: the server sends a key, the English text is only a fallback
+  Object.assign(messages.en, {
+    'error.internal': "Internal server error. Details are in the host's server window.",
+    'error.fileTooBig': "The file is too large (max {max} MB).",
+    'error.uploadFailed': "Upload failed: {message}",
+    'error.hostOnlyPack': "Only the room host can change the pack.",
+    'error.hostOnlyScene': "Only the room host can create a scene.",
+    'error.noFile': "No file was sent.",
+    'error.needZip': "A .zip archive is required.",
+    'error.notZip': "The file does not look like a .zip archive.",
+    'error.packTooBig': "The unpacked pack is larger than {max} MB.",
+    'error.badPackName': "Invalid mod name.",
+    'error.packNotFound': "The mod was not found on the server.",
+    'error.noVideo': "No video file was sent (.mp4 / .mkv).",
+    'error.videoFormat': "Only .mp4 and .mkv videos are supported.",
+    'error.subtitleFormat': "Supported subtitles: .ass, .ssa, .srt and .vtt.",
+    'error.subtitlesTooBig': "The subtitles are larger than {max} MB.",
+    'error.noEmbeddedSubtitles': "The MKV has no embedded ASS/SSA/SRT subtitles.",
+    'error.needSubtitles': "Add a subtitle file or use an MKV with an embedded subtitle track.",
+    'error.noSubtitleLines': "No lines were found in the subtitle file.",
+    'error.processingFailed': "Could not process the video. Details are in the host's server window.",
+    'error.processingTimeout': "Processing the video took too long and was stopped.",
+    'error.badRequest': "Invalid request.",
+    'error.nickNotConfirmed': "Your nickname is not confirmed. Rejoin the room.",
+    'error.sessionDeleted': "The session this take was recorded in has been deleted.",
+    'error.lineNotFound': "Line not found.",
+    'error.lineTaken': "The line is claimed by another player.",
+    'error.notYourTake': "You cannot delete someone else's take."
+  });
+  Object.assign(messages.ru, {
+    'error.internal': "Внутренняя ошибка сервера. Подробности — в окне сервера у хоста.",
+    'error.fileTooBig': "Файл слишком большой (максимум {max} МБ).",
+    'error.uploadFailed': "Ошибка загрузки: {message}",
+    'error.hostOnlyPack': "Менять пак может только хост комнаты.",
+    'error.hostOnlyScene': "Создавать сцену может только хост комнаты.",
+    'error.noFile': "Файл не передан.",
+    'error.needZip': "Нужен .zip архив.",
+    'error.notZip': "Файл не похож на .zip архив.",
+    'error.packTooBig': "Распакованный пак больше {max} МБ.",
+    'error.badPackName': "Некорректное имя мода.",
+    'error.packNotFound': "Мод не найден на сервере.",
+    'error.noVideo': "Не передан видеофайл (.mp4 / .mkv).",
+    'error.videoFormat': "Поддерживаются только видео .mp4 и .mkv.",
+    'error.subtitleFormat': "Поддерживаются субтитры .ass, .ssa, .srt и .vtt.",
+    'error.subtitlesTooBig': "Субтитры больше {max} МБ.",
+    'error.noEmbeddedSubtitles': "В MKV нет встроенных субтитров ASS/SSA/SRT.",
+    'error.needSubtitles': "Добавьте файл субтитров или MKV со встроенной дорожкой субтитров.",
+    'error.noSubtitleLines': "В файле субтитров не найдено реплик.",
+    'error.processingFailed': "Не удалось обработать видео. Подробности — в окне сервера у хоста.",
+    'error.processingTimeout': "Обработка видео заняла слишком много времени и была остановлена.",
+    'error.badRequest': "Некорректные данные.",
+    'error.nickNotConfirmed': "Ник не подтвержден — перезайдите в комнату.",
+    'error.sessionDeleted': "Сессия, в которой записан дубль, уже удалена.",
+    'error.lineNotFound': "Реплика не найдена.",
+    'error.lineTaken': "Реплика занята другим игроком.",
+    'error.notYourTake': "Нельзя удалить чужой дубль."
+  });
+  Object.assign(messages.uk, {
+    'error.internal': "Внутрішня помилка сервера. Подробиці — у вікні сервера в хоста.",
+    'error.fileTooBig': "Файл завеликий (максимум {max} МБ).",
+    'error.uploadFailed': "Помилка завантаження: {message}",
+    'error.hostOnlyPack': "Змінювати пак може лише хост кімнати.",
+    'error.hostOnlyScene': "Створювати сцену може лише хост кімнати.",
+    'error.noFile': "Файл не передано.",
+    'error.needZip': "Потрібен .zip архів.",
+    'error.notZip': "Файл не схожий на .zip архів.",
+    'error.packTooBig': "Розпакований пак більший за {max} МБ.",
+    'error.badPackName': "Некоректна назва мода.",
+    'error.packNotFound': "Мод не знайдено на сервері.",
+    'error.noVideo': "Не передано відеофайл (.mp4 / .mkv).",
+    'error.videoFormat': "Підтримуються лише відео .mp4 і .mkv.",
+    'error.subtitleFormat': "Підтримуються субтитри .ass, .ssa, .srt і .vtt.",
+    'error.subtitlesTooBig': "Субтитри більші за {max} МБ.",
+    'error.noEmbeddedSubtitles': "У MKV немає вбудованих субтитрів ASS/SSA/SRT.",
+    'error.needSubtitles': "Додайте файл субтитрів або MKV з вбудованою доріжкою субтитрів.",
+    'error.noSubtitleLines': "У файлі субтитрів не знайдено реплік.",
+    'error.processingFailed': "Не вдалося обробити відео. Подробиці — у вікні сервера в хоста.",
+    'error.processingTimeout': "Обробка відео тривала занадто довго й була зупинена.",
+    'error.badRequest': "Некоректні дані.",
+    'error.nickNotConfirmed': "Нік не підтверджено — перезайдіть у кімнату.",
+    'error.sessionDeleted': "Сесію, в якій записано дубль, уже видалено.",
+    'error.lineNotFound': "Репліку не знайдено.",
+    'error.lineTaken': "Репліку зайняв інший гравець.",
+    'error.notYourTake': "Не можна видалити чужий дубль."
+  });
+
   let language = localStorage.getItem('dubline_language');
   if (!messages[language]) {
     const browser = String(navigator.language || 'en').toLowerCase();
@@ -877,6 +963,17 @@
   function t(key, params = {}) {
     const template = messages[language][key] || messages.en[key] || key;
     return template.replace(/\{(\w+)\}/g, (_, name) => params[name] ?? `{${name}}`);
+  }
+
+  // Language code of an audio track (jpn, rus, en…) as a name in the interface language
+  function languageName(code) {
+    if (!code || code === 'und') return '';
+    try {
+      const name = new Intl.DisplayNames([language], { type: 'language' }).of(code);
+      return name.charAt(0).toUpperCase() + name.slice(1);
+    } catch (e) {
+      return code;
+    }
   }
 
   function apply(root = document) {
@@ -894,5 +991,5 @@
     window.dispatchEvent(new CustomEvent('dubline-language-changed', { detail: language }));
   }
 
-  window.DublineI18n = { t, apply, setLanguage, getLanguage: () => language, messages };
+  window.DublineI18n = { t, apply, setLanguage, getLanguage: () => language, languageName, messages };
 })();

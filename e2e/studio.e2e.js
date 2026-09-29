@@ -1,4 +1,4 @@
-// Студия: подсказки, ники, запись с отсчётом, эффекты, сдвиг, задержка, масштаб, панели, лобби
+// Studio: hints, nicknames, recording with countdown, effects, shifting, delay, zoom, panels, lobby
 const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const {
@@ -43,7 +43,7 @@ describe('studio', { skip: skipReason }, () => {
 
   test('line length comes from the original voice when the pack gives only a start (MP3)', async () => {
     const line = FIXTURE_LINES[3];
-    // Берем длину именно от сервера (страница умеет подправлять ее сама, но запись и дубли опираются на серверную)
+    // Take the length from the server (the page can adjust it itself, but recording and takes rely on the server's)
     const fromServer = await alice.evaluate(id => new Promise(resolve => {
       socket.once('session_updated', data => resolve(data.lines.find(l => l.id === id).end));
       socket.emit('join_room', { room: currentRoom, nick: myName, clientId });
@@ -64,7 +64,7 @@ describe('studio', { skip: skipReason }, () => {
     await waitFor(alice, () => document.getElementById('toast').textContent.length > 0);
     await alice.evaluate(() => selectLine(session.lines[0]));
     await alice.keyboard.press('KeyR');
-    await waitFor(alice, () => /займите|claim/i.test(document.getElementById('toast').textContent));
+    await waitFor(alice, () => document.getElementById('toast').textContent.includes(t('toast.claimFirst')));
   });
 
   test('recording: 2 s countdown, "Speak!" on the line start, auto-trim', async () => {
@@ -77,7 +77,7 @@ describe('studio', { skip: skipReason }, () => {
       t: video.currentTime, label: document.getElementById('recordCueLabel').textContent
     });
     assert.ok(ready.t <= line.start - 1.5, `recording starts ~2 s early (t=${ready.t})`);
-    assert.match(ready.label, /Приготовьтесь|Get ready/);
+    assert.equal(ready.label, await alice.evaluate(() => t('cue.ready')));
     await waitFor(alice, () => document.getElementById('recordCue').classList.contains('speak'), 6000);
     assert.ok(await alice.evaluate(() => document.querySelectorAll('#recordCue .cue-dot.on').length === 3 || true));
 
@@ -95,7 +95,7 @@ describe('studio', { skip: skipReason }, () => {
     await waitFor(bob, () => session && session.loaded);
     await alice.evaluate(id => setTakeProps(id, { effect: 'robot', pitch: 5 }), line.id);
     await waitFor(bob, id => { const l = session.lines.find(x => x.id === id); return l.effect === 'robot' && l.pitch === 5; }, 5000, line.id);
-    // Обработка не сдвигает звук: длина = исходная + «хвост» эффекта (эхо/реверберация не обрывается)
+    // Processing does not shift the sound: length = original + the effect tail (echo/reverb is not cut off)
     const lengths = await bob.evaluate(async id => {
       const l = session.lines.find(x => x.id === id);
       const raw = await getRawTake(l.audioUrl);
@@ -121,7 +121,7 @@ describe('studio', { skip: skipReason }, () => {
     await alice.mouse.up();
     const moved = await waitFor(bob, (id, prev) => { const v = session.lines.find(l => l.id === id).audioStart; return v !== prev && v; }, 5000, line.id, before);
     assert.ok(Math.abs(moved - before - 30 / box.px) < 0.02, `moved by ${moved - before}`);
-    // Кнопки сдвига считают от текущего положения — ждем, пока оно дойдет и до самой Алисы
+    // The shift buttons count from the current position: wait until it reaches Alice herself too
     await waitFor(alice, (id, v) => session.lines.find(l => l.id === id).audioStart === v, 5000, line.id, moved);
     await alice.evaluate(id => nudgeTake(id, -0.05), line.id);
     await waitFor(bob, (id, target) => Math.abs(session.lines.find(l => l.id === id).audioStart - target) < 0.002, 5000, line.id, moved - 0.05);
@@ -210,7 +210,7 @@ describe('studio', { skip: skipReason }, () => {
   });
 
   test('overlapping lines are stacked into lanes instead of drawn on top of each other', async () => {
-    // Субтитры, где реплики пересекаются по времени (как в аниме: говорят одновременно)
+    // Subtitles with lines overlapping in time (as in anime: people talk at once)
     const srt = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'dubline-srt-')), 'overlap.srt');
     fs.writeFileSync(srt, [
       '1\n00:00:01,000 --> 00:00:04,000\nA: one\n',
@@ -241,14 +241,14 @@ describe('studio', { skip: skipReason }, () => {
     assert.equal(layout.rowHeight, 6 + 3 * 54, 'row grows to fit the lanes');
     assert.equal(layout.tiles.find(tile => tile.start === 6).top, Math.min(...lanes), 'free time goes back to the first lane');
 
-    // Суфлёр над видео показывает все реплики, звучащие одновременно
+    // The prompter over the video shows all lines that sound at the same time
     const prompter = await alice.evaluate(async () => {
       video.currentTime = 3.2;
       await new Promise(resolve => video.addEventListener('seeked', resolve, { once: true }));
       updatePrompter();
       const rows = () => [...document.querySelectorAll('#videoPrompter .prompter-line')];
       const plain = rows().map(row => row.querySelector('.prompter-text').textContent);
-      // Во время записи своя реплика — первой и выделена, остальные приглушены
+      // While recording, your own line comes first and is highlighted, the others are dimmed
       const second = session.lines.find(l => /two$/.test(l.caption));
       recordingLineId = second.id;
       updatePrompter();
@@ -257,7 +257,7 @@ describe('studio', { skip: skipReason }, () => {
       updatePrompter();
       return { plain, recording, visible: getComputedStyle(document.getElementById('videoPrompter')).display };
     });
-    // (в тестовых сабах текст реплики — «A: one»: однобуквенный префикс не считается именем персонажа)
+    // (in the test subtitles the line text is "A: one": a one-letter prefix is not a character name)
     assert.deepEqual(prompter.plain.map(text => text.split(' ').pop()), ['one', 'two', 'three']);
     assert.match(prompter.recording[0].text, /two$/);
     assert.match(prompter.recording[0].cls, /recording/);
@@ -266,7 +266,7 @@ describe('studio', { skip: skipReason }, () => {
   });
 
   test('changing the character of a line moves it to that character track', async () => {
-    // Сейчас открыта сцена из SRT: все 4 реплики у одного персонажа
+    // The SRT scene is open now: all 4 lines belong to one character
     const renameTo = async (page, id, name) => {
       await page.evaluate(lineId => { selectLine(session.lines.find(l => l.id === lineId)); startCharacterEdit(lineId); }, id);
       await page.evaluate(value => {
@@ -275,24 +275,24 @@ describe('studio', { skip: skipReason }, () => {
       }, name);
     };
     const ids = await alice.evaluate(() => session.lines.map(l => l.id));
-    await renameTo(alice, ids[0], 'Рена');
+    await renameTo(alice, ids[0], 'Rena');
     await waitFor(bob, id => {
-      const row = [...document.querySelectorAll('.track-row')].find(r => r.querySelector('.char-name')?.textContent === 'Рена');
+      const row = [...document.querySelectorAll('.track-row')].find(r => r.querySelector('.char-name')?.textContent === 'Rena');
       return row && row.querySelector(`#line-block-${id}`);
     }, 5000, ids[0]);
     assert.equal(await bob.evaluate(() => document.querySelectorAll('.track-row').length), 2, 'a new track appeared');
 
-    // Роль «Рена» заняла Алиса — Боб не может перенести туда реплику, а свободную в новую роль может
-    await alice.evaluate(() => claimCharacter('Рена'));
-    await waitFor(bob, () => session.characterClaims['Рена'] === 'Alice', 5000);
+    // Alice claimed the role "Rena": Bob cannot move a line there, but can move a free line to a new role
+    await alice.evaluate(() => claimCharacter('Rena'));
+    await waitFor(bob, () => session.characterClaims['Rena'] === 'Alice', 5000);
     const before = await bob.evaluate(id => session.lines.find(l => l.id === id).character, ids[1]);
-    await renameTo(bob, ids[1], 'Рена');
+    await renameTo(bob, ids[1], 'Rena');
     await waitFor(bob, () => /Alice/.test(document.getElementById('toast').textContent), 3000);
     assert.equal(await bob.evaluate(id => session.lines.find(l => l.id === id).character, ids[1]), before, 'line stayed with its character');
-    await renameTo(bob, ids[2], 'Мион');
-    await waitFor(alice, id => session.lines.find(l => l.id === id).character === 'Мион', 5000, ids[2]);
+    await renameTo(bob, ids[2], 'Mion');
+    await waitFor(alice, id => session.lines.find(l => l.id === id).character === 'Mion', 5000, ids[2]);
 
-    // Реплику Алисы Боб переименовать не может — кнопки ✎ у него нет
+    // Bob cannot rename Alice's line: he has no ✎ button
     assert.equal(await bob.evaluate(id => { selectLine(session.lines.find(l => l.id === id)); return !!document.getElementById('charInput'); }, ids[0]), false);
   });
 
@@ -305,42 +305,42 @@ describe('studio', { skip: skipReason }, () => {
       if (modifier) await page.keyboard.up(modifier);
     };
 
-    // Ctrl+клик — две свободные реплики, назначаем новому персонажу
+    // Ctrl+click: two free lines, assign them to a new character
     await click(bob, freeIds[0]);
     await click(bob, freeIds[1], 'Control');
-    await waitFor(bob, () => /Выбрано реплик: 2|2 lines selected/.test(document.getElementById('inspector').innerText), 3000);
-    await bob.evaluate(() => { document.getElementById('multiCharInput').value = 'Кэйити'; document.querySelector('.insp-char-form').dispatchEvent(new Event('submit', { cancelable: true })); });
-    await waitFor(alice, ids => ids.every(id => session.lines.find(l => l.id === id).character === 'Кэйити'), 5000, freeIds.slice(0, 2));
+    await waitFor(bob, () => document.getElementById('inspector').innerText.includes(t('multi.title', { n: 2 })), 3000);
+    await bob.evaluate(() => { document.getElementById('multiCharInput').value = 'Keiichi'; document.querySelector('.insp-char-form').dispatchEvent(new Event('submit', { cancelable: true })); });
+    await waitFor(alice, ids => ids.every(id => session.lines.find(l => l.id === id).character === 'Keiichi'), 5000, freeIds.slice(0, 2));
 
-    // Shift+клик — весь диапазон; в чужую занятую роль Боб перенести не может
+    // Shift+click: the whole range; Bob cannot move lines into a role someone else claimed
     await bob.keyboard.press('Escape');
     await click(bob, byStart[0]);
     await click(bob, byStart[byStart.length - 1], 'Shift');
-    await waitFor(bob, n => new RegExp(`Выбрано реплик: ${n}|${n} lines selected`).test(document.getElementById('inspector').innerText), 3000, byStart.length);
-    await bob.evaluate(() => { document.getElementById('multiCharInput').value = 'Рена'; document.querySelector('.insp-char-form').dispatchEvent(new Event('submit', { cancelable: true })); });
-    await waitFor(bob, () => /Пропущено|Skipped/.test(document.getElementById('toast').textContent), 3000);
+    await waitFor(bob, n => document.getElementById('inspector').innerText.includes(t('multi.title', { n })), 3000, byStart.length);
+    await bob.evaluate(() => { document.getElementById('multiCharInput').value = 'Rena'; document.querySelector('.insp-char-form').dispatchEvent(new Event('submit', { cancelable: true })); });
+    await waitFor(bob, () => document.getElementById('toast').textContent.includes(t('multi.skipped').split('{n}')[0]), 3000);
     await bob.keyboard.press('Escape');
     assert.equal(await bob.evaluate(() => document.querySelectorAll('.line-block.multi-selected').length), 0, 'Esc clears the selection');
 
-    // Дорожку из свободных реплик переименовывает любой; дорожку с чужой ролью — только хост
-    bob.promptAnswer = 'Кэйичи';
-    await bob.evaluate(() => renameCharacterTrack('Кэйити'));
-    await waitFor(alice, () => session.lines.filter(l => l.character === 'Кэйичи').length === 2 && !session.lines.some(l => l.character === 'Кэйити'), 5000);
-    const bobCanRenameRena = await bob.evaluate(() => [...document.querySelectorAll('.track-row')].find(r => r.querySelector('.char-name')?.textContent === 'Рена')?.querySelector('.track-rename') != null);
+    // Anyone can rename a track of free lines; a track with someone else's role only the host can
+    bob.promptAnswer = 'Keichi';
+    await bob.evaluate(() => renameCharacterTrack('Keiichi'));
+    await waitFor(alice, () => session.lines.filter(l => l.character === 'Keichi').length === 2 && !session.lines.some(l => l.character === 'Keiichi'), 5000);
+    const bobCanRenameRena = await bob.evaluate(() => [...document.querySelectorAll('.track-row')].find(r => r.querySelector('.char-name')?.textContent === 'Rena')?.querySelector('.track-rename') != null);
     assert.equal(bobCanRenameRena, false, 'no ✎ on a track with lines of another player');
-    alice.promptAnswer = 'Рэна';
-    await alice.evaluate(() => renameCharacterTrack('Рена'));
-    await waitFor(bob, () => session.characterClaims['Рэна'] === 'Alice' && !session.characterClaims['Рена'], 5000);
+    alice.promptAnswer = 'Renna';
+    await alice.evaluate(() => renameCharacterTrack('Rena'));
+    await waitFor(bob, () => session.characterClaims['Renna'] === 'Alice' && !session.characterClaims['Rena'], 5000);
 
-    // Боб занял реплику по ошибке — хост освобождает ее через выделение
+    // Bob claimed a line by mistake: the host releases it through a selection
     const mistaken = freeIds[0];
     await bob.evaluate(id => claimSingleLine(id), mistaken);
     await waitFor(alice, id => session.lines.find(l => l.id === id).claimedBy === 'Bob', 5000, mistaken);
-    // Кликаем только когда у Алисы на экране уже актуальный таймлайн (после переименования дорожки он перерисовывается)
-    await waitFor(alice, id => [...document.querySelectorAll('.char-name')].some(n => n.textContent === 'Рэна')
+    // Click only once Alice's screen shows the current timeline (it is redrawn after a track rename)
+    await waitFor(alice, id => [...document.querySelectorAll('.char-name')].some(n => n.textContent === 'Renna')
       && document.getElementById(`line-block-${id}`)?.innerText.includes('Bob'), 5000, mistaken);
-    // Здесь кликаем прямо по элементам плиток: после переименований дорожек таймлайн Алисы
-    // перестраивается, и клик по экранным координатам может попасть в соседнюю плитку
+    // Click the tile elements directly here: after track renames Alice's timeline
+    // is rebuilt, and a click at screen coordinates may land on a neighbouring tile
     await alice.evaluate((a, b) => {
       document.getElementById(`line-block-${a}`).dispatchEvent(new MouseEvent('click', { bubbles: true }));
       document.getElementById(`line-block-${b}`).dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: true }));
@@ -371,36 +371,36 @@ describe('studio', { skip: skipReason }, () => {
       'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text',
       'Dialogue: 0,0:00:01.00,0:00:02.00,Sign,,0,0,0,,{\\p1}m 0 0 l 157 0 157 26 0 26',
       'Dialogue: 0,0:00:01.00,0:00:02.00,Sign,,0,0,0,,m 0 0 l 490 0 490 271 0 271',
-      'Dialogue: 0,0:00:02.50,0:00:03.50,Sign,,0,0,0,,{\\an8}Школа\\hнадежды',
-      'Dialogue: 0,0:00:04.00,0:00:05.00,Default,,0,0,0,,Первая реплика',
-      'Dialogue: 0,0:00:06.00,0:00:07.00,Default,,0,0,0,,Вторая реплика',
-      'Dialogue: 0,0:00:08.00,0:00:09.00,Default,,0,0,0,,Третья реплика'
+      'Dialogue: 0,0:00:02.50,0:00:03.50,Sign,,0,0,0,,{\\an8}School\\hof hope',
+      'Dialogue: 0,0:00:04.00,0:00:05.00,Default,,0,0,0,,First line',
+      'Dialogue: 0,0:00:06.00,0:00:07.00,Default,,0,0,0,,Second line',
+      'Dialogue: 0,0:00:08.00,0:00:09.00,Default,,0,0,0,,Third line'
     ].join('\n'));
     await alice.evaluate(() => openFilesModal());
     await (await alice.$('#customVideoInput')).uploadFile(fixtureVideoPath());
     await (await alice.$('#customSubInput')).uploadFile(ass);
     await alice.evaluate(() => uploadCustomScene());
     const captions = await waitFor(alice, () => session.loaded && session.lines.length && document.querySelectorAll('.line-block').length === session.lines.length && session.lines.map(l => l.caption), 15000);
-    assert.deepEqual(captions, ['Школа надежды', 'Первая реплика', 'Вторая реплика', 'Третья реплика'], 'drawings dropped, \\h cleaned');
+    assert.deepEqual(captions, ['School of hope', 'First line', 'Second line', 'Third line'], 'drawings dropped, \\h cleaned');
 
-    // Хост удаляет надпись на экране
+    // The host deletes an on-screen sign
     const sign = await alice.evaluate(() => session.lines[0].id);
     await alice.evaluate(id => { window.confirm = () => true; deleteLines([id]); }, sign);
     await waitFor(bob, id => session.lines.length === 3 && !session.lines.some(l => l.id === id), 5000, sign);
     assert.equal(await bob.evaluate(() => typeof deleteLines === 'function' && !document.querySelector('#inspector button[onclick^="deleteLines"]')), true, 'players have no delete button');
 
-    // Видимая строка «🎭 Персонаж» в инспекторе; после смены персонажа таймлайн показывает реплику
+    // The visible "🎭 Character" row in the inspector; after changing the character the timeline shows the line
     const target = await alice.evaluate(() => session.lines[2].id);
     await alice.evaluate(id => selectLine(session.lines.find(l => l.id === id)), target);
     await waitFor(alice, () => !!document.getElementById('charInput'));
     await alice.evaluate(() => { timelineContainer.scrollTop = 0; });
     await alice.evaluate(() => {
-      document.getElementById('charInput').value = 'Ёсида';
+      document.getElementById('charInput').value = 'Yoshida';
       document.querySelector('.insp-char-form').dispatchEvent(new Event('submit', { cancelable: true }));
     });
     await waitFor(alice, id => {
       const tile = document.getElementById(`line-block-${id}`);
-      if (!tile || session.lines.find(l => l.id === id).character !== 'Ёсида') return false;
+      if (!tile || session.lines.find(l => l.id === id).character !== 'Yoshida') return false;
       const box = tile.getBoundingClientRect();
       const view = timelineContainer.getBoundingClientRect();
       return box.top >= view.top && box.bottom <= view.bottom;
@@ -417,25 +417,25 @@ describe('studio', { skip: skipReason }, () => {
     const undoBefore = await alice.evaluate(() => session.undoCount || 0);
     const trashBefore = await alice.evaluate(() => session.trashCount || 0);
 
-    // Удаляем реплику с дублем: подсказка с «Отменить», кнопка на панели, файл дубля остается
+    // Delete a line with a take: a toast with "Undo", a toolbar button, the take file is kept
     await alice.evaluate(id => { window.confirm = () => true; deleteLines([id]); }, target);
     await waitFor(bob, id => !session.lines.some(l => l.id === id), 5000, target);
-    await waitFor(alice, () => document.querySelector('#toast button') && /Отменить|Undo/.test(document.getElementById('toast').innerText), 3000);
+    await waitFor(alice, () => document.querySelector('#toast button') && document.getElementById('toast').innerText.includes(t('undo.action')), 3000);
     await waitFor(alice, n => document.getElementById('undoDeleteBtn').style.display !== 'none' && document.getElementById('undoDeleteBtn').textContent.includes(String(n)), 3000, trashBefore + 1);
     assert.ok(fs.existsSync(takeFile), 'take file kept while undo is possible');
 
-    // Не хост: Ctrl+Z ничего не возвращает
+    // Not the host: Ctrl+Z restores nothing
     await bob.keyboard.down('Control'); await bob.keyboard.press('KeyZ'); await bob.keyboard.up('Control');
     await wait(500);
     assert.ok(!(await alice.evaluate(id => session.lines.some(l => l.id === id), target)));
 
-    // Хост: Ctrl+Z возвращает реплику на то же место с дублем и персонажем
+    // Host: Ctrl+Z puts the line back in place with its take and character
     await alice.keyboard.down('Control'); await alice.keyboard.press('KeyZ'); await alice.keyboard.up('Control');
     await waitFor(bob, (id, url) => { const l = session.lines.find(x => x.id === id); return l && l.audioUrl === url; }, 5000, target, takeUrl);
     assert.deepEqual(await bob.evaluate(() => session.lines.map(l => ({ id: l.id, character: l.character }))), before, 'same order and characters');
     assert.equal(await alice.evaluate(() => session.undoCount || 0), undoBefore);
 
-    // Несколько реплик и отмена кнопкой в подсказке
+    // Several lines and undo with the toast button
     const two = ids.slice(1, 3);
     await alice.evaluate(list => deleteLines(list), two);
     await waitFor(bob, list => list.every(id => !session.lines.some(l => l.id === id)), 5000, two);
@@ -445,34 +445,34 @@ describe('studio', { skip: skipReason }, () => {
   });
 
   test('trash window: restore any deleted line, search, delete forever', async () => {
-    // Сначала убеждаемся, что у обоих игроков одинаковый список реплик (предыдущий тест мог еще доходить)
+    // First make sure both players have the same list of lines (the previous test may still be arriving)
     const bobOrder = await bob.evaluate(() => JSON.stringify(session.lines.map(l => l.id)));
     await waitFor(alice, expected => JSON.stringify(session.lines.map(l => l.id)) === expected, 5000, bobOrder);
     const order = await alice.evaluate(() => session.lines.map(l => l.id));
-    // В корзине уже может что-то лежать из предыдущих тестов — «Вернуть всё» вернет и это
+    // The trash may already hold something from earlier tests: "Restore all" restores that too
     const alreadyInTrash = (await alice.evaluate(() => new Promise(resolve => socket.emit('host_trash_list', {}, resolve)))).map(item => item.lineId);
     const takeLine = await alice.evaluate(() => session.lines.find(l => l.audioUrl)?.id);
     assert.ok(takeLine, 'a line with a take exists from the previous test');
     const takeUrl = await alice.evaluate(id => session.lines.find(l => l.id === id).audioUrl, takeLine);
     const takeFile = path.join(server.dirs.uploads, decodeURIComponent(takeUrl).split('/').pop());
 
-    // Удаляем все реплики двумя заходами
+    // Delete all lines in two passes
     await alice.evaluate(list => { window.confirm = () => true; deleteLines(list); }, order.slice(0, 2));
     await waitFor(alice, n => session.lines.length === n, 5000, order.length - 2);
     await alice.evaluate(list => deleteLines(list), order.slice(2));
     await waitFor(bob, () => session.lines.length === 0, 5000);
 
-    // Корзина — только у хоста
+    // Only the host has the trash
     assert.equal(await bob.evaluate(() => document.getElementById('undoDeleteBtn').style.display), 'none');
     assert.deepEqual(await bob.evaluate(() => new Promise(resolve => socket.emit('host_trash_list', {}, resolve))), []);
 
-    // Кликаем изнутри страницы: список корзины перерисовывается при каждом обновлении сессии
+    // Click from inside the page: the trash list is redrawn on every session update
     const press = (page, selector) => page.evaluate(sel => document.querySelector(sel).click(), selector);
     await press(alice, '#undoDeleteBtn');
     await waitFor(alice, n => document.querySelectorAll('#trashList .trash-item').length >= n, 5000, order.length);
     assert.ok(await alice.evaluate(id => document.querySelector(`#trashList input[data-id="${id}"]`).closest('.trash-item').innerText.includes('🎙'), takeLine), 'take marked');
 
-    // Поиск и выборочное возвращение реплики из середины
+    // Search and restore a single line from the middle
     const middle = order[1];
     const middleCaption = await alice.evaluate(id => trashItems.find(i => i.lineId === id).caption, middle);
     await alice.type('#trashFilter', middleCaption.slice(0, 6));
@@ -481,7 +481,7 @@ describe('studio', { skip: skipReason }, () => {
     await press(alice, '#trashRestoreBtn');
     await waitFor(bob, id => session.lines.length === 1 && session.lines[0].id === id, 5000, middle);
 
-    // Удалить навсегда реплику с дублем — файл стирается
+    // Deleting a line with a take forever erases the file
     await alice.evaluate(() => { document.getElementById('trashFilter').value = ''; document.getElementById('trashFilter').dispatchEvent(new Event('input')); });
     await waitFor(alice, id => !!document.querySelector(`#trashList input[data-id="${id}"]`), 3000, takeLine);
     await press(alice, `#trashList input[data-id="${takeLine}"]`);
@@ -489,7 +489,7 @@ describe('studio', { skip: skipReason }, () => {
     await waitFor(alice, id => !document.querySelector(`#trashList input[data-id="${id}"]`), 5000, takeLine);
     await waitUntil(() => !fs.existsSync(takeFile), 3000);
 
-    // Вернуть всё остальное — порядок как до удаления
+    // Restore everything else: the order is as before deletion
     await press(alice, '#trashRestoreAllBtn');
     const expected = [...order, ...alreadyInTrash].filter(id => id !== takeLine).sort((a, b) => a - b);
     await waitFor(bob, list => JSON.stringify(session.lines.map(l => l.id)) === JSON.stringify(list), 5000, expected)
@@ -517,7 +517,7 @@ describe('studio', { skip: skipReason }, () => {
       const big = { size: 200 * 1024 * 1024 };
       const localAnswer = tunnelUploadError([big]);
       const realCheck = isLocalAddress;
-      isLocalAddress = () => false; // как будто страница открыта по ссылке-туннелю
+      isLocalAddress = () => false; // as if the page was opened through the tunnel link
       const tunnelAnswer = tunnelUploadError([big, null]);
       const smallAnswer = tunnelUploadError([{ size: 10 * 1024 * 1024 }]);
       isLocalAddress = realCheck;
@@ -527,7 +527,9 @@ describe('studio', { skip: skipReason }, () => {
         smallAnswer,
         tunnel413: await readError(new Response('<html><body>413 Request Entity Too Large</body></html>', { status: 413 })),
         tunnel502: await readError(new Response('<!DOCTYPE html><html>Bad gateway</html>', { status: 502 })),
-        ours: await readError(new Response('Реплика не найдена', { status: 404 })),
+        ours: await readError(new Response(JSON.stringify({ error: 'Line not found', key: 'error.lineNotFound' }), { status: 404 })),
+        oursExpected: t('error.lineNotFound'),
+        plain: await readError(new Response('Plain text reason', { status: 400 })),
         banner: document.getElementById('browserBanner').style.display
       };
     });
@@ -538,7 +540,8 @@ describe('studio', { skip: skipReason }, () => {
     assert.match(result.tunnel413, /localhost:3000/);
     assert.match(result.tunnel502, /502/);
     assert.doesNotMatch(result.tunnel502, /</);
-    assert.equal(result.ours, 'Реплика не найдена');
+    assert.equal(result.ours, result.oursExpected);
+    assert.equal(result.plain, 'Plain text reason');
     assert.equal(result.banner, 'none');
   });
 
@@ -551,9 +554,9 @@ describe('long phrases', { skip: skipReason }, () => {
   let server;
   let browser;
   let page;
-  const line = FIXTURE_LINES[0]; // 3.0–4.5 с
-  // Запись стартует за 2 с до реплики: фраза с 2.0 с файла, громко до 4.7, тихий хвост до 5.0,
-  // то есть игрок говорит на 1.5 с дольше оригинала
+  const line = FIXTURE_LINES[0]; // 3.0–4.5 s
+  // Recording starts 2 s before the line: the phrase runs from 2.0 s of the file, loud until 4.7, a quiet tail until 5.0,
+  // so the player speaks 1.5 s longer than the original
   const voice = { speechFrom: 2.0, loudUntil: 4.7, tailUntil: 5.0 };
 
   before(async () => {
@@ -571,22 +574,22 @@ describe('long phrases', { skip: skipReason }, () => {
 
   test('recording continues past the original line and stops once the player goes quiet; the quiet tail is kept', async () => {
     await page.evaluate(id => handleStudioRecord(id), line.id);
-    // После конца реплики — «договаривайте», а не обрыв
+    // After the line ends: "finish your phrase", not a cut
     await waitFor(page, end => video.currentTime > end + 0.3 && recordState !== 'idle', 10000, line.end);
-    assert.match(await page.evaluate(() => document.getElementById('recordCueLabel').textContent), /Договаривайте|Finish your phrase/);
+    assert.ok(await page.evaluate(() => document.getElementById('recordCueLabel').textContent === t('cue.finish')), 'finish-your-phrase cue');
 
     await waitFor(page, () => recordState === 'idle', 15000);
     const take = await waitFor(page, id => { const l = session.lines.find(x => x.id === id); return l.audioUrl && l; }, 15000, line.id);
-    // Все меряем по самой записи (время видео при старте отстает от звука на доли секунды)
+    // Measure everything on the recording itself (video time at the start lags the sound by a fraction of a second)
     const recorded = await page.evaluate(async url => (await getRawTake(url)).duration, take.audioUrl);
     const lineEndInTake = line.end - take.audioStart;
     const speechEndInTake = take.trimEnd - 0.35;
     assert.ok(recorded >= lineEndInTake + 1.2, `recording went on past the original line (${recorded.toFixed(2)} s recorded, line ends at ${lineEndInTake.toFixed(2)} s)`);
-    // Запись ждет 0.8 с тишины после последнего слышимого звука; очень тихий хвост детектор может не услышать,
-    // поэтому требуем главное — фраза записана целиком и после нее есть запас
+    // Recording waits for 0.8 s of silence after the last audible sound; the detector may miss a very quiet tail,
+    // so require the essentials: the whole phrase is recorded and there is headroom after it
     assert.ok(recorded - speechEndInTake >= 0.3, `whole phrase captured with a margin (${(recorded - speechEndInTake).toFixed(2)} s after speech)`);
     assert.ok(recorded - speechEndInTake <= 2, `stopped by itself soon after silence (${(recorded - speechEndInTake).toFixed(2)} s)`);
-    // Фраза 3.0 с, из них 0.3 с тихого хвоста: он должен остаться (раньше срезался)
+    // A 3.0 s phrase with a 0.3 s quiet tail: the tail must stay (it used to be cut)
     const kept = take.trimEnd - take.trimStart;
     const phrase = voice.tailUntil - voice.speechFrom;
     assert.ok(kept >= phrase + 0.25, `quiet tail kept by auto-trim (kept ${kept.toFixed(2)} s of a ${phrase} s phrase)`);

@@ -1,8 +1,8 @@
 // ==========================================
 // IMPORT
-// Загрузка паков, библиотека модов, импорт своих сцен
+// Pack upload, mod library, custom scene import
 // ==========================================
-// Загрузка нового пака
+// Upload a new pack
 zipInput.addEventListener('change', async (e) => {
   const file = e.target.files[0];
   if (!file) return;
@@ -23,7 +23,7 @@ zipInput.addEventListener('change', async (e) => {
   }
 });
 
-// ИМПОРТ И БИБЛИОТЕКА МОДОВ
+// IMPORT AND MOD LIBRARY
 // ==========================================
 const libraryList = document.getElementById('filesLibraryList');
 const customVideoInput = document.getElementById('customVideoInput');
@@ -53,7 +53,7 @@ async function loadServerPacks() {
     div.innerHTML = `
       <div>
         <strong>${esc(item.title)}</strong>
-        <div style="font-size:10px; color:#71717a;">${esc(item.sizeMb)} МБ</div>
+        <div style="font-size:10px; color:#71717a;">${esc(t('mb', { value: item.sizeMb }))}</div>
       </div>
       <div style="display:flex; gap:6px;">
         <a href="${esc(item.url)}" class="btn-share" download style="text-decoration:none; padding:4px 8px;">${t('download')}</a>
@@ -99,13 +99,13 @@ window.uploadCustomScene = async function() {
     const res = await fetch(`/api/upload-custom?room=${encodeURIComponent(currentRoom)}`, { method: 'POST', body: form });
     if (!res.ok) throw new Error(await readError(res));
     status.textContent = t('upload.done');
-    // Следующий импорт начинается с пустой формы (старые субтитры не подхватятся к новому видео)
+    // The next import starts with an empty form (old subtitles won't be attached to a new video)
     ['customVideoInput', 'customSubInput', 'customSceneTitle'].forEach(id => { document.getElementById(id).value = ''; });
     updateMkvCompatibilityWarning();
     status.style.color = '#10b981';
     setTimeout(closeFilesModal, 700);
   } catch (err) {
-    // fetch падает с TypeError, когда туннель рвет соединение посреди загрузки
+    // fetch throws a TypeError when the tunnel drops the connection mid-upload
     status.textContent = err instanceof TypeError ? t('upload.networkFailed') : t('error.generic', { message: err.message });
     status.style.color = '#ef4444';
   } finally {
@@ -116,7 +116,7 @@ window.uploadCustomScene = async function() {
 // ==========================================
 
 // ==========================================
-// ВИДЕО С ДИСКА ИГРОКА (экономит интернет хоста)
+// VIDEO FROM THE PLAYER'S DISK (saves the host's bandwidth)
 // ==========================================
 const localMediaInput = document.getElementById('localMediaInput');
 const localMediaStatus = document.getElementById('localMediaStatus');
@@ -129,7 +129,7 @@ function revokeLocalMedia() {
   localMedia = null;
 }
 
-// Пак сменился — выбранный с диска файл больше не подходит
+// The pack changed: the file picked from disk no longer matches
 function forgetStaleLocalMedia() {
   if (localMedia && (!session || localMedia.forVideoUrl !== session.videoUrl)) revokeLocalMedia();
   updateLocalMediaStatus();
@@ -141,11 +141,11 @@ function updateLocalMediaStatus() {
   localMediaStatus.textContent = active ? t(activeKey, { size: formatSize(localMedia.size) }) : t('localMedia.inactive');
   localMediaStatus.style.color = active ? '#10b981' : '#71717a';
   localMediaResetBtn.style.display = active ? 'inline-flex' : 'none';
-  // Есть файл целиком — сообщаем серверу, что можем раздавать его другим
+  // We have the whole file: tell the server we can share it with others
   announceHave();
 }
 
-// Видео (и интершум) теперь играют из памяти браузера: с диска игрока или полученные по P2P
+// The video (and background) now play from browser memory: from the player's disk or received over P2P
 function setLocalMedia({ video: videoBlob, backing: backingBlob, source }) {
   cancelMediaDownload();
   revokeLocalMedia();
@@ -181,7 +181,7 @@ async function extractMediaFromZip(file) {
   };
 }
 
-// Меняем источник видео, не сбивая позицию просмотра
+// Switch the video source without losing the playback position
 function swapVideoSource() {
   const time = video.currentTime;
   const wasPlaying = !video.paused;
@@ -226,7 +226,7 @@ window.resetLocalMedia = function() {
 };
 
 // ==========================================
-// СЕССИИ: несколько сцен в комнате, каждая со своими дублями
+// SESSIONS: several scenes in a room, each with its own takes
 // ==========================================
 const sessionsModal = document.getElementById('sessionsModal');
 const sessionsList = document.getElementById('sessionsList');

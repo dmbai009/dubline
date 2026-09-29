@@ -1,13 +1,13 @@
 // ==========================================
 // PLAYER
-// Общие помощники, видео, микшер, суфлёр, таймлайн, волны и перетаскивание дублей
+// Shared helpers, video, mixer, prompter, timeline, waveforms and take dragging
 // ==========================================
 const i18n = window.DublineI18n;
 const t = (key, params) => i18n.t(key, params);
 i18n.apply();
 const labelWidth = 180;
 
-// Масштаб таймлайна: пикселей на секунду (Ctrl+колесо, кнопки − / + / «Вся сцена»)
+// Timeline zoom: pixels per second (Ctrl+wheel, the − / + / "Whole scene" buttons)
 const ZOOM_DEFAULT = 60;
 const ZOOM_MIN = 2;
 const ZOOM_MAX = 400;
@@ -30,18 +30,18 @@ const modalNickInput = document.getElementById('modalNickInput');
 const downloadPackBtn = document.getElementById('downloadOriginalPackBtn');
 const downloadPackNone = document.getElementById('downloadOriginalPackNone');
 
-// Кто сейчас записывает какую реплику (приходит от сервера): lineId -> ник
+// Who is recording which line right now (from the server): lineId -> nick
 const liveRecordings = new Map();
-// Кто из игроков раздает видео сцены по P2P (ники)
+// Players sharing the scene video over P2P (nicks)
 const seedingNicks = new Set();
-// Реплики, чьи дубли записаны, но еще не дошли до сервера
+// Lines whose takes are recorded but haven't reached the server yet
 const pendingTakeLines = new Set();
-// Несколько выделенных реплик (Ctrl/Shift+клик) — для массового назначения персонажа
+// Several selected lines (Ctrl/Shift+click) for assigning a character in bulk
 const multiSelection = new Set();
 let lastClickedLineId = null;
-let revealLineId = null; // реплика, к которой прокрутить таймлайн после перерисовки (сменили персонажа)
+let revealLineId = null; // line to scroll the timeline to after a redraw (its character changed)
 
-// Видео/интершум, выбранные игроком со своего диска, чтобы не качать их через туннель
+// Video/background picked from the player's own disk, so they don't go through the tunnel
 let localMedia = null; // { forVideoUrl, videoUrl, videoBlob, backingUrl, backingBlob, size }
 let loadedVideoUrl = null;
 
@@ -80,20 +80,20 @@ const audio = window.DublineAudio.createController({
   getLatency: nick => latencyFor(nick)
 });
 
-// Поправка задержки микрофона игрока в секундах (хранится на сервере в мс)
+// The player's microphone delay correction in seconds (stored on the server in ms)
 function latencyFor(nick) {
   const ms = nick && state.session && state.session.latency ? state.session.latency[nick] : 0;
   return (Number(ms) || 0) / 1000;
 }
 
-// Цвет игрока: одинаковый у всех, выводится из ника
+// Player color: the same for everyone, derived from the nick
 function playerColor(nick) {
   let hash = 0;
   for (const ch of String(nick || '')) hash = (hash * 31 + ch.codePointAt(0)) >>> 0;
   return `hsl(${hash % 360}, 62%, 52%)`;
 }
 
-// Сколько реплик озвучено: всего и по каждому игроку
+// How many lines are dubbed: in total and per player
 function sceneProgress() {
   const lines = (state.session && state.session.lines) || [];
   const perPlayer = new Map();
@@ -130,17 +130,17 @@ const {
   takeStartTime
 } = audio;
 
-// Экранирование пользовательского текста перед вставкой в HTML
+// Escape user text before inserting it into HTML
 function esc(value) {
   return String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 }
 
-// Безопасный аргумент для onclick="fn(...)"
+// Safe argument for onclick="fn(...)"
 function jsArg(value) {
   return esc(JSON.stringify(value));
 }
 
-// Ссылка-туннель (Cloudflare и т.п.) не пропускает большие запросы — около 100 МБ
+// A tunnel link (Cloudflare etc.) rejects large requests, around 100 MB
 const TUNNEL_UPLOAD_MB = 95;
 
 function isLocalAddress() {
@@ -149,7 +149,7 @@ function isLocalAddress() {
     || /^(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(host);
 }
 
-// Пустая строка — можно грузить; иначе понятный текст, почему не выйдет
+// Empty string: OK to upload; otherwise a readable reason why it won't work
 function tunnelUploadError(files) {
   if (isLocalAddress()) return '';
   const bytes = files.filter(Boolean).reduce((sum, file) => sum + file.size, 0);
@@ -159,15 +159,22 @@ function tunnelUploadError(files) {
 
 async function readError(res) {
   const text = await res.text().catch(() => '');
-  // Страница ошибки туннеля (HTML) вместо ответа нашего сервера
+  // The tunnel's error page (HTML) instead of our server's reply
   if (/^\s*</.test(text) || !text) {
     if (res.status === 413) return t('upload.rejectedByTunnel');
     return t('error.generic', { message: `HTTP ${res.status}` });
   }
+  // Our server replies { error, key, params }: show the key in the player's language, else the English text
+  try {
+    const { error, key, params } = JSON.parse(text);
+    const translated = key ? t(key, params || {}) : '';
+    if (translated && translated !== key) return translated;
+    if (error) return error;
+  } catch (e) { /* not JSON */ }
   return text;
 }
 
-// Микшер громкости
+// Volume mixer
 const muteAllCheckbox = document.getElementById('muteAllCheckbox');
 const volOriginal = document.getElementById('volOriginal');
 const volBacking = document.getElementById('volBacking');
@@ -193,15 +200,15 @@ const PROMPTER_MAX_LINES = 4;
 let prompterKey = '';
 
 function updatePrompter() {
-  // Шрифт суфлёра не больше ~4.5% ширины видео, чтобы на маленьком окне он не закрывал картинку
+  // Prompter font is at most ~4.5% of the video width so it doesn't cover the picture in a small window
   videoPrompter.style.fontSize = `min(${prompterSize}px, 4.5cqw)`;
   if (!prompterEnabled || !session || !session.lines) {
     videoPrompter.style.display = 'none';
     return;
   }
   const current = video.currentTime || 0;
-  // Все реплики, которые звучат сейчас (персонажи могут говорить одновременно);
-  // при записи своя реплика — первой и выделена, остальные приглушены
+  // All lines playing right now (characters may speak at once);
+  // while recording, your own line comes first and highlighted, the others dimmed
   const recording = recordingLineId != null ? session.lines.find(line => line.id === recordingLineId) : null;
   const active = session.lines
     .filter(line => line !== recording && current >= line.start && current <= line.end)
@@ -214,7 +221,7 @@ function updatePrompter() {
     return;
   }
 
-  // Строки пересобираем только когда меняется набор реплик, а каждый кадр двигаем полоски
+  // Rebuild rows only when the set of lines changes; move the progress bars every frame
   const key = `${recording ? recording.id : ''}|${shown.map(line => line.id).join(',')}|${hidden}`;
   if (key !== prompterKey) {
     prompterKey = key;
@@ -251,7 +258,7 @@ function syncPlayheadLoop() {
 }
 
 // ==========================================
-// ВОСПРОИЗВЕДЕНИЕ ДУБЛЕЙ (Web Audio, с эффектами и обрезкой)
+// TAKE PLAYBACK (Web Audio, with effects and trimming)
 // ==========================================
 video.addEventListener('play', () => {
   ensurePlayCtx();
@@ -290,8 +297,8 @@ function getLineOwner(line) {
   return charOwner || line.claimedBy || null;
 }
 
-// Длительность оригинальной реплики узнаем один раз на адрес: раньше каждая перерисовка
-// таймлайна создавала новый <audio> на каждую реплику и заваливала туннель запросами
+// Learn the original line duration once per URL: previously every timeline redraw
+// created a new <audio> per line and flooded the tunnel with requests
 const durationCache = new Map(); // url -> Promise<number | null>
 
 function probeDuration(url) {
@@ -311,10 +318,10 @@ function probeDuration(url) {
 }
 
 const MIN_TILE_PX = 22;
-const LANE_HEIGHT = 54;  // высота плитки 48 + зазор 6
+const LANE_HEIGHT = 54;  // tile height 48 + gap 6
 const ROW_PADDING = 6;
 
-// Жадная раскладка по полосам: каждая реплика — в первую полосу, где предыдущая уже закончилась
+// Greedy lane layout: each line goes to the first lane where the previous one has already ended
 function assignLanes(lines) {
   const laneEnds = [];
   const laneOf = new Map();
@@ -335,9 +342,9 @@ function scheduleTimelineRender() {
   clearTimeout(timelineRenderTimer);
   timelineRenderTimer = setTimeout(() => { if (session && session.loaded) renderTimeline(); }, 150);
 }
-const TIMELINE_TAIL = 5; // секунд пустого места после конца сцены
+const TIMELINE_TAIL = 5; // seconds of empty space after the end of the scene
 
-// Длина сцены на таймлайне: до конца видео или последней реплики
+// Scene length on the timeline: up to the end of the video or the last line
 function timelineSeconds() {
   const lastLine = Math.max(0, ...((session && session.lines) || []).map(l => l.end));
   const videoLength = Number.isFinite(video.duration) ? video.duration : 0;
@@ -412,7 +419,7 @@ function renderTimeline() {
       }
     }
 
-    // Переименовать дорожку целиком: хост всегда, остальные — если все реплики свободны или свои
+    // Rename a whole track: the host always, others only if all its lines are free or their own
     const canRenameTrack = amHost() || session.lines.filter(l => l.character === char).every(l => { const owner = getLineOwner(l); return !owner || owner === myName; });
     const renameTrackBtn = canRenameTrack ? `<button class="track-rename" title="${esc(t('char.renameTrack', { name: char }))}" onclick="renameCharacterTrack(${jsArg(char)})">✎</button>` : '';
     label.innerHTML = `
@@ -427,8 +434,8 @@ function renderTimeline() {
     trackArea.style.width = `${trackWidth}px`;
 
     const charLines = session.lines.filter(l => l.character === char);
-    // Реплики, пересекающиеся по времени, раскладываем по подполосам (как клипы на соседних дорожках),
-    // иначе они рисуются друг на друге. Считаем по реальному времени — раскладка не прыгает при масштабе.
+    // Lines overlapping in time are placed into sub-lanes (like clips on neighboring tracks),
+    // otherwise they are drawn on top of each other. Uses real time, so the layout doesn't jump when zooming.
     const laneOf = assignLanes(charLines);
     const laneCount = laneOf.size ? Math.max(...laneOf.values()) + 1 : 1;
     row.style.height = `${ROW_PADDING + laneCount * LANE_HEIGHT}px`;
@@ -465,7 +472,7 @@ function renderTimeline() {
           line.end = end;
           if (block.isConnected) block.style.width = `${Math.max((line.end - line.start) * pxPerSec, MIN_TILE_PX)}px`;
           if (selectedLine && selectedLine.id === line.id) showInspector(line);
-          // Длина поменялась — реплики могли начать пересекаться, переложим полосы
+          // The length changed: lines may now overlap, so redo the lanes
           scheduleTimelineRender();
         });
       }
@@ -529,7 +536,7 @@ function updateLineBlockVisual(el, line) {
 }
 
 // ==========================================
-// ПЕРЕТАСКИВАНИЕ ДУБЛЯ ПО ТАЙМЛАЙНУ
+// DRAGGING A TAKE ALONG THE TIMELINE
 // ==========================================
 function enableTakeDrag(el, lineId) {
   el.classList.add('draggable');
@@ -540,7 +547,7 @@ function enableTakeDrag(el, lineId) {
     const line = session.lines.find(l => l.id === lineId);
     if (!line) return;
 
-    // Shift — двигаем сразу все свои дубли: это поправка задержки микрофона
+    // Shift moves all your takes at once: that is the microphone delay correction
     if (e.shiftKey) return startLatencyDrag(e, el);
 
     const startX = e.clientX;
@@ -581,7 +588,7 @@ function enableTakeDrag(el, lineId) {
   };
 }
 
-// Shift+перетаскивание: сдвигает все дубли игрока разом и сохраняет это как его задержку
+// Shift+drag: shifts all of the player's takes at once and saves it as their delay
 function startLatencyDrag(e, grabbed) {
   const startX = e.clientX;
   const origMs = Math.round(latencyFor(myName) * 1000);
@@ -600,7 +607,7 @@ function startLatencyDrag(e, grabbed) {
       tiles.forEach(item => item.el.classList.add('latency-drag'));
       grabbed.appendChild(hint);
     }
-    // Тянем вправо — дубли звучат позже, значит поправка уменьшается
+    // Dragging right makes takes sound later, so the correction decreases
     newMs = Math.max(-1000, Math.min(1000, Math.round(origMs - (dx / pxPerSec) * 1000)));
     tiles.forEach(({ line, el }) => {
       const canvas = el.querySelector('.wave-canvas');
@@ -646,7 +653,7 @@ window.resetTakeShift = function(lineId) {
 };
 
 // ==========================================
-// ФОРМА ВОЛНЫ НА ТАЙМЛАЙНЕ
+// WAVEFORM ON THE TIMELINE
 // ==========================================
 const PEAKS_PER_SEC = 100;
 const peaksCache = new Map(); // url -> Promise<Float32Array | null>
@@ -669,7 +676,7 @@ function computePeaks(audio) {
     }
   }
 
-  // Нормализуем, но тишину не раздуваем до полной высоты
+  // Normalize, but don't blow silence up to full height
   let top = 0;
   for (let i = 0; i < count; i++) if (peaks[i] > top) top = peaks[i];
   const norm = Math.max(top, 0.1);
@@ -679,7 +686,7 @@ function computePeaks(audio) {
 
 function loadPeaks(url, isTake) {
   if (!peaksCache.has(url)) {
-    // Дубли декодируются один раз и переиспользуются для воспроизведения
+    // Takes are decoded once and reused for playback
     const decoded = isTake ? getRawTake(url) : fetchAndDecode(url);
     const job = decoded.then(buf => (buf ? computePeaks(buf) : null)).catch(() => null);
     peaksCache.set(url, job);
@@ -692,7 +699,7 @@ function attachWaveform(block, line) {
   if (!url) return;
 
   const isTake = !!line.audioUrl;
-  // Дубль начинается раньше реплики на длину pre-roll (и может быть сдвинут вручную)
+  // A take starts earlier than the line by the pre-roll (and may be shifted manually)
   const offsetSec = isTake ? takeStartTime(line) - line.start : 0;
   const bounds = isTake ? takeDryBounds(line) : { from: 0, to: Infinity };
 
@@ -718,7 +725,7 @@ function drawWaveform(canvas, peaks, offsetSec, isTake, bounds = { from: 0, to: 
   const ctx = canvas.getContext('2d');
   ctx.scale(dpr, dpr);
   const activeColor = isTake ? 'rgba(52, 211, 153, 0.55)' : 'rgba(161, 161, 170, 0.22)';
-  const trimmedColor = 'rgba(161, 161, 170, 0.12)'; // обрезанная тишина — бледнее
+  const trimmedColor = 'rgba(161, 161, 170, 0.12)'; // trimmed silence is paler
 
   const mid = height / 2;
   const perPx = PEAKS_PER_SEC / pxPerSec;
@@ -753,7 +760,7 @@ window.playAudio = function(url) {
   audio.playAudio(url).catch(error => console.error(error));
 };
 
-// Прослушать дубль так, как он прозвучит в ролике: с эффектом, питчем и обрезкой
+// Play a take the way it will sound in the video: with effect, pitch and trimming
 window.previewTake = async function(lineId) {
   const line = session.lines.find(l => l.id === lineId);
   if (!line) return;
@@ -761,7 +768,7 @@ window.previewTake = async function(lineId) {
 };
 
 // ==========================================
-// МАСШТАБ ТАЙМЛАЙНА
+// TIMELINE ZOOM
 // ==========================================
 const zoomLabel = document.getElementById('zoomLabel');
 let zoomFrame = null;
@@ -770,7 +777,7 @@ function updateZoomLabel() {
   zoomLabel.textContent = `${Math.round((pxPerSec / ZOOM_DEFAULT) * 100)}%`;
 }
 
-// anchorX — точка на экране, время под которой остается на месте (курсор мыши или центр)
+// anchorX is the screen point whose time stays in place (the mouse cursor or the center)
 function setTimelineZoom(next, anchorX = timelineContainer.clientWidth / 2) {
   const clamped = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, next));
   if (Math.abs(clamped - pxPerSec) < 0.01) return;
@@ -808,17 +815,17 @@ timelineContainer.addEventListener('wheel', (e) => {
 updateZoomLabel();
 
 // ==========================================
-// ЗВУКОВЫЕ ДОРОЖКИ ВИДЕО
-// Если в видео несколько дорожек (например, японская и русская), хост выбирает, какая играет
-// как «Оригинал» и какая как «Интершум». Выбранный оригинал играет отдельным <audio> синхронно
-// с видео, а звук самого видео глушится (браузерный плеер умеет играть только одну дорожку).
+// VIDEO AUDIO TRACKS
+// If the video has several tracks (e.g. Japanese and Russian), the host picks which one plays
+// as "Original" and which as "Background". The chosen original plays in a separate <audio> in sync
+// with the video, and the video's own sound is muted (the browser player can play only one track).
 // ==========================================
 const trackPicker = document.getElementById('trackPicker');
 const originalTrackSelect = document.getElementById('originalTrackSelect');
 const backingTrackSelect = document.getElementById('backingTrackSelect');
 const trackPickerNote = document.getElementById('trackPickerNote');
 
-// undefined — у видео одна дорожка (играет само видео); null — оригинал выключен; иначе выбранная дорожка
+// undefined: the video has one track (the video itself plays); null: original is off; otherwise the chosen track
 function selectedOriginalTrack() {
   const tracks = state.session && state.session.audioTracks;
   if (!tracks || tracks.length < 2) return undefined;
@@ -845,7 +852,7 @@ function applyAudioTracks() {
   const track = selectedOriginalTrack();
   video.muted = track !== undefined;
   setMediaSource(originalTrackAudio, track ? mediaUrl(track.url) : null);
-  // Интершум мог переключиться на другую дорожку видео
+  // The background may have switched to another video track
   setMediaSource(backing, mediaUrl(state.session.backingUrl) || null);
   renderTrackPicker();
 }
@@ -862,7 +869,7 @@ function renderTrackPicker() {
   }
   trackPicker.querySelectorAll('label').forEach(label => { label.style.display = ''; });
   const options = selected => [`<option value="-1" ${selected === -1 ? 'selected' : ''}>${t('tracks.none')}</option>`]
-    .concat(tracks.map(track => `<option value="${track.index}" ${selected === track.index ? 'selected' : ''}>${esc(t('tracks.label', { n: track.index + 1, name: track.label || track.language || '?' }))}</option>`))
+    .concat(tracks.map(track => `<option value="${track.index}" ${selected === track.index ? 'selected' : ''}>${esc(t('tracks.label', { n: track.index + 1, name: track.label || DublineI18n.languageName(track.language) || '?' }))}</option>`))
     .join('');
   originalTrackSelect.innerHTML = options(state.session.originalTrack ?? 0);
   backingTrackSelect.innerHTML = options(state.session.backingTrack ?? -1);
@@ -879,7 +886,7 @@ originalTrackSelect.addEventListener('change', sendTrackSelection);
 backingTrackSelect.addEventListener('change', sendTrackSelection);
 
 // ==========================================
-// ВЫДЕЛЕНИЕ НЕСКОЛЬКИХ РЕПЛИК И ПЕРЕИМЕНОВАНИЕ ДОРОЖЕК
+// MULTI-LINE SELECTION AND TRACK RENAMING
 // ==========================================
 function refreshMultiSelection() {
   document.querySelectorAll('.line-block').forEach(el => {
@@ -900,7 +907,7 @@ function toggleMultiSelect(lineId) {
   refreshMultiSelection();
 }
 
-// Shift+клик: все реплики по времени между прошлым кликом и этим
+// Shift+click: all lines in time between the previous click and this one
 function selectLineRange(fromId, toId) {
   const ordered = [...session.lines].sort((a, b) => a.start - b.start || a.id - b.id);
   const a = ordered.findIndex(l => l.id === fromId);

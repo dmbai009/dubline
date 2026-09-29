@@ -1,4 +1,4 @@
-// Медиа: P2P-раздача видео, запасной путь через хоста, видео с диска, экспорт через WebCodecs
+// Media: P2P video sharing, fallback through the host, video from disk, WebCodecs export
 const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const {
@@ -16,9 +16,9 @@ describe('media', { skip: skipReason }, () => {
   const room = 'media';
   const pages = [];
 
-  // Игроки «через туннель» заходят по второму адресу — с localhost P2P намеренно не используется
+  // "Tunnel" players use the second address: P2P is deliberately not used on localhost
   const remote = nick => openPlayer(browser, server.url(room, 'dubline.test'), nick);
-  const report = nick => (server.log.match(new RegExp(`${nick} получил dub_video\\.mp4: ([\\d.]+) МБ от игроков \\((\\d+)\\), ([\\d.]+) МБ с сервера`)) || []).slice(1).map(Number);
+  const report = nick => (server.log.match(new RegExp(`${nick} received dub_video\\.mp4: ([\\d.]+) MB from players \\((\\d+)\\), ([\\d.]+) MB from the server`)) || []).slice(1).map(Number);
 
   before(async () => {
     server = await startServer();
@@ -47,14 +47,14 @@ describe('media', { skip: skipReason }, () => {
     const carol = await remote('Carol');
     pages.push(carol);
     await waitFor(carol, () => localMedia && localMedia.source === 'p2p' && video.currentSrc.startsWith('blob:'), 15000);
-    await waitFor(host, () => /Carol получил dub_video/.test(document.body.innerText) || true);
+    await waitFor(host, () => /Carol received dub_video/.test(document.body.innerText) || true);
     const [fromPeers, peers, fromHost] = report('Carol');
     assert.ok(fromPeers > 0, 'bytes came from players');
     assert.equal(peers, 1);
     assert.equal(fromHost, 0);
     const bob = pages[1];
-    await waitFor(bob, () => /раздали|shared/i.test(document.getElementById('p2pStatusText').textContent), 5000);
-    await waitFor(host, () => ['Bob', 'Carol'].every(nick => [...document.querySelectorAll('.player-card')].some(c => c.innerText.includes(nick) && /раздаёт|sharing/.test(c.innerText))), 5000);
+    await waitFor(bob, () => /shared/i.test(document.getElementById('p2pStatusText').textContent), 5000);
+    await waitFor(host, () => ['Bob', 'Carol'].every(nick => [...document.querySelectorAll('.player-card')].some(c => c.innerText.includes(nick) && /sharing/.test(c.innerText))), 5000);
   });
 
   test('when nobody shares, the video comes from the host', async () => {
@@ -143,11 +143,15 @@ describe('audio tracks', { skip: skipReason }, () => {
 
   test('both audio tracks are extracted and offered with their languages', async () => {
     const tracks = await waitFor(host, () => session.audioTracks && session.audioTracks.length === 2 && session.audioTracks, 20000);
-    assert.deepEqual(tracks.map(t => t.label), ['Японский', 'Русский']);
+    assert.deepEqual(tracks.map(t => t.language), ['jpn', 'rus']);
     await waitFor(host, () => getComputedStyle(document.getElementById('trackPicker')).display === 'flex' && document.getElementById('originalTrackSelect').options.length === 3);
+    // Untitled tracks are named by their language in the interface language
+    const optionTexts = await host.evaluate(() => [...document.getElementById('originalTrackSelect').options].slice(1).map(o => o.textContent));
+    assert.match(optionTexts[0], /Japanese/);
+    assert.match(optionTexts[1], /Russian/);
     const durations = await host.evaluate(async () => Promise.all(session.audioTracks.map(async t => (await fetchAndDecode(t.url)).duration)));
     durations.forEach(d => assert.ok(Math.abs(d - 8) < 0.3, `track length ${d}`));
-    // Изначально оригинал — первая дорожка, играет отдельным плеером, звук видео заглушен
+    // Initially the original is the first track, played by a separate player with the video muted
     await waitFor(player, () => session.audioTracks && video.muted && document.getElementById('originalTrackAudio').getAttribute('src').endsWith('track_0.m4a'), 10000);
   });
 
@@ -167,7 +171,7 @@ describe('audio tracks', { skip: skipReason }, () => {
     await waitFor(player, () => session.originalTrack === 1 && session.backingTrack === 0
       && document.getElementById('originalTrackAudio').getAttribute('src').endsWith('track_1.m4a')
       && backing.getAttribute('src').endsWith('track_0.m4a') && video.muted, 8000);
-    // Экспорт тоже берет выбранную дорожку
+    // Export uses the chosen track too
     assert.ok((await host.evaluate(() => selectedOriginalTrack().url)).endsWith('track_1.m4a'));
   });
 

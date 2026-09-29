@@ -1,4 +1,4 @@
-// Роли и реплики: занять/освободить, персонажи реплик, настройки дубля, статус записи
+// Roles and lines: claim/release, line characters, take settings, recording status
 const { VOICE_EFFECTS, MAX_PITCH, MAX_TAKE_SHIFT } = require('../config');
 const { recordingNow } = require('../state');
 const { io } = require('../app');
@@ -23,7 +23,7 @@ module.exports = function registerRoleHandlers(socket, conn) {
     emitSession(conn.roomId);
   });
 
-  // Снять роль может ее владелец или хост
+  // A role can be released by its owner or the host
   socket.on('unclaim_character', ({ character } = {}) => {
     if (!conn.roomId || !conn.nick) return;
     const room = getRoom(conn.roomId);
@@ -36,7 +36,7 @@ module.exports = function registerRoleHandlers(socket, conn) {
     });
     saveRooms();
     emitSession(conn.roomId);
-    if (owner !== conn.nick) addSystemMessage(conn.roomId, 'system.roleReleased', { character, owner }, `👑 Хост снял роль «${character}» с игрока ${owner}`);
+    if (owner !== conn.nick) addSystemMessage(conn.roomId, 'system.roleReleased', { character, owner }, `👑 The host released the role "${character}" from ${owner}`);
   });
 
   socket.on('claim_line', ({ lineId } = {}) => {
@@ -67,10 +67,10 @@ module.exports = function registerRoleHandlers(socket, conn) {
     line.claimedBy = null;
     saveRooms();
     io.to(conn.roomId).emit('line_updated', line);
-    if (owner !== conn.nick) addSystemMessage(conn.roomId, 'system.lineReleased', { id: line.id, owner }, `👑 Хост освободил реплику #${line.id} игрока ${owner}`);
+    if (owner !== conn.nick) addSystemMessage(conn.roomId, 'system.lineReleased', { id: line.id, owner }, `👑 The host released line #${line.id} from ${owner}`);
   });
 
-  // Настройки своего дубля: эффект, питч, обрезка тишины, ручной сдвиг по таймлайну
+  // Settings of your own take: effect, pitch, silence trimming, manual shift on the timeline
   socket.on('set_take_props', (data = {}) => {
     if (!conn.roomId || !conn.nick) return;
     const room = getRoom(conn.roomId);
@@ -104,11 +104,11 @@ module.exports = function registerRoleHandlers(socket, conn) {
     room.lines.forEach(l => { l.claimedBy = null; });
     saveRooms();
     emitSession(conn.roomId);
-    addSystemMessage(conn.roomId, 'system.claimsReset', {}, '♻️ Хост сбросил все роли и реплики (записанные дубли сохранены)');
+    addSystemMessage(conn.roomId, 'system.claimsReset', {}, '♻️ The host released all roles and lines (recorded takes are kept)');
   });
 
-  // ---------- Персонажи реплик: перенос на другую дорожку ----------
-  // Все могут переносить свои и свободные реплики; хост — любые, в том числе в чужие роли
+  // ---------- Line characters: moving lines to another track ----------
+  // Everyone can move their own and free lines; the host can move any, including into others' roles
   function canMoveLine(room, line, name, host) {
     if (host) return true;
     const owner = getLineOwner(room, line);
@@ -120,7 +120,7 @@ module.exports = function registerRoleHandlers(socket, conn) {
   function moveLine(room, line, name) {
     const oldName = line.character;
     if (oldName === name) return false;
-    // Если реплика принадлежала игроку через роль, сохраняем владельца явно
+    // If the line belonged to a player through a role, keep the owner explicitly
     if (!line.claimedBy && room.characterClaims[oldName]) line.claimedBy = room.characterClaims[oldName];
     line.character = name;
     return true;
@@ -141,10 +141,10 @@ module.exports = function registerRoleHandlers(socket, conn) {
     dropEmptyRoleClaims(room);
     saveRooms();
     emitSession(conn.roomId);
-    logEvent(conn.roomId, `✎ ${conn.nick}: реплика #${line.id} — «${oldName}» → «${name}»`);
+    logEvent(conn.roomId, `✎ ${conn.nick}: line #${line.id}: "${oldName}" → "${name}"`);
   });
 
-  // Несколько выделенных реплик разом; недоступные пропускаем и сообщаем сколько
+  // Several selected lines at once; unavailable ones are skipped and counted
   socket.on('set_lines_character', ({ lineIds, character } = {}, ack) => {
     const reply = typeof ack === 'function' ? ack : () => {};
     if (!conn.roomId || !conn.nick || !Array.isArray(lineIds)) return reply({ moved: 0, skipped: 0 });
@@ -164,12 +164,12 @@ module.exports = function registerRoleHandlers(socket, conn) {
       dropEmptyRoleClaims(room);
       saveRooms();
       emitSession(conn.roomId);
-      logEvent(conn.roomId, `✎ ${conn.nick}: ${moved} реплик → «${name}»${skipped ? ` (пропущено ${skipped})` : ''}`);
+      logEvent(conn.roomId, `✎ ${conn.nick}: ${moved} lines → "${name}"${skipped ? ` (skipped ${skipped})` : ''}`);
     }
     reply({ moved, skipped });
   });
 
-  // Переименовать дорожку целиком (все реплики персонажа); с существующим именем — слияние
+  // Rename a whole track (all of a character's lines); an existing name means a merge
   socket.on('rename_character', ({ from, to } = {}, ack) => {
     const reply = typeof ack === 'function' ? ack : () => {};
     if (!conn.roomId || !conn.nick) return reply({ ok: false });
@@ -182,18 +182,18 @@ module.exports = function registerRoleHandlers(socket, conn) {
 
     const roleOwner = room.characterClaims[from];
     lines.forEach(line => { line.character = name; });
-    // Занятая роль переезжает вместе с дорожкой, если новое имя свободно
+    // A claimed role moves with the track if the new name is free
     if (roleOwner && !room.characterClaims[name]) room.characterClaims[name] = roleOwner;
     delete room.characterClaims[from];
     if (roleOwner && room.characterClaims[name] !== roleOwner) lines.forEach(line => { if (!line.claimedBy) line.claimedBy = roleOwner; });
     dropEmptyRoleClaims(room);
     saveRooms();
     emitSession(conn.roomId);
-    logEvent(conn.roomId, `✎ ${conn.nick}: дорожка «${from}» → «${name}» (${lines.length} реплик)`);
+    logEvent(conn.roomId, `✎ ${conn.nick}: track "${from}" → "${name}" (${lines.length} lines)`);
     reply({ ok: true, moved: lines.length });
   });
 
-  // Хост освобождает выбранные реплики, которые кто-то занял по ошибке
+  // The host releases selected lines someone claimed by mistake
   socket.on('host_release_lines', ({ lineIds } = {}) => {
     if (!conn.roomId || !Array.isArray(lineIds)) return;
     const room = getRoom(conn.roomId);
@@ -209,10 +209,10 @@ module.exports = function registerRoleHandlers(socket, conn) {
     if (!released) return;
     saveRooms();
     emitSession(conn.roomId);
-    logEvent(conn.roomId, `👑 ${conn.nick} освободил реплик: ${released}`);
+    logEvent(conn.roomId, `👑 ${conn.nick} released lines: ${released}`);
   });
 
-  // ---------- Статус записи ----------
+  // ---------- Recording status ----------
   socket.on('recording_status', ({ lineId, recording } = {}) => {
     if (!conn.roomId || !conn.nick) return;
     const room = getRoom(conn.roomId);
@@ -223,7 +223,7 @@ module.exports = function registerRoleHandlers(socket, conn) {
     if (recording) {
       if (getLineOwner(room, line) !== conn.nick) return;
       map[lineId] = { nick: conn.nick, socketId: socket.id };
-      logEvent(conn.roomId, `🔴 ${conn.nick} записывает реплику #${lineId}`);
+      logEvent(conn.roomId, `🔴 ${conn.nick} is recording line #${lineId}`);
     } else if (map[lineId] && map[lineId].socketId === socket.id) {
       delete map[lineId];
     } else {

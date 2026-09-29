@@ -1,7 +1,7 @@
-// Точка входа Dubline: собирает модули из server/ и запускает HTTP-сервер
+// Dubline entry point: wires the modules from server/ together and starts the HTTP server
 const { PORT } = require('./server/config');
 const { app, server, io } = require('./server/app');
-require('./server/rooms');   // загружает сохраненные комнаты
+require('./server/rooms');   // loads saved rooms
 require('./server/routes');  // HTTP API
 require('./server/sockets'); // Socket.IO
 const { logEvent } = require('./server/log');
@@ -9,7 +9,7 @@ const { parseAssTime, parseSubtitles } = require('./server/parsers');
 const { findEmbeddedSubtitleMap } = require('./server/media');
 const { sanitizeRoomId, sanitizeNick } = require('./server/sanitize');
 
-// start.bat просит открыть браузер, когда сервер реально готов (а не до старта, как раньше)
+// start.bat asks to open the browser once the server is actually ready (not before it starts, as it used to)
 function openBrowser() {
   if (process.env.DUBLINE_OPEN_BROWSER !== '1') return;
   const url = `http://localhost:${PORT}`;
@@ -20,26 +20,26 @@ function openBrowser() {
 }
 
 if (require.main === module) {
-  // Ошибка в одном обработчике не должна ронять игру у всех: пишем в журнал и работаем дальше
-  process.on('uncaughtException', err => logEvent(null, `💥 Необработанная ошибка (сервер продолжает работу): ${err.stack || err}`, 'error'));
-  process.on('unhandledRejection', err => logEvent(null, `💥 Необработанный промис (сервер продолжает работу): ${err && err.stack || err}`, 'error'));
-  io.engine.on('connection_error', err => logEvent(null, `⚠ Не удалось подключить игрока: ${err.message}`, 'warn'));
+  // An error in one handler must not take the game down for everyone: log it and keep running
+  process.on('uncaughtException', err => logEvent(null, `💥 Unhandled error (the server keeps running): ${err.stack || err}`, 'error'));
+  process.on('unhandledRejection', err => logEvent(null, `💥 Unhandled promise rejection (the server keeps running): ${err && err.stack || err}`, 'error'));
+  io.engine.on('connection_error', err => logEvent(null, `⚠ Could not connect a player: ${err.message}`, 'warn'));
 
   server.on('error', err => {
     if (err.code === 'EADDRINUSE') {
-      console.error(`[Dubline] Порт ${PORT} уже занят — похоже, сервер уже запущен в другом окне.`);
-      console.error('[Dubline] Открываю страницу уже работающего сервера. Чтобы перезапустить сервер, закройте его окно и запустите start.bat снова.');
+      console.error(`[Dubline] Port ${PORT} is already in use: the server seems to be running in another window.`);
+      console.error('[Dubline] Opening the page of the running server. To restart the server, close its window and run start.bat again.');
       openBrowser();
     } else {
-      console.error('[Dubline] Сервер не смог запуститься:', err);
+      console.error('[Dubline] The server could not start:', err);
     }
-    // Небольшая пауза, чтобы команда открытия браузера успела запуститься
+    // A short pause so the command that opens the browser has time to start
     setTimeout(() => process.exit(1), 500);
   });
 
   server.listen(PORT, () => {
-    console.log(`[Dubline] Сервер запущен: http://localhost:${PORT}`);
-    console.log('[Dubline] Здесь будет журнал: кто зашел, кто вышел, ошибки и обрывы связи.');
+    console.log(`[Dubline] Server started: http://localhost:${PORT}`);
+    console.log('[Dubline] The event log appears here: who joined, who left, errors and dropped connections.');
     openBrowser();
   });
 }
