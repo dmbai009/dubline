@@ -59,6 +59,21 @@ ASS imports use the Aegisub `Name` field for the character. SRT/VTT lines may us
 
 ## Requirements and installation
 
+Only the host needs to install anything. Friends just open the link in Chrome or Edge.
+
+### Windows (one click)
+
+1. Download the project: **Code → Download ZIP** on GitHub (or `git clone`), and unzip it.
+2. Double-click **`start.bat`**. On the first run it:
+   - offers to install Node.js LTS via `winget` if Node.js is missing;
+   - installs the dependencies automatically (again only when they change after an update);
+   - starts the server and opens <http://localhost:3000> once it is ready.
+3. Double-click **`share.bat`** to get a public link for friends (see below).
+
+If the server is already running, `start.bat` just opens the page.
+
+### Other platforms / manual
+
 - Node.js 18 or newer; Node.js 20+ is recommended.
 - Chrome or Edge is recommended for the fastest WebCodecs export.
 
@@ -69,7 +84,7 @@ npm install
 npm start
 ```
 
-Open <http://localhost:3000>. On Windows, `start.bat` starts the server and opens the page.
+Then open <http://localhost:3000>.
 
 ## Inviting friends
 

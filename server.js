@@ -1401,6 +1401,16 @@ io.on('connection', socket => {
   socket.on('disconnect', leaveCurrentRoom);
 });
 
+// start.bat просит открыть браузер, когда сервер реально готов (а не до старта, как раньше)
+function openBrowser() {
+  if (process.env.DUBLINE_OPEN_BROWSER !== '1') return;
+  const url = `http://localhost:${PORT}`;
+  const { exec } = require('child_process');
+  const command = process.platform === 'win32' ? `start "" "${url}"`
+    : process.platform === 'darwin' ? `open "${url}"` : `xdg-open "${url}"`;
+  exec(command, () => {});
+}
+
 if (require.main === module) {
   // Ошибка в одном обработчике не должна ронять игру у всех: пишем в журнал и работаем дальше
   process.on('uncaughtException', err => logEvent(null, `💥 Необработанная ошибка (сервер продолжает работу): ${err.stack || err}`, 'error'));
@@ -1409,16 +1419,20 @@ if (require.main === module) {
 
   server.on('error', err => {
     if (err.code === 'EADDRINUSE') {
-      console.error(`[Dubline] Порт ${PORT} уже занят — похоже, сервер уже запущен в другом окне. Закройте его и запустите снова.`);
+      console.error(`[Dubline] Порт ${PORT} уже занят — похоже, сервер уже запущен в другом окне.`);
+      console.error('[Dubline] Открываю страницу уже работающего сервера. Чтобы перезапустить сервер, закройте его окно и запустите start.bat снова.');
+      openBrowser();
     } else {
       console.error('[Dubline] Сервер не смог запуститься:', err);
     }
-    process.exit(1);
+    // Небольшая пауза, чтобы команда открытия браузера успела запуститься
+    setTimeout(() => process.exit(1), 500);
   });
 
   server.listen(PORT, () => {
     console.log(`[Dubline] Сервер запущен: http://localhost:${PORT}`);
     console.log('[Dubline] Здесь будет журнал: кто зашел, кто вышел, ошибки и обрывы связи.');
+    openBrowser();
   });
 }
 

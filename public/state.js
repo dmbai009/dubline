@@ -29,7 +29,9 @@
     hostOnline: false,
     discardTake: false,
     userMicGain: parseFloat(storage.getItem('dubline_mic_gain')) || 1.0,
-    noiseSuppression: storage.getItem('dubline_noise_suppression') !== '0',
+    // Шумоподавление браузера по умолчанию выключено: оно «съедает» тихие фразы и искажает голос.
+    // Включается только если игрок сам включил его в настройках.
+    noiseSuppression: storage.getItem('dubline_noise_suppression') === '1',
     autoDuckEnabled: storage.getItem('dubline_auto_duck') !== '0',
     autoDuckAmount: Number.isFinite(storedAutoDuckAmount)
       ? Math.max(0, Math.min(0.8, storedAutoDuckAmount))
