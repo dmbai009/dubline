@@ -61,6 +61,11 @@ window.handleStudioRecord = async function(lineId) {
     return;
   }
 
+  if (watchMode && recordState === 'idle') {
+    alert(t('watch.noRecord'));
+    return;
+  }
+
   if (recordState === 'recording' || recordState === 'preparing') {
     finishRecording();
     return;
@@ -169,6 +174,7 @@ window.handleStudioRecord = async function(lineId) {
   };
 
   mediaRecorder.start(100);
+  socket.emit('recording_status', { lineId, recording: true });
   btn.className = 'btn-prep';
   btn.innerText = t('record.preparing');
   video.play();
@@ -194,6 +200,7 @@ window.handleStudioRecord = async function(lineId) {
 
 function finishRecording({ discard = false } = {}) {
   clearTimeout(recordStopTimeout);
+  if (recordingLineId != null) socket.emit('recording_status', { lineId: recordingLineId, recording: false });
   recordState = 'idle';
   if (discard) discardTake = true;
 

@@ -135,14 +135,99 @@ function getRoom(roomId) {
   return rooms[roomId];
 }
 
+// Размеры медиафайлов показываем на кнопках скачивания. Кэшируем, чтобы не дергать диск
+// на каждую рассылку сессии; неизвестные размеры (файл еще пишется) не кэшируем.
+const fileSizeCache = new Map();
+
+function fileSizeForUrl(url) {
+  if (!url) return null;
+  if (fileSizeCache.has(url)) return fileSizeCache.get(url);
+  try {
+    const full = path.join(PUBLIC_DIR, decodeURIComponent(url).replace(/^\/+/, ''));
+    if (!full.startsWith(PUBLIC_DIR + path.sep)) return null;
+    const size = fs.statSync(full).size;
+    fileSizeCache.set(url, size);
+    return size;
+  } catch (err) {
+    return null;
+  }
+}
+
+function forgetFileSizes(...urls) {
+  urls.forEach(url => { if (url) fileSizeCache.delete(url); });
+}
+
 // Секреты (clientId игроков) никогда не уходят клиентам
 function publicRoom(room) {
   const { hostClientId, nickOwners, chat, ...rest } = room;
-  return rest;
+  return {
+    ...rest,
+    videoSize: fileSizeForUrl(room.videoUrl),
+    backingSize: fileSizeForUrl(room.backingUrl),
+    zipSize: fileSizeForUrl(room.zipUrl)
+  };
 }
 
 function emitSession(roomId) {
   io.to(roomId).emit('session_updated', publicRoom(getRoom(roomId)));
+}
+
+// ==========================================
+// ЖУРНАЛ СОБЫТИЙ: консоль сервера + консоль браузера у хоста комнаты
+// ==========================================
+const DISCONNECT_REASONS = {
+  'transport close': 'закрыл вкладку или пропал интернет',
+  'ping timeout': 'связь оборвалась (нет ответа от браузера)',
+  'transport error': 'ошибка соединения',
+  'client namespace disconnect': 'вышел сам',
+  'server namespace disconnect': 'отключен сервером',
+  'server shutting down': 'сервер выключается'
+};
+
+function logEvent(roomId, text, level = 'info') {
+  const time = new Date().toLocaleTimeString('ru-RU', { hour12: false });
+  const line = `[${time}] ${roomId ? `[${roomId}] ` : ''}${text}`;
+  if (level === 'error') console.error(line);
+  else if (level === 'warn') console.warn(line);
+  else console.log(line);
+
+  const room = roomId && rooms[roomId];
+  if (!room || !room.hostClientId) return;
+  for (const [socketId, member] of Object.entries(roomSockets[roomId] || {})) {
+    if (member.clientId === room.hostClientId) io.to(socketId).emit('host_log', { ts: Date.now(), level, text });
+  }
+}
+
+function onlineCount(roomId) {
+  return new Set(onlineMembers(roomId).map(m => m.clientId)).size;
+}
+
+// ==========================================
+// СТАТУС ЗАПИСИ И СОВМЕСТНЫЙ ПРОСМОТР (живут только в памяти)
+// ==========================================
+const recordingNow = {}; // roomId -> { lineId: { nick, socketId } }
+const watchState = {};   // roomId -> { active, playing, position, at }
+const WATCH_COUNTDOWN_MS = 3000;
+
+function recordingList(roomId) {
+  return Object.entries(recordingNow[roomId] || {}).map(([lineId, rec]) => ({ lineId: Number(lineId), nick: rec.nick }));
+}
+
+function broadcastRecording(roomId) {
+  io.to(roomId).emit('recording_state', recordingList(roomId));
+}
+
+function clearSocketRecordings(roomId, socketId) {
+  const map = recordingNow[roomId];
+  if (!map) return false;
+  let changed = false;
+  for (const lineId of Object.keys(map)) {
+    if (map[lineId].socketId === socketId) {
+      delete map[lineId];
+      changed = true;
+    }
+  }
+  return changed;
 }
 
 function onlineMembers(roomId) {
@@ -417,9 +502,14 @@ function loadPackIntoRoom(roomId, packName, buffer, forceExtract) {
   room.backingUrl = pack.backingUrl;
   room.lines = pack.lines;
   room.characterClaims = {};
+  forgetFileSizes(room.zipUrl, room.videoUrl, room.backingUrl);
+  delete recordingNow[roomId];
+  delete watchState[roomId];
 
   saveRooms();
   emitSession(roomId);
+  broadcastRecording(roomId);
+  logEvent(roomId, `🎬 Запущен пак «${pack.title}» (${pack.lines.length} реплик)`);
   addSystemMessage(roomId, 'system.packLoaded', { title: pack.title }, `🎬 Хост запустил пак «${pack.title}»`);
   return room;
 }
@@ -432,7 +522,10 @@ function acceptFile(field, maxMb) {
 
   return (req, res, next) => handler(req, res, err => {
     if (!err) return next();
-    if (err.code === 'LIMIT_FILE_SIZE') return res.status(413).send(`Файл слишком большой (максимум ${maxMb} МБ)`);
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      logEvent(null, `⚠ Отклонена загрузка: файл больше ${maxMb} МБ`, 'warn');
+      return res.status(413).send(`Файл слишком большой (максимум ${maxMb} МБ)`);
+    }
     res.status(400).send('Ошибка загрузки: ' + err.message);
   });
 }
@@ -448,7 +541,10 @@ function acceptCustomFiles(maxMb) {
 
   return (req, res, next) => handler(req, res, err => {
     if (!err) return next();
-    if (err.code === 'LIMIT_FILE_SIZE') return res.status(413).send(`Файл слишком большой (максимум ${maxMb} МБ)`);
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      logEvent(null, `⚠ Отклонена загрузка: файл больше ${maxMb} МБ`, 'warn');
+      return res.status(413).send(`Файл слишком большой (максимум ${maxMb} МБ)`);
+    }
     res.status(400).send('Ошибка загрузки: ' + err.message);
   });
 }
@@ -629,8 +725,11 @@ function parseSubtitles(buffer, fileName) {
 }
 
 function sendError(res, err) {
-  if (err instanceof HttpError) return res.status(err.status).send(err.message);
-  console.error('[Dubline] Ошибка:', err);
+  if (err instanceof HttpError) {
+    logEvent(null, `⚠ Отклонен запрос (${err.status}): ${err.message}`, 'warn');
+    return res.status(err.status).send(err.message);
+  }
+  logEvent(null, `💥 Ошибка при обработке запроса: ${err.stack || err}`, 'error');
   res.status(500).send('Внутренняя ошибка сервера');
 }
 
@@ -653,6 +752,9 @@ app.post('/api/upload-pack', acceptFile('pack', MAX_PACK_MB), (req, res) => {
     // Сначала проверяем, что архив читается, и только потом сохраняем его в библиотеку
     const updatedRoom = loadPackIntoRoom(roomId, packName, req.file.buffer, true);
     fs.writeFileSync(path.join(PACKS_DIR, packName), req.file.buffer);
+    // Архив записан только что — разошлем сессию еще раз уже с его размером
+    forgetFileSizes(updatedRoom.zipUrl);
+    emitSession(roomId);
 
     console.log(`[Dubline] Загружен мод [${packName}] в комнату [${roomId}]`);
     res.json({ success: true, session: publicRoom(updatedRoom) });
@@ -777,9 +879,13 @@ app.post('/api/upload-custom', acceptCustomFiles(MAX_PACK_MB), async (req, res) 
     room.backingUrl = '';
     room.lines = lines;
     room.characterClaims = {};
+    forgetFileSizes(room.videoUrl);
+    delete recordingNow[roomId];
+    delete watchState[roomId];
 
     saveRooms();
     emitSession(roomId);
+    broadcastRecording(roomId);
     addSystemMessage(roomId, 'system.customScene', { title: customTitle, count: lines.length }, `🎬 Хост создал новую сцену «${customTitle}» (${lines.length} реплик)`);
     console.log(`[Dubline] Создана пользовательская сцена [${customTitle}] (${lines.length} реплик) в комнате [${roomId}]`);
     res.json({ success: true, session: publicRoom(room) });
@@ -828,6 +934,7 @@ app.post('/api/upload-line-audio', acceptFile('audio', MAX_TAKE_MB), (req, res) 
 
     saveRooms();
     io.to(roomId).emit('line_updated', line);
+    logEvent(roomId, `💾 ${userName} сохранил дубль реплики #${lineId} (${Math.round(req.file.size / 1024)} КБ)`);
     res.json({ success: true, audioUrl: line.audioUrl, audioStart: line.audioStart });
   } catch (err) {
     sendError(res, err);
@@ -856,6 +963,7 @@ app.post('/api/delete-line-audio', (req, res) => {
 
     saveRooms();
     io.to(roomId).emit('line_updated', line);
+    logEvent(roomId, `🗑 ${nick} удалил дубль реплики #${line.id}`);
     res.json({ success: true });
   } catch (err) {
     sendError(res, err);
@@ -871,11 +979,24 @@ io.on('connection', socket => {
   let clientId = '';
   let chatTimestamps = [];
 
-  function leaveCurrentRoom() {
-    if (roomId && roomSockets[roomId]) {
+  function leaveCurrentRoom(reason) {
+    if (roomId && roomSockets[roomId] && roomSockets[roomId][socket.id]) {
+      const room = getRoom(roomId);
+      const wasHost = isHost(room, clientId);
       delete roomSockets[roomId][socket.id];
       socket.leave(roomId);
+      if (clearSocketRecordings(roomId, socket.id)) broadcastRecording(roomId);
       broadcastRoomUsers(roomId);
+
+      const why = typeof reason === 'string' ? ` — ${DISCONNECT_REASONS[reason] || reason}` : '';
+      logEvent(roomId, `← ${nick || 'игрок без ника'} вышел${why}. Онлайн: ${onlineCount(roomId)}`, reason === 'ping timeout' || reason === 'transport error' ? 'warn' : 'info');
+
+      // Хост ушел совсем — совместный просмотр заканчивается
+      if (wasHost && !isHostOnline(roomId) && watchState[roomId]) {
+        delete watchState[roomId];
+        io.to(roomId).emit('watch_stop', { by: nick });
+        logEvent(roomId, '🎬 Совместный просмотр остановлен: хост вышел');
+      }
     }
   }
 
@@ -901,6 +1022,7 @@ io.on('connection', socket => {
     const room = getRoom(roomId);
 
     let requested = sanitizeNick(data.nick);
+    const previousOwner = requested ? room.nickOwners[requested] : null;
     let error = null;
     let errorKey = null;
     let errorParams = null;
@@ -925,7 +1047,14 @@ io.on('connection', socket => {
     socket.emit('nick_state', { nick, error, errorKey, errorParams });
     socket.emit('session_updated', publicRoom(room));
     socket.emit('chat_history', room.chat);
+    socket.emit('recording_state', recordingList(roomId));
+    if (watchState[roomId]) socket.emit('watch_sync', watchState[roomId]);
     broadcastRoomUsers(roomId);
+
+    const who = nick || 'игрок без ника';
+    const returned = nick && previousOwner && previousOwner !== clientId ? ' (вернулся с нового адреса/устройства)' : '';
+    if (error) logEvent(roomId, `⚠ Кто-то пытался зайти под занятым ником «${sanitizeNick(data.nick)}»`, 'warn');
+    logEvent(roomId, `→ ${who} зашел${returned}. Онлайн: ${onlineCount(roomId)}`);
   });
 
   socket.on('rename_user', (data = {}) => {
@@ -951,6 +1080,7 @@ io.on('connection', socket => {
 
     if (oldName) renameClaims(room, oldName, newName);
     if (room.hostClientId === clientId) room.host = newName;
+    logEvent(roomId, `✎ ${oldName || 'игрок без ника'} теперь ${newName}`);
 
     saveRooms();
     socket.emit('nick_state', { nick });
@@ -1062,6 +1192,7 @@ io.on('connection', socket => {
     if (!isHost(room, clientId)) return;
 
     io.to(roomId).emit('force_pause', { by: nick });
+    logEvent(roomId, `⏸ ${nick} поставил паузу у всех`);
     addSystemMessage(roomId, 'system.forcePause', { nick }, `⏸ Хост ${nick} поставил видео на паузу у всех`);
   });
 
@@ -1075,6 +1206,7 @@ io.on('connection', socket => {
     room.host = nick;
     saveRooms();
     broadcastRoomUsers(roomId);
+    logEvent(roomId, `👑 ${nick} стал хостом`);
     addSystemMessage(roomId, 'system.newHost', { nick }, `👑 ${nick} теперь хост комнаты`);
   });
 
@@ -1092,12 +1224,82 @@ io.on('connection', socket => {
     addChatMessage(roomId, { nick, text: clean });
   });
 
+  // ---------- Статус записи ----------
+  socket.on('recording_status', ({ lineId, recording } = {}) => {
+    if (!roomId || !nick) return;
+    const room = getRoom(roomId);
+    const line = room.lines.find(l => l.id === lineId);
+    if (!line) return;
+    const map = recordingNow[roomId] || (recordingNow[roomId] = {});
+
+    if (recording) {
+      if (getLineOwner(room, line) !== nick) return;
+      map[lineId] = { nick, socketId: socket.id };
+      logEvent(roomId, `🔴 ${nick} записывает реплику #${lineId}`);
+    } else if (map[lineId] && map[lineId].socketId === socket.id) {
+      delete map[lineId];
+    } else {
+      return;
+    }
+    broadcastRecording(roomId);
+  });
+
+  // ---------- Совместный просмотр ----------
+  // Синхронизация часов: клиент узнает, насколько его время отличается от серверного
+  socket.on('time_sync', (clientTs, ack) => {
+    if (typeof ack === 'function') ack(Date.now());
+  });
+
+  socket.on('host_watch_start', ({ position } = {}) => {
+    if (!roomId) return;
+    const room = getRoom(roomId);
+    if (!isHost(room, clientId) || !room.loaded) return;
+
+    const start = Math.max(0, Number(position) || 0);
+    const state = { active: true, playing: true, position: start, at: Date.now() + WATCH_COUNTDOWN_MS };
+    watchState[roomId] = state;
+    io.to(roomId).emit('watch_start', { ...state, by: nick });
+    addSystemMessage(roomId, 'system.watchStart', { nick }, `🎬 ${nick} запустил совместный просмотр`);
+    logEvent(roomId, `🎬 ${nick} запустил совместный просмотр`);
+  });
+
+  socket.on('host_watch_sync', ({ playing, position } = {}) => {
+    if (!roomId || !watchState[roomId]) return;
+    if (!isHost(getRoom(roomId), clientId)) return;
+    Object.assign(watchState[roomId], { playing: !!playing, position: Math.max(0, Number(position) || 0), at: Date.now() });
+    socket.to(roomId).volatile.emit('watch_sync', watchState[roomId]);
+  });
+
+  socket.on('host_watch_stop', () => {
+    if (!roomId || !watchState[roomId]) return;
+    if (!isHost(getRoom(roomId), clientId)) return;
+    delete watchState[roomId];
+    io.to(roomId).emit('watch_stop', { by: nick });
+    addSystemMessage(roomId, 'system.watchStop', { nick }, `⏹ ${nick} остановил совместный просмотр`);
+    logEvent(roomId, `⏹ ${nick} остановил совместный просмотр`);
+  });
+
   socket.on('disconnect', leaveCurrentRoom);
 });
 
 if (require.main === module) {
+  // Ошибка в одном обработчике не должна ронять игру у всех: пишем в журнал и работаем дальше
+  process.on('uncaughtException', err => logEvent(null, `💥 Необработанная ошибка (сервер продолжает работу): ${err.stack || err}`, 'error'));
+  process.on('unhandledRejection', err => logEvent(null, `💥 Необработанный промис (сервер продолжает работу): ${err && err.stack || err}`, 'error'));
+  io.engine.on('connection_error', err => logEvent(null, `⚠ Не удалось подключить игрока: ${err.message}`, 'warn'));
+
+  server.on('error', err => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(`[Dubline] Порт ${PORT} уже занят — похоже, сервер уже запущен в другом окне. Закройте его и запустите снова.`);
+    } else {
+      console.error('[Dubline] Сервер не смог запуститься:', err);
+    }
+    process.exit(1);
+  });
+
   server.listen(PORT, () => {
     console.log(`[Dubline] Сервер запущен: http://localhost:${PORT}`);
+    console.log('[Dubline] Здесь будет журнал: кто зашел, кто вышел, ошибки и обрывы связи.');
   });
 }
 

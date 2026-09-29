@@ -24,6 +24,27 @@ const nickModal = document.getElementById('nickModal');
 const modalNickInput = document.getElementById('modalNickInput');
 const downloadPackBtn = document.getElementById('downloadOriginalPackBtn');
 const downloadPackNone = document.getElementById('downloadOriginalPackNone');
+
+// Кто сейчас записывает какую реплику (приходит от сервера): lineId -> ник
+const liveRecordings = new Map();
+
+// Видео/интершум, выбранные игроком со своего диска, чтобы не качать их через туннель
+let localMedia = null; // { forVideoUrl, videoUrl, videoBlob, backingUrl, backingBlob, size }
+let loadedVideoUrl = null;
+
+function mediaUrl(serverUrl) {
+  if (!serverUrl) return serverUrl;
+  if (localMedia && localMedia.forVideoUrl === (state.session && state.session.videoUrl)) {
+    if (serverUrl === state.session.videoUrl) return localMedia.videoUrl;
+    if (serverUrl === state.session.backingUrl && localMedia.backingUrl) return localMedia.backingUrl;
+  }
+  return serverUrl;
+}
+
+function formatSize(bytes) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '';
+  return t('mb', { value: (bytes / 1048576).toFixed(1) });
+}
 const usersOnlineText = document.getElementById('usersOnlineText');
 const nickError = document.getElementById('nickError');
 const hostPanel = document.getElementById('hostPanel');
@@ -308,7 +329,12 @@ function updateLineBlockVisual(el, line) {
   else if (owner) el.classList.add('claimed-other');
 
   let nickBadge = '';
-  if (owner) {
+  const liveNick = liveRecordings.get(line.id);
+  if (liveNick) {
+    el.classList.add('live-recording');
+    el.title = t('recording.title', { nick: liveNick });
+    nickBadge = `<span class="tile-nick live">🔴 ${liveNick === myName ? t('you') : esc(liveNick)}</span>`;
+  } else if (owner) {
     const isMe = (owner === myName);
     nickBadge = `<span class="tile-nick ${isMe ? 'me' : 'other'}">${isMe ? t('you') : esc(owner)}</span>`;
   }

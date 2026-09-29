@@ -106,6 +106,19 @@
     .line-block.claimed-other { background: #451a03; border-color: #f59e0b; }
     .line-block.recorded { background: #054f31; border-color: #10b981; }
     .line-block > :not(.wave-canvas) { position: relative; z-index: 1; }
+    .connection-banner { position: fixed; top: 0; left: 0; right: 0; z-index: 2000; padding: 8px 16px; text-align: center; font-size: 13px; font-weight: bold; color: #fff; box-shadow: 0 4px 16px rgba(0,0,0,0.5); }
+    .connection-banner.offline { background: #b91c1c; animation: bannerPulse 1.6s ease-in-out infinite; }
+    .connection-banner.online { background: #047857; }
+    @keyframes bannerPulse { 50% { background: #7f1d1d; } }
+
+    .line-block.live-recording { border-color: #ef4444 !important; box-shadow: 0 0 0 2px #ef444466; animation: pulseRecord 1.5s infinite; }
+    .tile-nick.live { background: #dc2626; color: #fff; }
+
+    .watch-overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: space-between; pointer-events: none; z-index: 5; }
+    .watch-countdown { margin: auto; font-size: 120px; font-weight: 900; color: #fff; text-shadow: 0 4px 24px rgba(0,0,0,0.8); }
+    .watch-bar { pointer-events: auto; margin-top: 10px; display: flex; align-items: center; gap: 10px; background: rgba(91,33,182,0.9); color: #fff; padding: 6px 12px; border-radius: 999px; font-size: 12px; font-weight: bold; }
+    .watch-bar button { padding: 2px 10px; font-size: 11px; }
+
     .line-block.draggable { cursor: grab; }
     .line-block.dragging { cursor: grabbing; transform: none; border-color: #34d399; box-shadow: 0 0 0 2px #34d39955; z-index: 16; }
     .drag-hint { position: absolute !important; right: 4px; bottom: 3px; background: #065f46; color: #d1fae5; font-size: 10px; font-weight: bold; padding: 1px 5px; border-radius: 3px; }
@@ -482,6 +495,23 @@
             <span data-i18n="downloadSource">📥 Скачать исходный архив мода (.zip)</span>
           </a>
           <span id="downloadOriginalPackNone" data-i18n="sourceUnavailable" style="font-size: 11px; color: #71717a;">Архив недоступен (сцена загружена вручную или без ZIP)</span>
+          <a id="downloadVideoBtn" class="btn-header-action" href="#" download style="text-decoration: none; padding: 8px 14px; justify-content: center; margin-top: 4px; display: none; background: #27272a;">
+            <span></span>
+          </a>
+        </div>
+
+        <!-- Видео с диска игрока -->
+        <div class="setting-card">
+          <div class="setting-label" data-i18n="localMedia">4. Видео с вашего диска</div>
+          <div class="setting-sub" data-i18n="localMedia.help">Экономит интернет хоста</div>
+          <label class="btn-header-action" style="padding: 8px 14px; justify-content: center; margin-top: 4px; cursor: pointer;">
+            <span data-i18n="localMedia.choose">📂 Выбрать .zip или видео</span>
+            <input type="file" id="localMediaInput" accept=".zip,video/*,.mkv" style="display: none;">
+          </label>
+          <div style="display: flex; align-items: center; gap: 8px; margin-top: 4px;">
+            <span id="localMediaStatus" class="setting-sub"></span>
+            <button id="localMediaResetBtn" class="btn-outline" data-i18n="localMedia.reset" onclick="resetLocalMedia()" style="display: none;">Снова брать с хоста</button>
+          </div>
         </div>
       </div>
 
@@ -490,6 +520,8 @@
       </div>
     </div>
   </div>
+
+  <div id="connectionBanner" class="connection-banner" style="display: none;"></div>
 
   <!-- ШАПКА -->
   <header>
@@ -531,6 +563,14 @@
           <span id="prompterChar" class="prompter-char"></span>
           <span id="prompterText" class="prompter-text"></span>
           <div id="prompterProgress" class="prompter-progress"></div>
+        </div>
+        <!-- Совместный просмотр -->
+        <div id="watchOverlay" class="watch-overlay" style="display: none;">
+          <div id="watchCountdown" class="watch-countdown" style="display: none;"></div>
+          <div class="watch-bar">
+            <span id="watchLabel"></span>
+            <button id="watchLeaveBtn" class="btn-outline" data-i18n="watch.leave" onclick="leaveWatch()">Выйти</button>
+          </div>
         </div>
       </div>
 

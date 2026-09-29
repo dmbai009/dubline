@@ -115,6 +115,10 @@ window.switchFilesTab = function(tab) {
 
 window.addEventListener('dubline-language-changed', () => {
   updateHostUi();
+  updateDownloadButtons();
+  updateLocalMediaStatus();
+  if (watchMode) showWatchOverlay();
+  if (connectionState === 'offline') setConnectionState('offline');
   if (session && session.loaded) renderTimeline();
   if (selectedLine) showInspector(selectedLine);
   renderChatHistory();

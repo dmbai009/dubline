@@ -86,11 +86,11 @@ async function mixSoundtrack(duration, gains, onStep) {
 
   if (session.backingUrl && backingBase > 0) {
     onStep(t('render.decodeBackground'));
-    place(await fetchAndDecode(session.backingUrl).catch(() => null), 1, 0, 0, Infinity, backingBus);
+    place(await fetchAndDecode(mediaUrl(session.backingUrl)).catch(() => null), 1, 0, 0, Infinity, backingBus);
   }
   if (session.videoUrl && originalBase > 0) {
     onStep(t('render.decodeOriginal'));
-    place(await fetchAndDecode(session.videoUrl).catch(() => null), 1, 0, 0, Infinity, originalBus);
+    place(await fetchAndDecode(mediaUrl(session.videoUrl)).catch(() => null), 1, 0, 0, Infinity, originalBus);
   }
 
   const takes = session.lines.filter(l => l.audioUrl);
@@ -254,7 +254,11 @@ async function renderWithWebCodecs(progress) {
   const mb = await import('/vendor/mediabunny/mediabunny.min.mjs');
 
   progress(1, t('render.readVideo'));
-  const input = new mb.Input({ source: new mb.UrlSource(session.videoUrl), formats: mb.ALL_FORMATS });
+  // Если видео выбрано с диска — читаем его локально, а не через туннель
+  const source = localMedia && localMedia.forVideoUrl === session.videoUrl
+    ? new mb.BlobSource(localMedia.videoBlob)
+    : new mb.UrlSource(session.videoUrl);
+  const input = new mb.Input({ source, formats: mb.ALL_FORMATS });
   const videoTrack = await input.getPrimaryVideoTrack();
   if (!videoTrack) throw new Error(t('render.noVideo'));
   const videoCodec = await videoTrack.getCodec();
@@ -424,3 +428,31 @@ window.startVideoRender = async function() {
 };
 
 // ==========================================
+
+// ==========================================
+// КНОПКИ СКАЧИВАНИЯ С РАЗМЕРАМИ
+// ==========================================
+const downloadVideoBtn = document.getElementById('downloadVideoBtn');
+
+function updateDownloadButtons() {
+  const loaded = !!(session && session.loaded);
+  if (loaded && session.zipUrl) {
+    downloadPackBtn.href = session.zipUrl;
+    downloadPackBtn.querySelector('span').textContent = session.zipSize
+      ? t('downloadSourceSized', { size: formatSize(session.zipSize) })
+      : t('downloadSource');
+    downloadPackBtn.style.display = 'inline-block';
+    downloadPackNone.style.display = 'none';
+  } else {
+    downloadPackBtn.style.display = 'none';
+    downloadPackNone.style.display = 'inline';
+  }
+
+  if (loaded && session.videoUrl) {
+    downloadVideoBtn.href = session.videoUrl;
+    downloadVideoBtn.querySelector('span').textContent = t('downloadVideo', { size: formatSize(session.videoSize) || '?' });
+    downloadVideoBtn.style.display = 'inline-block';
+  } else {
+    downloadVideoBtn.style.display = 'none';
+  }
+}

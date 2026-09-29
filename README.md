@@ -9,7 +9,12 @@ The project is inspired by Voxalike and The Choicer Voicer, while removing the n
 - **Parallel recording.** Every player can claim and record their own lines without waiting for other actors.
 - **Rooms and live synchronization.** Packs, roles, takes, host state, and chat are synchronized through Socket.IO. Add `?room=your-room` to the URL to create a separate session.
 - **Persistent sessions.** Room state is stored in `data/rooms.json`; uploaded media and takes stay available after a server restart.
-- **Host controls.** The first participant becomes the room host and can change scenes, pause playback for everyone, or release stale role claims.
+- **Host controls.** The first participant becomes the room host and can change scenes, pause playback for everyone, or release stale role claims. Pausing everyone asks for confirmation if someone is recording right now.
+- **Watch together.** The host plays the finished scene for the whole room at once: a 3-second countdown, a start synchronized to the server clock, and periodic drift correction. Pause and seeking follow the host; recording is disabled until the host stops the screening.
+- **Live recording status.** Everyone sees which line is being recorded and by whom: the tile pulses red and the player gets a 🔴 in the online list.
+- **Connection banner.** If the tunnel or server drops, players see “No connection, reconnecting…” and the page rejoins the room automatically when the server is back.
+- **Host event log.** The server console prints who joined or left (with the reason, e.g. closed tab vs. lost connection), saved takes, pack changes, rejected requests, and errors; the host also receives the same log in the browser console (F12). An error in one handler is logged instead of taking the whole server down.
+- **Play video from your own disk.** Download buttons show the file size; a player who already has the pack `.zip` or scene video can pick it in *Files & Export*, and the video then plays (and exports) from their computer instead of through the host’s tunnel.
 - **Studio recording tools.** Pre-roll, microphone gain, optional browser noise/echo suppression, silence detection, waveform previews, non-destructive trimming, and manual take alignment.
 - **Non-destructive voice processing.** Robot, radio, monster, thoughts, cave, behind-a-door, and megaphone effects plus a ±12-semitone pitch shifter are applied during playback and export without modifying the original recording. Delay and reverb tails are preserved in playback, video mixes, and WAV stems.
 - **Three-channel mixer.** Control original video audio, background/ambience, and recorded dubbing independently.

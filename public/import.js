@@ -92,3 +92,103 @@ window.uploadCustomScene = async function() {
 };
 
 // ==========================================
+
+// ==========================================
+// ВИДЕО С ДИСКА ИГРОКА (экономит интернет хоста)
+// ==========================================
+const localMediaInput = document.getElementById('localMediaInput');
+const localMediaStatus = document.getElementById('localMediaStatus');
+const localMediaResetBtn = document.getElementById('localMediaResetBtn');
+
+function revokeLocalMedia() {
+  if (!localMedia) return;
+  URL.revokeObjectURL(localMedia.videoUrl);
+  if (localMedia.backingUrl) URL.revokeObjectURL(localMedia.backingUrl);
+  localMedia = null;
+}
+
+// Пак сменился — выбранный с диска файл больше не подходит
+function forgetStaleLocalMedia() {
+  if (localMedia && (!session || localMedia.forVideoUrl !== session.videoUrl)) revokeLocalMedia();
+  updateLocalMediaStatus();
+}
+
+function updateLocalMediaStatus() {
+  const active = !!(localMedia && session && localMedia.forVideoUrl === session.videoUrl);
+  localMediaStatus.textContent = active ? t('localMedia.active', { size: formatSize(localMedia.size) }) : t('localMedia.inactive');
+  localMediaStatus.style.color = active ? '#10b981' : '#71717a';
+  localMediaResetBtn.style.display = active ? 'inline-flex' : 'none';
+}
+
+function baseName(url) {
+  return decodeURIComponent(String(url || '').split('/').pop() || '').toLowerCase();
+}
+
+async function extractMediaFromZip(file) {
+  const zip = await JSZip.loadAsync(file);
+  const entries = Object.values(zip.files).filter(entry => !entry.dir);
+  const name = entry => entry.name.split('/').pop().toLowerCase();
+  const wantedVideo = baseName(session.videoUrl);
+  const videoEntry = entries.find(entry => name(entry) === wantedVideo) || entries.find(entry => name(entry) === 'dub_video.mp4');
+  if (!videoEntry) return null;
+  const wantedBacking = baseName(session.backingUrl);
+  const backingEntry = wantedBacking ? entries.find(entry => name(entry) === wantedBacking) : null;
+  return {
+    video: new Blob([await videoEntry.async('arraybuffer')], { type: 'video/mp4' }),
+    backing: backingEntry ? new Blob([await backingEntry.async('arraybuffer')], { type: 'audio/mpeg' }) : null
+  };
+}
+
+// Меняем источник видео, не сбивая позицию просмотра
+function swapVideoSource() {
+  const time = video.currentTime;
+  const wasPlaying = !video.paused;
+  video.pause();
+  video.src = mediaUrl(session.videoUrl);
+  if (session.backingUrl) backing.src = mediaUrl(session.backingUrl);
+  video.addEventListener('loadedmetadata', () => {
+    video.currentTime = time;
+    if (wasPlaying) video.play().catch(() => {});
+  }, { once: true });
+}
+
+localMediaInput.addEventListener('change', async () => {
+  const file = localMediaInput.files[0];
+  localMediaInput.value = '';
+  if (!file || !session || !session.loaded) return;
+
+  localMediaStatus.textContent = t('localMedia.reading');
+  localMediaStatus.style.color = '#a78bfa';
+  try {
+    const media = /\.zip$/i.test(file.name) ? await extractMediaFromZip(file) : { video: file, backing: null };
+    if (!media) throw new Error(t('localMedia.notFound'));
+
+    const expected = session.videoSize;
+    if (expected && media.video.size !== expected
+        && !confirm(t('localMedia.mismatch', { local: formatSize(media.video.size), remote: formatSize(expected) }))) {
+      updateLocalMediaStatus();
+      return;
+    }
+
+    revokeLocalMedia();
+    localMedia = {
+      forVideoUrl: session.videoUrl,
+      videoBlob: media.video,
+      videoUrl: URL.createObjectURL(media.video),
+      backingBlob: media.backing,
+      backingUrl: media.backing ? URL.createObjectURL(media.backing) : null,
+      size: media.video.size
+    };
+    swapVideoSource();
+    updateLocalMediaStatus();
+  } catch (err) {
+    localMediaStatus.textContent = t('error.generic', { message: err.message });
+    localMediaStatus.style.color = '#ef4444';
+  }
+});
+
+window.resetLocalMedia = function() {
+  revokeLocalMedia();
+  if (session && session.loaded) swapVideoSource();
+  updateLocalMediaStatus();
+};
