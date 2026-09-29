@@ -12,7 +12,8 @@ const FIXTURE_LINES = [
   { id: 1, character: 'Hero', caption: 'Hello there', start: 3.0, end: 4.5 },
   { id: 2, character: 'Friend', caption: 'Hi, how are you?', start: 5.0, end: 6.5 },
   { id: 3, character: 'Hero', caption: 'Pretty good', start: 7.5, end: 9.0 },
-  { id: 4, character: 'Friend', caption: 'Nice to hear', start: 9.5, end: 11.0 }
+  // Как во многих паках: голос в MP3 и указано только начало — длину сервер должен узнать из файла
+  { id: 4, character: 'Friend', caption: 'Nice to hear', start: 9.5, end: 11.0, mp3: true, startOnly: true }
 ];
 const SCENE_SECONDS = 12;
 
@@ -85,11 +86,13 @@ function buildFixturePack() {
   zip.addLocalFile(path.join(dir, '_backing_track.wav'));
   for (const line of FIXTURE_LINES) {
     const name = String(line.id).padStart(3, '0');
-    const voice = path.join(dir, `${name}.wav`);
-    runFfmpeg(['-f', 'lavfi', '-i', `sine=frequency=${300 + line.id * 60}:duration=${line.end - line.start}`, '-ar', '22050', '-ac', '1', voice]);
+    const voice = path.join(dir, `${name}.${line.mp3 ? 'mp3' : 'wav'}`);
+    const codec = line.mp3 ? ['-c:a', 'libmp3lame'] : [];
+    runFfmpeg(['-f', 'lavfi', '-i', `sine=frequency=${300 + line.id * 60}:duration=${line.end - line.start}`, '-ar', '22050', '-ac', '1', ...codec, voice]);
     zip.addLocalFile(voice);
+    const timestamps = line.startOnly ? `[${line.start}]` : `[${line.start}, ${line.end}]`;
     zip.addFile(`${name}.ini`, Buffer.from(
-      `caption = ${line.caption}\ndub_characters = ["${line.character}"]\ndub_timestamps = [${line.start}, ${line.end}]\n`
+      `caption = ${line.caption}\ndub_characters = ["${line.character}"]\ndub_timestamps = ${timestamps}\n`
     ));
   }
   fixtureZip = path.join(dir, FIXTURE_PACK);

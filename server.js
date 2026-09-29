@@ -98,6 +98,7 @@ function loadRooms() {
       for (const room of Object.values(loaded)) {
         const active = room.sessions && room.activeSessionId && room.sessions[room.activeSessionId];
         if (active) SESSION_FIELDS.forEach(field => { room[field] = active[field]; });
+        [room, ...Object.values(room.sessions || {})].forEach(repairLineDurations);
       }
       return loaded;
     }
@@ -105,6 +106,23 @@ function loadRooms() {
     console.error('[Dubline] Не удалось прочитать сохраненные комнаты:', err.message);
   }
   return {};
+}
+
+// Сессии, загруженные до исправления: у реплик с MP3/OGG без явного конца стояли 3 секунды.
+// Один раз пересчитываем длину по оригинальному голосу.
+function repairLineDurations(session) {
+  for (const line of (session && session.lines) || []) {
+    if (line.durationChecked || !line.originalAudioUrl) continue;
+    line.durationChecked = true;
+    if (Math.abs((line.end - line.start) - 3) > 0.001) continue; // конец был указан в паке
+    const file = diskPathForUrl(line.originalAudioUrl);
+    if (!file || !fs.existsSync(file)) continue;
+    const duration = path.extname(file).toLowerCase() === '.wav' ? getWavDuration(fs.readFileSync(file)) : probeAudioDuration(file);
+    if (duration && Math.abs(duration - 3) > 0.05) {
+      line.end = Number((line.start + duration).toFixed(2));
+      console.log(`[Dubline] Исправлена длина реплики #${line.id} «${session.title}»: ${duration.toFixed(2)} с`);
+    }
+  }
 }
 
 function writeRoomsNow() {
@@ -511,6 +529,17 @@ function deleteTakeFile(url) {
 // ==========================================
 // РАЗБОР ПАКОВ (Voxalike / The Choicer Voicer)
 // ==========================================
+// Длина MP3/OGG и прочих форматов: у WAV она есть в заголовке, для остальных спрашиваем ffmpeg.
+// Без этого у реплик без явного конца в паке длина молча становилась 3 секунды.
+function probeAudioDuration(file) {
+  if (!ffmpegPath || !fs.existsSync(file)) return null;
+  const result = spawnSync(ffmpegPath, ['-hide_banner', '-i', file], { encoding: 'utf8', timeout: 10000 });
+  const match = /Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/.exec(result.stderr || '');
+  if (!match) return null;
+  const seconds = Number(match[1]) * 3600 + Number(match[2]) * 60 + parseFloat(match[3]);
+  return seconds > 0.05 ? seconds : null;
+}
+
 function getWavDuration(buffer) {
   try {
     if (buffer.toString('ascii', 0, 4) !== 'RIFF') return null;
@@ -671,6 +700,14 @@ function readPack(buffer, packName, forceExtract) {
   });
 
   if (needExtract) fs.writeFileSync(readyMarker, '');
+
+  // Длины оригинальных голосов в MP3/OGG (для WAV уже прочитаны из заголовка)
+  Object.values(audioFilesMap).forEach(name => {
+    if (audioDurations[name] === undefined) {
+      const duration = probeAudioDuration(path.join(targetDir, name));
+      if (duration) audioDurations[name] = duration;
+    }
+  });
 
   const urlFor = file => `/uploads/${encodeURIComponent(dirName)}/${encodeURIComponent(file)}`;
 

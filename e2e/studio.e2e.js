@@ -38,6 +38,16 @@ describe('studio', { skip: skipReason }, () => {
     assert.ok(await alice.evaluate(() => amHost()), 'first player becomes host');
   });
 
+  test('line length comes from the original voice when the pack gives only a start (MP3)', async () => {
+    const line = FIXTURE_LINES[3];
+    // Берем длину именно от сервера (страница умеет подправлять ее сама, но запись и дубли опираются на серверную)
+    const fromServer = await alice.evaluate(id => new Promise(resolve => {
+      socket.once('session_updated', data => resolve(data.lines.find(l => l.id === id).end));
+      socket.emit('join_room', { room: currentRoom, nick: myName, clientId });
+    }), line.id);
+    assert.ok(Math.abs(fromServer - line.end) < 0.1, `end ${fromServer}, expected ~${line.end} (not start + 3)`);
+  });
+
   test('a nickname is protected while its owner is online', async () => {
     const imposter = await openPlayer(browser, server.url(room), 'Alice');
     await waitFor(imposter, () => document.getElementById('nickModal').style.display === 'flex');
