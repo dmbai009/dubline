@@ -173,103 +173,82 @@ function showInspector(line) {
 
   const charOwner = session.characterClaims ? session.characterClaims[line.character] : null;
   const owner = getLineOwner(line);
-
-  const isOwnedByMe = (owner === myName);
-  const isOwnedByOther = (owner && owner !== myName);
+  const isOwnedByMe = owner === myName;
+  const isOwnedByOther = !!owner && owner !== myName;
   const isFree = !owner;
+  const author = line.recordedBy || owner;
 
-  let statusText = '';
+  // Статус — компактной плашкой в заголовке
+  const chip = isOwnedByMe
+    ? `<span class="insp-chip me">${t(charOwner ? 'chip.role' : 'chip.you')}</span>`
+    : isOwnedByOther
+      ? `<span class="insp-chip other">${t('chip.other', { owner: esc(owner) })}</span>`
+      : `<span class="insp-chip free">${t('chip.free')}</span>`;
+
+  const originalBtn = line.originalAudioUrl
+    ? `<button class="btn-outline" onclick="playAudio(${jsArg(line.originalAudioUrl)})" title="${esc(t('listenOriginal'))}">${t('insp.original')}</button>`
+    : '';
+
+  // Главные действия — одной строкой сразу под текстом реплики
+  let primary = '';
   if (isOwnedByMe) {
-    statusText = `<span style="color:#10b981; font-weight:bold;">${t('owned.you')} ${charOwner ? t('owned.role') : ''}</span>`;
-  } else if (isOwnedByOther) {
-    statusText = `<span style="color:#f59e0b; font-weight:bold;">${t('owned.other', { owner: esc(owner) })}</span>`;
+    primary = line.audioUrl
+      ? `<button class="btn-play" onclick="previewTake(${line.id})">${t('playTake')}</button>
+         <button class="btn-record grow" id="recBtn" onclick="handleStudioRecord(${line.id})">${t('rerecord')}</button>
+         ${originalBtn}
+         <button class="btn-delete" onclick="deleteLineAudio(${line.id})" title="${esc(t('confirm.delete'))}">🗑</button>`
+      : `<button class="btn-record grow" id="recBtn" onclick="handleStudioRecord(${line.id})">${t('record')}</button>${originalBtn}`;
   } else {
-    statusText = `<span style="color:#a1a1aa;">${t('free')}</span>`;
+    // Готовый дубль можно послушать всегда — даже если реплика освобождена или роли сброшены
+    const listen = line.audioUrl
+      ? `<button class="btn-play grow" onclick="previewTake(${line.id})">${author ? t('listenTake', { owner: esc(author) }) : t('listenTakeAnon')}</button>`
+      : '';
+    const claim = isFree ? `<button class="btn-claim grow" onclick="claimSingleLine(${line.id})">${t('claim.line')}</button>` : '';
+    primary = claim + listen + originalBtn;
   }
 
-  let actionsHtml = '';
-
-  if (isFree) {
-    actionsHtml += `<button class="btn-claim" onclick="claimSingleLine(${line.id})">${t('claim.line')}</button>`;
-    if (allowCharacterClaims) {
-      actionsHtml += `<button class="btn-outline" onclick="claimCharacter(${jsArg(line.character)})">${t('claim.role', { character: esc(line.character) })}</button>`;
-    }
-  } else if (isOwnedByMe) {
-    if (!charOwner) {
-      actionsHtml += `<button class="btn-unclaim" onclick="unclaimSingleLine(${line.id})">${t('release.line')}</button>`;
-      if (allowCharacterClaims) {
-        actionsHtml += `<button class="btn-outline" onclick="claimCharacter(${jsArg(line.character)})">${t('claim.role', { character: esc(line.character) })}</button>`;
-      }
-    } else {
-      actionsHtml += `<button class="btn-unclaim" onclick="unclaimCharacter(${jsArg(line.character)})">${t('release.role', { character: esc(line.character) })}</button>`;
-    }
+  // Второстепенные действия — мелкими кнопками
+  const secondary = [];
+  if (isFree && allowCharacterClaims) {
+    secondary.push(`<button class="btn-outline" onclick="claimCharacter(${jsArg(line.character)})">${t('claim.role', { character: esc(line.character) })}</button>`);
+  } else if (isOwnedByMe && !charOwner) {
+    secondary.push(`<button class="btn-outline" onclick="unclaimSingleLine(${line.id})">${t('release.line')}</button>`);
+    if (allowCharacterClaims) secondary.push(`<button class="btn-outline" onclick="claimCharacter(${jsArg(line.character)})">${t('claim.role', { character: esc(line.character) })}</button>`);
+  } else if (isOwnedByMe && charOwner) {
+    secondary.push(`<button class="btn-outline" onclick="unclaimCharacter(${jsArg(line.character)})">${t('release.role', { character: esc(line.character) })}</button>`);
   } else if (isOwnedByOther && amHost()) {
-    actionsHtml += charOwner
+    secondary.push(charOwner
       ? `<button class="btn-host" onclick="unclaimCharacter(${jsArg(line.character)})">${t('host.releaseRole', { owner: esc(owner) })}</button>`
-      : `<button class="btn-host" onclick="unclaimSingleLine(${line.id})">${t('host.releaseLine', { owner: esc(owner) })}</button>`;
+      : `<button class="btn-host" onclick="unclaimSingleLine(${line.id})">${t('host.releaseLine', { owner: esc(owner) })}</button>`);
   }
 
-  let recordBtnHtml = '';
-  if (isOwnedByMe) {
-    if (!line.audioUrl) {
-      recordBtnHtml = `<button class="btn-record" id="recBtn" onclick="handleStudioRecord(${line.id})">${t('record')}</button>`;
-    } else {
-      recordBtnHtml = `
-        <div style="display:flex; gap:6px;">
-          <button class="btn-play" style="flex:2;" onclick="previewTake(${line.id})">${t('playTake')}</button>
-          <button class="btn-record" id="recBtn" style="flex:2;" onclick="handleStudioRecord(${line.id})">${t('rerecord')}</button>
-          <button class="btn-delete" style="flex:1;" onclick="deleteLineAudio(${line.id})" title="${t('confirm.delete')}">🗑️</button>
-        </div>
-      `;
-    }
-  } else if (isOwnedByOther) {
-    recordBtnHtml = `<button class="btn-record" disabled>${t('owned.other', { owner: esc(owner) })}</button>`;
-  } else {
-    recordBtnHtml = `<button class="btn-record" disabled>${t('claimFirst')}</button>`;
-  }
+  // Подсказка новичкам: запись начинается не сразу, а после отсчёта (пока нет своего дубля)
+  const hint = isOwnedByMe && !line.audioUrl && recordState === 'idle' ? `<p class="take-hint">${t('record.hint')}</p>` : '';
 
-  // Готовый дубль можно послушать всегда — даже если реплика освобождена или роли сброшены
-  if (!isOwnedByMe && line.audioUrl) {
-    const author = line.recordedBy || owner;
-    recordBtnHtml += author
-      ? `<button class="btn-play" onclick="previewTake(${line.id})">${t('listenTake', { owner: esc(author) })}</button>`
-      : `<button class="btn-play" onclick="previewTake(${line.id})">${t('listenTakeAnon')}</button>`;
-  }
-
-  // Подсказка новичкам: запись начинается не сразу, а после отсчёта
-  if (isOwnedByMe && recordState === 'idle') recordBtnHtml += `<p class="take-hint">${t('record.hint')}</p>`;
+  const micRow = isOwnedByMe ? `
+    <div class="insp-row" title="${esc(t('micLevel'))}">
+      <span class="insp-label">🎙</span>
+      <input type="range" min="30" max="300" step="10" value="${Math.round(userMicGain * 100)}" oninput="updateUserMicGain(this.value)">
+      <span id="gainDisplay" class="take-val">${Math.round(userMicGain * 100)}%</span>
+    </div>` : '';
 
   inspector.innerHTML = `
-    <h3>${esc(line.character)} (${t('line')} #${line.id})</h3>
-    <p><strong>${t('timing')}</strong> ${line.start}s — ${line.end}s <span style="color:#a1a1aa">(${duration}s)</span></p>
-    <p style="background:#27272a; padding:8px; border-radius:6px; margin: 4px 0; max-height:75px; overflow-y:auto;">
-      <em>"${esc(line.caption || '...')}"</em>
-    </p>
-    <p><strong>${t('status')}</strong> ${statusText}</p>
-    
-    <canvas id="visualizerCanvas" width="320" height="32"></canvas>
-
-    <div style="background:#202024; padding:6px 10px; border-radius:6px; margin-top:2px;">
-      <div style="display:flex; justify-content:space-between; font-size:11px; font-weight:bold; color:#a1a1aa;">
-        <span>${t('micLevel')}</span>
-        <span id="gainDisplay">${Math.round(userMicGain * 100)}%</span>
-      </div>
-      <input type="range" min="30" max="300" step="10" value="${Math.round(userMicGain * 100)}" 
-        style="width:100%; accent-color:#8257e5; cursor:pointer;"
-        oninput="updateUserMicGain(this.value)">
+    <div class="insp-head">
+      <div class="insp-title"><b>${esc(line.character)}</b><span>#${line.id}</span></div>
+      ${chip}
     </div>
-
+    <div class="insp-meta">${line.start}–${line.end} s · ${duration} s${line.audioUrl && author ? ` · ${t('recordedBy', { owner: esc(author) })}` : ''}</div>
+    <div class="insp-caption">${esc(line.caption || '…')}</div>
+    <div class="insp-actions">${primary}</div>
+    ${secondary.length ? `<div class="insp-actions secondary">${secondary.join('')}</div>` : ''}
+    ${hint}
+    <canvas id="visualizerCanvas" width="320" height="28"></canvas>
+    ${micRow}
     ${takePanelHtml(line, isOwnedByMe)}
-
-    <div style="display:flex; flex-direction:column; gap:6px; margin-top:4px;">
-      ${line.originalAudioUrl ? `<button class="btn-outline" onclick="playAudio(${jsArg(line.originalAudioUrl)})">${t('listenOriginal')}</button>` : ''}
-      ${actionsHtml}
-      ${recordBtnHtml}
-    </div>
   `;
 }
 
-// Настройки записанного дубля: голос, питч, обрезка тишины, сдвиг
+// Настройки записанного дубля: голос, питч, обрезка тишины, сдвиг — плотной сеткой
 function takePanelHtml(line, editable) {
   if (!line.audioUrl) return '';
   const effect = line.effect || 'none';
@@ -282,7 +261,7 @@ function takePanelHtml(line, editable) {
     const parts = [t(`effect.${effect}`) || effect];
     if (pitch) parts.push(`${t('pitch')} ${signed(pitch, 0)}`);
     if (Math.abs(shift) >= 0.005) parts.push(`${t('shift')} ${signed(shift, 2)}s`);
-    return `<p style="font-size:11px; color:#a1a1aa;">${t('voice')} ${esc(parts.join(', '))}</p>`;
+    return `<div class="insp-meta">${t('voice')} ${esc(parts.join(', '))}</div>`;
   }
 
   const options = Object.entries(VOICE_EFFECTS)
@@ -290,31 +269,28 @@ function takePanelHtml(line, editable) {
     .join('');
 
   return `
-    <div class="take-panel">
+    <div class="take-panel" title="${esc(t('dragHint'))}">
       <div class="take-row">
-        <span>${t('voice')}</span>
-        <select onchange="setTakeProps(${line.id}, { effect: this.value })">${options}</select>
-      </div>
-      <div class="take-row">
-        <span>${t('pitch')}</span>
-        <input type="range" min="-12" max="12" step="1" value="${pitch}" style="flex:1; accent-color:#8257e5;"
+        <select title="${esc(t('voice'))}" onchange="setTakeProps(${line.id}, { effect: this.value })">${options}</select>
+        <span class="insp-label" title="${esc(t('pitch'))}">♯</span>
+        <input type="range" min="-12" max="12" step="1" value="${pitch}" class="pitch-range" title="${esc(t('pitch'))}"
           oninput="document.getElementById('pitchVal').innerText = (this.value > 0 ? '+' : '') + this.value"
           onchange="setTakeProps(${line.id}, { pitch: Number(this.value) })">
-        <span id="pitchVal" class="take-val">${signed(pitch, 0)}</span>
+        <span id="pitchVal" class="take-val narrow">${signed(pitch, 0)}</span>
       </div>
-      <label class="take-row" style="cursor:pointer;">
-        <input type="checkbox" ${line.trimEnabled !== false ? 'checked' : ''} ${hasTrim ? '' : 'disabled'}
-          onchange="setTakeProps(${line.id}, { trimEnabled: this.checked })">
-        <span>${t('trim')}</span>
-        <span class="take-val">${hasTrim ? t('speech', { from: line.trimStart.toFixed(2), to: line.trimEnd.toFixed(2) }) : t('speechMissing')}</span>
-      </label>
       <div class="take-row">
-        <span>${t('shift')} <b>${signed(shift, 2)}s</b></span>
-        <button class="btn-outline" onclick="nudgeTake(${line.id}, -0.05)">${t('earlier')}</button>
-        <button class="btn-outline" onclick="nudgeTake(${line.id}, 0.05)">${t('later')}</button>
-        <button class="btn-outline" onclick="resetTakeShift(${line.id})" ${Math.abs(shift) < 0.005 ? 'disabled' : ''}>${t('reset')}</button>
+        <label class="insp-check" title="${esc(hasTrim ? t('speech', { from: line.trimStart.toFixed(2), to: line.trimEnd.toFixed(2) }) : t('speechMissing'))}">
+          <input type="checkbox" ${line.trimEnabled !== false ? 'checked' : ''} ${hasTrim ? '' : 'disabled'}
+            onchange="setTakeProps(${line.id}, { trimEnabled: this.checked })">
+          <span>${t('trim')}</span>
+        </label>
+        <span class="insp-shift">
+          <button class="btn-icon" onclick="nudgeTake(${line.id}, -0.05)" title="${esc(t('earlier'))}">◀</button>
+          <b title="${esc(t('shift'))}">${signed(shift, 2)}s</b>
+          <button class="btn-icon" onclick="nudgeTake(${line.id}, 0.05)" title="${esc(t('later'))}">▶</button>
+          <button class="btn-icon" onclick="resetTakeShift(${line.id})" ${Math.abs(shift) < 0.005 ? 'disabled' : ''} title="${esc(t('reset'))}">⟲</button>
+        </span>
       </div>
-      <p class="take-hint">${t('dragHint')}</p>
     </div>
   `;
 }

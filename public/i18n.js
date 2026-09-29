@@ -515,6 +515,31 @@
     'help.ok': "Зрозуміло, граємо!"
   });
 
+  Object.assign(messages.en, {
+    'chip.you': "✅ yours",
+    'chip.role': "🎭 your role",
+    'chip.other': "🔒 {owner}",
+    'chip.free': "free",
+    'insp.original': "🎧 Original",
+    'record.hint': "Recording starts after the countdown over the video — speak on “Speak!”."
+  });
+  Object.assign(messages.ru, {
+    'chip.you': "✅ ваша",
+    'chip.role': "🎭 ваша роль",
+    'chip.other': "🔒 {owner}",
+    'chip.free': "свободна",
+    'insp.original': "🎧 Оригинал",
+    'record.hint': "Запись начнётся после отсчёта над видео — говорите на «Говорите!»."
+  });
+  Object.assign(messages.uk, {
+    'chip.you': "✅ ваша",
+    'chip.role': "🎭 ваша роль",
+    'chip.other': "🔒 {owner}",
+    'chip.free': "вільна",
+    'insp.original': "🎧 Оригінал",
+    'record.hint': "Запис почнеться після відліку над відео — говоріть на «Говоріть!»."
+  });
+
   let language = localStorage.getItem('dubline_language');
   if (!messages[language]) {
     const browser = String(navigator.language || 'en').toLowerCase();
