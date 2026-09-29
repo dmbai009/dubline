@@ -5,6 +5,8 @@ const multer = require('multer');
 const AdmZip = require('adm-zip');
 const fs = require('fs');
 const path = require('path');
+const { spawn, spawnSync } = require('child_process');
+const ffmpegPath = require('ffmpeg-static');
 
 const app = express();
 const server = http.createServer(app);
@@ -20,6 +22,7 @@ const ROOMS_FILE = path.join(DATA_DIR, 'rooms.json');
 const MAX_PACK_MB = 300;       // размер .zip пака
 const MAX_UNPACKED_MB = 1024;  // суммарный размер распакованного пака (защита от zip-бомб)
 const MAX_TAKE_MB = 20;        // размер одного дубля
+const MAX_SUBTITLE_MB = 20;
 const MAX_NICK_LENGTH = 16;
 const MAX_CHAT_LENGTH = 500;
 const MAX_CHAT_HISTORY = 100;
@@ -35,7 +38,9 @@ for (const dir of [UPLOAD_DIR, PACKS_DIR, DATA_DIR]) {
 app.use(express.static(PUBLIC_DIR));
 // Mediabunny (MP4-мультиплексор для рендера через WebCodecs) раздаем прямо из node_modules
 app.use('/vendor/mediabunny', express.static(path.join(__dirname, 'node_modules', 'mediabunny', 'dist', 'bundles')));
+app.use('/vendor/jszip', express.static(path.join(__dirname, 'node_modules', 'jszip', 'dist')));
 app.use(express.json());
+app.get('/favicon.ico', (req, res) => res.status(204).end());
 
 class HttpError extends Error {
   constructor(status, message) {
@@ -161,8 +166,8 @@ function addChatMessage(roomId, message) {
   saveRooms();
 }
 
-function addSystemMessage(roomId, text) {
-  addChatMessage(roomId, { system: true, text });
+function addSystemMessage(roomId, key, params = {}, fallback = '') {
+  addChatMessage(roomId, { system: true, key, params, text: fallback });
 }
 
 // Ник закреплен за устройством (clientId), чтобы никто не мог выдать себя за другого игрока
@@ -394,7 +399,7 @@ function loadPackIntoRoom(roomId, packName, buffer, forceExtract) {
 
   saveRooms();
   emitSession(roomId);
-  addSystemMessage(roomId, `🎬 Хост запустил пак «${pack.title}»`);
+  addSystemMessage(roomId, 'system.packLoaded', { title: pack.title }, `🎬 Хост запустил пак «${pack.title}»`);
   return room;
 }
 
@@ -411,10 +416,201 @@ function acceptFile(field, maxMb) {
   });
 }
 
+function acceptCustomFiles(maxMb) {
+  const handler = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: maxMb * 1024 * 1024 }
+  }).fields([
+    { name: 'video', maxCount: 1 },
+    { name: 'subtitles', maxCount: 1 }
+  ]);
+
+  return (req, res, next) => handler(req, res, err => {
+    if (!err) return next();
+    if (err.code === 'LIMIT_FILE_SIZE') return res.status(413).send(`Файл слишком большой (максимум ${maxMb} МБ)`);
+    res.status(400).send('Ошибка загрузки: ' + err.message);
+  });
+}
+
+function runFfmpeg(args, label) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(ffmpegPath, ['-hide_banner', '-loglevel', 'error', '-y', ...args], { windowsHide: true });
+    let stderr = '';
+    const timer = setTimeout(() => {
+      child.kill();
+      reject(new HttpError(408, `${label}: превышено время обработки`));
+    }, 10 * 60 * 1000);
+    child.stderr.on('data', chunk => {
+      if (stderr.length < 8 * 1024 * 1024) stderr += chunk.toString();
+    });
+    child.on('error', err => {
+      clearTimeout(timer);
+      reject(new HttpError(500, `${label}: ${err.message}`));
+    });
+    child.on('close', code => {
+      clearTimeout(timer);
+      if (code === 0) return resolve();
+      const detail = stderr.trim().split(/\r?\n/).slice(-3).join(' ');
+      if (detail) console.error(`[Dubline] ${label}: ${detail}`);
+      reject(new HttpError(400, label));
+    });
+  });
+}
+
+function findEmbeddedSubtitleMap(filePath) {
+  const probe = spawnSync(ffmpegPath, ['-hide_banner', '-i', filePath], {
+    encoding: 'utf8', windowsHide: true, timeout: 60000, maxBuffer: 8 * 1024 * 1024
+  });
+  if (probe.error) throw new HttpError(500, `Не удалось проверить MKV: ${probe.error.message}`);
+  const output = `${probe.stdout || ''}\n${probe.stderr || ''}`;
+  const streams = [...output.matchAll(/Stream #0:(\d+)(?:\([^)]*\))?: Subtitle: ([^,\s]+)/gi)];
+  const supported = streams.find(match => /^(ass|ssa|subrip|srt|webvtt)$/i.test(match[2]));
+  return supported ? `0:${supported[1]}` : null;
+}
+
+function isMkvFile(file) {
+  return /\.mkv$/i.test(file.originalname || '') || file.mimetype === 'video/x-matroska';
+}
+
+function isMp4File(file) {
+  return /\.mp4$/i.test(file.originalname || '') || file.mimetype === 'video/mp4';
+}
+
+function isSubtitleFile(file) {
+  return /\.(ass|ssa|srt|vtt)$/i.test(file.originalname || '');
+}
+
+function parseAssTime(str) {
+  const parts = String(str || '').trim().split(':');
+  if (parts.length < 3) return 0;
+  const h = parseFloat(parts[0]) || 0;
+  const m = parseFloat(parts[1]) || 0;
+  const s = parseFloat(parts[2]) || 0;
+  return h * 3600 + m * 60 + s;
+}
+
+function parseSrtTime(h, m, s, ms) {
+  const hours = parseFloat(h ? h.replace(':', '') : 0) || 0;
+  const minutes = parseFloat(m) || 0;
+  const seconds = parseFloat(s) || 0;
+  const millis = parseFloat(ms) || 0;
+  return hours * 3600 + minutes * 60 + seconds + millis / 1000;
+}
+
+function parseSubtitles(buffer, fileName) {
+  let text = buffer.toString('utf8');
+  if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+  const ext = path.extname(fileName || '').toLowerCase();
+  const lines = [];
+
+  if (ext === '.ass' || ext === '.ssa') {
+    const rawLines = text.split(/\r?\n/);
+    let formatFields = [];
+    let idCounter = 1;
+
+    for (const line of rawLines) {
+      const trimmed = line.trim();
+      if (/^Format:/i.test(trimmed)) {
+        formatFields = trimmed.replace(/^Format:\s*/i, '').split(',').map(s => s.trim().toLowerCase());
+      } else if (/^Dialogue:/i.test(trimmed)) {
+        const valStr = trimmed.replace(/^Dialogue:\s*/i, '');
+        const maxSplits = formatFields.length > 0 ? formatFields.length - 1 : 9;
+        const parts = [];
+        let curr = valStr;
+        for (let i = 0; i < maxSplits; i++) {
+          const idx = curr.indexOf(',');
+          if (idx === -1) break;
+          parts.push(curr.slice(0, idx).trim());
+          curr = curr.slice(idx + 1);
+        }
+        parts.push(curr.trim());
+
+        let start = 0, end = 0, character = 'Персонаж', caption = '';
+        if (formatFields.length > 0) {
+          const sIdx = formatFields.indexOf('start');
+          const eIdx = formatFields.indexOf('end');
+          const nIdx = formatFields.indexOf('name');
+          const tIdx = formatFields.indexOf('text');
+          if (sIdx !== -1 && parts[sIdx]) start = parseAssTime(parts[sIdx]);
+          if (eIdx !== -1 && parts[eIdx]) end = parseAssTime(parts[eIdx]);
+          if (nIdx !== -1 && parts[nIdx]) character = parts[nIdx] || 'Персонаж';
+          if (tIdx !== -1 && parts[tIdx]) caption = parts[tIdx];
+        } else {
+          start = parseAssTime(parts[1] || '0');
+          end = parseAssTime(parts[2] || '0');
+          character = parts[4] || 'Персонаж';
+          caption = parts[9] || '';
+        }
+
+        caption = caption.replace(/\{[^}]+\}/g, '').replace(/\\N/gi, ' ').replace(/\\n/gi, ' ').trim();
+        if (caption) {
+          lines.push({
+            id: idCounter++,
+            character: character || 'Персонаж',
+            caption,
+            start: Number(start.toFixed(2)),
+            end: Number(Math.max(start + 0.5, end).toFixed(2)),
+            originalAudioUrl: null,
+            claimedBy: null,
+            ...emptyTake()
+          });
+        }
+      }
+    }
+  } else {
+    // SRT / VTT
+    const blocks = text.split(/\r?\n\r?\n+/);
+    let idCounter = 1;
+    for (const block of blocks) {
+      const bLines = block.trim().split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+      if (bLines.length < 2) continue;
+
+      let timeLineIdx = bLines.findIndex(l => l.includes('-->'));
+      if (timeLineIdx === -1) continue;
+
+      const timeLine = bLines[timeLineIdx];
+      const match = timeLine.match(/(\d{1,2}:)?(\d{2}):(\d{2})[,.](\d{3})\s*-->\s*(\d{1,2}:)?(\d{2}):(\d{2})[,.](\d{3})/);
+      if (!match) continue;
+
+      const start = parseSrtTime(match[1], match[2], match[3], match[4]);
+      const end = parseSrtTime(match[5], match[6], match[7], match[8]);
+
+      let caption = bLines.slice(timeLineIdx + 1).join(' ').trim();
+      caption = caption.replace(/<[^>]+>/g, '').trim();
+
+      let character = 'Персонаж';
+      const bracketed = caption.match(/^(?:\[([^\]]+)\]|\(([^)]+)\)):\s*(.*)$/);
+      const prefixed = caption.match(/^([A-Za-zА-Яа-яЁёІіЇїЄєҐґ0-9_ .'-]{2,30}):\s*(.*)$/);
+      if (bracketed) {
+        character = (bracketed[1] || bracketed[2]).trim();
+        caption = bracketed[3].trim();
+      } else if (prefixed) {
+        character = prefixed[1].trim();
+        caption = prefixed[2].trim();
+      }
+
+      if (caption) {
+        lines.push({
+          id: idCounter++,
+          character,
+          caption,
+          start: Number(start.toFixed(2)),
+          end: Number(Math.max(start + 0.5, end).toFixed(2)),
+          originalAudioUrl: null,
+          claimedBy: null,
+          ...emptyTake()
+        });
+      }
+    }
+  }
+
+  return lines;
+}
+
 function sendError(res, err) {
   if (err instanceof HttpError) return res.status(err.status).send(err.message);
   console.error('[Dubline] Ошибка:', err);
-  res.status(500).send('Внутренняя ошибка сервера: ' + err.message);
+  res.status(500).send('Внутренняя ошибка сервера');
 }
 
 // ==========================================
@@ -479,6 +675,95 @@ app.post('/api/load-server-pack', (req, res) => {
     const updatedRoom = loadPackIntoRoom(roomId, packName, fs.readFileSync(filePath), false);
     res.json({ success: true, session: publicRoom(updatedRoom) });
   } catch (err) {
+    sendError(res, err);
+  }
+});
+
+// Раздельная загрузка Видео (.mp4) + Субтитров (.ass / .srt / .vtt)
+app.post('/api/upload-custom', acceptCustomFiles(MAX_PACK_MB), async (req, res) => {
+  let targetDir = null;
+  try {
+    const roomId = sanitizeRoomId(req.query.room);
+    const room = getRoom(roomId);
+    if (!isHost(room, req.body.clientId)) throw new HttpError(403, 'Создавать сцену может только хост комнаты');
+
+    const videoFile = req.files && req.files['video'] ? req.files['video'][0] : null;
+    const subFile = req.files && req.files['subtitles'] ? req.files['subtitles'][0] : null;
+
+    if (!videoFile) throw new HttpError(400, 'Не передан видеофайл (.mp4 / .mkv)');
+    if (!isMp4File(videoFile) && !isMkvFile(videoFile)) throw new HttpError(400, 'Поддерживаются только видео .mp4 и .mkv');
+    if (subFile && !isSubtitleFile(subFile)) throw new HttpError(400, 'Поддерживаются субтитры .ass, .ssa, .srt и .vtt');
+    if (subFile && subFile.size > MAX_SUBTITLE_MB * 1024 * 1024) throw new HttpError(413, `Субтитры больше ${MAX_SUBTITLE_MB} МБ`);
+
+    const customTitle = String(req.body.title || path.basename(videoFile.originalname, path.extname(videoFile.originalname)))
+      .replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 80) || 'Custom_Scene';
+
+    const dirName = `custom_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    targetDir = path.join(UPLOAD_DIR, dirName);
+    fs.mkdirSync(targetDir, { recursive: true });
+
+    const videoName = 'dub_video.mp4';
+    const videoPath = path.join(targetDir, videoName);
+    let subtitleBuffer = subFile ? subFile.buffer : null;
+    let subtitleName = subFile ? subFile.originalname : '';
+
+    if (isMkvFile(videoFile)) {
+      const mkvPath = path.join(targetDir, 'source.mkv');
+      fs.writeFileSync(mkvPath, videoFile.buffer);
+
+      if (!subtitleBuffer) {
+        const extractedPath = path.join(targetDir, 'embedded.ass');
+        const subtitleMap = findEmbeddedSubtitleMap(mkvPath);
+        if (!subtitleMap) throw new HttpError(400, 'В MKV нет встроенных субтитров ASS/SSA/SRT');
+        try {
+          await runFfmpeg(['-i', mkvPath, '-map', subtitleMap, '-c:s', 'ass', extractedPath], 'Не удалось извлечь встроенные субтитры');
+          subtitleBuffer = fs.readFileSync(extractedPath);
+          subtitleName = 'embedded.ass';
+          if (subtitleBuffer.length > MAX_SUBTITLE_MB * 1024 * 1024) throw new HttpError(413, `Встроенные субтитры больше ${MAX_SUBTITLE_MB} МБ`);
+        } finally {
+          fs.rmSync(extractedPath, { force: true });
+        }
+      }
+
+      try {
+        await runFfmpeg(['-i', mkvPath, '-map', '0:v:0', '-map', '0:a?', '-c', 'copy', '-movflags', '+faststart', videoPath], 'Не удалось ремуксить MKV в MP4');
+      } catch (copyError) {
+        await runFfmpeg(['-i', mkvPath, '-map', '0:v:0', '-map', '0:a?', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', videoPath], 'Не удалось ремуксить MKV в MP4 с AAC-аудио');
+      } finally {
+        fs.rmSync(mkvPath, { force: true });
+      }
+    } else {
+      fs.writeFileSync(videoPath, videoFile.buffer);
+    }
+
+    if (!subtitleBuffer) {
+      fs.rmSync(targetDir, { recursive: true, force: true });
+      throw new HttpError(400, 'Передайте файл субтитров или MKV со встроенной дорожкой субтитров');
+    }
+
+    const lines = parseSubtitles(subtitleBuffer, subtitleName);
+    if (!lines.length) {
+      fs.rmSync(targetDir, { recursive: true, force: true });
+      throw new HttpError(400, 'В файле субтитров не найдено реплик');
+    }
+
+    room.lines.forEach(line => deleteTakeFile(line.audioUrl));
+
+    room.loaded = true;
+    room.title = customTitle;
+    room.zipUrl = '';
+    room.videoUrl = `/uploads/${encodeURIComponent(dirName)}/${encodeURIComponent(videoName)}`;
+    room.backingUrl = '';
+    room.lines = lines;
+    room.characterClaims = {};
+
+    saveRooms();
+    emitSession(roomId);
+    addSystemMessage(roomId, 'system.customScene', { title: customTitle, count: lines.length }, `🎬 Хост создал новую сцену «${customTitle}» (${lines.length} реплик)`);
+    console.log(`[Dubline] Создана пользовательская сцена [${customTitle}] (${lines.length} реплик) в комнате [${roomId}]`);
+    res.json({ success: true, session: publicRoom(room) });
+  } catch (err) {
+    if (targetDir) fs.rmSync(targetDir, { recursive: true, force: true });
     sendError(res, err);
   }
 });
@@ -594,8 +879,12 @@ io.on('connection', socket => {
 
     let requested = sanitizeNick(data.nick);
     let error = null;
+    let errorKey = null;
+    let errorParams = null;
     if (requested && !isNickFree(room, requested, clientId)) {
       error = `Ник «${requested}» уже занят другим игроком в этой комнате`;
+      errorKey = 'error.nickTaken';
+      errorParams = { nick: requested };
       requested = '';
     }
     nick = requested;
@@ -610,7 +899,7 @@ io.on('connection', socket => {
     roomSockets[roomId][socket.id] = { nick, clientId };
 
     saveRooms();
-    socket.emit('nick_state', { nick, error });
+    socket.emit('nick_state', { nick, error, errorKey, errorParams });
     socket.emit('session_updated', publicRoom(room));
     socket.emit('chat_history', room.chat);
     broadcastRoomUsers(roomId);
@@ -623,7 +912,12 @@ io.on('connection', socket => {
     if (!newName || newName === nick) return socket.emit('nick_state', { nick });
 
     if (!isNickFree(room, newName, clientId)) {
-      return socket.emit('nick_state', { nick, error: `Ник «${newName}» уже занят другим игроком` });
+      return socket.emit('nick_state', {
+        nick,
+        error: `Ник «${newName}» уже занят другим игроком`,
+        errorKey: 'error.nickTaken',
+        errorParams: { nick: newName }
+      });
     }
 
     const oldName = nick;
@@ -667,7 +961,7 @@ io.on('connection', socket => {
     });
     saveRooms();
     emitSession(roomId);
-    if (owner !== nick) addSystemMessage(roomId, `👑 Хост снял роль «${character}» с игрока ${owner}`);
+    if (owner !== nick) addSystemMessage(roomId, 'system.roleReleased', { character, owner }, `👑 Хост снял роль «${character}» с игрока ${owner}`);
   });
 
   socket.on('claim_line', ({ lineId } = {}) => {
@@ -698,7 +992,7 @@ io.on('connection', socket => {
     line.claimedBy = null;
     saveRooms();
     io.to(roomId).emit('line_updated', line);
-    if (owner !== nick) addSystemMessage(roomId, `👑 Хост освободил реплику #${line.id} игрока ${owner}`);
+    if (owner !== nick) addSystemMessage(roomId, 'system.lineReleased', { id: line.id, owner }, `👑 Хост освободил реплику #${line.id} игрока ${owner}`);
   });
 
   // Настройки своего дубля: эффект, питч, обрезка тишины, ручной сдвиг по таймлайну
@@ -736,7 +1030,7 @@ io.on('connection', socket => {
     room.lines.forEach(l => { l.claimedBy = null; });
     saveRooms();
     emitSession(roomId);
-    addSystemMessage(roomId, '♻️ Хост сбросил все роли и реплики (записанные дубли сохранены)');
+    addSystemMessage(roomId, 'system.claimsReset', {}, '♻️ Хост сбросил все роли и реплики (записанные дубли сохранены)');
   });
 
   socket.on('host_force_pause', () => {
@@ -745,7 +1039,7 @@ io.on('connection', socket => {
     if (!isHost(room, clientId)) return;
 
     io.to(roomId).emit('force_pause', { by: nick });
-    addSystemMessage(roomId, `⏸ Хост ${nick} поставил видео на паузу у всех`);
+    addSystemMessage(roomId, 'system.forcePause', { nick }, `⏸ Хост ${nick} поставил видео на паузу у всех`);
   });
 
   // Если хост ушел, любой игрок может забрать права себе
@@ -758,7 +1052,7 @@ io.on('connection', socket => {
     room.host = nick;
     saveRooms();
     broadcastRoomUsers(roomId);
-    addSystemMessage(roomId, `👑 ${nick} теперь хост комнаты`);
+    addSystemMessage(roomId, 'system.newHost', { nick }, `👑 ${nick} теперь хост комнаты`);
   });
 
   // ---------- Чат ----------
@@ -778,6 +1072,18 @@ io.on('connection', socket => {
   socket.on('disconnect', leaveCurrentRoom);
 });
 
-server.listen(PORT, () => {
-  console.log(`[Dubline] Сервер запущен: http://localhost:${PORT}`);
-});
+if (require.main === module) {
+  server.listen(PORT, () => {
+    console.log(`[Dubline] Сервер запущен: http://localhost:${PORT}`);
+  });
+}
+
+module.exports = {
+  app,
+  server,
+  parseAssTime,
+  parseSubtitles,
+  findEmbeddedSubtitleMap,
+  sanitizeRoomId,
+  sanitizeNick
+};

@@ -1,104 +1,107 @@
-# 🎙️ Dubline
+# Dubline
 
-**Dubline** — это коллаборативная веб-студия и пати-игра, где вы с друзьями озвучиваете видеоролики параллельно, на общем таймлайне. Проект вдохновлён **Voxalike** и убирает его главный минус: здесь не нужно долго ждать своей очереди, пока озвучивают все остальные.
+Dubline is a collaborative browser-based dubbing studio and party game. Friends can claim characters or individual lines, record in parallel, review takes on a shared timeline, and export a finished video or DAW-ready character stems.
 
----
+The project is inspired by Voxalike and The Choicer Voicer, while removing the need for players to record one after another.
 
-## ✨ Главные фичи
+## Features
 
-- **Параллельная озвучка.** Каждый берёт свою реплику и записывает её, когда ему удобно. Ждать очереди не нужно.
-- **Система ролей.** Можно занять персонажа целиком или только отдельные реплики. Занятые реплики защищены: другие игроки не смогут перезаписать или удалить ваш дубль.
-- **Студийные функции:**
-  - **Pre-roll:** перед началом записи есть секунда на подготовку, а в конце добавляется буфер, чтобы фразы не обрезались.
-  - **Чувствительность микрофона (Gain):** её можно поднять для тихих гарнитур.
-  - **Трёхканальный микшер:** оригинал / интершум (фон) / дубляж, плюс кнопка **Mute**.
-- **Голосовые фильтры и питч-шифтер.** Дублю можно включить эффект (🤖 робот, 📻 рация, 👹 монстр) и сдвинуть высоту голоса на ±12 полутонов. Длительность при этом не меняется, так что тайминг сохраняется. Файл записи остаётся нетронутым: эффект накладывается при воспроизведении и рендере, его можно поменять или выключить в любой момент.
-- **Автообрезка тишины.** После записи Dubline сам находит, где в дубле начинается и заканчивается речь, и глушит пустые хвосты с шумом микрофона. Обрезанные края на волне показаны бледным, обрезку можно выключить галочкой.
-- **Ручной сдвиг дубля.** Если опоздали или поспешили, перетащите свою плитку мышкой по таймлайну или подвиньте её кнопками ±50 мс в инспекторе. Кнопка «Сброс» возвращает исходное положение.
-- **Быстрый рендер прямо в браузере (WebCodecs).** Видеодорожка копируется без перекодирования, звук сводится офлайн и кодируется в AAC. Готовый MP4 собирается за считанные секунды, а не за время длительности ролика, и результат не зависит от того, свёрнута ли вкладка. В браузерах без WebCodecs включается запасной режим: запись в реальном времени (MP4/WebM). FFmpeg не нужен.
-- **Комнаты.** Всё синхронизируется в реальном времени через WebSockets. Разные компании могут играть в отдельных комнатах, каждая открывается по своей ссылке.
-- **Форма волны на таймлайне.** На плитках реплик нарисована настоящая звуковая волна, как в монтажке: серая у оригинального голоса и зелёная у вашего дубля. По ней сразу видно, попал ли дубль в тайминг.
-- **Хост комнаты.** Первый вошедший в комнату становится хостом (👑). Только он может:
-  - менять пак (загружать .zip или запускать мод из библиотеки);
-  - ставить видео на паузу у всех игроков (⏸ Пауза у всех);
-  - снимать зависшие роли с конкретных игроков или сбрасывать все роли разом (дубли при этом сохраняются).
+- **Parallel recording.** Every player can claim and record their own lines without waiting for other actors.
+- **Rooms and live synchronization.** Packs, roles, takes, host state, and chat are synchronized through Socket.IO. Add `?room=your-room` to the URL to create a separate session.
+- **Persistent sessions.** Room state is stored in `data/rooms.json`; uploaded media and takes stay available after a server restart.
+- **Host controls.** The first participant becomes the room host and can change scenes, pause playback for everyone, or release stale role claims.
+- **Studio recording tools.** Pre-roll, microphone gain, optional browser noise/echo suppression, silence detection, waveform previews, non-destructive trimming, and manual take alignment.
+- **Non-destructive voice processing.** Robot, radio, and monster effects plus a ±12-semitone pitch shifter are applied during playback and export without modifying the original recording.
+- **Three-channel mixer.** Control original video audio, background/ambience, and recorded dubbing independently.
+- **Auto-ducking.** Background and original audio fade down over 80 ms while a take plays and recover over 250 ms. The same automation is used for playback and exported mixes.
+- **Video prompter.** The active character, line, and phrase progress are shown over the video. The overlay can be disabled or resized.
+- **Fast browser export.** On supported browsers, WebCodecs and Mediabunny pass the encoded video stream through without re-encoding and create a new mixed audio track. A real-time fallback is available when WebCodecs cannot be used.
+- **REAPER/DAW stems.** The browser renders one full-length, timeline-aligned WAV file per character and packages the files with a TSV cue sheet in a ZIP archive.
+- **Room chat.** Includes persisted history, unread counts, and localized system notifications.
+- **English, Russian, and Ukrainian UI.** The browser language is detected automatically and the selection is stored in `localStorage`.
 
-  Если хост ушёл, любой игрок может нажать «Стать хостом».
-- **Текстовый чат** комнаты с историей сообщений и счётчиком непрочитанных. Туда же приходят системные уведомления: смена пака, пауза, сброс ролей.
-- **Состояние комнат сохраняется** в `data/rooms.json`, поэтому после перезапуска сервера роли, дубли и чат остаются на месте.
+## Import formats
 
-## 🧩 Совместимость с модами
+### Voxalike-compatible ZIP packs
 
-Dubline сразу понимает формат паков **Voxalike** и **The Choicer Voicer**. Это обычные `.zip`-архивы, распаковывать их не нужно.
+Dubline understands standard Voxalike and The Choicer Voicer scene archives. It looks for:
 
-**Где брать контент:** на [GameBanana](https://gamebanana.com/) и официальных страницах этих игр. Там сообщество выложило тысячи готовых сцен.
+| File | Purpose |
+| --- | --- |
+| `dub_video.mp4` | Scene video |
+| `*_backing_track*` | Music and ambience |
+| `*.ini` / `*.txt` | Captions, characters, and timestamps |
+| `*.wav` / `*.mp3` / `*.ogg` | Original line audio |
 
-**Что Dubline ищет внутри архива:**
+Uploaded archives are stored in `public/packs/` and extracted into a path-safe, flattened folder below `public/uploads/`.
 
-| Файл | Назначение |
-|---|---|
-| `dub_video.mp4` | Видеоролик для озвучки |
-| `*_backing_track*` | Фоновая музыка и интершум |
-| `*.ini` / `*.txt` | Реплики: `caption`, `dub_characters`, `dub_timestamps` |
-| `*.wav` / `*.mp3` / `*.ogg` | Оригинальные голоса (сопоставляются с репликами по имени или номеру) |
+### Video and subtitles
 
-Загруженные паки сохраняются на сервере в `public/packs/`, и потом их можно заново открыть из встроенной библиотеки. Каждый пак распаковывается один раз (в `public/uploads/pack_<имя>/`), при повторном запуске используется готовая папка.
+The import dialog also accepts:
 
-## 🚀 Установка и запуск
+- MP4 plus ASS, SSA, SRT, or VTT subtitles;
+- MKV plus an optional external subtitle file;
+- MKV with an embedded ASS, SSA, or SRT-compatible subtitle track.
 
-**Требования:** [Node.js](https://nodejs.org/) **18+** (рекомендуется 20+).
+For MKV input, the bundled `ffmpeg-static` binary extracts the first supported subtitle stream and remuxes video into MP4 without video re-encoding. Audio is copied when MP4 supports its codec and converted to AAC only when necessary.
+
+ASS imports use the Aegisub `Name` field for the character. SRT/VTT lines may use prefixes such as `Alice: text`, `[Alice]: text`, or `(Alice): text`. When a scene has no separate backing track, video audio is treated as the background channel and participates in auto-ducking.
+
+## Requirements and installation
+
+- Node.js 18 or newer; Node.js 20+ is recommended.
+- Chrome or Edge is recommended for the fastest WebCodecs export.
 
 ```bash
 git clone https://github.com/dmbai009/dubline.git
 cd dubline
 npm install
-node server.js
+npm start
 ```
 
-На Windows можно просто запустить `start.bat`: он сам поднимет сервер и откроет браузер.
+Open <http://localhost:3000>. On Windows, `start.bat` starts the server and opens the page.
 
-После запуска откройте **http://localhost:3000**.
+## Inviting friends
 
-## 👥 Как подключить друзей
-
-По умолчанию сервер доступен **только на вашем ПК** (`localhost`). Чтобы друзья могли зайти через интернет, откройте туннель во втором терминале, пока сервер запущен:
+The application itself does not expose your local server to the internet. One simple option for a private game is LocalTunnel:
 
 ```bash
 npx localtunnel --port 3000
 ```
 
-На Windows то же самое делает `share.bat`. Туннель выдаст публичную ссылку вида `https://xxxx.loca.lt`, её и нужно отправить друзьям.
+On Windows, `share.bat` runs the same command. Send friends a room-specific URL such as:
 
-> **Пароль туннеля.** При первом заходе localtunnel показывает страницу-предупреждение с полем **Tunnel Password**. Это защита от фишинга, а не пароль Dubline. Туда нужно ввести **публичный IP того, у кого запущен сервер**. Хост может узнать его, открыв у себя https://loca.lt/mytunnelpassword, и отправить друзьям вместе со ссылкой.
-
-**Комнаты.** Комната задаётся параметром `?room=название` в ссылке:
-
-```
-https://xxxx.loca.lt/?room=pizza-night
+```text
+https://example.loca.lt/?room=pizza-night
 ```
 
-Все, кто открыл ссылку с одинаковым `room`, попадают в одну сессию: у них общий пак, общие реплики, общие занятые роли и общий чат. Без параметра вы попадаете в комнату `main`.
+LocalTunnel may show a warning page asking for a tunnel password. This is LocalTunnel's anti-phishing check, not a Dubline password. The host can obtain the expected public-IP value at <https://loca.lt/mytunnelpassword>.
 
-**Ники и защита.** В комнате ник закрепляется за вашим браузером. Никто не сможет зайти под вашим ником, чтобы перезаписать или удалить ваши дубли. Если вы зашли с другого устройства и ник уже занят, выберите другой, а хост освободит ваши старые роли.
+Do not share a tunnel publicly. Dubline is designed as a small self-hosted server for trusted groups, not as a hardened public multi-tenant service.
 
-**Безопасность.** Сервер ограничивает размер загрузок (пак до 300 МБ, дубль до 20 МБ), очищает имена комнат и файлов и не даёт архиву записать файлы за пределы своей папки. И всё же не раздавайте ссылку на туннель посторонним: это домашний сервер для друзей.
+## Controls
 
-## ⚠️ Советы для хорошего звука
+| Key | Action |
+| --- | --- |
+| `Space` | Play or pause |
+| `R` | Record the selected line |
+| `Left` / `Right` | Seek by three seconds |
+| `Esc` | Close dialogs |
 
-- 🎧 **Обязательно наденьте наушники.** Если играть через колонки, звук видео попадёт в микрофон, и в записи будет эхо.
-- 🌐 **Используйте Chrome или Edge.** Запись и игра работают и в других браузерах, но быстрый экспорт видео через WebCodecs доступен именно там.
-- 🎙️ **Разрешите доступ к микрофону**, когда браузер спросит при первой записи.
-- ⌨️ **Горячие клавиши:**
+Use headphones while recording to prevent video audio from leaking into the microphone.
 
-| Клавиша | Действие |
-|---|---|
-| `Пробел` | Плей / пауза |
-| `R` | Быстрый старт записи выбранной реплики |
-| `←` / `→` | Перемотка на 3 секунды назад / вперёд |
-| `Esc` | Закрыть модальные окна |
+## Tests
 
-## 🛠️ Стек
+```bash
+npm test
+npm run check
+```
 
-- **Backend:** Node.js, Express, Socket.io, Multer, adm-zip
-- **Frontend:** Web Audio API (эффекты, WSOLA-питч-шифтер, офлайн-сведение), WebCodecs + [Mediabunny](https://mediabunny.dev/) (сборка MP4), Canvas, MediaRecorder. Чистый JS, без фреймворков.
+The test suite covers subtitle parsing, identifier sanitization, HTML/client integration, translation completeness, and a real FFmpeg MKV round trip with an embedded ASS stream.
 
+## Stack
+
+- **Server:** Node.js, Express, Socket.IO, Multer, adm-zip, ffmpeg-static
+- **Client:** plain JavaScript, Web Audio API, MediaRecorder, WebCodecs, Mediabunny, JSZip, Canvas
+
+No system FFmpeg installation or frontend build step is required.

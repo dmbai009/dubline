@@ -2,39 +2,69 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <title>Dubline — Совместный дубляж сцен</title>
+  <title data-i18n="app.title">Dubline — Collaborative dubbing studio</title>
+  <link rel="icon" href="data:,">
   <script src="/socket.io/socket.io.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
     body { background: #121214; color: #e1e1e6; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
-    header { background: #202024; padding: 8px 16px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #323238; z-index: 30; }
     
-    header { flex-wrap: wrap; gap: 8px; }
-    header > div { flex-wrap: wrap; }
-    header button, header label, header a, .room-badge, .users-online, .host-panel, .user-badge { white-space: nowrap; }
-    .users-online { max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+    /* ШАПКА */
+    header {
+      background: #202024; padding: 8px 16px; display: flex; align-items: center; justify-content: space-between;
+      border-bottom: 1px solid #323238; z-index: 30; gap: 12px; min-height: 48px;
+    }
+    .header-left { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+    .header-center { display: flex; align-items: center; justify-content: center; flex: 1; min-width: 0; }
+    .header-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 
-    .room-badge { display: flex; align-items: center; gap: 8px; background: #27272a; padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: bold; border: 1px solid #3f3f46; }
+    .room-badge { display: flex; align-items: center; gap: 8px; background: #27272a; padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: bold; border: 1px solid #3f3f46; white-space: nowrap; }
     .room-badge span { color: #8257e5; }
-    .btn-share { background: #3f3f46; color: #fff; padding: 3px 8px; border-radius: 4px; font-size: 11px; cursor: pointer; border: none; font-weight: bold; }
+    .btn-share { background: #3f3f46; color: #fff; padding: 3px 8px; border-radius: 4px; font-size: 11px; cursor: pointer; border: none; font-weight: bold; transition: background 0.15s; }
     .btn-share:hover { background: #52525b; }
 
-    .users-online { display: flex; align-items: center; gap: 6px; font-size: 11px; color: #10b981; background: #064e3b33; padding: 4px 8px; border-radius: 4px; border: 1px solid #10b98144; font-weight: bold; }
+    .users-online { display: flex; align-items: center; gap: 6px; font-size: 11px; color: #10b981; background: #064e3b33; padding: 4px 8px; border-radius: 4px; border: 1px solid #10b98144; font-weight: bold; white-space: nowrap; }
 
-    .user-badge { display: flex; align-items: center; gap: 6px; background: #18181b; padding: 3px 8px; border-radius: 6px; border: 1px solid #323238; font-size: 12px; }
-    .user-badge input { background: #27272a; border: 1px solid #3f3f46; color: #fff; padding: 3px 6px; border-radius: 4px; font-weight: bold; width: 110px; outline: none; }
-    .user-badge input:focus { border-color: #8257e5; }
+    .host-panel { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: bold; color: #fbbf24; background: #78350f33; padding: 4px 10px; border-radius: 6px; border: 1px solid #f59e0b44; white-space: nowrap; }
+    .host-panel.offline { color: #a1a1aa; background: #27272a; border-color: #3f3f46; }
+    .btn-host { background: #b45309; color: #fff; padding: 3px 8px; font-size: 11px; border-radius: 4px; border: none; font-weight: bold; cursor: pointer; }
+    .btn-host:hover { background: #d97706; }
 
-    .upload-btn { background: #8257e5; color: white; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 11px; }
-    .btn-render-open { background: #10b981; color: white; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 11px; border: none; }
-    .btn-download-pack { background: #2563eb; color: white; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 11px; border: none; display: none; }
-    .btn-library-open { background: #3f3f46; color: white; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 11px; border: none; }
+    .btn-header-action {
+      background: #27272a; color: #e1e1e6; border: 1px solid #3f3f46; padding: 6px 12px;
+      border-radius: 6px; font-weight: bold; font-size: 11px; cursor: pointer; display: flex;
+      align-items: center; gap: 6px; transition: all 0.15s ease; white-space: nowrap;
+    }
+    .btn-header-action:hover { background: #3f3f46; color: #fff; border-color: #52525b; }
+    .btn-header-files { border-color: #2563eb66; color: #93c5fd; }
+    .btn-header-files:hover { background: #1e3a8a33; border-color: #3b82f6; }
+    .btn-header-settings { border-color: #8257e566; color: #c4b5fd; }
+    .btn-header-settings:hover { background: #5b21b633; border-color: #8257e5; }
 
+    .btn-chat-toggle { background: #3f3f46; color: white; padding: 6px 12px; border-radius: 6px; font-weight: bold; font-size: 11px; position: relative; border: none; cursor: pointer; white-space: nowrap; }
+    .btn-chat-toggle.active { background: #5b21b6; }
+    .chat-unread { display: none; position: absolute; top: -6px; right: -6px; background: #ef4444; color: #fff; border-radius: 9px; font-size: 10px; min-width: 18px; height: 18px; line-height: 18px; padding: 0 4px; text-align: center; }
+
+    /* ОСНОВНАЯ ЗОНА */
     .main-area { display: flex; height: 48vh; border-bottom: 2px solid #323238; background: #000; }
-    .video-box { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; background: #000; }
+    .video-box { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; background: #000; min-width: 0; }
     .video-wrapper { flex: 1; display: flex; align-items: center; justify-content: center; width: 100%; overflow: hidden; position: relative; }
     video { max-height: 100%; max-width: 100%; }
-    
+
+    /* СУФЛЁР (СУБТИТРЫ) НА ВИДЕО */
+    .video-prompter {
+      position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+      background: rgba(10, 10, 14, 0.82); backdrop-filter: blur(8px);
+      padding: 8px 18px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.15);
+      color: #fff; font-size: 20px; max-width: 85%; text-align: center;
+      pointer-events: none; z-index: 10; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+      line-height: 1.35;
+    }
+    .prompter-char { color: #a78bfa; font-weight: bold; margin-right: 8px; }
+    .prompter-text { font-weight: 500; }
+    .prompter-progress { height: 3px; background: #8257e5; border-radius: 3px; margin-top: 6px; width: 0; transition: width 0.06s linear; }
+
+    /* МИКШЕР */
     .audio-mixer {
       width: 100%; background: #18181b; border-top: 1px solid #27272a; padding: 6px 16px;
       display: flex; gap: 16px; align-items: center; justify-content: center; font-size: 11px; color: #a1a1aa;
@@ -45,8 +75,10 @@
     .mixer-channel span.val { width: 30px; font-variant-numeric: tabular-nums; color: #71717a; }
     .mute-toggle { display: flex; align-items: center; gap: 6px; cursor: pointer; font-weight: bold; color: #ef4444; border-right: 1px solid #323238; padding-right: 14px; }
 
-    .inspector { width: 360px; background: #1a1a1e; border-left: 1px solid #323238; padding: 16px; display: flex; flex-direction: column; gap: 8px; }
-    
+    .inspector { width: 360px; background: #1a1a1e; border-left: 1px solid #323238; padding: 16px; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
+    .inspector > * { flex-shrink: 0; }
+
+    /* ТАЙМЛАЙН */
     .timeline-container { flex: 1; overflow: auto; background: #141417; position: relative; scroll-behavior: smooth; }
     .timeline-wrapper { display: inline-flex; flex-direction: column; min-width: 100%; position: relative; padding-bottom: 40px; }
 
@@ -86,8 +118,6 @@
     .take-row button:disabled { opacity: 0.4; cursor: default; }
     .take-val { color: #71717a; font-variant-numeric: tabular-nums; margin-left: auto; white-space: nowrap; }
     .take-hint { font-size: 10px; color: #52525b; }
-    .inspector { overflow-y: auto; }
-    .inspector > * { flex-shrink: 0; }
     .wave-canvas { position: absolute; top: 0; height: 100%; pointer-events: none; z-index: 0; }
 
     .tile-nick { font-size: 9px; font-weight: bold; padding: 1px 4px; border-radius: 3px; }
@@ -114,37 +144,7 @@
     .btn-delete { background: #dc2626; color: white; }
     .btn-outline { background: transparent; border: 1px solid #52525b; color: #fff; }
 
-    .modal-overlay {
-      position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-      background: rgba(0, 0, 0, 0.85); backdrop-filter: blur(8px);
-      display: flex; align-items: center; justify-content: center;
-      z-index: 1000;
-    }
-    .modal-card {
-      background: #1e1e24; border: 1px solid #3f3f46; border-radius: 12px;
-      padding: 24px; width: 440px; box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
-      text-align: center; display: flex; flex-direction: column; gap: 12px;
-    }
-    .modal-card h2 { font-size: 17px; color: #fff; }
-    .modal-card p { font-size: 12px; color: #a1a1aa; line-height: 1.4; }
-    .modal-input {
-      width: 100%; padding: 10px; border-radius: 6px; border: 1px solid #52525b;
-      background: #141417; color: #fff; font-size: 14px; font-weight: bold;
-      outline: none; text-align: center;
-    }
-    .modal-input:focus { border-color: #8257e5; }
-
-    .upload-btn.disabled { opacity: 0.45; cursor: not-allowed; }
-
-    .host-panel { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: bold; color: #fbbf24; background: #78350f33; padding: 3px 8px; border-radius: 4px; border: 1px solid #f59e0b44; }
-    .host-panel.offline { color: #a1a1aa; background: #27272a; border-color: #3f3f46; }
-    .btn-host { background: #b45309; color: #fff; padding: 3px 8px; font-size: 11px; }
-    .btn-host:hover { background: #d97706; }
-
-    .btn-chat-toggle { background: #3f3f46; color: white; padding: 6px 12px; border-radius: 6px; font-weight: bold; font-size: 11px; position: relative; }
-    .btn-chat-toggle.active { background: #5b21b6; }
-    .chat-unread { display: none; position: absolute; top: -6px; right: -6px; background: #ef4444; color: #fff; border-radius: 9px; font-size: 10px; min-width: 18px; height: 18px; line-height: 18px; padding: 0 4px; }
-
+    /* ЧАТ */
     .chat-panel { width: 300px; background: #16161a; border-left: 1px solid #323238; display: flex; flex-direction: column; min-height: 0; }
     .chat-header { padding: 10px 12px; font-size: 12px; font-weight: bold; border-bottom: 1px solid #27272a; color: #a1a1aa; }
     .chat-messages { flex: 1; overflow-y: auto; padding: 8px 12px; display: flex; flex-direction: column; gap: 6px; font-size: 12px; line-height: 1.35; min-height: 0; }
@@ -158,146 +158,402 @@
     .chat-form input { flex: 1; min-width: 0; background: #27272a; border: 1px solid #3f3f46; color: #fff; padding: 6px 8px; border-radius: 4px; outline: none; font-size: 12px; }
     .chat-form input:focus { border-color: #8257e5; }
 
+    /* МОДАЛЬНЫЕ ОКНА И ВКЛАДКИ */
+    .modal-overlay {
+      position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0, 0, 0, 0.85); backdrop-filter: blur(8px);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 1000;
+    }
+    .modal-card {
+      background: #1e1e24; border: 1px solid #3f3f46; border-radius: 12px;
+      padding: 24px; width: 440px; box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
+      text-align: center; display: flex; flex-direction: column; gap: 12px;
+    }
+    .modal-card.modal-large {
+      width: 560px; max-width: 95vw; max-height: 85vh; overflow-y: auto; text-align: left;
+    }
+    .modal-header-row {
+      display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;
+    }
+    .modal-header-row h2 { font-size: 17px; color: #fff; }
+    .modal-close-icon {
+      background: transparent; border: none; color: #71717a; font-size: 20px;
+      cursor: pointer; padding: 2px 6px; line-height: 1; border-radius: 4px;
+    }
+    .modal-close-icon:hover { color: #fff; background: #27272a; }
+
+    .modal-tabs {
+      display: flex; gap: 4px; border-bottom: 1px solid #323238; margin-bottom: 16px;
+    }
+    .modal-tab-btn {
+      background: transparent; border: none; color: #a1a1aa; padding: 8px 14px;
+      font-size: 12px; font-weight: bold; cursor: pointer; border-bottom: 2px solid transparent;
+      border-radius: 4px 4px 0 0; transition: all 0.15s;
+    }
+    .modal-tab-btn:hover { color: #fff; background: #27272a; }
+    .modal-tab-btn.active { color: #a78bfa; border-bottom-color: #8257e5; background: #27272a; }
+
+    .tab-content { display: none; flex-direction: column; gap: 12px; }
+    .tab-content.active { display: flex; }
+
+    .setting-card {
+      background: #16161a; border: 1px solid #27272a; border-radius: 8px;
+      padding: 12px 14px; display: flex; flex-direction: column; gap: 8px;
+    }
+    .setting-card-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+    .setting-label { font-size: 12px; font-weight: bold; color: #e1e1e6; }
+    .setting-sub { font-size: 11px; color: #71717a; }
+
+    /* Тумблер (Switch) */
+    .switch-ui { position: relative; display: inline-block; width: 40px; height: 22px; flex-shrink: 0; }
+    .switch-ui input { opacity: 0; width: 0; height: 0; }
+    .switch-slider {
+      position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
+      background-color: #3f3f46; transition: .2s; border-radius: 22px;
+    }
+    .switch-slider:before {
+      position: absolute; content: ""; height: 16px; width: 16px; left: 3px; bottom: 3px;
+      background-color: white; transition: .2s; border-radius: 50%;
+    }
+    .switch-ui input:checked + .switch-slider { background-color: #8257e5; }
+    .switch-ui input:checked + .switch-slider:before { transform: translateX(18px); }
+
+    .upload-btn { background: #8257e5; color: white; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 11px; display: inline-block; text-align: center; }
+    .upload-btn.disabled { opacity: 0.45; cursor: not-allowed; }
     .pack-item { display: flex; justify-content: space-between; align-items: center; padding: 10px; background: #141417; border: 1px solid #323238; border-radius: 6px; font-size: 12px; text-align: left; }
+    .file-dropzone { border: 2px dashed #3f3f46; border-radius: 8px; padding: 16px; text-align: center; background: #141417; transition: border-color 0.15s; }
+    .file-dropzone:hover { border-color: #8257e5; }
   </style>
 </head>
 <body>
+
   <!-- Модальное окно первого входа -->
   <div id="nickModal" class="modal-overlay" style="display: none;">
     <div class="modal-card">
-      <h2>🎙️ Добро пожаловать в Dubline</h2>
-      <p>Введите ваш никнейм для озвучки, чтобы друзья видели, кто какие роли занял:</p>
+      <h2 data-i18n="welcome">🎙️ Добро пожаловать в Dubline</h2>
+      <p data-i18n="welcome.help">Введите ваш никнейм для озвучки, чтобы друзья видели, кто какие роли занял:</p>
       <p id="nickError" style="display: none; color: #ef4444; font-weight: bold;"></p>
       <form id="nickForm" onsubmit="handleNickSubmit(event)">
-        <input type="text" id="modalNickInput" class="modal-input" maxlength="16" placeholder="Ваш никнейм..." required>
-        <button type="submit" class="btn-record" style="width: 100%; margin-top: 10px; padding: 10px;">Войти в студию</button>
+        <input type="text" id="modalNickInput" class="modal-input" maxlength="16" data-i18n-placeholder="nickname.placeholder" placeholder="Ваш никнейм..." required style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid #52525b; background: #141417; color: #fff; font-size: 14px; font-weight: bold; outline: none; text-align: center;">
+        <button type="submit" class="btn-record" data-i18n="enterStudio" style="width: 100%; margin-top: 10px; padding: 10px;">Войти в студию</button>
       </form>
     </div>
   </div>
 
-  <!-- Модальное окно библиотеки модов на сервере -->
-  <div id="libraryModal" class="modal-overlay" style="display: none;">
-    <div class="modal-card" style="width: 480px; max-height: 80vh;">
-      <h2>📂 Библиотека модов на сервере</h2>
-      <p>Выберите любой ранее загруженный мод для моментального запуска в комнате:</p>
-      <div id="libraryList" style="display:flex; flex-direction:column; gap:8px; overflow-y:auto; max-height:300px; padding:4px;">
-        <span style="color:#71717a;">Поиск модов...</span>
+  <!-- МОДАЛЬНОЕ ОКНО: НАСТРОЙКИ -->
+  <div id="settingsModal" class="modal-overlay" style="display: none;">
+    <div class="modal-card modal-large">
+      <div class="modal-header-row">
+        <h2 data-i18n="settings.title">⚙️ Настройки студии</h2>
+        <button class="modal-close-icon" onclick="closeSettingsModal()" data-i18n-title="close" title="Закрыть">✕</button>
       </div>
-      <button class="btn-outline" onclick="closeLibraryModal()">Закрыть</button>
+
+      <div class="modal-tabs">
+        <button id="tabBtnUser" class="modal-tab-btn active" data-i18n="userTab" onclick="switchSettingsTab('user')">👤 Пользователь</button>
+        <button id="tabBtnPlayer" class="modal-tab-btn" data-i18n="playerTab" onclick="switchSettingsTab('player')">🎛️ Плеер и Комната</button>
+      </div>
+
+      <!-- Вкладка: Пользователь -->
+      <div id="tabContentUser" class="tab-content active">
+        <div class="setting-card">
+          <div class="setting-card-row">
+            <div>
+              <div class="setting-label" data-i18n="nickname">Ваш никнейм в комнате</div>
+              <div class="setting-sub" data-i18n="nickname.help">Отображается на ваших репликах и в чате</div>
+            </div>
+          </div>
+          <div style="display: flex; gap: 8px;">
+            <input type="text" id="settingsNickInput" maxlength="16" data-i18n-placeholder="nickname.placeholder" placeholder="Введите ник..." style="flex: 1; background: #27272a; border: 1px solid #3f3f46; color: #fff; padding: 7px 10px; border-radius: 6px; font-weight: bold; outline: none; font-size: 12px;">
+            <button class="btn-play" data-i18n="save" onclick="saveNickFromSettings()">Сохранить</button>
+          </div>
+          <div id="settingsNickStatus" style="font-size: 11px; color: #10b981; display: none;"></div>
+        </div>
+
+        <div class="setting-card">
+          <div class="setting-card-row">
+            <div>
+              <div class="setting-label" data-i18n="micGain">Чувствительность микрофона (Gain)</div>
+              <div class="setting-sub" data-i18n="micGain.help">Усиление звука для тихих гарнитур и микрофонов</div>
+            </div>
+            <span id="settingsMicGainVal" style="font-weight: bold; color: #8257e5; font-size: 12px; font-variant-numeric: tabular-nums;">100%</span>
+          </div>
+          <input type="range" id="settingsMicGain" min="30" max="300" step="5" value="100" style="width: 100%; accent-color: #8257e5; cursor: pointer;">
+        </div>
+
+        <div class="setting-card">
+          <div class="setting-card-row">
+            <div>
+              <div class="setting-label" data-i18n="noiseSuppression">Шумоподавление и эхоподавление браузера</div>
+              <div class="setting-sub" data-i18n="noiseSuppression.help">Встроенный фильтр фонового шума микрофона (WebRTC)</div>
+            </div>
+            <label class="switch-ui">
+              <input type="checkbox" id="settingsNoiseSuppression" checked>
+              <span class="switch-slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="setting-card">
+          <div class="setting-card-row">
+            <div><div class="setting-label" data-i18n="language">Язык</div><div class="setting-sub" data-i18n="language.help">Язык интерфейса на этом устройстве</div></div>
+            <select id="settingsLanguage" style="background:#27272a;border:1px solid #3f3f46;color:#fff;padding:7px 10px;border-radius:6px;">
+              <option value="en">English</option><option value="ru">Русский</option><option value="uk">Українська</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Вкладка: Плеер и Комната -->
+      <div id="tabContentPlayer" class="tab-content">
+        <div class="setting-card">
+          <div class="setting-card-row">
+            <div>
+              <div class="setting-label" data-i18n="autoDuck">Автодакинг (Auto-Ducking)</div>
+              <div class="setting-sub" data-i18n="autoDuck.help">Автоматически приглушает интершум/музыку во время звучания дублей</div>
+            </div>
+            <label class="switch-ui">
+              <input type="checkbox" id="settingsAutoDuck" checked>
+              <span class="switch-slider"></span>
+            </label>
+          </div>
+          <div id="autoDuckSubRow" style="display: flex; flex-direction: column; gap: 4px; margin-top: 4px;">
+            <div style="display: flex; justify-content: space-between; font-size: 11px;">
+              <span style="color: #a1a1aa;" data-i18n="duckAmount">Сила приглушения фона:</span>
+              <span id="settingsAutoDuckVal" style="font-weight: bold; color: #8257e5;">40%</span>
+            </div>
+            <input type="range" id="settingsAutoDuckAmount" min="0" max="80" step="5" value="40" style="width: 100%; accent-color: #8257e5; cursor: pointer;">
+          </div>
+        </div>
+
+        <div class="setting-card">
+          <div class="setting-card-row">
+            <div>
+              <div class="setting-label" data-i18n="prompter">Суфлёр на видео (Субтитры)</div>
+              <div class="setting-sub" data-i18n="prompter.help">Отображает текущую реплику и персонажа поверх видеоплеера</div>
+            </div>
+            <label class="switch-ui">
+              <input type="checkbox" id="settingsPrompter" checked>
+              <span class="switch-slider"></span>
+            </label>
+          </div>
+          <div id="prompterSubRow" style="display: flex; flex-direction: column; gap: 4px; margin-top: 4px;">
+            <div style="display: flex; justify-content: space-between; font-size: 11px;">
+              <span style="color: #a1a1aa;" data-i18n="prompterSize">Размер шрифта субтитров:</span>
+              <span id="settingsPrompterSizeVal" style="font-weight: bold; color: #8257e5;">20px</span>
+            </div>
+            <input type="range" id="settingsPrompterSize" min="14" max="36" step="1" value="20" style="width: 100%; accent-color: #8257e5; cursor: pointer;">
+          </div>
+        </div>
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; margin-top: 8px;">
+        <button class="btn-outline" data-i18n="close" onclick="closeSettingsModal()">Закрыть</button>
+      </div>
     </div>
   </div>
 
-  <!-- Модальное окно рендера и скачивания видео -->
-  <div id="renderModal" class="modal-overlay" style="display: none;">
-    <div class="modal-card" style="width: 440px;">
-      <h2>🎬 Экспорт готового видео</h2>
-      <p>Настройте баланс звука перед скачиванием ролика:</p>
-      
-      <div style="display:flex; flex-direction:column; gap:10px; margin: 4px 0; text-align:left;">
-        <div>
-          <div style="display:flex; justify-content:space-between; font-size:11px; font-weight:bold;">
-            <span>🎙️ Записанный дубляж:</span>
-            <span id="renderDubVal">100%</span>
+  <!-- МОДАЛЬНОЕ ОКНО: ФАЙЛЫ И ЭКСПОРТ -->
+  <div id="filesModal" class="modal-overlay" style="display: none;">
+    <div class="modal-card modal-large" style="width: 580px;">
+      <div class="modal-header-row">
+        <h2 data-i18n="files.title">📁 Файлы и Экспорт</h2>
+        <button class="modal-close-icon" onclick="closeFilesModal()" data-i18n-title="close" title="Закрыть">✕</button>
+      </div>
+
+      <div class="modal-tabs">
+        <button id="tabBtnImport" class="modal-tab-btn active" data-i18n="importTab" onclick="switchFilesTab('import')">⬆ Импорт</button>
+        <button id="tabBtnLibrary" class="modal-tab-btn" data-i18n="libraryTab" onclick="switchFilesTab('library')">📂 Моды на сервере</button>
+        <button id="tabBtnExport" class="modal-tab-btn" data-i18n="exportTab" onclick="switchFilesTab('export')">🎬 Экспорт</button>
+      </div>
+
+      <!-- Вкладка: Импорт -->
+      <div id="tabContentImport" class="tab-content active">
+        <!-- Загрузка Voxalike ZIP -->
+        <div class="setting-card">
+          <div class="setting-label" data-i18n="zipImport">1. Загрузка пака Voxalike (.zip)</div>
+          <div class="setting-sub" data-i18n="zipImport.help">Поддерживаются стандартные архивы сцен Voxalike и The Choicer Voicer с GameBanana</div>
+          <div style="margin-top: 4px;">
+            <label class="upload-btn" id="uploadLabel" style="width: 100%;">
+              <span data-i18n="chooseZip">⬆ Выбрать .ZIP архив</span>
+              <input type="file" id="zipInput" accept=".zip" style="display: none;">
+            </label>
           </div>
-          <input type="range" id="renderDubVol" min="0" max="150" value="100" style="width:100%; accent-color:#10b981;">
         </div>
 
-        <div>
-          <div style="display:flex; justify-content:space-between; font-size:11px; font-weight:bold;">
-            <span>🎵 Интершум (музыка и спецэффекты):</span>
-            <span id="renderBackingVal">100%</span>
-          </div>
-          <input type="range" id="renderBackingVol" min="0" max="150" value="100" style="width:100%; accent-color:#8257e5;">
-        </div>
+        <!-- Раздельная загрузка Видео + Субтитров -->
+        <div class="setting-card">
+          <div class="setting-label" data-i18n="customImport">2. Видео + субтитры</div>
+          <div class="setting-sub" data-i18n="customImport.help">Загрузите видео и субтитры, чтобы создать сцену</div>
 
-        <div>
-          <div style="display:flex; justify-content:space-between; font-size:11px; font-weight:bold;">
-            <span>🗣️ Оригинальный звук видео:</span>
-            <span id="renderOrigVal">0%</span>
+          <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 4px;">
+            <div>
+              <span style="font-size: 11px; color: #a1a1aa; font-weight: bold;" data-i18n="videoFile">Видео (.mp4 / .mkv):</span>
+              <input type="file" id="customVideoInput" accept="video/mp4,video/x-matroska,.mp4,.mkv" style="width: 100%; font-size: 11px; margin-top: 2px;">
+            </div>
+
+            <div>
+              <span style="font-size: 11px; color: #a1a1aa; font-weight: bold;" data-i18n="subtitleFile">Субтитры (необязательно для MKV):</span>
+              <input type="file" id="customSubInput" accept=".ass,.ssa,.srt,.vtt" style="width: 100%; font-size: 11px; margin-top: 2px;">
+            </div>
+
+            <div>
+              <span style="font-size: 11px; color: #a1a1aa; font-weight: bold;" data-i18n="sceneTitle">Название сцены (необязательно):</span>
+              <input type="text" id="customSceneTitle" data-i18n-placeholder="sceneTitle.placeholder" placeholder="Моя новая сцена..." maxlength="80" style="width: 100%; background: #27272a; border: 1px solid #3f3f46; color: #fff; padding: 6px 8px; border-radius: 4px; font-size: 11px; outline: none; margin-top: 2px;">
+            </div>
+
+            <div id="customUploadStatus" style="font-size: 11px; display: none;"></div>
+
+            <button id="customUploadBtn" class="btn-play" onclick="uploadCustomScene()" style="padding: 8px 12px; margin-top: 4px;">
+              <span data-i18n="createScene">🚀 Создать сцену</span>
+            </button>
           </div>
-          <input type="range" id="renderOrigVol" min="0" max="150" value="0" style="width:100%; accent-color:#f59e0b;">
         </div>
       </div>
 
-      <div id="renderProgressBox" style="display: none; background:#121214; padding:10px; border-radius:6px; border:1px solid #3f3f46;">
-        <span id="renderStatusText" style="font-size:12px; font-weight:bold; color:#10b981;">⏳ Идет запись видео...</span>
-        <div style="width:100%; height:6px; background:#27272a; border-radius:3px; margin-top:6px; overflow:hidden;">
-          <div id="renderProgressBar" style="width:0%; height:100%; background:#10b981; transition:width 0.1s;"></div>
+      <!-- Вкладка: Моды на сервере -->
+      <div id="tabContentLibrary" class="tab-content">
+        <div class="setting-sub" data-i18n="library.help">Выберите любой ранее загруженный мод для моментального запуска в комнате:</div>
+        <div id="filesLibraryList" style="display: flex; flex-direction: column; gap: 8px; overflow-y: auto; max-height: 320px; padding: 2px;">
+          <span style="color: #71717a;" data-i18n="searchingPacks">Поиск модов...</span>
         </div>
       </div>
 
-      <div style="display:flex; gap:10px; margin-top:6px;">
-        <button class="btn-outline" style="flex:1;" onclick="closeRenderModal()">Отмена</button>
-        <button id="startRenderBtn" class="btn-play" style="flex:2;" onclick="startVideoRender()">▶ Начать экспорт</button>
+      <!-- Вкладка: Экспорт -->
+      <div id="tabContentExport" class="tab-content">
+        <!-- Экспорт видео WebCodecs -->
+        <div class="setting-card">
+          <div class="setting-label" data-i18n="videoExport">1. Экспорт готового видео (WebCodecs)</div>
+          <div class="setting-sub" data-i18n="videoExport.help">Быстрый экспорт MP4 со сведённым звуком прямо в браузере</div>
+
+          <div style="display: flex; flex-direction: column; gap: 8px; margin: 6px 0;">
+            <div>
+              <div style="display:flex; justify-content:space-between; font-size:11px; font-weight:bold;">
+                <span data-i18n="dubTrack">🎙️ Записанный дубляж:</span>
+                <span id="renderDubVal">100%</span>
+              </div>
+              <input type="range" id="renderDubVol" min="0" max="150" value="100" style="width:100%; accent-color:#10b981;">
+            </div>
+
+            <div>
+              <div style="display:flex; justify-content:space-between; font-size:11px; font-weight:bold;">
+                <span data-i18n="backingTrack">🎵 Интершум (музыка и спецэффекты):</span>
+                <span id="renderBackingVal">100%</span>
+              </div>
+              <input type="range" id="renderBackingVol" min="0" max="150" value="100" style="width:100%; accent-color:#8257e5;">
+            </div>
+
+            <div>
+              <div style="display:flex; justify-content:space-between; font-size:11px; font-weight:bold;">
+                <span data-i18n="originalTrack">🗣️ Оригинальный звук видео:</span>
+                <span id="renderOrigVal">0%</span>
+              </div>
+              <input type="range" id="renderOrigVol" min="0" max="150" value="0" style="width:100%; accent-color:#f59e0b;">
+            </div>
+          </div>
+
+          <div id="renderProgressBox" style="display: none; background:#121214; padding:10px; border-radius:6px; border:1px solid #3f3f46;">
+            <span id="renderStatusText" data-i18n="rendering" style="font-size:12px; font-weight:bold; color:#10b981;">⏳ Идет запись видео...</span>
+            <div style="width:100%; height:6px; background:#27272a; border-radius:3px; margin-top:6px; overflow:hidden;">
+              <div id="renderProgressBar" style="width:0%; height:100%; background:#10b981; transition:width 0.1s;"></div>
+            </div>
+          </div>
+
+          <button id="startRenderBtn" class="btn-play" onclick="startVideoRender()" style="padding: 8px 14px; margin-top: 4px;">
+            <span data-i18n="startExport">▶ Начать экспорт видео MP4</span>
+          </button>
+        </div>
+
+        <!-- Экспорт Стемов для REAPER -->
+        <div class="setting-card">
+          <div class="setting-label" data-i18n="stemExport">2. Стемы персонажей для REAPER (.zip)</div>
+          <div class="setting-sub" data-i18n="stemExport.help">Цельные WAV-дорожки персонажей от 0:00</div>
+          <div id="stemsStatus" class="setting-sub" style="display:none;color:#10b981;"></div>
+          <button id="downloadStemsBtn" class="btn-header-action" onclick="downloadReaperStems()" style="padding: 8px 14px; justify-content: center; margin-top: 4px; background: #27272a;">
+            <span data-i18n="downloadStems">🎛️ Создать и скачать WAV-стемы</span>
+          </button>
+        </div>
+
+        <!-- Скачивание исходного мода -->
+        <div class="setting-card">
+          <div class="setting-label" data-i18n="sourcePack">3. Исходный мод сцены (.zip)</div>
+          <div class="setting-sub" data-i18n="sourcePack.help">Скачать исходный ZIP-архив текущего мода для друзей</div>
+          <a id="downloadOriginalPackBtn" class="btn-header-action" href="#" download style="text-decoration: none; padding: 8px 14px; justify-content: center; margin-top: 4px; display: none;">
+            <span data-i18n="downloadSource">📥 Скачать исходный архив мода (.zip)</span>
+          </a>
+          <span id="downloadOriginalPackNone" data-i18n="sourceUnavailable" style="font-size: 11px; color: #71717a;">Архив недоступен (сцена загружена вручную или без ZIP)</span>
+        </div>
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; margin-top: 8px;">
+        <button class="btn-outline" data-i18n="close" onclick="closeFilesModal()">Закрыть</button>
       </div>
     </div>
   </div>
 
+  <!-- ШАПКА -->
   <header>
-    <div style="display: flex; gap: 12px; align-items: center;">
+    <!-- ЛЕВАЯ ЧАСТЬ: Логотип + Комната -->
+    <div class="header-left">
       <h2>🎬 Dubline <span style="font-size: 10px; color: #8257e5; font-weight: normal;">Studio</span></h2>
 
       <div class="room-badge">
-        Комната: <span id="roomNameLabel">main</span>
-        <button class="btn-share" onclick="copyInviteLink()" title="Скопировать ссылку для друзей">🔗 Поделиться</button>
+        <span data-i18n="room">Комната:</span> <span id="roomNameLabel">main</span>
+        <button class="btn-share" data-i18n="share" data-i18n-title="share.title" onclick="copyInviteLink()" title="Скопировать ссылку для друзей">🔗 Поделиться</button>
       </div>
 
-      <div class="users-online" id="usersOnlineBadge">
-        👥 В сети: <span id="usersOnlineText">1</span>
+      <div class="users-online" id="usersOnlineBadge" title="Пользователи в комнате">
+        <span data-i18n="online">👥 В сети:</span> <span id="usersOnlineText">1</span>
       </div>
+    </div>
 
+    <!-- ЦЕНТРАЛЬНАЯ ЧАСТЬ: Статус хоста и управление -->
+    <div class="header-center">
       <div class="host-panel offline" id="hostPanel">👑 Хост: —</div>
     </div>
-    
-    <div style="display: flex; gap: 8px; align-items: center;">
-      <div class="user-badge">
-        <span>👤 Ник:</span>
-        <input type="text" id="nickInput" maxlength="16" placeholder="Введите ник" title="Нажмите, чтобы изменить ник">
-      </div>
 
-      <button class="btn-library-open" onclick="openLibraryModal()">📂 Моды на сервере</button>
-
-      <label class="upload-btn" id="uploadLabel">
-        ⬆ Загрузить .ZIP
-        <input type="file" id="zipInput" accept=".zip" style="display: none;">
-      </label>
-
-      <!-- Кнопка скачивания мода с сервера для друзей -->
-      <a id="downloadPackBtn" class="btn-download-pack" href="#" download>📥 Скачать мод (.zip)</a>
-
-      <button class="btn-render-open" onclick="openRenderModal()">🎬 Скачать видео</button>
-
-      <button class="btn-chat-toggle" id="chatToggleBtn" onclick="toggleChat()">💬 Чат<span class="chat-unread" id="chatUnread">0</span></button>
+    <!-- ПРАВАЯ ЧАСТЬ: Ровно 3 кнопки -->
+    <div class="header-right">
+      <button class="btn-header-action btn-header-files" data-i18n="files" onclick="openFilesModal()">📁 Файлы и Экспорт</button>
+      <button class="btn-header-action btn-header-settings" data-i18n="settings" onclick="openSettingsModal()">⚙️ Настройки</button>
+      <button class="btn-chat-toggle" id="chatToggleBtn" onclick="toggleChat()"><span data-i18n="chat">💬 Чат</span><span class="chat-unread" id="chatUnread">0</span></button>
     </div>
   </header>
 
+  <!-- ОСНОВНАЯ ЗОНА СТУДИИ -->
   <div class="main-area">
     <div class="video-box">
       <div class="video-wrapper">
         <video id="mainVideo" controls crossorigin="anonymous"></video>
         <audio id="backingAudio" crossorigin="anonymous"></audio>
+        <!-- Суфлёр поверх видео -->
+        <div id="videoPrompter" class="video-prompter" style="display: none;">
+          <span id="prompterChar" class="prompter-char"></span>
+          <span id="prompterText" class="prompter-text"></span>
+          <div id="prompterProgress" class="prompter-progress"></div>
+        </div>
       </div>
 
       <div class="audio-mixer">
         <label class="mute-toggle">
           <input type="checkbox" id="muteAllCheckbox">
-          <span>🔇 Замутить всё</span>
+          <span data-i18n="muteAll">🔇 Замутить всё</span>
         </label>
 
         <div class="mixer-channel">
-          <span class="label">Оригинал:</span>
+          <span class="label" data-i18n="original">Оригинал:</span>
           <input type="range" id="volOriginal" min="0" max="100" value="0">
           <span class="val" id="volOriginalVal">0%</span>
         </div>
 
         <div class="mixer-channel">
-          <span class="label">Интершум:</span>
+          <span class="label" data-i18n="background">Интершум:</span>
           <input type="range" id="volBacking" min="0" max="100" value="100">
           <span class="val" id="volBackingVal">100%</span>
         </div>
 
         <div class="mixer-channel">
-          <span class="label">Дубляж:</span>
+          <span class="label" data-i18n="dubbing">Дубляж:</span>
           <input type="range" id="volRecorded" min="0" max="100" value="100">
           <span class="val" id="volRecordedVal">100%</span>
         </div>
@@ -305,26 +561,29 @@
     </div>
 
     <div class="inspector" id="inspector">
-      <h3>Инспектор реплики</h3>
-      <p style="color: #71717a;">Выберите реплику на таймлайне снизу для записи. (Пробел — плей/пауза, R — запись)</p>
+      <h3 data-i18n="inspector.title">Инспектор реплики</h3>
+      <p data-i18n="inspector.empty" style="color: #71717a;">Выберите реплику на таймлайне снизу для записи. (Пробел — плей/пауза, R — запись)</p>
     </div>
 
     <div class="chat-panel" id="chatPanel">
-      <div class="chat-header">💬 Чат комнаты</div>
+      <div class="chat-header" data-i18n="chat.title">💬 Чат комнаты</div>
       <div class="chat-messages" id="chatMessages">
-        <div class="chat-empty" id="chatEmpty">Сообщений пока нет. Напишите первым!</div>
+        <div class="chat-empty" id="chatEmpty" data-i18n="chat.empty">Сообщений пока нет. Напишите первым!</div>
       </div>
       <form class="chat-form" id="chatForm">
-        <input type="text" id="chatInput" maxlength="500" placeholder="Сообщение... (Enter)" autocomplete="off">
+        <input type="text" id="chatInput" maxlength="500" data-i18n-placeholder="chat.placeholder" placeholder="Сообщение... (Enter)" autocomplete="off">
         <button type="submit" class="btn-record">➤</button>
       </form>
     </div>
   </div>
 
+  <!-- ТАЙМЛАЙН -->
   <div class="timeline-container" id="timelineContainer">
     <div class="timeline-wrapper" id="timeline"></div>
   </div>
 
+  <script src="/vendor/jszip/jszip.min.js"></script>
+  <script src="i18n.js"></script>
   <script src="audio-fx.js"></script>
   <script src="app.js"></script>
 </body>
