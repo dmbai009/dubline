@@ -261,10 +261,108 @@ window.undoDelete = function() {
 
 function updateUndoButton() {
   const button = document.getElementById('undoDeleteBtn');
-  const count = (session && session.undoCount) || 0;
+  const count = (session && session.trashCount) || 0;
   button.style.display = amHost() && count ? '' : 'none';
-  button.textContent = t('undo.toolbar', { n: count });
+  button.textContent = t('trash.button', { n: count });
+  if (trashModal.style.display === 'flex') {
+    if (amHost()) loadTrash();
+    else closeTrashModal();
+  }
 }
+
+// ==========================================
+// КОРЗИНА УДАЛЕННЫХ РЕПЛИК (хост)
+// ==========================================
+const trashModal = document.getElementById('trashModal');
+const trashList = document.getElementById('trashList');
+const trashFilter = document.getElementById('trashFilter');
+const trashSelectAll = document.getElementById('trashSelectAll');
+let trashItems = [];
+const trashSelected = new Set();
+
+window.openTrashModal = function() {
+  trashSelected.clear();
+  trashFilter.value = '';
+  trashModal.style.display = 'flex';
+  loadTrash();
+};
+
+window.closeTrashModal = function() {
+  trashModal.style.display = 'none';
+};
+
+function loadTrash() {
+  socket.emit('host_trash_list', {}, list => {
+    trashItems = Array.isArray(list) ? list : [];
+    const alive = new Set(trashItems.map(item => item.lineId));
+    [...trashSelected].forEach(id => { if (!alive.has(id)) trashSelected.delete(id); });
+    renderTrash();
+  });
+}
+
+function visibleTrashItems() {
+  const query = trashFilter.value.trim().toLowerCase();
+  if (!query) return trashItems;
+  return trashItems.filter(item => `${item.character} ${item.caption} #${item.lineId}`.toLowerCase().includes(query));
+}
+
+function renderTrash() {
+  const items = visibleTrashItems();
+  const time = ts => new Date(ts).toLocaleTimeString(i18n.getLanguage(), { hour: '2-digit', minute: '2-digit' });
+  trashList.innerHTML = items.length ? items.map(item => `
+    <label class="trash-item">
+      <input type="checkbox" data-id="${item.lineId}" ${trashSelected.has(item.lineId) ? 'checked' : ''}>
+      <b>#${item.lineId}</b>
+      <span class="trash-char">${esc(item.character)}</span>
+      <span class="trash-text" title="${esc(item.caption)}">${esc(item.caption || '…')}</span>
+      <span class="trash-meta">${item.hasTake ? '🎙 ' : ''}${esc(item.by || '')} · ${time(item.at)}</span>
+    </label>`).join('') : `<div class="trash-empty">${t(trashItems.length ? 'trash.nothingFound' : 'trash.empty')}</div>`;
+  trashSelectAll.checked = items.length > 0 && items.every(item => trashSelected.has(item.lineId));
+  document.getElementById('trashRestoreBtn').textContent = t('trash.restore', { n: trashSelected.size });
+  document.getElementById('trashRestoreBtn').disabled = !trashSelected.size;
+  document.getElementById('trashPurgeBtn').textContent = t('trash.purge', { n: trashSelected.size });
+  document.getElementById('trashPurgeBtn').disabled = !trashSelected.size;
+  document.getElementById('trashRestoreAllBtn').textContent = t('trash.restoreAll', { n: trashItems.length });
+  document.getElementById('trashRestoreAllBtn').disabled = !trashItems.length;
+}
+
+trashList.addEventListener('change', (e) => {
+  const id = Number(e.target.dataset.id);
+  if (!id && id !== 0) return;
+  if (e.target.checked) trashSelected.add(id);
+  else trashSelected.delete(id);
+  renderTrash();
+});
+
+trashSelectAll.addEventListener('change', () => {
+  visibleTrashItems().forEach(item => {
+    if (trashSelectAll.checked) trashSelected.add(item.lineId);
+    else trashSelected.delete(item.lineId);
+  });
+  renderTrash();
+});
+
+trashFilter.addEventListener('input', renderTrash);
+
+window.restoreTrashSelected = function() {
+  if (!trashSelected.size) return;
+  socket.emit('host_trash_restore', { lineIds: [...trashSelected] });
+  trashSelected.clear();
+};
+
+window.restoreTrashAll = function() {
+  if (!trashItems.length) return;
+  socket.emit('host_trash_restore', { lineIds: trashItems.map(item => item.lineId) });
+  trashSelected.clear();
+};
+
+window.purgeTrashSelected = function() {
+  if (!trashSelected.size) return;
+  const takes = trashItems.filter(item => trashSelected.has(item.lineId) && item.hasTake).length;
+  if (!confirm(t('trash.purgeConfirm', { n: trashSelected.size, takes }))) return;
+  socket.emit('host_trash_purge', { lineIds: [...trashSelected] });
+  trashSelected.clear();
+};
 
 socket.on('lines_deleted', ({ count }) => {
   showToast(t('undo.toast', { n: count }), { label: t('undo.action'), onClick: undoDelete });

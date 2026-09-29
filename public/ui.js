@@ -117,6 +117,7 @@ window.switchFilesTab = function(tab) {
 
 window.addEventListener('dubline-language-changed', () => {
   updateHostUi();
+  if (trashModal.style.display === 'flex') renderTrash();
   renderTrackPicker();
   renderLobby();
   updateP2pStatus();
@@ -174,6 +175,7 @@ window.addEventListener('keydown', (e) => {
     closeFilesModal();
     closeSessionsModal();
     closeHelpModal();
+    closeTrashModal();
     clearMultiSelection();
   }
 });

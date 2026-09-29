@@ -33,7 +33,7 @@ const CHAT_RATE_LIMIT = { count: 5, windowMs: 5000 };
 const VOICE_EFFECTS = ['none', 'robot', 'radio', 'monster', 'thoughts', 'cave', 'behindDoor', 'megaphone'];
 const MAX_PITCH = 12;         // полутонов вверх/вниз
 const MAX_LATENCY_MS = 1000;  // предел поправки задержки микрофона
-const MAX_UNDO_BATCHES = 20;  // сколько последних удалений реплик можно отменить
+const MAX_UNDO_BATCHES = 50;  // сколько последних удалений реплик хранится в корзине сессии
 const MAX_TAKE_SHIFT = 30;    // насколько далеко (в секундах) дубль можно утащить от реплики
 
 for (const dir of [UPLOAD_DIR, PACKS_DIR, DATA_DIR]) {
@@ -282,6 +282,15 @@ function isSceneDirUsed(dir) {
     .some(session => sceneDirOf(session.videoUrl) === dir || sceneDirOf(session.backingUrl) === dir));
 }
 
+// Реплики в сессии всегда идут по возрастанию номера (так их создает импорт, и список не пересортировывается),
+// поэтому возвращенную реплику ставим перед первой с большим номером — порядок восстанавливается точно,
+// в каком бы порядке и из каких удалений ни возвращали
+function insertLineInOrder(lines, line) {
+  const position = lines.findIndex(other => other.id > line.id);
+  if (position === -1) lines.push(line);
+  else lines.splice(position, 0, line);
+}
+
 function deleteSessionFiles(session) {
   let takes = 0;
   const trashed = (session.deletedLines || []).flatMap(batch => batch.lines.map(entry => entry.line));
@@ -357,6 +366,7 @@ function publicRoom(room) {
   return {
     ...rest,
     undoCount: (deletedLines || []).length,
+    trashCount: (deletedLines || []).reduce((sum, batch) => sum + batch.lines.length, 0),
     hasPassword: !!room.passwordHash,
     bannedCount: (room.banned || []).length,
     sessionList: sessionSummaries(room),
@@ -1942,7 +1952,7 @@ io.on('connection', socket => {
     const batch = room.deletedLines.pop();
     const existing = new Set(room.lines.map(line => line.id));
     const restored = batch.lines.filter(entry => !existing.has(entry.line.id)).sort((a, b) => a.index - b.index);
-    restored.forEach(entry => room.lines.splice(Math.min(entry.index, room.lines.length), 0, entry.line));
+    restored.forEach(entry => insertLineInOrder(room.lines, entry.line));
     // Роли, снятые вместе с последними репликами персонажа, возвращаем, если их никто не занял
     for (const [character, owner] of Object.entries(batch.claims || {})) {
       if (!room.characterClaims[character]) room.characterClaims[character] = owner;
@@ -1952,6 +1962,80 @@ io.on('connection', socket => {
     emitSession(roomId);
     socket.emit('lines_restored', { count: restored.length });
     logEvent(roomId, `↶ ${nick} вернул удаленные реплики: ${restored.length}`);
+  });
+
+  // ---------- Корзина удаленных реплик (только хост) ----------
+  function trashEntries(room) {
+    const list = [];
+    (room.deletedLines || []).forEach(batch => batch.lines.forEach(entry => list.push({
+      lineId: entry.line.id,
+      character: entry.line.character,
+      caption: String(entry.line.caption || '').slice(0, 300),
+      start: entry.line.start,
+      hasTake: !!entry.line.audioUrl,
+      by: batch.by,
+      at: batch.at
+    })));
+    return list.sort((a, b) => b.at - a.at || a.start - b.start);
+  }
+
+  // Достаем записи корзины по номерам реплик; пустые удаления убираем из стека
+  function takeFromTrash(room, lineIds) {
+    const wanted = new Set(lineIds);
+    const taken = [];
+    for (const batch of room.deletedLines || []) {
+      const keep = [];
+      for (const entry of batch.lines) {
+        if (wanted.has(entry.line.id)) taken.push({ entry, claims: batch.claims || {} });
+        else keep.push(entry);
+      }
+      batch.lines = keep;
+    }
+    room.deletedLines = (room.deletedLines || []).filter(batch => batch.lines.length);
+    return taken;
+  }
+
+  socket.on('host_trash_list', (payload, ack) => {
+    const reply = typeof ack === 'function' ? ack : (typeof payload === 'function' ? payload : () => {});
+    if (!roomId) return reply([]);
+    const room = getRoom(roomId);
+    if (!isHost(room, clientId)) return reply([]);
+    reply(trashEntries(room));
+  });
+
+  socket.on('host_trash_restore', ({ lineIds } = {}) => {
+    if (!roomId || !Array.isArray(lineIds)) return;
+    const room = getRoom(roomId);
+    if (!isHost(room, clientId)) return;
+    const existing = new Set(room.lines.map(line => line.id));
+    const taken = takeFromTrash(room, lineIds).filter(item => !existing.has(item.entry.line.id));
+    if (!taken.length) return;
+    // Возвращаем на прежние места
+    taken.forEach(item => insertLineInOrder(room.lines, item.entry.line));
+    taken.forEach(item => {
+      const character = item.entry.line.character;
+      const owner = item.claims[character];
+      if (owner && !room.characterClaims[character]) room.characterClaims[character] = owner;
+    });
+    snapshotActive(room);
+    saveRooms();
+    emitSession(roomId);
+    socket.emit('lines_restored', { count: taken.length });
+    logEvent(roomId, `↶ ${nick} вернул из корзины реплик: ${taken.length}`);
+  });
+
+  // Окончательное удаление из корзины: только тогда стираются файлы дублей
+  socket.on('host_trash_purge', ({ lineIds } = {}) => {
+    if (!roomId || !Array.isArray(lineIds)) return;
+    const room = getRoom(roomId);
+    if (!isHost(room, clientId)) return;
+    const taken = takeFromTrash(room, lineIds);
+    if (!taken.length) return;
+    taken.forEach(item => deleteTakeFile(item.entry.line.audioUrl));
+    snapshotActive(room);
+    saveRooms();
+    emitSession(roomId);
+    logEvent(roomId, `🗑 ${nick} удалил из корзины навсегда реплик: ${taken.length}`);
   });
 
   // Хост освобождает выбранные реплики, которые кто-то занял по ошибке

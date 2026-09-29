@@ -787,6 +787,49 @@
     'help.keys': "Пробіл — плей/пауза · R — записати вибрану репліку · ← → — перемотування на 3 с · Ctrl/Shift+клік — виділити кілька реплік · Ctrl+Z — скасувати видалення реплік (хост) · Ctrl+коліщатко — масштаб таймлайну · Esc — закрити вікна"
   });
 
+  Object.assign(messages.en, {
+    'trash.title': "🗑 Deleted lines",
+    'trash.help': "Deleted lines of this session. Restore the ones you need — they go back to their place together with their takes.",
+    'trash.hint': "Deleted lines — restore any of them (Ctrl+Z restores the last deletion)",
+    'trash.button': "🗑 Deleted ({n})",
+    'trash.filter': "Search by text or character",
+    'trash.selectAll': "Select all found",
+    'trash.restore': "↶ Restore selected ({n})",
+    'trash.restoreAll': "Restore all ({n})",
+    'trash.purge': "Delete forever ({n})",
+    'trash.purgeConfirm': "Delete {n} line(s) forever? Takes among them: {takes}. This cannot be undone.",
+    'trash.empty': "The trash is empty",
+    'trash.nothingFound': "Nothing found"
+  });
+  Object.assign(messages.ru, {
+    'trash.title': "🗑 Корзина реплик",
+    'trash.help': "Удалённые реплики этой сессии. Верните нужные — они встанут на прежнее место вместе с дублем.",
+    'trash.hint': "Корзина удалённых реплик — можно вернуть любую (Ctrl+Z возвращает последнее удаление)",
+    'trash.button': "🗑 Корзина ({n})",
+    'trash.filter': "Поиск по тексту или персонажу",
+    'trash.selectAll': "Выбрать все найденные",
+    'trash.restore': "↶ Вернуть выбранные ({n})",
+    'trash.restoreAll': "Вернуть всё ({n})",
+    'trash.purge': "Удалить навсегда ({n})",
+    'trash.purgeConfirm': "Удалить навсегда реплик: {n}? Из них с дублями: {takes}. Это нельзя отменить.",
+    'trash.empty': "Корзина пуста",
+    'trash.nothingFound': "Ничего не найдено"
+  });
+  Object.assign(messages.uk, {
+    'trash.title': "🗑 Кошик реплік",
+    'trash.help': "Видалені репліки цієї сесії. Поверніть потрібні — вони стануть на попереднє місце разом із дублем.",
+    'trash.hint': "Кошик видалених реплік — можна повернути будь-яку (Ctrl+Z повертає останнє видалення)",
+    'trash.button': "🗑 Кошик ({n})",
+    'trash.filter': "Пошук за текстом або персонажем",
+    'trash.selectAll': "Вибрати всі знайдені",
+    'trash.restore': "↶ Повернути вибрані ({n})",
+    'trash.restoreAll': "Повернути все ({n})",
+    'trash.purge': "Видалити назавжди ({n})",
+    'trash.purgeConfirm': "Видалити назавжди реплік: {n}? З них із дублями: {takes}. Це не можна скасувати.",
+    'trash.empty': "Кошик порожній",
+    'trash.nothingFound': "Нічого не знайдено"
+  });
+
   let language = localStorage.getItem('dubline_language');
   if (!messages[language]) {
     const browser = String(navigator.language || 'en').toLowerCase();

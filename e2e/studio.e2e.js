@@ -2,7 +2,7 @@
 const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const {
-  skipReason, wait, launchBrowser, startServer, openPlayer, waitFor,
+  skipReason, wait, launchBrowser, startServer, openPlayer, waitFor, waitUntil,
   loadFixture, claimAndSelect, recordTake, FIXTURE_LINES, buildVoiceFile, fixtureVideoPath
 } = require('./helpers');
 const fs = require('node:fs');
@@ -392,12 +392,13 @@ describe('studio', { skip: skipReason }, () => {
     const takeFile = path.join(server.dirs.uploads, decodeURIComponent(takeUrl).split('/').pop());
     const before = await alice.evaluate(() => session.lines.map(l => ({ id: l.id, character: l.character })));
     const undoBefore = await alice.evaluate(() => session.undoCount || 0);
+    const trashBefore = await alice.evaluate(() => session.trashCount || 0);
 
     // Удаляем реплику с дублем: подсказка с «Отменить», кнопка на панели, файл дубля остается
     await alice.evaluate(id => { window.confirm = () => true; deleteLines([id]); }, target);
     await waitFor(bob, id => !session.lines.some(l => l.id === id), 5000, target);
     await waitFor(alice, () => document.querySelector('#toast button') && /Отменить|Undo/.test(document.getElementById('toast').innerText), 3000);
-    await waitFor(alice, n => document.getElementById('undoDeleteBtn').style.display !== 'none' && document.getElementById('undoDeleteBtn').textContent.includes(String(n)), 3000, undoBefore + 1);
+    await waitFor(alice, n => document.getElementById('undoDeleteBtn').style.display !== 'none' && document.getElementById('undoDeleteBtn').textContent.includes(String(n)), 3000, trashBefore + 1);
     assert.ok(fs.existsSync(takeFile), 'take file kept while undo is possible');
 
     // Не хост: Ctrl+Z ничего не возвращает
@@ -418,6 +419,60 @@ describe('studio', { skip: skipReason }, () => {
     await waitFor(alice, () => !!document.querySelector('#toast button'), 3000);
     await alice.click('#toast button');
     await waitFor(bob, order => JSON.stringify(session.lines.map(l => l.id)) === JSON.stringify(order), 5000, before.map(l => l.id));
+  });
+
+  test('trash window: restore any deleted line, search, delete forever', async () => {
+    // Сначала убеждаемся, что у обоих игроков одинаковый список реплик (предыдущий тест мог еще доходить)
+    const bobOrder = await bob.evaluate(() => JSON.stringify(session.lines.map(l => l.id)));
+    await waitFor(alice, expected => JSON.stringify(session.lines.map(l => l.id)) === expected, 5000, bobOrder);
+    const order = await alice.evaluate(() => session.lines.map(l => l.id));
+    // В корзине уже может что-то лежать из предыдущих тестов — «Вернуть всё» вернет и это
+    const alreadyInTrash = (await alice.evaluate(() => new Promise(resolve => socket.emit('host_trash_list', {}, resolve)))).map(item => item.lineId);
+    const takeLine = await alice.evaluate(() => session.lines.find(l => l.audioUrl)?.id);
+    assert.ok(takeLine, 'a line with a take exists from the previous test');
+    const takeUrl = await alice.evaluate(id => session.lines.find(l => l.id === id).audioUrl, takeLine);
+    const takeFile = path.join(server.dirs.uploads, decodeURIComponent(takeUrl).split('/').pop());
+
+    // Удаляем все реплики двумя заходами
+    await alice.evaluate(list => { window.confirm = () => true; deleteLines(list); }, order.slice(0, 2));
+    await waitFor(alice, n => session.lines.length === n, 5000, order.length - 2);
+    await alice.evaluate(list => deleteLines(list), order.slice(2));
+    await waitFor(bob, () => session.lines.length === 0, 5000);
+
+    // Корзина — только у хоста
+    assert.equal(await bob.evaluate(() => document.getElementById('undoDeleteBtn').style.display), 'none');
+    assert.deepEqual(await bob.evaluate(() => new Promise(resolve => socket.emit('host_trash_list', {}, resolve))), []);
+
+    // Кликаем изнутри страницы: список корзины перерисовывается при каждом обновлении сессии
+    const press = (page, selector) => page.evaluate(sel => document.querySelector(sel).click(), selector);
+    await press(alice, '#undoDeleteBtn');
+    await waitFor(alice, n => document.querySelectorAll('#trashList .trash-item').length >= n, 5000, order.length);
+    assert.ok(await alice.evaluate(id => document.querySelector(`#trashList input[data-id="${id}"]`).closest('.trash-item').innerText.includes('🎙'), takeLine), 'take marked');
+
+    // Поиск и выборочное возвращение реплики из середины
+    const middle = order[1];
+    const middleCaption = await alice.evaluate(id => trashItems.find(i => i.lineId === id).caption, middle);
+    await alice.type('#trashFilter', middleCaption.slice(0, 6));
+    await waitFor(alice, id => [...document.querySelectorAll('#trashList input')].some(i => Number(i.dataset.id) === id), 3000, middle);
+    await press(alice, `#trashList input[data-id="${middle}"]`);
+    await press(alice, '#trashRestoreBtn');
+    await waitFor(bob, id => session.lines.length === 1 && session.lines[0].id === id, 5000, middle);
+
+    // Удалить навсегда реплику с дублем — файл стирается
+    await alice.evaluate(() => { document.getElementById('trashFilter').value = ''; document.getElementById('trashFilter').dispatchEvent(new Event('input')); });
+    await waitFor(alice, id => !!document.querySelector(`#trashList input[data-id="${id}"]`), 3000, takeLine);
+    await press(alice, `#trashList input[data-id="${takeLine}"]`);
+    await press(alice, '#trashPurgeBtn');
+    await waitFor(alice, id => !document.querySelector(`#trashList input[data-id="${id}"]`), 5000, takeLine);
+    await waitUntil(() => !fs.existsSync(takeFile), 3000);
+
+    // Вернуть всё остальное — порядок как до удаления
+    await press(alice, '#trashRestoreAllBtn');
+    const expected = [...order, ...alreadyInTrash].filter(id => id !== takeLine).sort((a, b) => a - b);
+    await waitFor(bob, list => JSON.stringify(session.lines.map(l => l.id)) === JSON.stringify(list), 5000, expected)
+      .catch(async err => { throw new Error(`${err.message} | expected ${JSON.stringify(expected)}, bob has ${await bob.evaluate(() => JSON.stringify(session.lines.map(l => l.id)))}, order was ${JSON.stringify(order)}, take line ${takeLine}`); });
+    await waitFor(alice, () => document.getElementById('undoDeleteBtn').style.display === 'none' || !!document.querySelector('.trash-empty'), 3000);
+    await alice.keyboard.press('Escape');
   });
 
   test('the import form is empty after a successful import', async () => {
