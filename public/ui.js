@@ -102,7 +102,8 @@ settingsPrompterSize.addEventListener('input', () => {
 });
 settingsLanguage.addEventListener('change', () => i18n.setLanguage(settingsLanguage.value));
 
-window.openFilesModal = function() { filesModal.style.display = 'flex'; switchFilesTab('import'); };
+window.openFilesModal = function() {
+  document.getElementById('customUploadStatus').style.display = 'none'; filesModal.style.display = 'flex'; switchFilesTab('import'); };
 window.closeFilesModal = function() { filesModal.style.display = 'none'; };
 window.switchFilesTab = function(tab) {
   const names = ['import', 'library', 'export'];
@@ -164,10 +165,12 @@ window.addEventListener('keydown', (e) => {
     closeFilesModal();
     closeSessionsModal();
     closeHelpModal();
+    clearMultiSelection();
   }
 });
 
 function showInspector(line) {
+  if (multiSelection.size >= 2) return showMultiInspector();
   const duration = Number((line.end - line.start).toFixed(2));
   const characters = [...new Set(session.lines.map(l => l.character))];
   const allowCharacterClaims = characters.length > 1;
@@ -258,6 +261,41 @@ function showInspector(line) {
     ${takePanelHtml(line, isOwnedByMe)}
   `;
 }
+
+// Инспектор для нескольких выделенных реплик: массовое назначение персонажа
+function showMultiInspector() {
+  const lines = session.lines.filter(l => multiSelection.has(l.id)).sort((a, b) => a.start - b.start);
+  const characters = [...new Set(session.lines.map(l => l.character))].sort((a, b) => a.localeCompare(b));
+  const preview = lines.slice(0, 6).map(l => `<div class="multi-item"><b>#${l.id}</b> <span class="multi-char">${esc(l.character)}</span> ${esc(l.caption || '')}</div>`).join('');
+  inspector.innerHTML = `
+    <div class="insp-head"><div class="insp-title"><b>${t('multi.title', { n: lines.length })}</b></div></div>
+    <div class="multi-list">${preview}${lines.length > 6 ? `<div class="insp-meta">${t('multi.more', { n: lines.length - 6 })}</div>` : ''}</div>
+    <form class="insp-char-form" onsubmit="assignSelectedCharacter(event)">
+      <input id="multiCharInput" class="text-input" list="multiCharList" maxlength="40" placeholder="${esc(t('char.placeholder'))}">
+      <datalist id="multiCharList">${characters.map(name => `<option value="${esc(name)}"></option>`).join('')}</datalist>
+      <button type="submit" class="btn-play">${t('multi.assign')}</button>
+    </form>
+    <div class="insp-actions secondary">
+      ${amHost() ? `<button class="btn-host" onclick="releaseSelectedLines()">${t('multi.release')}</button>` : ''}
+      <button class="btn-outline" onclick="clearMultiSelection()">${t('multi.clear')}</button>
+    </div>
+    <p class="take-hint">${t('multi.hint')}</p>
+  `;
+}
+
+window.assignSelectedCharacter = function(e) {
+  e.preventDefault();
+  const name = document.getElementById('multiCharInput').value.trim();
+  if (!name) return;
+  socket.emit('set_lines_character', { lineIds: [...multiSelection], character: name }, result => {
+    if (!result) return;
+    showToast(t('multi.done', { moved: result.moved, name }) + (result.skipped ? ' ' + t('multi.skipped', { n: result.skipped }) : ''));
+  });
+};
+
+window.releaseSelectedLines = function() {
+  socket.emit('host_release_lines', { lineIds: [...multiSelection] });
+};
 
 // Смена персонажа реплики: она переезжает на дорожку этого персонажа
 window.startCharacterEdit = function(lineId) {

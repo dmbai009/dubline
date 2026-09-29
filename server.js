@@ -1754,29 +1754,115 @@ io.on('connection', socket => {
     logEvent(roomId, `🎧 ${nick}: оригинал — ${name(room.originalTrack)}, интершум — ${name(room.backingTrack)}`);
   });
 
-  // ---------- Персонаж реплики (реплика переезжает на дорожку другого персонажа) ----------
+  // ---------- Персонажи реплик: перенос на другую дорожку ----------
+  // Все могут переносить свои и свободные реплики; хост — любые, в том числе в чужие роли
+  function canMoveLine(room, line, name, host) {
+    if (host) return true;
+    const owner = getLineOwner(room, line);
+    if (owner && owner !== nick) return false;
+    const roleOwner = room.characterClaims[name];
+    return !roleOwner || roleOwner === nick;
+  }
+
+  function moveLine(room, line, name) {
+    const oldName = line.character;
+    if (oldName === name) return false;
+    // Если реплика принадлежала игроку через роль, сохраняем владельца явно
+    if (!line.claimedBy && room.characterClaims[oldName]) line.claimedBy = room.characterClaims[oldName];
+    line.character = name;
+    return true;
+  }
+
+  function dropEmptyRoleClaims(room) {
+    for (const character of Object.keys(room.characterClaims)) {
+      if (!room.lines.some(l => l.character === character)) delete room.characterClaims[character];
+    }
+  }
+
+  function cleanCharacterName(raw) {
+    return sanitizeChatText(raw).slice(0, 40);
+  }
+
   socket.on('set_line_character', ({ lineId, character } = {}) => {
     if (!roomId || !nick) return;
     const room = getRoom(roomId);
     const line = room.lines.find(l => l.id === lineId);
-    const name = sanitizeChatText(character).slice(0, 40);
-    if (!line || !name || name === line.character) return;
-    const host = isHost(room, clientId);
-    const owner = getLineOwner(room, line);
-    // Чужую реплику и реплику в чужую занятую роль переносит только хост
-    if (!host && owner && owner !== nick) return;
-    const roleOwner = room.characterClaims[name];
-    if (!host && roleOwner && roleOwner !== nick) return;
-
+    const name = cleanCharacterName(character);
+    if (!line || !name || !canMoveLine(room, line, name, isHost(room, clientId))) return;
     const oldName = line.character;
-    // Если реплика принадлежала игроку через роль, сохраняем владельца явно
-    if (!line.claimedBy && room.characterClaims[oldName]) line.claimedBy = room.characterClaims[oldName];
-    line.character = name;
-    if (!room.lines.some(l => l.character === oldName)) delete room.characterClaims[oldName];
-
+    if (!moveLine(room, line, name)) return;
+    dropEmptyRoleClaims(room);
     saveRooms();
     emitSession(roomId);
     logEvent(roomId, `✎ ${nick}: реплика #${line.id} — «${oldName}» → «${name}»`);
+  });
+
+  // Несколько выделенных реплик разом; недоступные пропускаем и сообщаем сколько
+  socket.on('set_lines_character', ({ lineIds, character } = {}, ack) => {
+    const reply = typeof ack === 'function' ? ack : () => {};
+    if (!roomId || !nick || !Array.isArray(lineIds)) return reply({ moved: 0, skipped: 0 });
+    const room = getRoom(roomId);
+    const name = cleanCharacterName(character);
+    if (!name) return reply({ moved: 0, skipped: lineIds.length });
+    const host = isHost(room, clientId);
+    let moved = 0;
+    let skipped = 0;
+    for (const id of lineIds.slice(0, 2000)) {
+      const line = room.lines.find(l => l.id === id);
+      if (!line) continue;
+      if (!canMoveLine(room, line, name, host)) { skipped++; continue; }
+      if (moveLine(room, line, name)) moved++;
+    }
+    if (moved) {
+      dropEmptyRoleClaims(room);
+      saveRooms();
+      emitSession(roomId);
+      logEvent(roomId, `✎ ${nick}: ${moved} реплик → «${name}»${skipped ? ` (пропущено ${skipped})` : ''}`);
+    }
+    reply({ moved, skipped });
+  });
+
+  // Переименовать дорожку целиком (все реплики персонажа); с существующим именем — слияние
+  socket.on('rename_character', ({ from, to } = {}, ack) => {
+    const reply = typeof ack === 'function' ? ack : () => {};
+    if (!roomId || !nick) return reply({ ok: false });
+    const room = getRoom(roomId);
+    const name = cleanCharacterName(to);
+    const lines = room.lines.filter(l => l.character === from);
+    if (!name || !lines.length || name === from) return reply({ ok: false });
+    const host = isHost(room, clientId);
+    if (!host && !lines.every(line => canMoveLine(room, line, name, false))) return reply({ ok: false, reason: 'denied' });
+
+    const roleOwner = room.characterClaims[from];
+    lines.forEach(line => { line.character = name; });
+    // Занятая роль переезжает вместе с дорожкой, если новое имя свободно
+    if (roleOwner && !room.characterClaims[name]) room.characterClaims[name] = roleOwner;
+    delete room.characterClaims[from];
+    if (roleOwner && room.characterClaims[name] !== roleOwner) lines.forEach(line => { if (!line.claimedBy) line.claimedBy = roleOwner; });
+    dropEmptyRoleClaims(room);
+    saveRooms();
+    emitSession(roomId);
+    logEvent(roomId, `✎ ${nick}: дорожка «${from}» → «${name}» (${lines.length} реплик)`);
+    reply({ ok: true, moved: lines.length });
+  });
+
+  // Хост освобождает выбранные реплики, которые кто-то занял по ошибке
+  socket.on('host_release_lines', ({ lineIds } = {}) => {
+    if (!roomId || !Array.isArray(lineIds)) return;
+    const room = getRoom(roomId);
+    if (!isHost(room, clientId)) return;
+    let released = 0;
+    for (const id of lineIds) {
+      const line = room.lines.find(l => l.id === id);
+      if (line && line.claimedBy && !room.characterClaims[line.character]) {
+        line.claimedBy = null;
+        released++;
+      }
+    }
+    if (!released) return;
+    saveRooms();
+    emitSession(roomId);
+    logEvent(roomId, `👑 ${nick} освободил реплик: ${released}`);
   });
 
   // ---------- Задержка микрофона игрока ----------

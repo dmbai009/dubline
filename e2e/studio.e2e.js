@@ -273,6 +273,84 @@ describe('studio', { skip: skipReason }, () => {
     assert.equal(await bob.evaluate(id => { selectLine(session.lines.find(l => l.id === id)); return !!document.querySelector('.insp-rename'); }, ids[0]), false);
   });
 
+  test('select several lines and assign a character; rename whole tracks; host releases lines', async () => {
+    const byStart = await bob.evaluate(() => [...session.lines].sort((a, b) => a.start - b.start).map(l => l.id));
+    const freeIds = await bob.evaluate(() => session.lines.filter(l => !getLineOwner(l)).map(l => l.id));
+    const click = async (page, id, modifier) => {
+      if (modifier) await page.keyboard.down(modifier);
+      await page.click(`#line-block-${id}`);
+      if (modifier) await page.keyboard.up(modifier);
+    };
+
+    // Ctrl+клик — две свободные реплики, назначаем новому персонажу
+    await click(bob, freeIds[0]);
+    await click(bob, freeIds[1], 'Control');
+    await waitFor(bob, () => /Выбрано реплик: 2|2 lines selected/.test(document.getElementById('inspector').innerText), 3000);
+    await bob.evaluate(() => { document.getElementById('multiCharInput').value = 'Кэйити'; document.querySelector('.insp-char-form').dispatchEvent(new Event('submit', { cancelable: true })); });
+    await waitFor(alice, ids => ids.every(id => session.lines.find(l => l.id === id).character === 'Кэйити'), 5000, freeIds.slice(0, 2));
+
+    // Shift+клик — весь диапазон; в чужую занятую роль Боб перенести не может
+    await bob.keyboard.press('Escape');
+    await click(bob, byStart[0]);
+    await click(bob, byStart[byStart.length - 1], 'Shift');
+    await waitFor(bob, n => new RegExp(`Выбрано реплик: ${n}|${n} lines selected`).test(document.getElementById('inspector').innerText), 3000, byStart.length);
+    await bob.evaluate(() => { document.getElementById('multiCharInput').value = 'Рена'; document.querySelector('.insp-char-form').dispatchEvent(new Event('submit', { cancelable: true })); });
+    await waitFor(bob, () => /Пропущено|Skipped/.test(document.getElementById('toast').textContent), 3000);
+    await bob.keyboard.press('Escape');
+    assert.equal(await bob.evaluate(() => document.querySelectorAll('.line-block.multi-selected').length), 0, 'Esc clears the selection');
+
+    // Дорожку из свободных реплик переименовывает любой; дорожку с чужой ролью — только хост
+    bob.promptAnswer = 'Кэйичи';
+    await bob.evaluate(() => renameCharacterTrack('Кэйити'));
+    await waitFor(alice, () => session.lines.filter(l => l.character === 'Кэйичи').length === 2 && !session.lines.some(l => l.character === 'Кэйити'), 5000);
+    const bobCanRenameRena = await bob.evaluate(() => [...document.querySelectorAll('.track-row')].find(r => r.querySelector('.char-name')?.textContent === 'Рена')?.querySelector('.track-rename') != null);
+    assert.equal(bobCanRenameRena, false, 'no ✎ on a track with lines of another player');
+    alice.promptAnswer = 'Рэна';
+    await alice.evaluate(() => renameCharacterTrack('Рена'));
+    await waitFor(bob, () => session.characterClaims['Рэна'] === 'Alice' && !session.characterClaims['Рена'], 5000);
+
+    // Боб занял реплику по ошибке — хост освобождает ее через выделение
+    const mistaken = freeIds[0];
+    await bob.evaluate(id => claimSingleLine(id), mistaken);
+    await waitFor(alice, id => session.lines.find(l => l.id === id).claimedBy === 'Bob', 5000, mistaken);
+    // Кликаем только когда у Алисы на экране уже актуальный таймлайн (после переименования дорожки он перерисовывается)
+    await waitFor(alice, id => [...document.querySelectorAll('.char-name')].some(n => n.textContent === 'Рэна')
+      && document.getElementById(`line-block-${id}`)?.innerText.includes('Bob'), 5000, mistaken);
+    await click(alice, mistaken);
+    await click(alice, freeIds[1], 'Control');
+    const picked = await waitFor(alice, (a, b) => multiSelection.has(a) && multiSelection.has(b) && [...multiSelection], 3000, mistaken, freeIds[1])
+      .catch(async err => {
+        const info = await alice.evaluate(id => {
+          const el = document.getElementById(`line-block-${id}`);
+          const r = el.getBoundingClientRect();
+          const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+          const row = el.closest('.track-row');
+          return { multi: [...multiSelection], selected: selectedLine && selectedLine.id, box: [r.x, r.y, r.width, r.height].map(Math.round),
+            hit: hit && (hit.closest('.line-block') || hit).id || hit && hit.className, rowTop: Math.round(row.getBoundingClientRect().y), rowH: row.offsetHeight,
+            tileTop: el.style.top, rows: [...document.querySelectorAll('.track-row')].map(r2 => [r2.querySelector('.char-name').textContent, Math.round(r2.getBoundingClientRect().y), r2.offsetHeight]) };
+        }, mistaken);
+        throw new Error(`${err.message} | ${JSON.stringify(info)}`);
+      });
+    assert.ok(picked.length === 2);
+    await alice.evaluate(() => releaseSelectedLines());
+    await waitFor(bob, id => !session.lines.find(l => l.id === id).claimedBy, 5000, mistaken);
+    await alice.keyboard.press('Escape');
+  });
+
+  test('the import form is empty after a successful import', async () => {
+    const form = await alice.evaluate(() => {
+      openFilesModal();
+      return {
+        video: document.getElementById('customVideoInput').files.length,
+        subs: document.getElementById('customSubInput').files.length,
+        title: document.getElementById('customSceneTitle').value,
+        status: document.getElementById('customUploadStatus').style.display
+      };
+    });
+    assert.deepEqual(form, { video: 0, subs: 0, title: '', status: 'none' });
+    await alice.evaluate(() => closeFilesModal());
+  });
+
   test('no page errors', () => {
     for (const page of [alice, bob]) assert.deepEqual(page.errors, []);
   });

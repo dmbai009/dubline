@@ -81,6 +81,8 @@ window.uploadCustomScene = async function() {
     const res = await fetch(`/api/upload-custom?room=${encodeURIComponent(currentRoom)}`, { method: 'POST', body: form });
     if (!res.ok) throw new Error(await readError(res));
     status.textContent = t('upload.done');
+    // Следующий импорт начинается с пустой формы (старые субтитры не подхватятся к новому видео)
+    ['customVideoInput', 'customSubInput', 'customSceneTitle'].forEach(id => { document.getElementById(id).value = ''; });
     status.style.color = '#10b981';
     setTimeout(closeFilesModal, 700);
   } catch (err) {

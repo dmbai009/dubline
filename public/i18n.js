@@ -697,6 +697,49 @@
     'char.roleTaken': "Роль «{name}» зайнята гравцем {owner} — перенести туди репліку може лише хост"
   });
 
+  Object.assign(messages.en, {
+    'char.renameTrack': "Rename the whole track “{name}” (all its lines):",
+    'char.trackRenamed': "“{from}” → “{to}”: {n} lines",
+    'char.trackDenied': "Some lines of this track belong to other players — only the host can rename it",
+    'multi.title': "{n} lines selected",
+    'multi.more': "…and {n} more",
+    'multi.assign': "Assign character",
+    'multi.release': "👑 Release selected",
+    'multi.clear': "Clear selection",
+    'multi.hint': "Ctrl+click adds or removes a line, Shift+click selects a range, Esc clears the selection.",
+    'multi.done': "Moved to “{name}”: {moved}.",
+    'multi.skipped': "Skipped {n}: they belong to other players.",
+    'help.keys': "Space — play/pause · R — record the selected line · ← → — seek 3 s · Ctrl/Shift+click — select several lines · Ctrl+wheel — timeline zoom · Esc — close windows"
+  });
+  Object.assign(messages.ru, {
+    'char.renameTrack': "Переименовать всю дорожку «{name}» (все её реплики):",
+    'char.trackRenamed': "«{from}» → «{to}»: {n} реплик",
+    'char.trackDenied': "Часть реплик этой дорожки заняли другие игроки — переименовать её может только хост",
+    'multi.title': "Выбрано реплик: {n}",
+    'multi.more': "…и ещё {n}",
+    'multi.assign': "Назначить персонажа",
+    'multi.release': "👑 Освободить выбранные",
+    'multi.clear': "Снять выделение",
+    'multi.hint': "Ctrl+клик — добавить или убрать реплику, Shift+клик — выделить диапазон, Esc — снять выделение.",
+    'multi.done': "Перенесено к «{name}»: {moved}.",
+    'multi.skipped': "Пропущено {n}: их заняли другие игроки.",
+    'help.keys': "Пробел — плей/пауза · R — записать выбранную реплику · ← → — перемотка на 3 с · Ctrl/Shift+клик — выделить несколько реплик · Ctrl+колесо — масштаб таймлайна · Esc — закрыть окна"
+  });
+  Object.assign(messages.uk, {
+    'char.renameTrack': "Перейменувати всю доріжку «{name}» (усі її репліки):",
+    'char.trackRenamed': "«{from}» → «{to}»: {n} реплік",
+    'char.trackDenied': "Частину реплік цієї доріжки зайняли інші гравці — перейменувати її може лише хост",
+    'multi.title': "Вибрано реплік: {n}",
+    'multi.more': "…і ще {n}",
+    'multi.assign': "Призначити персонажа",
+    'multi.release': "👑 Звільнити вибрані",
+    'multi.clear': "Зняти виділення",
+    'multi.hint': "Ctrl+клік — додати або прибрати репліку, Shift+клік — виділити діапазон, Esc — зняти виділення.",
+    'multi.done': "Перенесено до «{name}»: {moved}.",
+    'multi.skipped': "Пропущено {n}: їх зайняли інші гравці.",
+    'help.keys': "Пробіл — плей/пауза · R — записати вибрану репліку · ← → — перемотування на 3 с · Ctrl/Shift+клік — виділити кілька реплік · Ctrl+коліщатко — масштаб таймлайну · Esc — закрити вікна"
+  });
+
   let language = localStorage.getItem('dubline_language');
   if (!messages[language]) {
     const browser = String(navigator.language || 'en').toLowerCase();

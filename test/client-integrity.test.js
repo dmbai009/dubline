@@ -17,7 +17,7 @@ test('every inline HTML handler has a client implementation', () => {
 });
 
 test('static DOM references exist and legacy modal IDs are gone', () => {
-  const dynamicIds = new Set(['gainDisplay', 'pitchVal', 'recBtn', 'visualizerCanvas', 'charInput']);
+  const dynamicIds = new Set(['gainDisplay', 'pitchVal', 'recBtn', 'visualizerCanvas', 'charInput', 'multiCharInput']);
   const ids = [...app.matchAll(/getElementById\(['"]([^'"]+)['"]\)/g)].map(match => match[1]);
   for (const id of new Set(ids)) {
     if (dynamicIds.has(id)) continue;

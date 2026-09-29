@@ -36,6 +36,9 @@ const liveRecordings = new Map();
 const seedingNicks = new Set();
 // Реплики, чьи дубли записаны, но еще не дошли до сервера
 const pendingTakeLines = new Set();
+// Несколько выделенных реплик (Ctrl/Shift+клик) — для массового назначения персонажа
+const multiSelection = new Set();
+let lastClickedLineId = null;
 
 // Видео/интершум, выбранные игроком со своего диска, чтобы не качать их через туннель
 let localMedia = null; // { forVideoUrl, videoUrl, videoBlob, backingUrl, backingBlob, size }
@@ -367,8 +370,11 @@ function renderTimeline() {
       }
     }
 
+    // Переименовать дорожку целиком: хост всегда, остальные — если все реплики свободны или свои
+    const canRenameTrack = amHost() || session.lines.filter(l => l.character === char).every(l => { const owner = getLineOwner(l); return !owner || owner === myName; });
+    const renameTrackBtn = canRenameTrack ? `<button class="track-rename" title="${esc(t('char.renameTrack', { name: char }))}" onclick="renameCharacterTrack(${jsArg(char)})">✎</button>` : '';
     label.innerHTML = `
-      <span class="char-name" title="${esc(char)}">${esc(char)}</span>
+      <span class="char-name-row"><span class="char-name" title="${esc(char)}">${esc(char)}</span>${renameTrackBtn}</span>
       ${roleHtml}
     `;
 
@@ -392,12 +398,18 @@ function renderTimeline() {
 
       updateLineBlockVisual(block, line);
 
-      block.onclick = () => {
+      block.onclick = (e) => {
         if (block.dataset.justDragged) {
           delete block.dataset.justDragged;
           return;
         }
-        selectLine(session.lines.find(l => l.id === line.id) || line);
+        if (e.ctrlKey || e.metaKey) toggleMultiSelect(line.id);
+        else if (e.shiftKey && lastClickedLineId != null) selectLineRange(lastClickedLineId, line.id);
+        else {
+          clearMultiSelection();
+          selectLine(session.lines.find(l => l.id === line.id) || line);
+        }
+        lastClickedLineId = line.id;
       };
       trackArea.appendChild(block);
 
@@ -426,6 +438,7 @@ function updateLineBlockVisual(el, line) {
 
   el.className = 'line-block';
   if (selectedLine && selectedLine.id === line.id) el.classList.add('selected');
+  if (multiSelection.has(line.id)) el.classList.add('multi-selected');
   if (line.audioUrl) el.classList.add('recorded');
   else if (owner === myName) el.classList.add('claimed-me');
   else if (owner) el.classList.add('claimed-other');
@@ -810,3 +823,52 @@ function sendTrackSelection() {
 }
 originalTrackSelect.addEventListener('change', sendTrackSelection);
 backingTrackSelect.addEventListener('change', sendTrackSelection);
+
+// ==========================================
+// ВЫДЕЛЕНИЕ НЕСКОЛЬКИХ РЕПЛИК И ПЕРЕИМЕНОВАНИЕ ДОРОЖЕК
+// ==========================================
+function refreshMultiSelection() {
+  document.querySelectorAll('.line-block').forEach(el => {
+    el.classList.toggle('multi-selected', multiSelection.has(Number(el.id.replace('line-block-', ''))));
+  });
+  if (multiSelection.size >= 2) showMultiInspector();
+  else if (multiSelection.size === 1) {
+    const only = session.lines.find(l => multiSelection.has(l.id));
+    multiSelection.clear();
+    if (only) selectLine(only);
+  }
+}
+
+function toggleMultiSelect(lineId) {
+  if (!multiSelection.size && selectedLine) multiSelection.add(selectedLine.id);
+  if (multiSelection.has(lineId)) multiSelection.delete(lineId);
+  else multiSelection.add(lineId);
+  refreshMultiSelection();
+}
+
+// Shift+клик: все реплики по времени между прошлым кликом и этим
+function selectLineRange(fromId, toId) {
+  const ordered = [...session.lines].sort((a, b) => a.start - b.start || a.id - b.id);
+  const a = ordered.findIndex(l => l.id === fromId);
+  const b = ordered.findIndex(l => l.id === toId);
+  if (a === -1 || b === -1) return;
+  ordered.slice(Math.min(a, b), Math.max(a, b) + 1).forEach(l => multiSelection.add(l.id));
+  refreshMultiSelection();
+}
+
+window.clearMultiSelection = function() {
+  if (!multiSelection.size) return;
+  multiSelection.clear();
+  document.querySelectorAll('.line-block.multi-selected').forEach(el => el.classList.remove('multi-selected'));
+  if (selectedLine) showInspector(selectedLine);
+  else inspector.innerHTML = `<h3>${t('inspector.title')}</h3><p>${t('inspector.empty')}</p>`;
+};
+
+window.renameCharacterTrack = function(name) {
+  const next = (prompt(t('char.renameTrack', { name }), name) || '').trim();
+  if (!next || next === name) return;
+  socket.emit('rename_character', { from: name, to: next }, result => {
+    if (result && result.ok) showToast(t('char.trackRenamed', { from: name, to: next, n: result.moved }));
+    else if (result && result.reason === 'denied') showToast(t('char.trackDenied'));
+  });
+};

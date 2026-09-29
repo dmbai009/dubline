@@ -186,6 +186,14 @@
     .track-picker select { background: var(--panel-3); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 3px 6px; font-size: 11px; }
     .track-picker select:disabled { opacity: 0.7; cursor: not-allowed; }
     .track-note { color: var(--faint); }
+    .line-block.multi-selected { outline: 2px dashed var(--accent-2); outline-offset: 1px; z-index: 16; }
+    .char-name-row { display: flex; align-items: center; gap: 2px; min-width: 0; }
+    .track-rename { background: transparent; color: var(--faint); padding: 0 3px; font-size: 11px; flex-shrink: 0; }
+    .track-rename:hover:not(:disabled) { color: var(--accent-2); filter: none; }
+    .multi-list { display: flex; flex-direction: column; gap: 4px; background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 7px 10px; max-height: 150px; overflow-y: auto; }
+    .multi-item { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .multi-item b { color: var(--text); }
+    .multi-char { color: var(--accent-2); font-weight: 600; }
     .insp-rename { background: transparent; color: var(--faint); padding: 0 4px; font-size: 12px; }
     .insp-rename:hover:not(:disabled) { color: var(--accent-2); filter: none; }
     .insp-char-form { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; }
