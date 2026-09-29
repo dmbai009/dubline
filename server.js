@@ -27,7 +27,7 @@ const MAX_NICK_LENGTH = 16;
 const MAX_CHAT_LENGTH = 500;
 const MAX_CHAT_HISTORY = 100;
 const CHAT_RATE_LIMIT = { count: 5, windowMs: 5000 };
-const VOICE_EFFECTS = ['none', 'robot', 'radio', 'monster'];
+const VOICE_EFFECTS = ['none', 'robot', 'radio', 'monster', 'thoughts', 'cave', 'behindDoor', 'megaphone'];
 const MAX_PITCH = 12;         // полутонов вверх/вниз
 const MAX_TAKE_SHIFT = 30;    // насколько далеко (в секундах) дубль можно утащить от реплики
 

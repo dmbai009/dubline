@@ -11,7 +11,7 @@ The project is inspired by Voxalike and The Choicer Voicer, while removing the n
 - **Persistent sessions.** Room state is stored in `data/rooms.json`; uploaded media and takes stay available after a server restart.
 - **Host controls.** The first participant becomes the room host and can change scenes, pause playback for everyone, or release stale role claims.
 - **Studio recording tools.** Pre-roll, microphone gain, optional browser noise/echo suppression, silence detection, waveform previews, non-destructive trimming, and manual take alignment.
-- **Non-destructive voice processing.** Robot, radio, and monster effects plus a ±12-semitone pitch shifter are applied during playback and export without modifying the original recording.
+- **Non-destructive voice processing.** Robot, radio, monster, thoughts, cave, behind-a-door, and megaphone effects plus a ±12-semitone pitch shifter are applied during playback and export without modifying the original recording. Delay and reverb tails are preserved in playback, video mixes, and WAV stems.
 - **Three-channel mixer.** Control original video audio, background/ambience, and recorded dubbing independently.
 - **Auto-ducking.** Background and original audio fade down over 80 ms while a take plays and recover over 250 ms. The same automation is used for playback and exported mixes.
 - **Video prompter.** The active character, line, and phrase progress are shown over the video. The overlay can be disabled or resized.

@@ -43,7 +43,8 @@
       'error.noScene': 'Load a scene first.', 'error.noTakes': 'There are no recorded takes to export.',
       'error.generic': 'Something went wrong: {message}', 'error.nickTaken': 'Nickname “{nick}” is already used in this room.', 'confirm.reset': 'Release all roles and lines? Recordings will be kept.',
       'confirm.delete': 'Delete this recording?', 'effect.none': 'No effect', 'effect.robot': '🤖 Robot',
-      'effect.radio': '📻 Radio', 'effect.monster': '👹 Monster'
+      'effect.radio': '📻 Radio', 'effect.monster': '👹 Monster', 'effect.thoughts': '💭 Thoughts',
+      'effect.cave': '🪨 Cave', 'effect.behindDoor': '🚪 Behind a door', 'effect.megaphone': '📣 Megaphone'
     },
     ru: {
       'app.title': 'Dubline — Совместная студия озвучки', 'app.subtitle': 'Совместная студия озвучки', 'room': 'Комната:', 'share': '🔗 Поделиться', 'share.title': 'Скопировать ссылку для друзей',
@@ -83,7 +84,8 @@
       'system.newHost': '👑 {nick} теперь хост комнаты', 'error.noScene': 'Сначала загрузите сцену.',
       'error.noTakes': 'Нет записанных дублей для экспорта.', 'error.generic': 'Произошла ошибка: {message}', 'error.nickTaken': 'Ник «{nick}» уже занят в этой комнате.',
       'confirm.reset': 'Освободить все роли и реплики? Записанные дубли останутся.', 'confirm.delete': 'Удалить эту запись дубля?',
-      'effect.none': 'Без эффекта', 'effect.robot': '🤖 Робот', 'effect.radio': '📻 Рация', 'effect.monster': '👹 Монстр'
+      'effect.none': 'Без эффекта', 'effect.robot': '🤖 Робот', 'effect.radio': '📻 Рация', 'effect.monster': '👹 Монстр',
+      'effect.thoughts': '💭 Мысли', 'effect.cave': '🪨 Пещера', 'effect.behindDoor': '🚪 За дверью', 'effect.megaphone': '📣 Мегафон'
     },
     uk: {
       'app.title': 'Dubline — Спільна студія озвучення', 'app.subtitle': 'Спільна студія озвучення', 'room': 'Кімната:', 'share': '🔗 Поділитися', 'share.title': 'Скопіювати запрошення',
@@ -122,7 +124,8 @@
       'system.newHost': '👑 {nick} тепер хост кімнати', 'error.noScene': 'Спочатку завантажте сцену.',
       'error.noTakes': 'Немає записаних дублів для експорту.', 'error.generic': 'Сталася помилка: {message}', 'error.nickTaken': 'Нік «{nick}» уже зайнятий у цій кімнаті.',
       'confirm.reset': 'Звільнити всі ролі та репліки? Записи залишаться.', 'confirm.delete': 'Видалити цей запис?',
-      'effect.none': 'Без ефекту', 'effect.robot': '🤖 Робот', 'effect.radio': '📻 Рація', 'effect.monster': '👹 Монстр'
+      'effect.none': 'Без ефекту', 'effect.robot': '🤖 Робот', 'effect.radio': '📻 Рація', 'effect.monster': '👹 Монстр',
+      'effect.thoughts': '💭 Думки', 'effect.cave': '🪨 Печера', 'effect.behindDoor': '🚪 За дверима', 'effect.megaphone': '📣 Мегафон'
     }
   };
 

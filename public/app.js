@@ -483,11 +483,20 @@ function takeStartTime(line) {
   return (line.audioStart !== null && line.audioStart !== undefined) ? line.audioStart : line.start;
 }
 
-// Какая часть файла дубля звучит (с учетом автообрезки тишины)
-function takeBounds(line, duration = Infinity) {
+function takeDryBounds(line, duration = Infinity) {
   const trimOn = line.trimEnabled !== false && line.trimStart != null && line.trimEnd != null;
   const from = trimOn ? Math.max(0, line.trimStart) : 0;
   const to = trimOn ? Math.min(duration, line.trimEnd) : duration;
+  return { from, to };
+}
+
+// Какая часть файла дубля звучит (с учетом автообрезки тишины)
+function takeBounds(line, duration = Infinity) {
+  const dry = takeDryBounds(line, duration);
+  const tail = effectTailSeconds(line.effect || 'none');
+  const trimOn = line.trimEnabled !== false && line.trimStart != null && line.trimEnd != null;
+  const from = dry.from;
+  const to = trimOn ? Math.min(duration, dry.to + tail) : duration;
   return { from, to };
 }
 
@@ -498,10 +507,10 @@ function getRawTake(url) {
 
 function getProcessedTake(line) {
   if (!line.audioUrl) return Promise.resolve(null);
-  const key = `${line.audioUrl}|${line.effect || 'none'}|${line.pitch || 0}`;
+  const key = `${line.audioUrl}|${line.effect || 'none'}|${line.pitch || 0}|${line.trimEnabled !== false}|${line.trimStart}|${line.trimEnd}`;
   if (!processedTakeCache.has(key)) {
     const job = getRawTake(line.audioUrl)
-      .then(buf => buf && renderVoice(buf, line.effect || 'none', line.pitch || 0))
+      .then(buf => buf && renderVoice(buf, line.effect || 'none', line.pitch || 0, takeDryBounds(line, buf.duration)))
       .catch(err => {
         console.error('[Dubline] Не удалось обработать дубль:', err);
         return null;
@@ -946,7 +955,7 @@ function attachWaveform(block, line) {
   const isTake = !!line.audioUrl;
   // Дубль начинается раньше реплики на длину pre-roll (и может быть сдвинут вручную)
   const offsetSec = isTake ? takeStartTime(line) - line.start : 0;
-  const bounds = isTake ? takeBounds(line) : { from: 0, to: Infinity };
+  const bounds = isTake ? takeDryBounds(line) : { from: 0, to: Infinity };
 
   const canvas = document.createElement('canvas');
   canvas.className = 'wave-canvas';

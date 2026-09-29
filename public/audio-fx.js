@@ -6,8 +6,26 @@ const VOICE_EFFECTS = {
   none: 'Без эффекта',
   robot: '🤖 Робот',
   radio: '📻 Рация',
-  monster: '👹 Монстр'
+  monster: '👹 Монстр',
+  thoughts: '💭 Мысли',
+  cave: '🪨 Пещера',
+  behindDoor: '🚪 За дверью',
+  megaphone: '📣 Мегафон'
 };
+
+const EFFECT_TAIL_SECONDS = {
+  robot: 0.12,
+  radio: 0.08,
+  monster: 0.05,
+  thoughts: 0.7,
+  cave: 2.0,
+  behindDoor: 0.06,
+  megaphone: 0.15
+};
+
+function effectTailSeconds(effect) {
+  return EFFECT_TAIL_SECONDS[effect] || 0;
+}
 
 let sharedDecodeCtx = null;
 
@@ -152,6 +170,19 @@ function chain(...nodes) {
   return nodes[nodes.length - 1];
 }
 
+function reverbImpulse(ctx, seconds, decay, seed = 1) {
+  const length = Math.max(1, Math.round(ctx.sampleRate * seconds));
+  const impulse = ctx.createBuffer(1, length, ctx.sampleRate);
+  const data = impulse.getChannelData(0);
+  let state = seed >>> 0;
+  for (let i = 0; i < length; i++) {
+    state = (state * 1664525 + 1013904223) >>> 0;
+    const noise = (state / 0xffffffff) * 2 - 1;
+    data[i] = noise * Math.pow(1 - i / length, decay);
+  }
+  return impulse;
+}
+
 // Строит граф эффекта от input и возвращает выходной узел
 function buildEffect(ctx, input, effect) {
   if (effect === 'robot') {
@@ -201,22 +232,96 @@ function buildEffect(ctx, input, effect) {
     return chain(input, biquad(ctx, 'lowshelf', 220, { gain: 8 }), biquad(ctx, 'lowpass', 2600), shaper, out);
   }
 
+  if (effect === 'thoughts') {
+    const airy = chain(input, biquad(ctx, 'highpass', 110), biquad(ctx, 'highshelf', 5200, { gain: 5 }));
+    const dry = ctx.createGain();
+    dry.gain.value = 0.82;
+    airy.connect(dry);
+
+    const delay = ctx.createDelay(0.5);
+    delay.delayTime.value = 0.14;
+    const feedback = ctx.createGain();
+    feedback.gain.value = 0.28;
+    const delayed = ctx.createGain();
+    delayed.gain.value = 0.3;
+    airy.connect(delay);
+    delay.connect(feedback);
+    feedback.connect(delay);
+    delay.connect(delayed);
+
+    const convolver = ctx.createConvolver();
+    convolver.buffer = reverbImpulse(ctx, 0.65, 3.8, 17);
+    const wet = ctx.createGain();
+    wet.gain.value = 0.2;
+    airy.connect(convolver);
+    convolver.connect(wet);
+
+    const out = ctx.createGain();
+    dry.connect(out);
+    delayed.connect(out);
+    wet.connect(out);
+    return out;
+  }
+
+  if (effect === 'cave') {
+    const predelay = ctx.createDelay(0.2);
+    predelay.delayTime.value = 0.045;
+    const convolver = ctx.createConvolver();
+    convolver.buffer = reverbImpulse(ctx, 1.9, 2.25, 41);
+    const wet = ctx.createGain();
+    wet.gain.value = 0.75;
+    const dry = ctx.createGain();
+    dry.gain.value = 0.55;
+    const out = ctx.createGain();
+    input.connect(dry);
+    input.connect(predelay);
+    predelay.connect(convolver);
+    convolver.connect(wet);
+    dry.connect(out);
+    wet.connect(out);
+    return out;
+  }
+
+  if (effect === 'behindDoor') {
+    const out = ctx.createGain();
+    out.gain.value = 0.92;
+    return chain(input, biquad(ctx, 'lowpass', 650, { Q: 0.85 }), biquad(ctx, 'lowshelf', 180, { gain: 3 }), out);
+  }
+
+  if (effect === 'megaphone') {
+    const shaper = ctx.createWaveShaper();
+    shaper.curve = distortionCurve(10);
+    const comp = ctx.createDynamicsCompressor();
+    comp.threshold.value = -24;
+    comp.knee.value = 5;
+    comp.ratio.value = 7;
+    comp.attack.value = 0.004;
+    comp.release.value = 0.08;
+    const out = ctx.createGain();
+    out.gain.value = 1.1;
+    return chain(input, biquad(ctx, 'highpass', 420), biquad(ctx, 'lowpass', 3400),
+      biquad(ctx, 'peaking', 1500, { Q: 1.7, gain: 10 }), shaper, comp, out);
+  }
+
   return input;
 }
 
 const EFFECT_PITCH = { monster: -6 };
 
-// Применяет эффект и питч к дублю. Длина результата совпадает с исходником.
-async function renderVoice(buffer, effect = 'none', pitch = 0) {
+// Применяет эффект и питч к дублю, сохраняя хвосты задержки и реверберации.
+async function renderVoice(buffer, effect = 'none', pitch = 0, bounds = null) {
   const totalPitch = (pitch || 0) + (EFFECT_PITCH[effect] || 0);
   let working = totalPitch !== 0 ? pitchShiftBuffer(buffer, totalPitch) : buffer;
   if (!effect || effect === 'none' || !VOICE_EFFECTS[effect]) return working;
 
-  const ctx = new OfflineAudioContext(1, working.length, working.sampleRate);
+  const tail = effectTailSeconds(effect);
+  const ctx = new OfflineAudioContext(1, working.length + Math.ceil(tail * working.sampleRate), working.sampleRate);
   const src = ctx.createBufferSource();
   src.buffer = working;
   buildEffect(ctx, src, effect).connect(ctx.destination);
-  src.start();
+  const from = bounds ? Math.max(0, Math.min(working.duration, bounds.from || 0)) : 0;
+  const to = bounds ? Math.max(from, Math.min(working.duration, bounds.to ?? working.duration)) : working.duration;
+  src.start(from, from, Math.max(0.001, to - from));
   return limitPeak(await ctx.startRendering());
 }
 
@@ -231,3 +336,5 @@ function limitPeak(buffer, maxPeak = 0.95) {
   }
   return buffer;
 }
+
+window.DublineAudioFx = { VOICE_EFFECTS, effectTailSeconds };

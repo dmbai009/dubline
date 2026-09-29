@@ -38,11 +38,25 @@ test('all interface translation keys exist in English, Russian and Ukrainian', (
   const markupKeys = [...html.matchAll(/data-i18n(?:-placeholder|-title)?=["']([^"']+)["']/g)].map(match => match[1]);
   const appKeys = [...app.matchAll(/\bt\(['`]([^'`${}]+)['`]/g)].map(match => match[1]);
   const serverKeys = [...server.matchAll(/addSystemMessage\([^,]+,\s*['"]([^'"]+)['"]/g)].map(match => match[1]);
-  const dynamicKeys = ['effect.none', 'effect.robot', 'effect.radio', 'effect.monster'];
+  const dynamicKeys = ['effect.none', 'effect.robot', 'effect.radio', 'effect.monster',
+    'effect.thoughts', 'effect.cave', 'effect.behindDoor', 'effect.megaphone'];
   for (const key of new Set([...markupKeys, ...appKeys, ...serverKeys, ...dynamicKeys])) {
     for (const language of ['en', 'ru', 'uk']) assert.ok(messages[language][key], `${language}.${key} is missing`);
   }
   const englishKeys = Object.keys(messages.en).sort();
   assert.deepEqual(Object.keys(messages.ru).sort(), englishKeys);
   assert.deepEqual(Object.keys(messages.uk).sort(), englishKeys);
+});
+
+test('client and server expose the same non-destructive voice effects', () => {
+  const context = { window: {} };
+  vm.runInNewContext(fs.readFileSync('public/audio-fx.js', 'utf8'), context);
+  const clientEffects = Object.keys(context.window.DublineAudioFx.VOICE_EFFECTS).sort();
+  const whitelist = server.match(/const VOICE_EFFECTS = \[([^\]]+)\]/);
+  assert.ok(whitelist, 'server effect whitelist is missing');
+  const serverEffects = [...whitelist[1].matchAll(/['"]([^'"]+)['"]/g)].map(match => match[1]).sort();
+  assert.deepEqual(clientEffects, serverEffects);
+  assert.ok(context.window.DublineAudioFx.effectTailSeconds('behindDoor') > 0);
+  assert.ok(context.window.DublineAudioFx.effectTailSeconds('thoughts') >= 0.5);
+  assert.ok(context.window.DublineAudioFx.effectTailSeconds('cave') >= 1.5);
 });
