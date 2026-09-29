@@ -542,3 +542,25 @@ window.resetLayout = function() {
 applyLayout();
 maybeShowHelp();
 syncSettingsUi();
+
+// ==========================================
+// СОВЕТ ИГРАТЬ В CHROME / EDGE
+// Запись, экспорт и P2P проверены только в браузерах на Chromium
+// ==========================================
+const browserBanner = document.getElementById('browserBanner');
+
+function isChromiumBrowser() {
+  const brands = (navigator.userAgentData && navigator.userAgentData.brands) || [];
+  return brands.some(item => /Chromium|Google Chrome|Microsoft Edge/.test(item.brand));
+}
+
+window.dismissBrowserBanner = function() {
+  browserBanner.style.display = 'none';
+  try { localStorage.setItem('dubline_browser_hint', '1'); } catch (err) { /* приватный режим */ }
+};
+
+if (!isChromiumBrowser()) {
+  let dismissed = false;
+  try { dismissed = localStorage.getItem('dubline_browser_hint') === '1'; } catch (err) { /* приватный режим */ }
+  if (!dismissed) browserBanner.style.display = 'flex';
+}

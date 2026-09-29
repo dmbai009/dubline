@@ -840,6 +840,28 @@
     'prompter.more': "+ ще {n} одночасно"
   });
 
+  Object.assign(messages.en, {
+    'upload.tooBigTunnel': "The file is {size} MB, but uploads through the shared link are limited to about {max} MB. The host can upload it on their own computer by opening http://localhost:3000 (a pack .zip can also be put into the public/packs folder — it appears in the library).",
+    'upload.rejectedByTunnel': "The shared link rejected the file as too large. The host can upload it on their own computer at http://localhost:3000.",
+    'upload.networkFailed': "The upload was interrupted (the connection or tunnel dropped). Try again; large files are best uploaded by the host at http://localhost:3000.",
+    'browser.useChrome': "Dubline works best in Chrome or Edge. In this browser recording, export, or video sharing may not work properly.",
+    'help.step1': "With speakers, the video sound leaks into your microphone and the take gets an echo. Wired headphones are best: Bluetooth headsets drop to low sound quality while the microphone is on. Play in Chrome or Edge."
+  });
+  Object.assign(messages.ru, {
+    'upload.tooBigTunnel': "Файл весит {size} МБ, а через ссылку-туннель можно загрузить примерно до {max} МБ. Хост может загрузить его сам на своём компьютере, открыв http://localhost:3000 (.zip пака можно ещё положить в папку public/packs — он появится в библиотеке).",
+    'upload.rejectedByTunnel': "Ссылка-туннель не пропустила файл: он слишком большой. Хост может загрузить его сам на своём компьютере через http://localhost:3000.",
+    'upload.networkFailed': "Загрузка оборвалась (пропала связь или туннель). Попробуйте ещё раз; большие файлы лучше загружать хосту через http://localhost:3000.",
+    'browser.useChrome': "Dubline лучше всего работает в Chrome или Edge. В этом браузере запись, экспорт или раздача видео могут работать неправильно.",
+    'help.step1': "Если играть через колонки, звук видео попадёт в микрофон и в дубле будет эхо. Лучше проводные: Bluetooth-гарнитура при включённом микрофоне переходит в режим с плохим звуком. Играйте в Chrome или Edge."
+  });
+  Object.assign(messages.uk, {
+    'upload.tooBigTunnel': "Файл важить {size} МБ, а через посилання-тунель можна завантажити приблизно до {max} МБ. Хост може завантажити його сам на своєму комп’ютері, відкривши http://localhost:3000 (.zip пака можна ще покласти в теку public/packs — він з’явиться в бібліотеці).",
+    'upload.rejectedByTunnel': "Посилання-тунель не пропустило файл: він завеликий. Хост може завантажити його сам на своєму комп’ютері через http://localhost:3000.",
+    'upload.networkFailed': "Завантаження обірвалося (зник зв’язок або тунель). Спробуйте ще раз; великі файли краще завантажувати хосту через http://localhost:3000.",
+    'browser.useChrome': "Dubline найкраще працює в Chrome або Edge. У цьому браузері запис, експорт або роздача відео можуть працювати неправильно.",
+    'help.step1': "Якщо грати через колонки, звук відео потрапить у мікрофон і в дублі буде луна. Краще дротові: Bluetooth-гарнітура з увімкненим мікрофоном переходить у режим з поганим звуком. Грайте в Chrome або Edge."
+  });
+
   let language = localStorage.getItem('dubline_language');
   if (!messages[language]) {
     const browser = String(navigator.language || 'en').toLowerCase();

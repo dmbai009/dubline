@@ -7,13 +7,20 @@ zipInput.addEventListener('change', async (e) => {
   const file = e.target.files[0];
   if (!file) return;
 
+  zipInput.value = '';
+  const tooBig = tunnelUploadError([file]);
+  if (tooBig) return alert(tooBig);
+
   const formData = new FormData();
   formData.append('clientId', clientId);
   formData.append('pack', file);
-  zipInput.value = '';
 
-  const res = await fetch(`/api/upload-pack?room=${encodeURIComponent(currentRoom)}`, { method: 'POST', body: formData });
-  if (!res.ok) alert(await readError(res));
+  try {
+    const res = await fetch(`/api/upload-pack?room=${encodeURIComponent(currentRoom)}`, { method: 'POST', body: formData });
+    if (!res.ok) alert(await readError(res));
+  } catch (err) {
+    alert(t('upload.networkFailed'));
+  }
 });
 
 // ИМПОРТ И БИБЛИОТЕКА МОДОВ
@@ -68,6 +75,8 @@ window.uploadCustomScene = async function() {
   const button = document.getElementById('customUploadBtn');
   if (!videoFile) return alert(t('error.generic', { message: t('videoFile') }));
   if (!subtitleFile && !/\.mkv$/i.test(videoFile.name)) return alert(t('error.generic', { message: t('subtitleFile') }));
+  const tooBig = tunnelUploadError([videoFile, subtitleFile]);
+  if (tooBig) return alert(tooBig);
 
   const form = new FormData();
   form.append('clientId', clientId);
@@ -86,7 +95,8 @@ window.uploadCustomScene = async function() {
     status.style.color = '#10b981';
     setTimeout(closeFilesModal, 700);
   } catch (err) {
-    status.textContent = t('error.generic', { message: err.message });
+    // fetch падает с TypeError, когда туннель рвет соединение посреди загрузки
+    status.textContent = err instanceof TypeError ? t('upload.networkFailed') : t('error.generic', { message: err.message });
     status.style.color = '#ef4444';
   } finally {
     button.disabled = false;

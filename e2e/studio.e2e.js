@@ -512,6 +512,36 @@ describe('studio', { skip: skipReason }, () => {
     await alice.evaluate(() => closeFilesModal());
   });
 
+  test('uploads too big for the tunnel get a clear message; no Chrome hint in Chrome', async () => {
+    const result = await alice.evaluate(async () => {
+      const big = { size: 200 * 1024 * 1024 };
+      const localAnswer = tunnelUploadError([big]);
+      const realCheck = isLocalAddress;
+      isLocalAddress = () => false; // как будто страница открыта по ссылке-туннелю
+      const tunnelAnswer = tunnelUploadError([big, null]);
+      const smallAnswer = tunnelUploadError([{ size: 10 * 1024 * 1024 }]);
+      isLocalAddress = realCheck;
+      return {
+        localAnswer,
+        tunnelAnswer,
+        smallAnswer,
+        tunnel413: await readError(new Response('<html><body>413 Request Entity Too Large</body></html>', { status: 413 })),
+        tunnel502: await readError(new Response('<!DOCTYPE html><html>Bad gateway</html>', { status: 502 })),
+        ours: await readError(new Response('Реплика не найдена', { status: 404 })),
+        banner: document.getElementById('browserBanner').style.display
+      };
+    });
+    assert.equal(result.localAnswer, '');
+    assert.equal(result.smallAnswer, '');
+    assert.match(result.tunnelAnswer, /200/);
+    assert.match(result.tunnelAnswer, /localhost:3000/);
+    assert.match(result.tunnel413, /localhost:3000/);
+    assert.match(result.tunnel502, /502/);
+    assert.doesNotMatch(result.tunnel502, /</);
+    assert.equal(result.ours, 'Реплика не найдена');
+    assert.equal(result.banner, 'none');
+  });
+
   test('no page errors', () => {
     for (const page of [alice, bob]) assert.deepEqual(page.errors, []);
   });

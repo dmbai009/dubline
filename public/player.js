@@ -140,9 +140,31 @@ function jsArg(value) {
   return esc(JSON.stringify(value));
 }
 
+// Ссылка-туннель (Cloudflare и т.п.) не пропускает большие запросы — около 100 МБ
+const TUNNEL_UPLOAD_MB = 95;
+
+function isLocalAddress() {
+  const host = location.hostname.replace(/^\[|\]$/g, '');
+  return host === 'localhost' || host === '::1' || /\.localhost$/.test(host)
+    || /^(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(host);
+}
+
+// Пустая строка — можно грузить; иначе понятный текст, почему не выйдет
+function tunnelUploadError(files) {
+  if (isLocalAddress()) return '';
+  const bytes = files.filter(Boolean).reduce((sum, file) => sum + file.size, 0);
+  if (bytes <= TUNNEL_UPLOAD_MB * 1024 * 1024) return '';
+  return t('upload.tooBigTunnel', { size: Math.round(bytes / 1048576), max: TUNNEL_UPLOAD_MB });
+}
+
 async function readError(res) {
   const text = await res.text().catch(() => '');
-  return text || t('error.generic', { message: `HTTP ${res.status}` });
+  // Страница ошибки туннеля (HTML) вместо ответа нашего сервера
+  if (/^\s*</.test(text) || !text) {
+    if (res.status === 413) return t('upload.rejectedByTunnel');
+    return t('error.generic', { message: `HTTP ${res.status}` });
+  }
+  return text;
 }
 
 // Микшер громкости

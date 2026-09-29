@@ -67,7 +67,7 @@ ASS imports use the Aegisub `Name` field for the character; typesetting drawings
 
 ## Requirements and installation
 
-Only the host needs to install anything. Friends just open the link in Chrome or Edge.
+Only the host needs to install anything. Friends just open the link in Chrome or Edge. Other browsers (Firefox, Safari) are not supported yet and show a hint to switch; wired headphones are recommended, since Bluetooth headsets drop to low sound quality while the microphone is on.
 
 ### Windows (one click)
 
@@ -111,6 +111,8 @@ https://random-words.trycloudflare.com/?room=pizza-night
 ```
 
 The address changes every time the tunnel restarts. Players simply open the new link and enter the same nickname: a nickname is reserved only while its owner is online, so returning players get their nickname, roles and takes back (and the host gets host rights back).
+
+Uploads through the tunnel are limited to about 100 MB per file (Cloudflare’s limit), so large videos and packs should be imported by the host at <http://localhost:3000>, or a pack `.zip` can be put into `public/packs/`; Dubline explains this instead of failing silently.
 
 Do not share a tunnel publicly. Dubline is designed as a small self-hosted server for trusted groups, not as a hardened public multi-tenant service.
 
