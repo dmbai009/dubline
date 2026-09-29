@@ -63,19 +63,21 @@ Open <http://localhost:3000>. On Windows, `start.bat` starts the server and open
 
 ## Inviting friends
 
-The application itself does not expose your local server to the internet. One simple option for a private game is LocalTunnel:
+The application itself does not expose your local server to the internet. The recommended option is a free [Cloudflare quick tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/do-more-with-tunnels/trycloudflare/): no account, no warning page, and it handles several players at once.
 
 ```bash
-npx localtunnel --port 3000
+cloudflared tunnel --url http://localhost:3000
 ```
 
-On Windows, `share.bat` runs the same command. Send friends a room-specific URL such as:
+On Windows, just run `share.bat` while the server is running. If `cloudflared` is missing, the script offers to install it via `winget`; if you decline, it falls back to LocalTunnel (`npx localtunnel --port 3000`), which is less stable and shows a password page.
+
+The tunnel prints an address like `https://random-words.trycloudflare.com`. Send friends a room-specific URL:
 
 ```text
-https://example.loca.lt/?room=pizza-night
+https://random-words.trycloudflare.com/?room=pizza-night
 ```
 
-LocalTunnel may show a warning page asking for a tunnel password. This is LocalTunnel's anti-phishing check, not a Dubline password. The host can obtain the expected public-IP value at <https://loca.lt/mytunnelpassword>.
+The address changes every time the tunnel restarts. Players simply open the new link and enter the same nickname: a nickname is reserved only while its owner is online, so returning players get their nickname, roles and takes back (and the host gets host rights back).
 
 Do not share a tunnel publicly. Dubline is designed as a small self-hosted server for trusted groups, not as a hardened public multi-tenant service.
 

@@ -35,6 +35,9 @@ for (const dir of [UPLOAD_DIR, PACKS_DIR, DATA_DIR]) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 }
 
+// Медиа паков и дубли не меняются по одному адресу — пусть браузер кэширует их,
+// а не перекачивает через туннель при каждой перерисовке
+app.use('/uploads', express.static(UPLOAD_DIR, { maxAge: '1h' }));
 app.use(express.static(PUBLIC_DIR));
 // Mediabunny (MP4-мультиплексор для рендера через WebCodecs) раздаем прямо из node_modules
 app.use('/vendor/mediabunny', express.static(path.join(__dirname, 'node_modules', 'mediabunny', 'dist', 'bundles')));
@@ -170,10 +173,27 @@ function addSystemMessage(roomId, key, params = {}, fallback = '') {
   addChatMessage(roomId, { system: true, key, params, text: fallback });
 }
 
-// Ник закреплен за устройством (clientId), чтобы никто не мог выдать себя за другого игрока
-function isNickFree(room, nick, clientId) {
+// Ник закреплен за устройством (clientId), пока его владелец в комнате онлайн.
+// Когда владелец вышел, ник можно занять снова — например, после перезапуска туннеля
+// (новый адрес = пустой localStorage = новый clientId) или с другого устройства.
+function isClientOnline(roomId, clientId, exceptSocketId = null) {
+  return Object.entries(roomSockets[roomId] || {})
+    .some(([socketId, member]) => socketId !== exceptSocketId && member.clientId === clientId);
+}
+
+function isNickFree(room, roomId, nick, clientId, exceptSocketId = null) {
   const owner = room.nickOwners[nick];
-  return !owner || owner === clientId;
+  return !owner || owner === clientId || !isClientOnline(roomId, owner, exceptSocketId);
+}
+
+// Вернувшийся игрок забирает свой ник, а если это был хост — и права хоста
+function takeOverNick(room, roomId, nick, clientId, exceptSocketId = null) {
+  const previousOwner = room.nickOwners[nick];
+  room.nickOwners[nick] = clientId;
+  if (previousOwner && previousOwner !== clientId && room.hostClientId === previousOwner
+      && room.host === nick && !isClientOnline(roomId, previousOwner, exceptSocketId)) {
+    room.hostClientId = clientId;
+  }
 }
 
 function isAuthorized(room, nick, clientId) {
@@ -270,7 +290,8 @@ function emptyTake() {
     trimEnd: null,
     trimEnabled: true,
     effect: 'none',
-    pitch: 0
+    pitch: 0,
+    recordedBy: null      // кто записал дубль (чтобы его можно было послушать, даже когда реплика освобождена)
   };
 }
 
@@ -796,6 +817,7 @@ app.post('/api/upload-line-audio', acceptFile('audio', MAX_TAKE_MB), (req, res) 
     line.audioUrl = `/uploads/${encodeURIComponent(fileName)}`;
     line.audioStart = audioStart !== null ? Math.max(0, audioStart) : line.start;
     line.recordedStart = line.audioStart;
+    line.recordedBy = userName;
     // Выбранный голос (эффект/питч) переживает перезапись дубля
     const hasTrim = trimStart !== null && trimEnd !== null && trimStart >= 0 && trimEnd > trimStart;
     line.trimStart = hasTrim ? trimStart : null;
@@ -863,6 +885,7 @@ io.on('connection', socket => {
     }
     room.lines.forEach(l => {
       if (l.claimedBy === oldName) l.claimedBy = newName;
+      if (l.recordedBy === oldName) l.recordedBy = newName;
     });
   }
 
@@ -881,14 +904,14 @@ io.on('connection', socket => {
     let error = null;
     let errorKey = null;
     let errorParams = null;
-    if (requested && !isNickFree(room, requested, clientId)) {
+    if (requested && !isNickFree(room, roomId, requested, clientId, socket.id)) {
       error = `Ник «${requested}» уже занят другим игроком в этой комнате`;
       errorKey = 'error.nickTaken';
       errorParams = { nick: requested };
       requested = '';
     }
     nick = requested;
-    if (nick) room.nickOwners[nick] = clientId;
+    if (nick) takeOverNick(room, roomId, nick, clientId, socket.id);
 
     // Первый зашедший в комнату становится хостом
     if (!room.hostClientId) room.hostClientId = clientId;
@@ -911,7 +934,7 @@ io.on('connection', socket => {
     const newName = sanitizeNick(data.newName);
     if (!newName || newName === nick) return socket.emit('nick_state', { nick });
 
-    if (!isNickFree(room, newName, clientId)) {
+    if (!isNickFree(room, roomId, newName, clientId, socket.id)) {
       return socket.emit('nick_state', {
         nick,
         error: `Ник «${newName}» уже занят другим игроком`,
@@ -922,7 +945,7 @@ io.on('connection', socket => {
 
     const oldName = nick;
     if (oldName && room.nickOwners[oldName] === clientId) delete room.nickOwners[oldName];
-    room.nickOwners[newName] = clientId;
+    takeOverNick(room, roomId, newName, clientId, socket.id);
     nick = newName;
     roomSockets[roomId][socket.id].nick = newName;
 

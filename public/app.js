@@ -136,6 +136,10 @@ function amHost() {
   return !!myName && roomHost === myName;
 }
 
+// Таймлайн и инспектор зависят от прав хоста (кнопки снятия ролей), поэтому их
+// перерисовываем только когда эти права действительно поменялись, а не на каждый вход игрока
+let renderedAsHost = null;
+
 function updateHostUi() {
   if (amHost()) {
     hostPanel.className = 'host-panel';
@@ -160,7 +164,10 @@ function updateHostUi() {
   zipInput.disabled = !canManagePacks;
   uploadLabel.title = canManagePacks ? t('chooseZip') : t('onlyHost');
 
-  refreshViews();
+  if (renderedAsHost !== canManagePacks) {
+    renderedAsHost = canManagePacks;
+    refreshViews();
+  }
 }
 
 window.hostForcePause = function() { socket.emit('host_force_pause'); };
@@ -488,6 +495,26 @@ function getLineOwner(line) {
   return charOwner || line.claimedBy || null;
 }
 
+// Длительность оригинальной реплики узнаем один раз на адрес: раньше каждая перерисовка
+// таймлайна создавала новый <audio> на каждую реплику и заваливала туннель запросами
+const durationCache = new Map(); // url -> Promise<number | null>
+
+function probeDuration(url) {
+  if (!durationCache.has(url)) {
+    durationCache.set(url, new Promise(resolve => {
+      const probe = new Audio();
+      probe.preload = 'metadata';
+      probe.onloadedmetadata = () => {
+        resolve(Number.isFinite(probe.duration) && probe.duration > 0.1 ? probe.duration : null);
+        probe.removeAttribute('src');
+      };
+      probe.onerror = () => resolve(null);
+      probe.src = url;
+    }));
+  }
+  return durationCache.get(url);
+}
+
 function renderTimeline() {
   timeline.innerHTML = '';
   timeline.appendChild(playhead);
@@ -584,14 +611,12 @@ function renderTimeline() {
       trackArea.appendChild(block);
 
       if (line.originalAudioUrl) {
-        const audioProbe = new Audio(line.originalAudioUrl);
-        audioProbe.onloadedmetadata = () => {
-          if (audioProbe.duration && isFinite(audioProbe.duration) && audioProbe.duration > 0.1) {
-            line.end = Number((line.start + audioProbe.duration).toFixed(2));
-            block.style.width = `${Math.max((line.end - line.start) * pxPerSec, 75)}px`;
-            if (selectedLine && selectedLine.id === line.id) showInspector(line);
-          }
-        };
+        probeDuration(line.originalAudioUrl).then(seconds => {
+          if (!seconds) return;
+          line.end = Number((line.start + seconds).toFixed(2));
+          if (block.isConnected) block.style.width = `${Math.max((line.end - line.start) * pxPerSec, 75)}px`;
+          if (selectedLine && selectedLine.id === line.id) showInspector(line);
+        });
       }
     });
 
@@ -851,11 +876,16 @@ function showInspector(line) {
     }
   } else if (isOwnedByOther) {
     recordBtnHtml = `<button class="btn-record" disabled>${t('owned.other', { owner: esc(owner) })}</button>`;
-    if (line.audioUrl) {
-      recordBtnHtml += `<button class="btn-play" onclick="previewTake(${line.id})">${t('listenTake', { owner: esc(owner) })}</button>`;
-    }
   } else {
     recordBtnHtml = `<button class="btn-record" disabled>${t('claimFirst')}</button>`;
+  }
+
+  // Готовый дубль можно послушать всегда — даже если реплика освобождена или роли сброшены
+  if (!isOwnedByMe && line.audioUrl) {
+    const author = line.recordedBy || owner;
+    recordBtnHtml += author
+      ? `<button class="btn-play" onclick="previewTake(${line.id})">${t('listenTake', { owner: esc(author) })}</button>`
+      : `<button class="btn-play" onclick="previewTake(${line.id})">${t('listenTakeAnon')}</button>`;
   }
 
   inspector.innerHTML = `
