@@ -647,6 +647,22 @@
     'system.passwordRemoved': "🔓 {nick} прибрав пароль кімнати"
   });
 
+  Object.assign(messages.en, {
+    'cue.finish': "🔴 Finish your phrase — recording stops when you go quiet",
+    'record.hint': "Recording starts after the countdown over the video — speak on “Speak!”. It stops by itself once you go quiet.",
+    'help.step3': "Press “Record” or R. The video rewinds 2 seconds: wait for the bar to cross the screen and “Speak!” to appear. If your phrase is longer than the original, keep talking — recording stops once you go quiet. Press the button again to stop earlier."
+  });
+  Object.assign(messages.ru, {
+    'cue.finish': "🔴 Договаривайте — запись закончится, когда замолчите",
+    'record.hint': "Запись начнётся после отсчёта над видео — говорите на «Говорите!». Закончится сама, когда вы замолчите.",
+    'help.step3': "Нажмите «Записать» или R. Видео отмотается на 2 секунды назад: дождитесь, пока полоска пробежит по экрану и появится «Говорите!». Если фраза длиннее оригинала — просто договаривайте: запись закончится, когда вы замолчите. Чтобы остановить раньше, нажмите кнопку ещё раз."
+  });
+  Object.assign(messages.uk, {
+    'cue.finish': "🔴 Договорюйте — запис закінчиться, коли замовкнете",
+    'record.hint': "Запис почнеться після відліку над відео — говоріть на «Говоріть!». Закінчиться сам, коли ви замовкнете.",
+    'help.step3': "Натисніть «Записати» або R. Відео відмотається на 2 секунди назад: дочекайтеся, поки смужка пробіжить екраном і з’явиться «Говоріть!». Якщо фраза довша за оригінал — просто договорюйте: запис закінчиться, коли ви замовкнете. Щоб зупинити раніше, натисніть кнопку ще раз."
+  });
+
   let language = localStorage.getItem('dubline_language');
   if (!messages[language]) {
     const browser = String(navigator.language || 'en').toLowerCase();

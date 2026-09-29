@@ -3,7 +3,7 @@ const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const {
   skipReason, wait, launchBrowser, startServer, openPlayer, waitFor,
-  loadFixture, claimAndSelect, recordTake, FIXTURE_LINES
+  loadFixture, claimAndSelect, recordTake, FIXTURE_LINES, buildVoiceFile
 } = require('./helpers');
 
 describe('studio', { skip: skipReason }, () => {
@@ -198,5 +198,50 @@ describe('studio', { skip: skipReason }, () => {
 
   test('no page errors', () => {
     for (const page of [alice, bob]) assert.deepEqual(page.errors, []);
+  });
+});
+
+describe('long phrases', { skip: skipReason }, () => {
+  let server;
+  let browser;
+  let page;
+  const line = FIXTURE_LINES[0]; // 3.0–4.5 с
+  // Запись стартует за 2 с до реплики: фраза с 2.0 с файла, громко до 4.7, тихий хвост до 5.0,
+  // то есть игрок говорит на 1.5 с дольше оригинала
+  const voice = { speechFrom: 2.0, loudUntil: 4.7, tailUntil: 5.0 };
+
+  before(async () => {
+    server = await startServer();
+    browser = await launchBrowser(server.port, { fakeAudioFile: buildVoiceFile(voice) });
+    page = await openPlayer(browser, server.url('long'), 'Alice');
+    await loadFixture(page);
+    await claimAndSelect(page, line.id);
+  });
+
+  after(async () => {
+    if (browser) await browser.close();
+    if (server) await server.cleanup();
+  });
+
+  test('recording continues past the original line and stops once the player goes quiet; the quiet tail is kept', async () => {
+    await page.evaluate(id => handleStudioRecord(id), line.id);
+    // После конца реплики — «договаривайте», а не обрыв
+    await waitFor(page, end => video.currentTime > end + 0.3 && recordState !== 'idle', 10000, line.end);
+    assert.match(await page.evaluate(() => document.getElementById('recordCueLabel').textContent), /Договаривайте|Finish your phrase/);
+
+    await waitFor(page, () => recordState === 'idle', 15000);
+    const take = await waitFor(page, id => { const l = session.lines.find(x => x.id === id); return l.audioUrl && l; }, 15000, line.id);
+    // Все меряем по самой записи (время видео при старте отстает от звука на доли секунды)
+    const recorded = await page.evaluate(async url => (await getRawTake(url)).duration, take.audioUrl);
+    const lineEndInTake = line.end - take.audioStart;
+    const speechEndInTake = take.trimEnd - 0.35;
+    assert.ok(recorded >= lineEndInTake + 1.2, `recording went on past the original line (${recorded.toFixed(2)} s recorded, line ends at ${lineEndInTake.toFixed(2)} s)`);
+    assert.ok(recorded - speechEndInTake >= 0.5, `waited for silence before stopping (${(recorded - speechEndInTake).toFixed(2)} s of silence recorded)`);
+    assert.ok(recorded - speechEndInTake <= 2, `stopped by itself soon after silence (${(recorded - speechEndInTake).toFixed(2)} s)`);
+    // Фраза 3.0 с, из них 0.3 с тихого хвоста: он должен остаться (раньше срезался)
+    const kept = take.trimEnd - take.trimStart;
+    const phrase = voice.tailUntil - voice.speechFrom;
+    assert.ok(kept >= phrase + 0.25, `quiet tail kept by auto-trim (kept ${kept.toFixed(2)} s of a ${phrase} s phrase)`);
+    assert.deepEqual(page.errors, []);
   });
 });

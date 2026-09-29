@@ -53,7 +53,7 @@ function toMono(buffer) {
 
 // ---------- Автоопределение тишины ----------
 // Возвращает границы речи внутри записи { start, end } в секундах или null, если речи не нашлось.
-function detectSpeechBounds(buffer, { frameMs = 10, padBefore = 0.08, padAfter = 0.18 } = {}) {
+function detectSpeechBounds(buffer, { frameMs = 10, padBefore = 0.08, padAfter = 0.35 } = {}) {
   const data = toMono(buffer);
   const frame = Math.max(1, Math.round(buffer.sampleRate * frameMs / 1000));
   const frames = Math.floor(data.length / frame);
@@ -79,8 +79,11 @@ function detectSpeechBounds(buffer, { frameMs = 10, padBefore = 0.08, padAfter =
   let first = -1;
   for (let f = 0; f < frames - 2; f++) if (isVoiced(f)) { first = f; break; }
   if (first === -1) return null;
+  // Конец речи ищем по более низкому порогу: тихие окончания слов («…ла», «…ть») не должны срезаться
+  const endThreshold = Math.max(noiseFloor * 2, peak * 0.02, 0.0015);
+  const isTail = f => rms[f] > endThreshold && rms[f + 1] > endThreshold;
   let last = first;
-  for (let f = frames - 3; f >= first; f--) if (isVoiced(f)) { last = f + 2; break; }
+  for (let f = frames - 2; f >= first; f--) if (isTail(f)) { last = f + 1; break; }
 
   const start = Math.max(0, first * frame / buffer.sampleRate - padBefore);
   const end = Math.min(buffer.duration, (last + 1) * frame / buffer.sampleRate + padAfter);

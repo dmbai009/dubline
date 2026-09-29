@@ -36,7 +36,7 @@ function findChrome() {
 const CHROME = findChrome();
 const skipReason = CHROME ? false : 'Chrome/Edge не найден — укажите путь в переменной CHROME_PATH';
 
-async function launchBrowser(port) {
+async function launchBrowser(port, { fakeAudioFile = null } = {}) {
   const puppeteer = require('puppeteer-core');
   return puppeteer.launch({
     executablePath: CHROME,
@@ -44,6 +44,8 @@ async function launchBrowser(port) {
     args: [
       '--use-fake-ui-for-media-stream',
       '--use-fake-device-for-media-stream',
+      // Вместо «пищалки» можно подать заранее подготовленный звук как голос в микрофон
+      ...(fakeAudioFile ? [`--use-file-for-fake-audio-capture=${fakeAudioFile}%noloop`] : []),
       '--autoplay-policy=no-user-gesture-required',
       // Второй «адрес» сервера: с него игроки выглядят как зашедшие через туннель (нужно для P2P)
       '--host-resolver-rules=MAP dubline.test 127.0.0.1',
@@ -54,6 +56,15 @@ async function launchBrowser(port) {
 
 // ---------- Тестовая сцена (генерируется ffmpeg, без чужого контента) ----------
 let fixtureZip = null;
+
+// «Голос» для микрофона: 2 с тишины (подготовка), фраза, тихий хвост, затем тишина
+function buildVoiceFile({ speechFrom, loudUntil, tailUntil, total = 12 }) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dubline-voice-'));
+  const file = path.join(dir, 'voice.wav');
+  const volume = `if(between(t,${speechFrom},${loudUntil}),0.5,if(between(t,${loudUntil},${tailUntil}),0.02,0))`;
+  runFfmpeg(['-f', 'lavfi', '-i', `sine=frequency=300:duration=${total}`, '-af', `volume='${volume}':eval=frame`, '-ar', '48000', '-ac', '1', file]);
+  return file;
+}
 
 function runFfmpeg(args) {
   const ffmpeg = require('ffmpeg-static');
@@ -208,5 +219,5 @@ function uploadFileCount(server) {
 module.exports = {
   FIXTURE_LINES, FIXTURE_PACK, SCENE_SECONDS,
   skipReason, wait, launchBrowser, startServer, openPlayer, waitFor, waitUntil,
-  loadFixture, claimAndSelect, recordTake, uploadFileCount, buildFixturePack
+  loadFixture, claimAndSelect, recordTake, uploadFileCount, buildFixturePack, buildVoiceFile
 };

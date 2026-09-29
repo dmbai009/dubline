@@ -101,6 +101,10 @@ window.handleStudioRecord = async function(lineId) {
   const audioDest = audioCtx.createMediaStreamDestination();
   micSource.connect(gainNode);
   gainNode.connect(audioDest);
+  // Отдельный анализатор уровня голоса: по нему понимаем, что игрок договорил
+  const voiceMeter = audioCtx.createAnalyser();
+  voiceMeter.fftSize = 2048;
+  gainNode.connect(voiceMeter);
 
   startVisualizer(micStream);
 
@@ -186,16 +190,46 @@ window.handleStudioRecord = async function(lineId) {
     }
   }, 25);
 
+  // Запись не обрывается по таймингу оригинала: после конца реплики ждем, пока игрок замолчит.
+  // Страховка — не дольше чем длина реплики (минимум 4 с) сверх ее конца.
   const lineDuration = Math.max(0.5, line.end - line.start);
-  const totalRecordTimeMs = (preRoll + lineDuration + 1.0) * 1000;
+  const maxOverrun = Math.max(MIN_OVERRUN_LIMIT, lineDuration);
+  const samples = new Float32Array(voiceMeter.fftSize);
+  let noiseSum = 0;
+  let noiseCount = 0;
+  let lastVoiceAt = performance.now();
 
-  recordStopTimeout = setTimeout(() => {
-    if (recordState === 'recording' || recordState === 'preparing') finishRecording();
-  }, totalRecordTimeMs);
+  recordStopTimeout = setInterval(() => {
+    if (recordState === 'idle') return clearInterval(recordStopTimeout);
+    voiceMeter.getFloatTimeDomainData(samples);
+    let sum = 0;
+    for (let i = 0; i < samples.length; i++) sum += samples[i] * samples[i];
+    const level = Math.sqrt(sum / samples.length);
+
+    const now = video.currentTime;
+    // Шум микрофона меряем в начале подготовки, пока игрок еще молчит
+    if (now < line.start - 0.6) {
+      noiseSum += level;
+      noiseCount++;
+    }
+    const noise = noiseCount ? noiseSum / noiseCount : 0.003;
+    // Порог голоса: заметно громче шума микрофона, но достаточно низкий для тихих окончаний фраз
+    if (level > Math.max(noise * 2.5, 0.004)) lastVoiceAt = performance.now();
+
+    const pastLine = now - line.end;
+    const silentFor = (performance.now() - lastVoiceAt) / 1000;
+    if ((pastLine >= MIN_TAIL_AFTER_LINE && silentFor >= SILENCE_TO_STOP) || pastLine >= maxOverrun || video.ended) {
+      finishRecording();
+    }
+  }, 50);
 };
 
+const MIN_TAIL_AFTER_LINE = 0.6; // сек записи после конца реплики в любом случае
+const SILENCE_TO_STOP = 0.8;     // сек тишины после конца реплики — игрок договорил
+const MIN_OVERRUN_LIMIT = 4;     // сколько минимум можно говорить сверх реплики
+
 function finishRecording({ discard = false } = {}) {
-  clearTimeout(recordStopTimeout);
+  clearInterval(recordStopTimeout);
   if (recordingLineId != null) socket.emit('recording_status', { lineId: recordingLineId, recording: false });
   recordState = 'idle';
   if (discard) discardTake = true;
