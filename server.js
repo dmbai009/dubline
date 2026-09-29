@@ -87,7 +87,10 @@ function sanitizeChatText(raw) {
 // ==========================================
 // Поля сцены, которые принадлежат сессии (см. раздел «Сессии» ниже)
 const SESSION_FIELDS = ['loaded', 'title', 'kind', 'zipUrl', 'videoUrl', 'backingUrl', 'lines', 'characterClaims', 'createdAt', 'updatedAt'];
+let repairedOnLoad = false;
 const rooms = loadRooms();
+// Починку таймингов сразу сохраняем, чтобы она выполнялась один раз, а не при каждом запуске
+if (repairedOnLoad) writeRoomsNow();
 const roomSockets = {}; // { roomId: { socketId: { nick, clientId } } }
 
 function loadRooms() {
@@ -111,18 +114,21 @@ function loadRooms() {
 // Сессии, загруженные до исправления: у реплик с MP3/OGG без явного конца стояли 3 секунды.
 // Один раз пересчитываем длину по оригинальному голосу.
 function repairLineDurations(session) {
+  let fixed = 0;
   for (const line of (session && session.lines) || []) {
     if (line.durationChecked || !line.originalAudioUrl) continue;
     line.durationChecked = true;
+    repairedOnLoad = true;
     if (Math.abs((line.end - line.start) - 3) > 0.001) continue; // конец был указан в паке
     const file = diskPathForUrl(line.originalAudioUrl);
     if (!file || !fs.existsSync(file)) continue;
     const duration = path.extname(file).toLowerCase() === '.wav' ? getWavDuration(fs.readFileSync(file)) : probeAudioDuration(file);
     if (duration && Math.abs(duration - 3) > 0.05) {
       line.end = Number((line.start + duration).toFixed(2));
-      console.log(`[Dubline] Исправлена длина реплики #${line.id} «${session.title}»: ${duration.toFixed(2)} с`);
+      fixed++;
     }
   }
+  if (fixed) console.log(`[Dubline] Исправлены длины реплик в «${session.title}»: ${fixed} шт.`);
 }
 
 function writeRoomsNow() {
