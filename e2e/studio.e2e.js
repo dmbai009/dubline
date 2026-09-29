@@ -3,8 +3,11 @@ const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const {
   skipReason, wait, launchBrowser, startServer, openPlayer, waitFor,
-  loadFixture, claimAndSelect, recordTake, FIXTURE_LINES, buildVoiceFile
+  loadFixture, claimAndSelect, recordTake, FIXTURE_LINES, buildVoiceFile, fixtureVideoPath
 } = require('./helpers');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 
 describe('studio', { skip: skipReason }, () => {
   let server;
@@ -204,6 +207,39 @@ describe('studio', { skip: skipReason }, () => {
     await alice.reload();
     await waitFor(alice, () => socket.connected);
     assert.ok(Math.abs(await alice.evaluate(() => document.getElementById('lobbyPanel').offsetWidth) - width) <= 3);
+  });
+
+  test('overlapping lines are stacked into lanes instead of drawn on top of each other', async () => {
+    // Субтитры, где реплики пересекаются по времени (как в аниме: говорят одновременно)
+    const srt = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'dubline-srt-')), 'overlap.srt');
+    fs.writeFileSync(srt, [
+      '1\n00:00:01,000 --> 00:00:04,000\nA: one\n',
+      '2\n00:00:02,000 --> 00:00:05,000\nA: two\n',
+      '3\n00:00:03,000 --> 00:00:03,500\nA: three\n',
+      '4\n00:00:06,000 --> 00:00:07,000\nA: four\n'
+    ].join('\n'));
+    await alice.evaluate(() => openFilesModal());
+    await (await alice.$('#customVideoInput')).uploadFile(fixtureVideoPath());
+    await (await alice.$('#customSubInput')).uploadFile(srt);
+    await alice.evaluate(() => uploadCustomScene());
+    await waitFor(alice, () => session.loaded && session.lines.length === 4 && document.querySelectorAll('.line-block').length === 4, 15000);
+
+    const layout = await alice.evaluate(() => ({
+      tiles: session.lines.map(l => {
+        const el = document.getElementById(`line-block-${l.id}`);
+        return { start: l.start, end: l.end, top: parseFloat(el.style.top) };
+      }),
+      rowHeight: document.querySelector('.track-row').offsetHeight
+    }));
+    const lanes = [...new Set(layout.tiles.map(tile => tile.top))];
+    assert.equal(lanes.length, 3, `three lanes for three mutually overlapping lines (${JSON.stringify(layout.tiles)})`);
+    for (const a of layout.tiles) {
+      for (const b of layout.tiles) {
+        if (a !== b && a.top === b.top) assert.ok(a.end <= b.start + 0.001 || b.end <= a.start + 0.001, 'no overlap inside one lane');
+      }
+    }
+    assert.equal(layout.rowHeight, 6 + 3 * 54, 'row grows to fit the lanes');
+    assert.equal(layout.tiles.find(tile => tile.start === 6).top, Math.min(...lanes), 'free time goes back to the first lane');
   });
 
   test('no page errors', () => {

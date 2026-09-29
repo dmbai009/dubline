@@ -257,6 +257,30 @@ function probeDuration(url) {
 }
 
 const MIN_TILE_PX = 22;
+const LANE_HEIGHT = 54;  // высота плитки 48 + зазор 6
+const ROW_PADDING = 6;
+
+// Жадная раскладка по полосам: каждая реплика — в первую полосу, где предыдущая уже закончилась
+function assignLanes(lines) {
+  const laneEnds = [];
+  const laneOf = new Map();
+  [...lines].sort((a, b) => a.start - b.start || a.id - b.id).forEach(line => {
+    let lane = laneEnds.findIndex(end => end <= line.start + 0.001);
+    if (lane === -1) {
+      lane = laneEnds.length;
+      laneEnds.push(0);
+    }
+    laneEnds[lane] = Math.max(line.end, line.start + 0.05);
+    laneOf.set(line.id, lane);
+  });
+  return laneOf;
+}
+
+let timelineRenderTimer = null;
+function scheduleTimelineRender() {
+  clearTimeout(timelineRenderTimer);
+  timelineRenderTimer = setTimeout(() => { if (session && session.loaded) renderTimeline(); }, 150);
+}
 const TIMELINE_TAIL = 5; // секунд пустого места после конца сцены
 
 // Длина сцены на таймлайне: до конца видео или последней реплики
@@ -344,11 +368,17 @@ function renderTimeline() {
     trackArea.style.width = `${trackWidth}px`;
 
     const charLines = session.lines.filter(l => l.character === char);
+    // Реплики, пересекающиеся по времени, раскладываем по подполосам (как клипы на соседних дорожках),
+    // иначе они рисуются друг на друге. Считаем по реальному времени — раскладка не прыгает при масштабе.
+    const laneOf = assignLanes(charLines);
+    const laneCount = laneOf.size ? Math.max(...laneOf.values()) + 1 : 1;
+    row.style.height = `${ROW_PADDING + laneCount * LANE_HEIGHT}px`;
     charLines.forEach(line => {
       const block = document.createElement('div');
       block.className = 'line-block';
       block.id = `line-block-${line.id}`;
       block.style.left = `${line.start * pxPerSec}px`;
+      block.style.top = `${ROW_PADDING + (laneOf.get(line.id) || 0) * LANE_HEIGHT}px`;
       block.style.width = `${Math.max((line.end - line.start) * pxPerSec, MIN_TILE_PX)}px`;
 
       updateLineBlockVisual(block, line);
@@ -365,9 +395,13 @@ function renderTimeline() {
       if (line.originalAudioUrl) {
         probeDuration(line.originalAudioUrl).then(seconds => {
           if (!seconds) return;
-          line.end = Number((line.start + seconds).toFixed(2));
+          const end = Number((line.start + seconds).toFixed(2));
+          if (Math.abs(end - line.end) < 0.05) return;
+          line.end = end;
           if (block.isConnected) block.style.width = `${Math.max((line.end - line.start) * pxPerSec, MIN_TILE_PX)}px`;
           if (selectedLine && selectedLine.id === line.id) showInspector(line);
+          // Длина поменялась — реплики могли начать пересекаться, переложим полосы
+          scheduleTimelineRender();
         });
       }
     });

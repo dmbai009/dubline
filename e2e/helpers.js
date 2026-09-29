@@ -215,6 +215,11 @@ async function recordTake(page, lineId, timeout = 20000) {
   return waitFor(page, id => { const l = session.lines.find(x => x.id === id); return recordState === 'idle' && l.audioUrl ? l.audioUrl : null; }, timeout, lineId);
 }
 
+// Видео тестовой сцены отдельным файлом (для импорта «видео + субтитры»)
+function fixtureVideoPath() {
+  return path.join(path.dirname(buildFixturePack()), 'dub_video.mp4');
+}
+
 function uploadFileCount(server) {
   return fs.readdirSync(server.dirs.uploads).filter(name => name.startsWith('line_')).length;
 }
@@ -222,5 +227,5 @@ function uploadFileCount(server) {
 module.exports = {
   FIXTURE_LINES, FIXTURE_PACK, SCENE_SECONDS,
   skipReason, wait, launchBrowser, startServer, openPlayer, waitFor, waitUntil,
-  loadFixture, claimAndSelect, recordTake, uploadFileCount, buildFixturePack, buildVoiceFile
+  loadFixture, claimAndSelect, recordTake, uploadFileCount, buildFixturePack, buildVoiceFile, fixtureVideoPath
 };
