@@ -9,6 +9,11 @@
     body { background: #121214; color: #e1e1e6; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
     header { background: #202024; padding: 8px 16px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #323238; z-index: 30; }
     
+    header { flex-wrap: wrap; gap: 8px; }
+    header > div { flex-wrap: wrap; }
+    header button, header label, header a, .room-badge, .users-online, .host-panel, .user-badge { white-space: nowrap; }
+    .users-online { max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+
     .room-badge { display: flex; align-items: center; gap: 8px; background: #27272a; padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: bold; border: 1px solid #3f3f46; }
     .room-badge span { color: #8257e5; }
     .btn-share { background: #3f3f46; color: #fff; padding: 3px 8px; border-radius: 4px; font-size: 11px; cursor: pointer; border: none; font-weight: bold; }
@@ -68,6 +73,8 @@
     .line-block.claimed-me { background: #311b58; border-color: #8b5cf6; }
     .line-block.claimed-other { background: #451a03; border-color: #f59e0b; }
     .line-block.recorded { background: #054f31; border-color: #10b981; }
+    .line-block > :not(.wave-canvas) { position: relative; z-index: 1; }
+    .wave-canvas { position: absolute; top: 0; height: 100%; pointer-events: none; z-index: 0; }
 
     .tile-nick { font-size: 9px; font-weight: bold; padding: 1px 4px; border-radius: 3px; }
     .tile-nick.me { background: #7c3aed; color: #fff; }
@@ -113,6 +120,30 @@
     }
     .modal-input:focus { border-color: #8257e5; }
 
+    .upload-btn.disabled { opacity: 0.45; cursor: not-allowed; }
+
+    .host-panel { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: bold; color: #fbbf24; background: #78350f33; padding: 3px 8px; border-radius: 4px; border: 1px solid #f59e0b44; }
+    .host-panel.offline { color: #a1a1aa; background: #27272a; border-color: #3f3f46; }
+    .btn-host { background: #b45309; color: #fff; padding: 3px 8px; font-size: 11px; }
+    .btn-host:hover { background: #d97706; }
+
+    .btn-chat-toggle { background: #3f3f46; color: white; padding: 6px 12px; border-radius: 6px; font-weight: bold; font-size: 11px; position: relative; }
+    .btn-chat-toggle.active { background: #5b21b6; }
+    .chat-unread { display: none; position: absolute; top: -6px; right: -6px; background: #ef4444; color: #fff; border-radius: 9px; font-size: 10px; min-width: 18px; height: 18px; line-height: 18px; padding: 0 4px; }
+
+    .chat-panel { width: 300px; background: #16161a; border-left: 1px solid #323238; display: flex; flex-direction: column; min-height: 0; }
+    .chat-header { padding: 10px 12px; font-size: 12px; font-weight: bold; border-bottom: 1px solid #27272a; color: #a1a1aa; }
+    .chat-messages { flex: 1; overflow-y: auto; padding: 8px 12px; display: flex; flex-direction: column; gap: 6px; font-size: 12px; line-height: 1.35; min-height: 0; }
+    .chat-msg { word-wrap: break-word; overflow-wrap: anywhere; }
+    .chat-msg .chat-time { color: #52525b; font-size: 10px; font-variant-numeric: tabular-nums; }
+    .chat-msg .chat-nick { color: #f59e0b; }
+    .chat-msg.me .chat-nick { color: #a78bfa; }
+    .chat-msg.system { color: #71717a; font-style: italic; font-size: 11px; }
+    .chat-empty { color: #52525b; font-size: 11px; text-align: center; margin-top: 12px; }
+    .chat-form { display: flex; gap: 6px; padding: 8px; border-top: 1px solid #27272a; }
+    .chat-form input { flex: 1; min-width: 0; background: #27272a; border: 1px solid #3f3f46; color: #fff; padding: 6px 8px; border-radius: 4px; outline: none; font-size: 12px; }
+    .chat-form input:focus { border-color: #8257e5; }
+
     .pack-item { display: flex; justify-content: space-between; align-items: center; padding: 10px; background: #141417; border: 1px solid #323238; border-radius: 6px; font-size: 12px; text-align: left; }
   </style>
 </head>
@@ -122,6 +153,7 @@
     <div class="modal-card">
       <h2>🎙️ Добро пожаловать в Dubline</h2>
       <p>Введите ваш никнейм для озвучки, чтобы друзья видели, кто какие роли занял:</p>
+      <p id="nickError" style="display: none; color: #ef4444; font-weight: bold;"></p>
       <form id="nickForm" onsubmit="handleNickSubmit(event)">
         <input type="text" id="modalNickInput" class="modal-input" maxlength="16" placeholder="Ваш никнейм..." required>
         <button type="submit" class="btn-record" style="width: 100%; margin-top: 10px; padding: 10px;">Войти в студию</button>
@@ -199,6 +231,8 @@
       <div class="users-online" id="usersOnlineBadge">
         👥 В сети: <span id="usersOnlineText">1</span>
       </div>
+
+      <div class="host-panel offline" id="hostPanel">👑 Хост: —</div>
     </div>
     
     <div style="display: flex; gap: 8px; align-items: center;">
@@ -209,7 +243,7 @@
 
       <button class="btn-library-open" onclick="openLibraryModal()">📂 Моды на сервере</button>
 
-      <label class="upload-btn">
+      <label class="upload-btn" id="uploadLabel">
         ⬆ Загрузить .ZIP
         <input type="file" id="zipInput" accept=".zip" style="display: none;">
       </label>
@@ -218,6 +252,8 @@
       <a id="downloadPackBtn" class="btn-download-pack" href="#" download>📥 Скачать мод (.zip)</a>
 
       <button class="btn-render-open" onclick="openRenderModal()">🎬 Скачать видео</button>
+
+      <button class="btn-chat-toggle" id="chatToggleBtn" onclick="toggleChat()">💬 Чат<span class="chat-unread" id="chatUnread">0</span></button>
     </div>
   </header>
 
@@ -257,6 +293,17 @@
     <div class="inspector" id="inspector">
       <h3>Инспектор реплики</h3>
       <p style="color: #71717a;">Выберите реплику на таймлайне снизу для записи. (Пробел — плей/пауза, R — запись)</p>
+    </div>
+
+    <div class="chat-panel" id="chatPanel">
+      <div class="chat-header">💬 Чат комнаты</div>
+      <div class="chat-messages" id="chatMessages">
+        <div class="chat-empty" id="chatEmpty">Сообщений пока нет. Напишите первым!</div>
+      </div>
+      <form class="chat-form" id="chatForm">
+        <input type="text" id="chatInput" maxlength="500" placeholder="Сообщение... (Enter)" autocomplete="off">
+        <button type="submit" class="btn-record">➤</button>
+      </form>
     </div>
   </div>
 

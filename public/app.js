@@ -12,6 +12,10 @@ let mediaRecorder = null;
 let audioChunks = [];
 
 let myName = localStorage.getItem('dubline_nick') || '';
+const clientId = getClientId();
+let roomHost = null;
+let hostOnline = false;
+let discardTake = false;
 let userMicGain = parseFloat(localStorage.getItem('dubline_mic_gain')) || 1.0;
 
 let audioCtx = null;
@@ -38,17 +42,71 @@ const nickModal = document.getElementById('nickModal');
 const modalNickInput = document.getElementById('modalNickInput');
 const downloadPackBtn = document.getElementById('downloadPackBtn');
 const usersOnlineText = document.getElementById('usersOnlineText');
+const nickError = document.getElementById('nickError');
+const hostPanel = document.getElementById('hostPanel');
+const uploadLabel = document.getElementById('uploadLabel');
 
-// Подключение к комнате
-socket.emit('join_room', { room: currentRoom, nick: myName });
+// Постоянный секретный ID устройства: к нему сервер привязывает ник и права хоста
+function getClientId() {
+  let id = localStorage.getItem('dubline_client_id');
+  if (!id) {
+    id = (window.crypto && crypto.randomUUID)
+      ? crypto.randomUUID()
+      : Date.now().toString(36) + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+    localStorage.setItem('dubline_client_id', id);
+  }
+  return id;
+}
 
-socket.on('room_users_updated', (users) => {
-  usersOnlineText.innerText = `${users.length} (${users.join(', ')})`;
+// Экранирование пользовательского текста перед вставкой в HTML
+function esc(value) {
+  return String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+}
+
+// Безопасный аргумент для onclick="fn(...)"
+function jsArg(value) {
+  return esc(JSON.stringify(value));
+}
+
+async function readError(res) {
+  const text = await res.text().catch(() => '');
+  return text || `Ошибка сервера (${res.status})`;
+}
+
+// Подключение к комнате (и повторное — после переподключения сокета)
+function joinRoom() {
+  socket.emit('join_room', { room: currentRoom, nick: myName, clientId });
+}
+socket.on('connect', joinRoom);
+
+function showNickModal(error) {
+  nickError.style.display = error ? 'block' : 'none';
+  nickError.innerText = error || '';
+  nickModal.style.display = 'flex';
+  modalNickInput.focus();
+}
+
+// Сервер сообщает, какой ник за нами закреплен на самом деле
+socket.on('nick_state', ({ nick, error }) => {
+  myName = nick || '';
+  nickInput.value = myName;
+  if (myName) localStorage.setItem('dubline_nick', myName);
+
+  if (!myName) showNickModal(error);
+  else if (error) alert(error);
+
+  updateHostUi();
+});
+
+socket.on('room_users_updated', ({ users, host, hostOnline: online }) => {
+  roomHost = host;
+  hostOnline = online;
+  usersOnlineText.innerHTML = `${users.length} (${users.map(u => (u === host ? '👑 ' : '') + esc(u)).join(', ')})`;
+  updateHostUi();
 });
 
 if (!myName) {
-  nickModal.style.display = 'flex';
-  modalNickInput.focus();
+  showNickModal();
 } else {
   nickInput.value = myName;
 }
@@ -63,9 +121,8 @@ window.handleNickSubmit = function(e) {
   nickInput.value = myName;
   nickModal.style.display = 'none';
 
-  socket.emit('join_room', { room: currentRoom, nick: myName });
-  renderTimeline();
-  if (selectedLine) showInspector(selectedLine);
+  joinRoom();
+  refreshViews();
 };
 
 nickInput.addEventListener('change', (e) => {
@@ -75,13 +132,59 @@ nickInput.addEventListener('change', (e) => {
     return;
   }
 
-  const oldName = myName;
-  myName = nextVal;
-  localStorage.setItem('dubline_nick', myName);
-  socket.emit('rename_user', { oldName, newName: myName });
+  socket.emit('rename_user', { newName: nextVal });
+});
 
+function refreshViews() {
+  if (!session || !session.loaded) return;
   renderTimeline();
   if (selectedLine) showInspector(selectedLine);
+}
+
+// ==========================================
+// ПРАВА ХОСТА
+// ==========================================
+function amHost() {
+  return !!myName && roomHost === myName;
+}
+
+function updateHostUi() {
+  if (amHost()) {
+    hostPanel.className = 'host-panel';
+    hostPanel.innerHTML = `
+      👑 Вы хост
+      <button class="btn-host" onclick="hostForcePause()" title="Поставить видео на паузу у всех игроков">⏸ Пауза у всех</button>
+      <button class="btn-host" onclick="hostResetClaims()" title="Освободить все роли и реплики (дубли останутся)">♻ Сбросить роли</button>
+    `;
+  } else if (!hostOnline) {
+    hostPanel.className = 'host-panel offline';
+    hostPanel.innerHTML = `
+      👑 Хост не в сети
+      <button class="btn-host" onclick="claimHost()">Стать хостом</button>
+    `;
+  } else {
+    hostPanel.className = 'host-panel';
+    hostPanel.innerHTML = `👑 Хост: ${esc(roomHost)}`;
+  }
+
+  const canManagePacks = amHost();
+  uploadLabel.classList.toggle('disabled', !canManagePacks);
+  zipInput.disabled = !canManagePacks;
+  uploadLabel.title = canManagePacks ? 'Загрузить новый пак в комнату' : 'Менять пак может только хост';
+
+  refreshViews();
+}
+
+window.hostForcePause = function() { socket.emit('host_force_pause'); };
+window.claimHost = function() { socket.emit('claim_host'); };
+window.hostResetClaims = function() {
+  if (!confirm('Освободить все роли и реплики? Записанные дубли останутся.')) return;
+  socket.emit('host_reset_claims');
+};
+
+socket.on('force_pause', () => {
+  if (recordState !== 'idle') finishRecording({ discard: true });
+  video.pause();
 });
 
 window.copyInviteLink = function() {
@@ -239,11 +342,12 @@ zipInput.addEventListener('change', async (e) => {
   if (!file) return;
 
   const formData = new FormData();
+  formData.append('clientId', clientId);
   formData.append('pack', file);
+  zipInput.value = '';
 
   const res = await fetch(`/api/upload-pack?room=${encodeURIComponent(currentRoom)}`, { method: 'POST', body: formData });
-  const data = await res.json();
-  if (!data.success) alert('Ошибка при загрузке пака');
+  if (!res.ok) alert(await readError(res));
 });
 
 socket.on('session_updated', (data) => {
@@ -253,8 +357,13 @@ socket.on('session_updated', (data) => {
     return;
   }
 
-  video.src = session.videoUrl;
-  backing.src = session.backingUrl;
+  // Не перезагружаем видео, если пак не поменялся (например, при смене ролей)
+  if (video.getAttribute('src') !== session.videoUrl) {
+    video.src = session.videoUrl;
+    backing.src = session.backingUrl;
+    selectedLine = null;
+    inspector.innerHTML = '<h3>Инспектор реплики</h3><p style="color: #71717a;">Выберите реплику на таймлайне снизу для записи. (Пробел — плей/пауза, R — запись)</p>';
+  }
 
   if (session.zipUrl) {
     downloadPackBtn.href = session.zipUrl;
@@ -267,11 +376,15 @@ socket.on('session_updated', (data) => {
   renderTimeline();
   if (selectedLine) {
     const updated = session.lines.find(l => l.id === selectedLine.id);
-    if (updated) showInspector(updated);
+    if (updated) {
+      selectedLine = updated;
+      showInspector(updated);
+    }
   }
 });
 
 socket.on('line_updated', (updatedLine) => {
+  if (!session || !session.lines) return;
   const idx = session.lines.findIndex(l => l.id === updatedLine.id);
   if (idx !== -1) {
     session.lines[idx] = updatedLine;
@@ -345,16 +458,19 @@ function renderTimeline() {
     let roleHtml = '';
     if (allowCharacterClaims) {
       if (!charClaimedBy) {
-        roleHtml = `<button class="role-btn" onclick="claimCharacter('${char}')">+ Взять роль</button>`;
+        roleHtml = `<button class="role-btn" onclick="claimCharacter(${jsArg(char)})">+ Взять роль</button>`;
       } else if (charClaimedBy === myName) {
-        roleHtml = `<span class="role-badge me">👑 Вы <button class="role-btn" style="margin-left:4px" onclick="unclaimCharacter('${char}')">✖</button></span>`;
+        roleHtml = `<span class="role-badge me">🎭 Вы <button class="role-btn" style="margin-left:4px" onclick="unclaimCharacter(${jsArg(char)})">✖</button></span>`;
       } else {
-        roleHtml = `<span class="role-badge other">🔒 ${charClaimedBy}</span>`;
+        const kickBtn = amHost()
+          ? `<button class="role-btn" style="margin-left:4px" title="Снять роль (хост)" onclick="unclaimCharacter(${jsArg(char)})">✖</button>`
+          : '';
+        roleHtml = `<span class="role-badge other">🔒 ${esc(charClaimedBy)}${kickBtn}</span>`;
       }
     }
 
     label.innerHTML = `
-      <span class="char-name" title="${char}">${char}</span>
+      <span class="char-name" title="${esc(char)}">${esc(char)}</span>
       ${roleHtml}
     `;
 
@@ -404,7 +520,7 @@ function updateLineBlockVisual(el, line) {
   let nickBadge = '';
   if (owner) {
     const isMe = (owner === myName);
-    nickBadge = `<span class="tile-nick ${isMe ? 'me' : 'other'}">${isMe ? 'Вы' : owner}</span>`;
+    nickBadge = `<span class="tile-nick ${isMe ? 'me' : 'other'}">${isMe ? 'Вы' : esc(owner)}</span>`;
   }
 
   el.innerHTML = `
@@ -413,9 +529,107 @@ function updateLineBlockVisual(el, line) {
       ${nickBadge}
     </div>
     <span style="white-space:nowrap; text-overflow:ellipsis; overflow:hidden; font-size:11px; opacity:0.9;">
-      ${line.caption || '(реплика)'}
+      ${esc(line.caption || '(реплика)')}
     </span>
   `;
+
+  attachWaveform(el, line);
+}
+
+// ==========================================
+// ФОРМА ВОЛНЫ НА ТАЙМЛАЙНЕ
+// ==========================================
+const PEAKS_PER_SEC = 100;
+const peaksCache = new Map(); // url -> Promise<Float32Array | null>
+let decodeCtx = null;
+
+function computePeaks(audio) {
+  const bucket = Math.max(1, Math.floor(audio.sampleRate / PEAKS_PER_SEC));
+  const count = Math.ceil(audio.length / bucket);
+  const peaks = new Float32Array(count);
+
+  for (let c = 0; c < audio.numberOfChannels; c++) {
+    const data = audio.getChannelData(c);
+    for (let i = 0; i < count; i++) {
+      let max = peaks[i];
+      const end = Math.min(data.length, (i + 1) * bucket);
+      for (let j = i * bucket; j < end; j++) {
+        const v = Math.abs(data[j]);
+        if (v > max) max = v;
+      }
+      peaks[i] = max;
+    }
+  }
+
+  // Нормализуем, но тишину не раздуваем до полной высоты
+  let top = 0;
+  for (let i = 0; i < count; i++) if (peaks[i] > top) top = peaks[i];
+  const norm = Math.max(top, 0.1);
+  for (let i = 0; i < count; i++) peaks[i] /= norm;
+  return peaks;
+}
+
+function loadPeaks(url) {
+  if (!peaksCache.has(url)) {
+    const job = fetch(url)
+      .then(res => {
+        if (!res.ok) throw new Error(res.status);
+        return res.arrayBuffer();
+      })
+      .then(buf => {
+        // OfflineAudioContext умеет декодировать без жеста пользователя
+        if (!decodeCtx) decodeCtx = new OfflineAudioContext(1, 1, 44100);
+        return decodeCtx.decodeAudioData(buf);
+      })
+      .then(computePeaks)
+      .catch(() => null);
+    peaksCache.set(url, job);
+  }
+  return peaksCache.get(url);
+}
+
+function attachWaveform(block, line) {
+  const url = line.audioUrl || line.originalAudioUrl;
+  if (!url) return;
+
+  const isTake = !!line.audioUrl;
+  // Дубль начинается раньше реплики на длину pre-roll, поэтому сдвигаем волну влево
+  const takeStart = (line.audioStart !== null && line.audioStart !== undefined) ? line.audioStart : line.start;
+  const offsetSec = isTake ? takeStart - line.start : 0;
+
+  const canvas = document.createElement('canvas');
+  canvas.className = 'wave-canvas';
+  block.prepend(canvas);
+
+  loadPeaks(url).then(peaks => {
+    if (peaks && canvas.isConnected) drawWaveform(canvas, peaks, offsetSec, isTake);
+  });
+}
+
+function drawWaveform(canvas, peaks, offsetSec, isTake) {
+  const width = Math.max(1, Math.round((peaks.length / PEAKS_PER_SEC) * pxPerSec));
+  const height = canvas.parentElement.clientHeight || 46;
+  const dpr = window.devicePixelRatio || 1;
+
+  canvas.style.left = `${offsetSec * pxPerSec}px`;
+  canvas.style.width = `${width}px`;
+  canvas.width = Math.round(width * dpr);
+  canvas.height = Math.round(height * dpr);
+
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.fillStyle = isTake ? 'rgba(52, 211, 153, 0.55)' : 'rgba(161, 161, 170, 0.22)';
+
+  const mid = height / 2;
+  const perPx = PEAKS_PER_SEC / pxPerSec;
+  for (let x = 0; x < width; x++) {
+    const from = Math.floor(x * perPx);
+    const to = Math.min(peaks.length, Math.max(from + 1, Math.floor((x + 1) * perPx)));
+    let peak = 0;
+    for (let i = from; i < to; i++) if (peaks[i] > peak) peak = peaks[i];
+    const h = Math.max(1, peak * (height - 6));
+    ctx.fillRect(x, mid - h / 2, 1, h);
+  }
 }
 
 function updateLineBlock(line) {
@@ -446,7 +660,7 @@ function showInspector(line) {
   if (isOwnedByMe) {
     statusText = `<span style="color:#10b981; font-weight:bold;">✅ Занято вами ${charOwner ? '(роль)' : ''}</span>`;
   } else if (isOwnedByOther) {
-    statusText = `<span style="color:#f59e0b; font-weight:bold;">🔒 Занято игроком ${owner}</span>`;
+    statusText = `<span style="color:#f59e0b; font-weight:bold;">🔒 Занято игроком ${esc(owner)}</span>`;
   } else {
     statusText = `<span style="color:#a1a1aa;">⚪ Свободно для записи</span>`;
   }
@@ -456,17 +670,21 @@ function showInspector(line) {
   if (isFree) {
     actionsHtml += `<button class="btn-claim" onclick="claimSingleLine(${line.id})">🙋 Занять эту реплику</button>`;
     if (allowCharacterClaims) {
-      actionsHtml += `<button class="btn-outline" onclick="claimCharacter('${line.character}')">🎭 Взять всю роль (${line.character})</button>`;
+      actionsHtml += `<button class="btn-outline" onclick="claimCharacter(${jsArg(line.character)})">🎭 Взять всю роль (${esc(line.character)})</button>`;
     }
   } else if (isOwnedByMe) {
     if (!charOwner) {
       actionsHtml += `<button class="btn-unclaim" onclick="unclaimSingleLine(${line.id})">❌ Освободить реплику</button>`;
       if (allowCharacterClaims) {
-        actionsHtml += `<button class="btn-outline" onclick="claimCharacter('${line.character}')">🎭 Взять всю роль (${line.character})</button>`;
+        actionsHtml += `<button class="btn-outline" onclick="claimCharacter(${jsArg(line.character)})">🎭 Взять всю роль (${esc(line.character)})</button>`;
       }
     } else {
-      actionsHtml += `<button class="btn-unclaim" onclick="unclaimCharacter('${line.character}')">🚪 Отказаться от всей роли (${line.character})</button>`;
+      actionsHtml += `<button class="btn-unclaim" onclick="unclaimCharacter(${jsArg(line.character)})">🚪 Отказаться от всей роли (${esc(line.character)})</button>`;
     }
+  } else if (isOwnedByOther && amHost()) {
+    actionsHtml += charOwner
+      ? `<button class="btn-host" onclick="unclaimCharacter(${jsArg(line.character)})">👑 Снять роль с игрока ${esc(owner)}</button>`
+      : `<button class="btn-host" onclick="unclaimSingleLine(${line.id})">👑 Освободить реплику игрока ${esc(owner)}</button>`;
   }
 
   let recordBtnHtml = '';
@@ -476,26 +694,26 @@ function showInspector(line) {
     } else {
       recordBtnHtml = `
         <div style="display:flex; gap:6px;">
-          <button class="btn-play" style="flex:2;" onclick="playAudio('${line.audioUrl}')">▶ Дубль</button>
+          <button class="btn-play" style="flex:2;" onclick="playAudio(${jsArg(line.audioUrl)})">▶ Дубль</button>
           <button class="btn-record" id="recBtn" style="flex:2;" onclick="handleStudioRecord(${line.id})">Переписать (R)</button>
           <button class="btn-delete" style="flex:1;" onclick="deleteLineAudio(${line.id})" title="Стереть дубль">🗑️</button>
         </div>
       `;
     }
   } else if (isOwnedByOther) {
-    recordBtnHtml = `<button class="btn-record" disabled title="Реплика занята другим игроком">🔒 Занято игроком ${owner}</button>`;
+    recordBtnHtml = `<button class="btn-record" disabled title="Реплика занята другим игроком">🔒 Занято игроком ${esc(owner)}</button>`;
     if (line.audioUrl) {
-      recordBtnHtml += `<button class="btn-play" onclick="playAudio('${line.audioUrl}')">▶ Послушать дубль игрока ${owner}</button>`;
+      recordBtnHtml += `<button class="btn-play" onclick="playAudio(${jsArg(line.audioUrl)})">▶ Послушать дубль игрока ${esc(owner)}</button>`;
     }
   } else {
     recordBtnHtml = `<button class="btn-record" disabled title="Сначала займите реплику">Сначала займите реплику для записи</button>`;
   }
 
   inspector.innerHTML = `
-    <h3>${line.character} (Реплика #${line.id})</h3>
+    <h3>${esc(line.character)} (Реплика #${line.id})</h3>
     <p><strong>Тайминг:</strong> ${line.start}с — ${line.end}с <span style="color:#a1a1aa">(${duration}с)</span></p>
     <p style="background:#27272a; padding:8px; border-radius:6px; margin: 4px 0; max-height:75px; overflow-y:auto;">
-      <em>"${line.caption || '...'}"</em>
+      <em>"${esc(line.caption || '...')}"</em>
     </p>
     <p><strong>Статус:</strong> ${statusText}</p>
     
@@ -512,7 +730,7 @@ function showInspector(line) {
     </div>
 
     <div style="display:flex; flex-direction:column; gap:6px; margin-top:4px;">
-      ${line.originalAudioUrl ? `<button class="btn-outline" onclick="playAudio('${line.originalAudioUrl}')">🎧 Слушать оригинал</button>` : ''}
+      ${line.originalAudioUrl ? `<button class="btn-outline" onclick="playAudio(${jsArg(line.originalAudioUrl)})">🎧 Слушать оригинал</button>` : ''}
       ${actionsHtml}
       ${recordBtnHtml}
     </div>
@@ -521,11 +739,12 @@ function showInspector(line) {
 
 window.deleteLineAudio = async function(lineId) {
   if (!confirm('Удалить эту запись дубля?')) return;
-  await fetch('/api/delete-line-audio', {
+  const res = await fetch('/api/delete-line-audio', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ lineId, userName: myName, room: currentRoom })
+    body: JSON.stringify({ lineId, userName: myName, clientId, room: currentRoom })
   });
+  if (!res.ok) alert(await readError(res));
 };
 
 window.updateUserMicGain = function(val) {
@@ -535,10 +754,10 @@ window.updateUserMicGain = function(val) {
   if (disp) disp.innerText = `${val}%`;
 };
 
-window.claimCharacter = function(char) { socket.emit('claim_character', { character: char, userName: myName }); };
-window.unclaimCharacter = function(char) { socket.emit('unclaim_character', { character: char, userName: myName }); };
-window.claimSingleLine = function(lineId) { socket.emit('claim_line', { lineId, userName: myName }); };
-window.unclaimSingleLine = function(lineId) { socket.emit('unclaim_line', { lineId, userName: myName }); };
+window.claimCharacter = function(char) { socket.emit('claim_character', { character: char }); };
+window.unclaimCharacter = function(char) { socket.emit('unclaim_character', { character: char }); };
+window.claimSingleLine = function(lineId) { socket.emit('claim_line', { lineId }); };
+window.unclaimSingleLine = function(lineId) { socket.emit('unclaim_line', { lineId }); };
 
 window.playAudio = function(url) {
   if (previewAudio) {
@@ -610,7 +829,7 @@ window.handleStudioRecord = async function(lineId) {
   }
 
   if (recordState === 'recording' || recordState === 'preparing') {
-    finishRecording(lineId);
+    finishRecording();
     return;
   }
 
@@ -642,6 +861,7 @@ window.handleStudioRecord = async function(lineId) {
 
   recordState = 'preparing';
   audioChunks = [];
+  discardTake = false;
 
   const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : '';
   mediaRecorder = mimeType ? new MediaRecorder(audioDest.stream, { mimeType }) : new MediaRecorder(audioDest.stream);
@@ -656,6 +876,13 @@ window.handleStudioRecord = async function(lineId) {
       micStream = null;
     }
 
+    // Запись прервана хостом — дубль не сохраняем
+    if (discardTake) {
+      discardTake = false;
+      if (selectedLine) showInspector(selectedLine);
+      return;
+    }
+
     const audioBlob = new Blob(audioChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
     if (audioBlob.size === 0) {
       alert('Микрофон не записал звук (0 байт).');
@@ -665,13 +892,19 @@ window.handleStudioRecord = async function(lineId) {
     }
 
     const formData = new FormData();
-    formData.append('audio', audioBlob);
     formData.append('lineId', lineId);
     formData.append('userName', myName);
+    formData.append('clientId', clientId);
     formData.append('audioStart', currentRecordingStartTime);
+    formData.append('audio', audioBlob);
 
     btn.innerText = 'Сохранение...';
     const res = await fetch(`/api/upload-line-audio?room=${encodeURIComponent(currentRoom)}`, { method: 'POST', body: formData });
+    if (!res.ok) {
+      alert(await readError(res));
+      showInspector(line);
+      return;
+    }
     const resData = await res.json();
 
     if (resData.success) {
@@ -702,13 +935,14 @@ window.handleStudioRecord = async function(lineId) {
   const totalRecordTimeMs = (preRoll + lineDuration + 1.0) * 1000;
 
   recordStopTimeout = setTimeout(() => {
-    if (recordState === 'recording' || recordState === 'preparing') finishRecording(lineId);
+    if (recordState === 'recording' || recordState === 'preparing') finishRecording();
   }, totalRecordTimeMs);
 };
 
-function finishRecording(lineId) {
+function finishRecording({ discard = false } = {}) {
   clearTimeout(recordStopTimeout);
   recordState = 'idle';
+  if (discard) discardTake = true;
 
   video.pause();
   stopVisualizer();
@@ -748,12 +982,14 @@ window.openLibraryModal = async function() {
     div.className = 'pack-item';
     div.innerHTML = `
       <div>
-        <strong>${item.title}</strong>
-        <div style="font-size:10px; color:#71717a;">${item.sizeMb} МБ</div>
+        <strong>${esc(item.title)}</strong>
+        <div style="font-size:10px; color:#71717a;">${esc(item.sizeMb)} МБ</div>
       </div>
       <div style="display:flex; gap:6px;">
-        <a href="${item.url}" class="btn-share" download style="text-decoration:none; padding:4px 8px;">📥 Скачать</a>
-        <button class="btn-play" onclick="loadSavedPack('${item.filename}')">▶ Запустить в комнате</button>
+        <a href="${esc(item.url)}" class="btn-share" download style="text-decoration:none; padding:4px 8px;">📥 Скачать</a>
+        ${amHost()
+          ? `<button class="btn-play" onclick="loadSavedPack(${jsArg(item.filename)})">▶ Запустить в комнате</button>`
+          : `<button class="btn-play" disabled title="Менять пак может только хост">🔒 Только хост</button>`}
       </div>
     `;
     libraryList.appendChild(div);
@@ -769,10 +1005,9 @@ window.loadSavedPack = async function(filename) {
   const res = await fetch('/api/load-server-pack', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ filename, room: currentRoom })
+    body: JSON.stringify({ filename, room: currentRoom, clientId })
   });
-  const data = await res.json();
-  if (!data.success) alert('Ошибка при загрузке мода');
+  if (!res.ok) alert(await readError(res));
 };
 
 // ==========================================
@@ -931,3 +1166,81 @@ window.startVideoRender = async function() {
 
   requestAnimationFrame(drawRenderFrame);
 };
+// ==========================================
+// ТЕКСТОВЫЙ ЧАТ
+// ==========================================
+const chatPanel = document.getElementById('chatPanel');
+const chatMessages = document.getElementById('chatMessages');
+const chatEmpty = document.getElementById('chatEmpty');
+const chatForm = document.getElementById('chatForm');
+const chatInput = document.getElementById('chatInput');
+const chatToggleBtn = document.getElementById('chatToggleBtn');
+const chatUnread = document.getElementById('chatUnread');
+let unreadCount = 0;
+
+function isChatOpen() {
+  return chatPanel.style.display !== 'none';
+}
+
+function setChatOpen(open) {
+  chatPanel.style.display = open ? 'flex' : 'none';
+  chatToggleBtn.classList.toggle('active', open);
+  localStorage.setItem('dubline_chat_open', open ? '1' : '0');
+  if (open) {
+    unreadCount = 0;
+    chatUnread.style.display = 'none';
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+  }
+}
+
+window.toggleChat = function() {
+  setChatOpen(!isChatOpen());
+};
+
+function appendChatMessage(msg) {
+  chatEmpty.style.display = 'none';
+  const atBottom = chatMessages.scrollHeight - chatMessages.scrollTop - chatMessages.clientHeight < 40;
+
+  const el = document.createElement('div');
+  if (msg.system) {
+    el.className = 'chat-msg system';
+    el.textContent = msg.text;
+  } else {
+    const time = new Date(msg.ts).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+    el.className = 'chat-msg' + (msg.nick === myName ? ' me' : '');
+    el.innerHTML = `<span class="chat-time">${time}</span> <strong class="chat-nick">${esc(msg.nick)}:</strong> <span>${esc(msg.text)}</span>`;
+  }
+  chatMessages.appendChild(el);
+
+  if (atBottom) chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+socket.on('chat_history', (history) => {
+  chatMessages.querySelectorAll('.chat-msg').forEach(el => el.remove());
+  chatEmpty.style.display = history.length ? 'none' : 'block';
+  history.forEach(appendChatMessage);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+});
+
+socket.on('chat_message', (msg) => {
+  appendChatMessage(msg);
+  if (!isChatOpen() && msg.nick !== myName) {
+    unreadCount++;
+    chatUnread.innerText = unreadCount > 99 ? '99+' : unreadCount;
+    chatUnread.style.display = 'inline-block';
+  }
+});
+
+chatForm.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const text = chatInput.value.trim();
+  if (!text) return;
+  if (!myName) {
+    showNickModal();
+    return;
+  }
+  socket.emit('chat_message', { text });
+  chatInput.value = '';
+});
+
+setChatOpen(localStorage.getItem('dubline_chat_open') !== '0');
