@@ -384,6 +384,42 @@ describe('studio', { skip: skipReason }, () => {
     }, 5000, target);
   });
 
+  test('deleting lines can be undone (Ctrl+Z, toast button); takes survive until then', async () => {
+    const ids = await alice.evaluate(() => session.lines.map(l => l.id));
+    const target = ids[0];
+    await claimAndSelect(alice, target);
+    const takeUrl = await recordTake(alice, target);
+    const takeFile = path.join(server.dirs.uploads, decodeURIComponent(takeUrl).split('/').pop());
+    const before = await alice.evaluate(() => session.lines.map(l => ({ id: l.id, character: l.character })));
+    const undoBefore = await alice.evaluate(() => session.undoCount || 0);
+
+    // Удаляем реплику с дублем: подсказка с «Отменить», кнопка на панели, файл дубля остается
+    await alice.evaluate(id => { window.confirm = () => true; deleteLines([id]); }, target);
+    await waitFor(bob, id => !session.lines.some(l => l.id === id), 5000, target);
+    await waitFor(alice, () => document.querySelector('#toast button') && /Отменить|Undo/.test(document.getElementById('toast').innerText), 3000);
+    await waitFor(alice, n => document.getElementById('undoDeleteBtn').style.display !== 'none' && document.getElementById('undoDeleteBtn').textContent.includes(String(n)), 3000, undoBefore + 1);
+    assert.ok(fs.existsSync(takeFile), 'take file kept while undo is possible');
+
+    // Не хост: Ctrl+Z ничего не возвращает
+    await bob.keyboard.down('Control'); await bob.keyboard.press('KeyZ'); await bob.keyboard.up('Control');
+    await wait(500);
+    assert.ok(!(await alice.evaluate(id => session.lines.some(l => l.id === id), target)));
+
+    // Хост: Ctrl+Z возвращает реплику на то же место с дублем и персонажем
+    await alice.keyboard.down('Control'); await alice.keyboard.press('KeyZ'); await alice.keyboard.up('Control');
+    await waitFor(bob, (id, url) => { const l = session.lines.find(x => x.id === id); return l && l.audioUrl === url; }, 5000, target, takeUrl);
+    assert.deepEqual(await bob.evaluate(() => session.lines.map(l => ({ id: l.id, character: l.character }))), before, 'same order and characters');
+    assert.equal(await alice.evaluate(() => session.undoCount || 0), undoBefore);
+
+    // Несколько реплик и отмена кнопкой в подсказке
+    const two = ids.slice(1, 3);
+    await alice.evaluate(list => deleteLines(list), two);
+    await waitFor(bob, list => list.every(id => !session.lines.some(l => l.id === id)), 5000, two);
+    await waitFor(alice, () => !!document.querySelector('#toast button'), 3000);
+    await alice.click('#toast button');
+    await waitFor(bob, order => JSON.stringify(session.lines.map(l => l.id)) === JSON.stringify(order), 5000, before.map(l => l.id));
+  });
+
   test('the import form is empty after a successful import', async () => {
     const form = await alice.evaluate(() => {
       openFilesModal();

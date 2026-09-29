@@ -252,6 +252,28 @@ function renderLobby() {
   lobbyList.innerHTML = html;
 }
 
+// ==========================================
+// ОТМЕНА УДАЛЕНИЯ РЕПЛИК
+// ==========================================
+window.undoDelete = function() {
+  socket.emit('host_undo_delete');
+};
+
+function updateUndoButton() {
+  const button = document.getElementById('undoDeleteBtn');
+  const count = (session && session.undoCount) || 0;
+  button.style.display = amHost() && count ? '' : 'none';
+  button.textContent = t('undo.toolbar', { n: count });
+}
+
+socket.on('lines_deleted', ({ count }) => {
+  showToast(t('undo.toast', { n: count }), { label: t('undo.action'), onClick: undoDelete });
+});
+
+socket.on('lines_restored', ({ count }) => {
+  showToast(t('undo.done', { n: count }));
+});
+
 window.kickPlayer = function(nick) {
   const text = t('kick.confirm', { nick }) + (session && session.hasPassword ? '' : '\n\n' + t('kick.noPassword'));
   if (!confirm(text)) return;
@@ -380,6 +402,7 @@ function updateHostUi() {
   renderSessions();
   updateRoomSecurityUi();
   renderTrackPicker();
+  updateUndoButton();
   const canManagePacks = amHost();
   uploadLabel.classList.toggle('disabled', !canManagePacks);
   zipInput.disabled = !canManagePacks;
@@ -427,6 +450,7 @@ socket.on('session_updated', (data) => {
     renderLobby();
     renderSessions();
     updateRoomSecurityUi();
+    updateUndoButton();
     return;
   }
 
@@ -447,6 +471,7 @@ socket.on('session_updated', (data) => {
   renderSessions();
   updateRoomSecurityUi();
   applyAudioTracks();
+  updateUndoButton();
 
   applyVolumes();
   renderTimeline();

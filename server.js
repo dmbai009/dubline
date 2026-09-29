@@ -33,6 +33,7 @@ const CHAT_RATE_LIMIT = { count: 5, windowMs: 5000 };
 const VOICE_EFFECTS = ['none', 'robot', 'radio', 'monster', 'thoughts', 'cave', 'behindDoor', 'megaphone'];
 const MAX_PITCH = 12;         // полутонов вверх/вниз
 const MAX_LATENCY_MS = 1000;  // предел поправки задержки микрофона
+const MAX_UNDO_BATCHES = 20;  // сколько последних удалений реплик можно отменить
 const MAX_TAKE_SHIFT = 30;    // насколько далеко (в секундах) дубль можно утащить от реплики
 
 for (const dir of [UPLOAD_DIR, PACKS_DIR, DATA_DIR]) {
@@ -87,7 +88,7 @@ function sanitizeChatText(raw) {
 // ==========================================
 // Поля сцены, которые принадлежат сессии (см. раздел «Сессии» ниже)
 const SESSION_FIELDS = ['loaded', 'title', 'kind', 'zipUrl', 'videoUrl', 'backingUrl', 'lines', 'characterClaims', 'createdAt', 'updatedAt',
-  'audioTracks', 'originalTrack', 'backingTrack', 'baseBackingUrl'];
+  'audioTracks', 'originalTrack', 'backingTrack', 'baseBackingUrl', 'deletedLines'];
 let repairedOnLoad = false;
 const rooms = loadRooms();
 // Починку таймингов сразу сохраняем, чтобы она выполнялась один раз, а не при каждом запуске
@@ -220,7 +221,8 @@ function emptySession() {
     audioTracks: undefined,   // звуковые дорожки видео отдельными файлами (если их несколько); undefined — еще не проверяли
     originalTrack: 0,         // какая дорожка играет как «Оригинал» (-1 — никакая)
     backingTrack: -1,         // какая дорожка играет как «Интершум» (-1 — родной интершум пака или никакой)
-    baseBackingUrl: undefined // родной интершум пака, к которому возвращаемся при «нет»
+    baseBackingUrl: undefined, // родной интершум пака, к которому возвращаемся при «нет»
+    deletedLines: []          // «корзина» удалений хоста для отмены (Ctrl+Z), последние MAX_UNDO_BATCHES
   };
 }
 
@@ -282,7 +284,8 @@ function isSceneDirUsed(dir) {
 
 function deleteSessionFiles(session) {
   let takes = 0;
-  (session.lines || []).forEach(line => {
+  const trashed = (session.deletedLines || []).flatMap(batch => batch.lines.map(entry => entry.line));
+  [...(session.lines || []), ...trashed].forEach(line => {
     if (line.audioUrl) {
       deleteTakeFile(line.audioUrl);
       takes++;
@@ -350,9 +353,10 @@ function forgetFileSizes(...urls) {
 
 // Секреты (clientId игроков) никогда не уходят клиентам
 function publicRoom(room) {
-  const { hostClientId, nickOwners, chat, sessions, passwordHash, passwordSalt, admitted, banned, ...rest } = room;
+  const { hostClientId, nickOwners, chat, sessions, passwordHash, passwordSalt, admitted, banned, deletedLines, ...rest } = room;
   return {
     ...rest,
+    undoCount: (deletedLines || []).length,
     hasPassword: !!room.passwordHash,
     bannedCount: (room.banned || []).length,
     sessionList: sessionSummaries(room),
@@ -1909,15 +1913,45 @@ io.on('connection', socket => {
     const room = getRoom(roomId);
     if (!isHost(room, clientId)) return;
     const doomed = new Set(lineIds);
-    const removed = room.lines.filter(line => doomed.has(line.id));
+    // Запоминаем, где стояли реплики, чтобы отмена вернула их на место
+    const removed = room.lines.map((line, index) => ({ line, index })).filter(entry => doomed.has(entry.line.id));
     if (!removed.length) return;
-    removed.forEach(line => deleteTakeFile(line.audioUrl));
     room.lines.splice(0, room.lines.length, ...room.lines.filter(line => !doomed.has(line.id)));
+    const claimsBefore = { ...room.characterClaims };
     dropEmptyRoleClaims(room);
+    const droppedClaims = Object.fromEntries(Object.entries(claimsBefore).filter(([character]) => !room.characterClaims[character]));
+
+    // Удаление уходит в «корзину» сессии; дубли стираются с диска, только когда отменить уже нельзя
+    if (!Array.isArray(room.deletedLines)) room.deletedLines = [];
+    room.deletedLines.push({ at: Date.now(), by: nick, lines: removed, claims: droppedClaims });
+    while (room.deletedLines.length > MAX_UNDO_BATCHES) {
+      room.deletedLines.shift().lines.forEach(entry => deleteTakeFile(entry.line.audioUrl));
+    }
     snapshotActive(room);
     saveRooms();
     emitSession(roomId);
+    socket.emit('lines_deleted', { count: removed.length });
     logEvent(roomId, `🗑 ${nick} удалил реплик: ${removed.length}`);
+  });
+
+  // Отмена последнего удаления реплик (Ctrl+Z у хоста)
+  socket.on('host_undo_delete', () => {
+    if (!roomId) return;
+    const room = getRoom(roomId);
+    if (!isHost(room, clientId) || !Array.isArray(room.deletedLines) || !room.deletedLines.length) return;
+    const batch = room.deletedLines.pop();
+    const existing = new Set(room.lines.map(line => line.id));
+    const restored = batch.lines.filter(entry => !existing.has(entry.line.id)).sort((a, b) => a.index - b.index);
+    restored.forEach(entry => room.lines.splice(Math.min(entry.index, room.lines.length), 0, entry.line));
+    // Роли, снятые вместе с последними репликами персонажа, возвращаем, если их никто не занял
+    for (const [character, owner] of Object.entries(batch.claims || {})) {
+      if (!room.characterClaims[character]) room.characterClaims[character] = owner;
+    }
+    snapshotActive(room);
+    saveRooms();
+    emitSession(roomId);
+    socket.emit('lines_restored', { count: restored.length });
+    logEvent(roomId, `↶ ${nick} вернул удаленные реплики: ${restored.length}`);
   });
 
   // Хост освобождает выбранные реплики, которые кто-то занял по ошибке

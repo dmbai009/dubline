@@ -759,6 +759,34 @@
     'multi.delete': "🗑 Видалити вибрані"
   });
 
+  Object.assign(messages.en, {
+    'undo.toast': "Deleted lines: {n}",
+    'undo.action': "Undo (Ctrl+Z)",
+    'undo.toolbar': "↶ Restore deleted ({n})",
+    'undo.hint': "Undo the last line deletion (Ctrl+Z)",
+    'undo.done': "Restored lines: {n}",
+    'undo.nothing': "Nothing to undo",
+    'help.keys': "Space — play/pause · R — record the selected line · ← → — seek 3 s · Ctrl/Shift+click — select several lines · Ctrl+Z — undo line deletion (host) · Ctrl+wheel — timeline zoom · Esc — close windows"
+  });
+  Object.assign(messages.ru, {
+    'undo.toast': "Удалено реплик: {n}",
+    'undo.action': "Отменить (Ctrl+Z)",
+    'undo.toolbar': "↶ Вернуть удалённое ({n})",
+    'undo.hint': "Отменить последнее удаление реплик (Ctrl+Z)",
+    'undo.done': "Возвращено реплик: {n}",
+    'undo.nothing': "Нечего отменять",
+    'help.keys': "Пробел — плей/пауза · R — записать выбранную реплику · ← → — перемотка на 3 с · Ctrl/Shift+клик — выделить несколько реплик · Ctrl+Z — отменить удаление реплик (хост) · Ctrl+колесо — масштаб таймлайна · Esc — закрыть окна"
+  });
+  Object.assign(messages.uk, {
+    'undo.toast': "Видалено реплік: {n}",
+    'undo.action': "Скасувати (Ctrl+Z)",
+    'undo.toolbar': "↶ Повернути видалене ({n})",
+    'undo.hint': "Скасувати останнє видалення реплік (Ctrl+Z)",
+    'undo.done': "Повернуто реплік: {n}",
+    'undo.nothing': "Нічого скасовувати",
+    'help.keys': "Пробіл — плей/пауза · R — записати вибрану репліку · ← → — перемотування на 3 с · Ctrl/Shift+клік — виділити кілька реплік · Ctrl+Z — скасувати видалення реплік (хост) · Ctrl+коліщатко — масштаб таймлайну · Esc — закрити вікна"
+  });
+
   let language = localStorage.getItem('dubline_language');
   if (!messages[language]) {
     const browser = String(navigator.language || 'en').toLowerCase();

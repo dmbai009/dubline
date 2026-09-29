@@ -159,6 +159,15 @@ window.addEventListener('keydown', (e) => {
     video.currentTime = Math.min(video.duration || 0, video.currentTime + 3);
   }
 
+  // Ctrl+Z — хост отменяет последнее удаление реплик
+  if (e.code === 'KeyZ' && (e.ctrlKey || e.metaKey) && !e.shiftKey) {
+    if (!amHost()) return;
+    e.preventDefault();
+    if (session && session.undoCount) undoDelete();
+    else showToast(t('undo.nothing'));
+    return;
+  }
+
   // Esc — закрыть модалки
   if (e.code === 'Escape') {
     closeSettingsModal();
@@ -395,11 +404,22 @@ const toastEl = document.getElementById('toast');
 const helpModal = document.getElementById('helpModal');
 let toastTimer = null;
 
-function showToast(text) {
+// Подсказка внизу экрана; action — необязательная кнопка (например, «Отменить»)
+function showToast(text, action = null) {
   toastEl.textContent = text;
+  if (action) {
+    const button = document.createElement('button');
+    button.className = 'btn-record';
+    button.textContent = action.label;
+    button.onclick = () => {
+      toastEl.style.display = 'none';
+      action.onClick();
+    };
+    toastEl.appendChild(button);
+  }
   toastEl.style.display = 'block';
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { toastEl.style.display = 'none'; }, 3000);
+  toastTimer = setTimeout(() => { toastEl.style.display = 'none'; }, action ? 7000 : 3000);
 }
 
 window.openHelpModal = function() {

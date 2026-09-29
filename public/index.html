@@ -372,6 +372,7 @@
     .help-step b { color: var(--text); font-size: 13px; }
 
     /* Всплывающие подсказки */
+    .toast button { margin-left: 10px; padding: 3px 10px; font-size: 12px; }
     .toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 1500; background: rgba(20, 20, 27, 0.95); border: 1px solid var(--border-strong); color: var(--text); padding: 10px 16px; border-radius: 999px; font-size: 13px; font-weight: 600; box-shadow: var(--shadow); max-width: 90vw; text-align: center; }
 
     .session-btn { max-width: 260px; }
@@ -876,6 +877,7 @@
             <span id="sceneProgressPct">0%</span>
           </div>
           <span class="toolbar-hint" data-i18n="timeline.hint">Ctrl+колесо — масштаб · Shift+перетаскивание своего дубля — задержка микрофона</span>
+          <button class="btn-host" id="undoDeleteBtn" onclick="undoDelete()" style="display: none;" data-i18n-title="undo.hint" title="Ctrl+Z"></button>
           <div class="zoom-controls">
             <button class="btn-icon" id="zoomOutBtn" onclick="zoomTimeline(1 / 1.25)" data-i18n-title="zoom.out" title="Уменьшить">−</button>
             <span id="zoomLabel">100%</span>
