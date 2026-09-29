@@ -663,6 +663,40 @@
     'help.step3': "Натисніть «Записати» або R. Відео відмотається на 2 секунди назад: дочекайтеся, поки смужка пробіжить екраном і з’явиться «Говоріть!». Якщо фраза довша за оригінал — просто договорюйте: запис закінчиться, коли ви замовкнете. Щоб зупинити раніше, натисніть кнопку ще раз."
   });
 
+  Object.assign(messages.en, {
+    'tracks.original': "🎧 Original",
+    'tracks.backing': "🎵 Background",
+    'tracks.none': "— none —",
+    'tracks.label': "Track {n}: {name}",
+    'tracks.onlyHost': "the host chooses tracks",
+    'tracks.preparing': "⏳ Preparing the video audio tracks…",
+    'char.rename': "Change character (the line moves to their track)",
+    'char.placeholder': "Character name",
+    'char.roleTaken': "The role “{name}” is claimed by {owner} — only the host can move a line there"
+  });
+  Object.assign(messages.ru, {
+    'tracks.original': "🎧 Оригинал",
+    'tracks.backing': "🎵 Интершум",
+    'tracks.none': "— нет —",
+    'tracks.label': "Дорожка {n}: {name}",
+    'tracks.onlyHost': "дорожки выбирает хост",
+    'tracks.preparing': "⏳ Готовлю звуковые дорожки видео…",
+    'char.rename': "Сменить персонажа (реплика переедет на его дорожку)",
+    'char.placeholder': "Имя персонажа",
+    'char.roleTaken': "Роль «{name}» занята игроком {owner} — перенести туда реплику может только хост"
+  });
+  Object.assign(messages.uk, {
+    'tracks.original': "🎧 Оригінал",
+    'tracks.backing': "🎵 Інтершум",
+    'tracks.none': "— немає —",
+    'tracks.label': "Доріжка {n}: {name}",
+    'tracks.onlyHost': "доріжки вибирає хост",
+    'tracks.preparing': "⏳ Готую звукові доріжки відео…",
+    'char.rename': "Змінити персонажа (репліка переїде на його доріжку)",
+    'char.placeholder': "Ім’я персонажа",
+    'char.roleTaken': "Роль «{name}» зайнята гравцем {owner} — перенести туди репліку може лише хост"
+  });
+
   let language = localStorage.getItem('dubline_language');
   if (!messages[language]) {
     const browser = String(navigator.language || 'en').toLowerCase();

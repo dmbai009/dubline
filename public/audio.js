@@ -12,7 +12,8 @@
       getSettings,
       isRenderInProgress,
       getRecordingLineId,
-      getLatency = () => 0
+      getLatency = () => 0,
+      originalTrack = null   // отдельный <audio> с выбранной звуковой дорожкой видео (если их несколько)
     } = options;
 
     const TAKE_LOOKAHEAD = 0.25;
@@ -50,6 +51,11 @@
         backingGain = playCtx.createGain();
         videoSourceNode.connect(videoGain).connect(playCtx.destination);
         backingSourceNode.connect(backingGain).connect(playCtx.destination);
+        // Выбранная дорожка видео идет в тот же канал «Оригинал», что и звук самого видео
+        if (originalTrack) {
+          playCtx.createMediaElementSource(originalTrack).connect(videoGain);
+          originalTrack.volume = 1;
+        }
         video.volume = 1;
         backing.volume = 1;
         applyVolumes();
@@ -97,6 +103,7 @@
         takesBus.gain.setValueAtTime(volumes.isMuted ? 0 : volumes.recorded, playCtx.currentTime);
       } else {
         video.volume = volumes.isMuted ? 0 : effectiveOriginalVolume();
+        if (originalTrack) originalTrack.volume = video.volume;
         backing.volume = volumes.isMuted || isRenderInProgress() ? 0 : volumes.backing;
       }
     }

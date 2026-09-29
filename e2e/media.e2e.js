@@ -3,8 +3,11 @@ const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const {
   skipReason, launchBrowser, startServer, openPlayer, waitFor,
-  loadFixture, claimAndSelect, recordTake, buildFixturePack, FIXTURE_LINES
+  loadFixture, claimAndSelect, recordTake, buildFixturePack, FIXTURE_LINES, buildMultiTrackVideo
 } = require('./helpers');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 
 describe('media', { skip: skipReason }, () => {
   let server;
@@ -106,5 +109,82 @@ describe('media', { skip: skipReason }, () => {
 
   test('no page errors', () => {
     for (const page of pages) assert.deepEqual(page.errors, [], JSON.stringify(page.errors));
+  });
+});
+
+describe('audio tracks', { skip: skipReason }, () => {
+  let server;
+  let browser;
+  let host;
+  let player;
+  const room = 'tracks';
+
+  before(async () => {
+    server = await startServer();
+    browser = await launchBrowser(server.port);
+    host = await openPlayer(browser, server.url(room), 'Alice');
+    player = await openPlayer(browser, server.url(room), 'Bob');
+    const srt = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'dubline-srt-')), 'episode.srt');
+    fs.writeFileSync(srt, [
+      '1', '00:00:01,000 --> 00:00:02,500', 'A: first', '',
+      '2', '00:00:04,000 --> 00:00:05,500', 'B: second', ''
+    ].join('\n'));
+    await host.evaluate(() => openFilesModal());
+    await (await host.$('#customVideoInput')).uploadFile(buildMultiTrackVideo());
+    await (await host.$('#customSubInput')).uploadFile(srt);
+    await host.evaluate(() => uploadCustomScene());
+    await waitFor(host, () => session.loaded && session.lines.length === 2, 15000);
+  });
+
+  after(async () => {
+    if (browser) await browser.close();
+    if (server) await server.cleanup();
+  });
+
+  test('both audio tracks are extracted and offered with their languages', async () => {
+    const tracks = await waitFor(host, () => session.audioTracks && session.audioTracks.length === 2 && session.audioTracks, 20000);
+    assert.deepEqual(tracks.map(t => t.label), ['Японский', 'Русский']);
+    await waitFor(host, () => getComputedStyle(document.getElementById('trackPicker')).display === 'flex' && document.getElementById('originalTrackSelect').options.length === 3);
+    const durations = await host.evaluate(async () => Promise.all(session.audioTracks.map(async t => (await fetchAndDecode(t.url)).duration)));
+    durations.forEach(d => assert.ok(Math.abs(d - 8) < 0.3, `track length ${d}`));
+    // Изначально оригинал — первая дорожка, играет отдельным плеером, звук видео заглушен
+    await waitFor(player, () => session.audioTracks && video.muted && document.getElementById('originalTrackAudio').getAttribute('src').endsWith('track_0.m4a'), 10000);
+  });
+
+  test('only the host can choose tracks', async () => {
+    assert.ok(await player.evaluate(() => document.getElementById('originalTrackSelect').disabled));
+    await player.evaluate(() => socket.emit('host_set_audio_tracks', { original: 1, backing: 0 }));
+    await new Promise(r => setTimeout(r, 500));
+    assert.equal(await host.evaluate(() => session.originalTrack), 0);
+  });
+
+  test('host picks the Russian track as original and the Japanese one as background — applied for everyone', async () => {
+    await host.evaluate(() => {
+      document.getElementById('originalTrackSelect').value = '1';
+      document.getElementById('backingTrackSelect').value = '0';
+      document.getElementById('backingTrackSelect').dispatchEvent(new Event('change'));
+    });
+    await waitFor(player, () => session.originalTrack === 1 && session.backingTrack === 0
+      && document.getElementById('originalTrackAudio').getAttribute('src').endsWith('track_1.m4a')
+      && backing.getAttribute('src').endsWith('track_0.m4a') && video.muted, 8000);
+    // Экспорт тоже берет выбранную дорожку
+    assert.ok((await host.evaluate(() => selectedOriginalTrack().url)).endsWith('track_1.m4a'));
+  });
+
+  test('"none" turns the original off', async () => {
+    await host.evaluate(() => {
+      document.getElementById('originalTrackSelect').value = '-1';
+      document.getElementById('originalTrackSelect').dispatchEvent(new Event('change'));
+    });
+    await waitFor(player, () => session.originalTrack === -1 && !document.getElementById('originalTrackAudio').getAttribute('src') && video.muted, 8000);
+  });
+
+  test('the choice survives a server restart', async () => {
+    await server.restart();
+    await waitFor(player, () => socket.connected && session && session.audioTracks && session.originalTrack === -1 && session.backingTrack === 0, 20000);
+  });
+
+  test('no page errors', () => {
+    for (const page of [host, player]) assert.deepEqual(page.errors, [], JSON.stringify(page.errors));
   });
 });

@@ -215,6 +215,19 @@ async function recordTake(page, lineId, timeout = 20000) {
   return waitFor(page, id => { const l = session.lines.find(x => x.id === id); return recordState === 'idle' && l.audioUrl ? l.audioUrl : null; }, timeout, lineId);
 }
 
+// Видео с двумя звуковыми дорожками (японская 440 Гц и русская 880 Гц), как серия аниме с озвучкой
+let multiTrackVideo = null;
+function buildMultiTrackVideo() {
+  if (multiTrackVideo) return multiTrackVideo;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dubline-tracks-'));
+  multiTrackVideo = path.join(dir, 'episode.mp4');
+  runFfmpeg(['-f', 'lavfi', '-i', 'testsrc=size=320x240:rate=25:duration=8',
+    '-f', 'lavfi', '-i', 'sine=frequency=440:duration=8', '-f', 'lavfi', '-i', 'sine=frequency=880:duration=8',
+    '-map', '0:v', '-map', '1:a', '-map', '2:a', '-metadata:s:a:0', 'language=jpn', '-metadata:s:a:1', 'language=rus',
+    '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', multiTrackVideo]);
+  return multiTrackVideo;
+}
+
 // Видео тестовой сцены отдельным файлом (для импорта «видео + субтитры»)
 function fixtureVideoPath() {
   return path.join(path.dirname(buildFixturePack()), 'dub_video.mp4');
@@ -227,5 +240,5 @@ function uploadFileCount(server) {
 module.exports = {
   FIXTURE_LINES, FIXTURE_PACK, SCENE_SECONDS,
   skipReason, wait, launchBrowser, startServer, openPlayer, waitFor, waitUntil,
-  loadFixture, claimAndSelect, recordTake, uploadFileCount, buildFixturePack, buildVoiceFile, fixtureVideoPath
+  loadFixture, claimAndSelect, recordTake, uploadFileCount, buildFixturePack, buildVoiceFile, fixtureVideoPath, buildMultiTrackVideo
 };

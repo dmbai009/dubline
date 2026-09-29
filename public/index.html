@@ -181,6 +181,16 @@
     .mixer-channel span.label { font-weight: 600; color: var(--text); }
     .mixer-channel input[type="range"] { accent-color: var(--accent); width: 90px; cursor: pointer; }
     .mixer-channel span.val { width: 34px; font-variant-numeric: tabular-nums; color: var(--faint); }
+    .track-picker { width: 100%; display: flex; align-items: center; justify-content: center; gap: 16px; flex-wrap: wrap; padding: 6px 14px 8px; background: var(--panel); font-size: 11px; color: var(--muted); }
+    .track-picker label { display: flex; align-items: center; gap: 6px; font-weight: 600; color: var(--text); }
+    .track-picker select { background: var(--panel-3); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 3px 6px; font-size: 11px; }
+    .track-picker select:disabled { opacity: 0.7; cursor: not-allowed; }
+    .track-note { color: var(--faint); }
+    .insp-rename { background: transparent; color: var(--faint); padding: 0 4px; font-size: 12px; }
+    .insp-rename:hover:not(:disabled) { color: var(--accent-2); filter: none; }
+    .insp-char-form { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; }
+    .insp-char-form input { flex: 1; min-width: 0; }
+    .insp-char-form button { padding: 5px 9px; }
     .mute-toggle { display: flex; align-items: center; gap: 6px; cursor: pointer; font-weight: 600; color: #fca5a5; border-right: 1px solid var(--border); padding-right: 16px; }
 
     .watch-overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: space-between; pointer-events: none; z-index: 5; }
@@ -769,6 +779,7 @@
           <div class="video-wrapper">
             <video id="mainVideo" controls crossorigin="anonymous"></video>
             <audio id="backingAudio" crossorigin="anonymous"></audio>
+            <audio id="originalTrackAudio" crossorigin="anonymous"></audio>
             <div id="videoPrompter" class="video-prompter" style="display: none;">
               <span id="prompterChar" class="prompter-char"></span>
               <span id="prompterText" class="prompter-text"></span>
@@ -811,6 +822,13 @@
               <input type="range" id="volRecorded" min="0" max="100" value="100">
               <span class="val" id="volRecordedVal">100%</span>
             </div>
+          </div>
+
+          <!-- Выбор звуковых дорожек, если в видео их несколько -->
+          <div class="track-picker" id="trackPicker" style="display: none;">
+            <label><span data-i18n="tracks.original">🎧 Оригинал</span> <select id="originalTrackSelect"></select></label>
+            <label><span data-i18n="tracks.backing">🎵 Интершум</span> <select id="backingTrackSelect"></select></label>
+            <span id="trackPickerNote" class="track-note"></span>
           </div>
         </div>
 

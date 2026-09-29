@@ -379,6 +379,7 @@ function updateHostUi() {
 
   renderSessions();
   updateRoomSecurityUi();
+  renderTrackPicker();
   const canManagePacks = amHost();
   uploadLabel.classList.toggle('disabled', !canManagePacks);
   zipInput.disabled = !canManagePacks;
@@ -411,6 +412,8 @@ socket.on('session_updated', (data) => {
   if (!session || !session.loaded) {
     // В комнате нет сессии (например, удалили последнюю) — очищаем студию
     cancelMediaDownload();
+    setMediaSource(originalTrackAudio, null);
+    trackPicker.style.display = 'none';
     loadedVideoUrl = null;
     video.removeAttribute('src');
     backing.removeAttribute('src');
@@ -443,6 +446,7 @@ socket.on('session_updated', (data) => {
   renderLobby();
   renderSessions();
   updateRoomSecurityUi();
+  applyAudioTracks();
 
   applyVolumes();
   renderTimeline();

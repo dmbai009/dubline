@@ -59,9 +59,12 @@ const nickError = document.getElementById('nickError');
 const hostPanel = document.getElementById('hostPanel');
 const uploadLabel = document.getElementById('uploadLabel');
 
+const originalTrackAudio = document.getElementById('originalTrackAudio');
+
 const audio = window.DublineAudio.createController({
   video,
   backing,
+  originalTrack: originalTrackAudio,
   getSession: () => state.session,
   getVolumes: () => state.volumes,
   getSettings: () => ({
@@ -211,11 +214,16 @@ video.addEventListener('play', () => {
   applyVolumes();
   backing.currentTime = video.currentTime;
   if (!renderInProgress) backing.play().catch(() => {});
+  if (originalTrackAudio.getAttribute('src')) {
+    originalTrackAudio.currentTime = video.currentTime;
+    originalTrackAudio.play().catch(() => {});
+  }
   requestAnimationFrame(syncPlayheadLoop);
 });
 
 video.addEventListener('pause', () => {
   backing.pause();
+  originalTrackAudio.pause();
   stopAllTakes();
   playhead.style.left = `${labelWidth + video.currentTime * pxPerSec}px`;
   updatePrompter();
@@ -223,6 +231,7 @@ video.addEventListener('pause', () => {
 
 video.addEventListener('seeked', () => {
   backing.currentTime = video.currentTime;
+  if (originalTrackAudio.getAttribute('src')) originalTrackAudio.currentTime = video.currentTime;
   stopAllTakes();
   playhead.style.left = `${labelWidth + video.currentTime * pxPerSec}px`;
   updatePrompter();
@@ -730,3 +739,74 @@ timelineContainer.addEventListener('wheel', (e) => {
 }, { passive: false });
 
 updateZoomLabel();
+
+// ==========================================
+// ЗВУКОВЫЕ ДОРОЖКИ ВИДЕО
+// Если в видео несколько дорожек (например, японская и русская), хост выбирает, какая играет
+// как «Оригинал» и какая как «Интершум». Выбранный оригинал играет отдельным <audio> синхронно
+// с видео, а звук самого видео глушится (браузерный плеер умеет играть только одну дорожку).
+// ==========================================
+const trackPicker = document.getElementById('trackPicker');
+const originalTrackSelect = document.getElementById('originalTrackSelect');
+const backingTrackSelect = document.getElementById('backingTrackSelect');
+const trackPickerNote = document.getElementById('trackPickerNote');
+
+// undefined — у видео одна дорожка (играет само видео); null — оригинал выключен; иначе выбранная дорожка
+function selectedOriginalTrack() {
+  const tracks = state.session && state.session.audioTracks;
+  if (!tracks || tracks.length < 2) return undefined;
+  const index = state.session.originalTrack ?? 0;
+  return index >= 0 ? tracks[index] || null : null;
+}
+
+function setMediaSource(element, url) {
+  const current = element.getAttribute('src') || '';
+  if ((url || '') === current) return;
+  if (!url) {
+    element.pause();
+    element.removeAttribute('src');
+    element.load();
+    return;
+  }
+  element.src = url;
+  element.currentTime = video.currentTime;
+  if (!video.paused) element.play().catch(() => {});
+}
+
+function applyAudioTracks() {
+  if (!state.session || !state.session.loaded) return;
+  const track = selectedOriginalTrack();
+  video.muted = track !== undefined;
+  setMediaSource(originalTrackAudio, track ? mediaUrl(track.url) : null);
+  // Интершум мог переключиться на другую дорожку видео
+  setMediaSource(backing, mediaUrl(state.session.backingUrl) || null);
+  renderTrackPicker();
+}
+
+function renderTrackPicker() {
+  const tracks = (state.session && state.session.audioTracks) || [];
+  const pending = !!(state.session && state.session.audioTracksPending);
+  trackPicker.style.display = tracks.length >= 2 || pending ? 'flex' : 'none';
+  if (!state.session || (tracks.length < 2 && !pending)) return;
+  if (pending && tracks.length < 2) {
+    trackPicker.querySelectorAll('label').forEach(label => { label.style.display = 'none'; });
+    trackPickerNote.textContent = t('tracks.preparing');
+    return;
+  }
+  trackPicker.querySelectorAll('label').forEach(label => { label.style.display = ''; });
+  const options = selected => [`<option value="-1" ${selected === -1 ? 'selected' : ''}>${t('tracks.none')}</option>`]
+    .concat(tracks.map(track => `<option value="${track.index}" ${selected === track.index ? 'selected' : ''}>${esc(t('tracks.label', { n: track.index + 1, name: track.label || track.language || '?' }))}</option>`))
+    .join('');
+  originalTrackSelect.innerHTML = options(state.session.originalTrack ?? 0);
+  backingTrackSelect.innerHTML = options(state.session.backingTrack ?? -1);
+  const host = amHost();
+  originalTrackSelect.disabled = !host;
+  backingTrackSelect.disabled = !host;
+  trackPickerNote.textContent = host ? '' : t('tracks.onlyHost');
+}
+
+function sendTrackSelection() {
+  socket.emit('host_set_audio_tracks', { original: Number(originalTrackSelect.value), backing: Number(backingTrackSelect.value) });
+}
+originalTrackSelect.addEventListener('change', sendTrackSelection);
+backingTrackSelect.addEventListener('change', sendTrackSelection);

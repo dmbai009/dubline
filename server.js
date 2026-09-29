@@ -86,7 +86,8 @@ function sanitizeChatText(raw) {
 // КОМНАТЫ (с сохранением на диск)
 // ==========================================
 // Поля сцены, которые принадлежат сессии (см. раздел «Сессии» ниже)
-const SESSION_FIELDS = ['loaded', 'title', 'kind', 'zipUrl', 'videoUrl', 'backingUrl', 'lines', 'characterClaims', 'createdAt', 'updatedAt'];
+const SESSION_FIELDS = ['loaded', 'title', 'kind', 'zipUrl', 'videoUrl', 'backingUrl', 'lines', 'characterClaims', 'createdAt', 'updatedAt',
+  'audioTracks', 'originalTrack', 'backingTrack', 'baseBackingUrl'];
 let repairedOnLoad = false;
 const rooms = loadRooms();
 // Починку таймингов сразу сохраняем, чтобы она выполнялась один раз, а не при каждом запуске
@@ -102,6 +103,7 @@ function loadRooms() {
         const active = room.sessions && room.activeSessionId && room.sessions[room.activeSessionId];
         if (active) SESSION_FIELDS.forEach(field => { room[field] = active[field]; });
         [room, ...Object.values(room.sessions || {})].forEach(repairLineDurations);
+        delete room.audioTracksPending; // извлечение дорожек не пережило перезапуск — начнем заново
       }
       return loaded;
     }
@@ -197,7 +199,13 @@ function getRoom(roomId) {
 // ==========================================
 
 function emptySession() {
-  return { loaded: false, title: '', kind: null, zipUrl: '', videoUrl: '', backingUrl: '', lines: [], characterClaims: {}, createdAt: null, updatedAt: null };
+  return {
+    loaded: false, title: '', kind: null, zipUrl: '', videoUrl: '', backingUrl: '', lines: [], characterClaims: {}, createdAt: null, updatedAt: null,
+    audioTracks: undefined,   // звуковые дорожки видео отдельными файлами (если их несколько); undefined — еще не проверяли
+    originalTrack: 0,         // какая дорожка играет как «Оригинал» (-1 — никакая)
+    backingTrack: -1,         // какая дорожка играет как «Интершум» (-1 — родной интершум пака или никакой)
+    baseBackingUrl: undefined // родной интершум пака, к которому возвращаемся при «нет»
+  };
 }
 
 function newSessionId() {
@@ -535,6 +543,89 @@ function deleteTakeFile(url) {
 // ==========================================
 // РАЗБОР ПАКОВ (Voxalike / The Choicer Voicer)
 // ==========================================
+// ==========================================
+// ЗВУКОВЫЕ ДОРОЖКИ ВИДЕО (например, японская и русская в одной серии)
+// Браузерный плеер играет только одну дорожку, поэтому каждую вытаскиваем отдельным файлом.
+// ==========================================
+const LANGUAGE_NAMES = { rus: 'Русский', ru: 'Русский', jpn: 'Японский', ja: 'Японский', eng: 'English', en: 'English', ukr: 'Українська', uk: 'Українська', und: '' };
+
+function probeAudioStreams(file) {
+  const result = spawnSync(ffmpegPath, ['-hide_banner', '-i', file], { encoding: 'utf8', timeout: 20000 });
+  const lines = (result.stderr || '').split(/\r?\n/);
+  const streams = [];
+  let current = null;
+  for (const line of lines) {
+    const stream = /^\s*Stream #\d+:\d+(?:\[[^\]]*\])?(?:\((\w+)\))?: (\w+): ([^,\s]+)/.exec(line);
+    if (stream) {
+      current = stream[2] === 'Audio' ? { language: stream[1] || 'und', codec: stream[3], title: '' } : null;
+      if (current) streams.push(current);
+      continue;
+    }
+    const title = /^\s+title\s*:\s*(.+)$/.exec(line);
+    if (title && current && !current.title) current.title = title[1].trim();
+  }
+  return streams;
+}
+
+const audioTrackJobs = new Map(); // videoUrl -> Promise (чтобы не извлекать одно и то же дважды)
+
+function extractAudioTracks(videoUrl) {
+  if (audioTrackJobs.has(videoUrl)) return audioTrackJobs.get(videoUrl);
+  const job = (async () => {
+    const videoPath = diskPathForUrl(videoUrl);
+    if (!videoPath || !fs.existsSync(videoPath)) return [];
+    const streams = probeAudioStreams(videoPath);
+    if (streams.length < 2) return [];
+    const dir = path.dirname(videoPath);
+    const dirUrl = videoUrl.slice(0, videoUrl.lastIndexOf('/'));
+    const tracks = [];
+    for (let i = 0; i < streams.length; i++) {
+      const name = `track_${i}.m4a`;
+      const out = path.join(dir, name);
+      if (!fs.existsSync(out)) {
+        const codecArgs = streams[i].codec === 'aac' ? ['-c:a', 'copy'] : ['-c:a', 'aac', '-b:a', '160k'];
+        await runFfmpeg(['-i', videoPath, '-map', `0:a:${i}`, '-vn', ...codecArgs, '-movflags', '+faststart', out], 'Не удалось извлечь звуковую дорожку');
+      }
+      const language = streams[i].language;
+      tracks.push({
+        index: i,
+        url: `${dirUrl}/${encodeURIComponent(name)}`,
+        language,
+        label: streams[i].title || LANGUAGE_NAMES[language] || language,
+        codec: streams[i].codec
+      });
+    }
+    return tracks;
+  })().catch(err => {
+    logEvent(null, `⚠ Звуковые дорожки не извлечены: ${err.message}`, 'warn');
+    return [];
+  });
+  audioTrackJobs.set(videoUrl, job);
+  return job;
+}
+
+// Если у открытой сессии дорожки еще не проверяли — проверяем в фоне и сообщаем всем, когда готово
+function ensureAudioTracks(roomId) {
+  const room = getRoom(roomId);
+  if (!room.loaded || room.audioTracks !== undefined || !sceneDirOf(room.videoUrl) || room.audioTracksPending) return;
+  const sessionId = room.activeSessionId;
+  const videoUrl = room.videoUrl;
+  room.audioTracksPending = true;
+  extractAudioTracks(videoUrl).then(tracks => {
+    const target = room.activeSessionId === sessionId ? room : room.sessions[sessionId];
+    delete room.audioTracksPending;
+    if (!target || target.videoUrl !== videoUrl) return;
+    target.audioTracks = tracks;
+    if (target.originalTrack === undefined) target.originalTrack = 0;
+    if (target.backingTrack === undefined) target.backingTrack = -1;
+    if (target.baseBackingUrl === undefined) target.baseBackingUrl = target.backingUrl || '';
+    snapshotActive(room);
+    saveRooms();
+    if (target === room) emitSession(roomId);
+    if (tracks.length) logEvent(roomId, `🎧 Найдено звуковых дорожек: ${tracks.length} (${tracks.map(t => t.label).join(', ')})`);
+  });
+}
+
 // Длина MP3/OGG и прочих форматов: у WAV она есть в заголовке, для остальных спрашиваем ffmpeg.
 // Без этого у реплик без явного конца в паке длина молча становилась 3 секунды.
 function probeAudioDuration(file) {
@@ -763,6 +854,7 @@ function loadPackIntoRoom(roomId, packName, buffer, forceExtract) {
   saveRooms();
   emitSession(roomId);
   broadcastRecording(roomId);
+  ensureAudioTracks(roomId);
   logEvent(roomId, `🎬 Запущен пак «${pack.title}» (${pack.lines.length} реплик)`);
   addSystemMessage(roomId, 'system.packLoaded', { title: pack.title }, `🎬 Хост запустил пак «${pack.title}»`);
   return room;
@@ -1141,6 +1233,7 @@ app.post('/api/upload-custom', acceptCustomFiles(MAX_PACK_MB), async (req, res) 
     saveRooms();
     emitSession(roomId);
     broadcastRecording(roomId);
+    ensureAudioTracks(roomId);
     addSystemMessage(roomId, 'system.customScene', { title: customTitle, count: lines.length }, `🎬 Хост создал новую сцену «${customTitle}» (${lines.length} реплик)`);
     console.log(`[Dubline] Создана пользовательская сцена [${customTitle}] (${lines.length} реплик) в комнате [${roomId}]`);
     res.json({ success: true, session: publicRoom(room) });
@@ -1339,6 +1432,7 @@ io.on('connection', socket => {
 
     saveRooms();
     socket.emit('nick_state', { nick, error, errorKey, errorParams });
+    ensureAudioTracks(roomId);
     socket.emit('session_updated', publicRoom(room));
     socket.emit('chat_history', room.chat);
     socket.emit('recording_state', recordingList(roomId));
@@ -1596,6 +1690,7 @@ io.on('connection', socket => {
     if (!isHost(room, clientId) || !room.sessions[id] || id === room.activeSessionId) return;
     activateSession(room, id);
     resetSceneState('🎬 Совместный просмотр остановлен: сменилась сессия');
+    ensureAudioTracks(roomId);
     saveRooms();
     emitSession(roomId);
     addSystemMessage(roomId, 'system.sessionSwitched', { nick, title: room.title }, `🎬 ${nick} открыл сессию «${room.title}»`);
@@ -1639,6 +1734,49 @@ io.on('connection', socket => {
     emitSession(roomId);
     addSystemMessage(roomId, 'system.sessionDeleted', { nick, title: doomed.title, takes }, `🗑 ${nick} удалил сессию «${doomed.title}» (${takes} дублей)`);
     logEvent(roomId, `🗑 ${nick} удалил сессию «${doomed.title}» и ее файлы (${takes} дублей)`);
+  });
+
+  // ---------- Звуковые дорожки: что играет как оригинал и как интершум (выбирает хост) ----------
+  socket.on('host_set_audio_tracks', ({ original, backing } = {}) => {
+    if (!roomId) return;
+    const room = getRoom(roomId);
+    const tracks = room.audioTracks || [];
+    if (!isHost(room, clientId) || !tracks.length) return;
+    const valid = value => Number.isInteger(value) && value >= -1 && value < tracks.length;
+    if (valid(original)) room.originalTrack = original;
+    if (valid(backing)) room.backingTrack = backing;
+    if (room.baseBackingUrl === undefined) room.baseBackingUrl = room.backingUrl || '';
+    room.backingUrl = room.backingTrack >= 0 ? tracks[room.backingTrack].url : room.baseBackingUrl;
+    snapshotActive(room);
+    saveRooms();
+    emitSession(roomId);
+    const name = index => (index >= 0 ? tracks[index].label || `#${index + 1}` : 'нет');
+    logEvent(roomId, `🎧 ${nick}: оригинал — ${name(room.originalTrack)}, интершум — ${name(room.backingTrack)}`);
+  });
+
+  // ---------- Персонаж реплики (реплика переезжает на дорожку другого персонажа) ----------
+  socket.on('set_line_character', ({ lineId, character } = {}) => {
+    if (!roomId || !nick) return;
+    const room = getRoom(roomId);
+    const line = room.lines.find(l => l.id === lineId);
+    const name = sanitizeChatText(character).slice(0, 40);
+    if (!line || !name || name === line.character) return;
+    const host = isHost(room, clientId);
+    const owner = getLineOwner(room, line);
+    // Чужую реплику и реплику в чужую занятую роль переносит только хост
+    if (!host && owner && owner !== nick) return;
+    const roleOwner = room.characterClaims[name];
+    if (!host && roleOwner && roleOwner !== nick) return;
+
+    const oldName = line.character;
+    // Если реплика принадлежала игроку через роль, сохраняем владельца явно
+    if (!line.claimedBy && room.characterClaims[oldName]) line.claimedBy = room.characterClaims[oldName];
+    line.character = name;
+    if (!room.lines.some(l => l.character === oldName)) delete room.characterClaims[oldName];
+
+    saveRooms();
+    emitSession(roomId);
+    logEvent(roomId, `✎ ${nick}: реплика #${line.id} — «${oldName}» → «${name}»`);
   });
 
   // ---------- Задержка микрофона игрока ----------

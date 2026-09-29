@@ -116,6 +116,7 @@ window.switchFilesTab = function(tab) {
 
 window.addEventListener('dubline-language-changed', () => {
   updateHostUi();
+  renderTrackPicker();
   renderLobby();
   updateP2pStatus();
   updateDownloadButtons();
@@ -237,9 +238,13 @@ function showInspector(line) {
       <span id="gainDisplay" class="take-val">${Math.round(userMicGain * 100)}%</span>
     </div>` : '';
 
+  // Сменить персонажа может хост, владелец реплики или кто угодно, если реплика свободна
+  const canRename = amHost() || !owner || owner === myName;
+  const renameBtn = canRename ? `<button class="insp-rename" onclick="startCharacterEdit(${line.id})" title="${esc(t('char.rename'))}">✎</button>` : '';
+
   inspector.innerHTML = `
     <div class="insp-head">
-      <div class="insp-title"><b>${esc(line.character)}</b><span>#${line.id}</span></div>
+      <div class="insp-title"><b>${esc(line.character)}</b>${renameBtn}<span>#${line.id}</span></div>
       ${chip}
     </div>
     <div class="insp-meta">${line.start}–${line.end} s · ${duration} s${line.audioUrl && author ? ` · ${t('recordedBy', { owner: esc(author) })}` : ''}</div>
@@ -253,6 +258,38 @@ function showInspector(line) {
     ${takePanelHtml(line, isOwnedByMe)}
   `;
 }
+
+// Смена персонажа реплики: она переезжает на дорожку этого персонажа
+window.startCharacterEdit = function(lineId) {
+  const line = session.lines.find(l => l.id === lineId);
+  const title = inspector.querySelector('.insp-title');
+  if (!line || !title) return;
+  const characters = [...new Set(session.lines.map(l => l.character))].sort((a, b) => a.localeCompare(b));
+  title.outerHTML = `
+    <form class="insp-char-form" onsubmit="saveLineCharacter(event, ${line.id})">
+      <input id="charInput" class="text-input" list="charList" maxlength="40" value="${esc(line.character)}" placeholder="${esc(t('char.placeholder'))}">
+      <datalist id="charList">${characters.map(name => `<option value="${esc(name)}"></option>`).join('')}</datalist>
+      <button type="submit" class="btn-play">OK</button>
+      <button type="button" class="btn-icon" onclick="showInspector(selectedLine)">✕</button>
+    </form>`;
+  const input = document.getElementById('charInput');
+  input.focus();
+  input.select();
+  input.addEventListener('keydown', e => { if (e.key === 'Escape') { e.stopPropagation(); showInspector(selectedLine); } });
+};
+
+window.saveLineCharacter = function(e, lineId) {
+  e.preventDefault();
+  const line = session.lines.find(l => l.id === lineId);
+  const name = document.getElementById('charInput').value.trim();
+  if (!line || !name || name === line.character) return showInspector(selectedLine);
+  const roleOwner = session.characterClaims && session.characterClaims[name];
+  if (roleOwner && roleOwner !== myName && !amHost()) {
+    showToast(t('char.roleTaken', { name, owner: roleOwner }));
+    return;
+  }
+  socket.emit('set_line_character', { lineId, character: name });
+};
 
 // Настройки записанного дубля: голос, питч, обрезка тишины, сдвиг — плотной сеткой
 function takePanelHtml(line, editable) {

@@ -88,9 +88,12 @@ async function mixSoundtrack(duration, gains, onStep) {
     onStep(t('render.decodeBackground'));
     place(await fetchAndDecode(mediaUrl(session.backingUrl)).catch(() => null), 1, 0, 0, Infinity, backingBus);
   }
-  if (session.videoUrl && originalBase > 0) {
+  // Оригинал — выбранная звуковая дорожка видео (если их несколько) или звук самого видео
+  const originalTrack = selectedOriginalTrack();
+  const originalUrl = originalTrack === undefined ? session.videoUrl : originalTrack && originalTrack.url;
+  if (originalUrl && originalBase > 0) {
     onStep(t('render.decodeOriginal'));
-    place(await fetchAndDecode(mediaUrl(session.videoUrl)).catch(() => null), 1, 0, 0, Infinity, originalBus);
+    place(await fetchAndDecode(mediaUrl(originalUrl)).catch(() => null), 1, 0, 0, Infinity, originalBus);
   }
 
   const takes = session.lines.filter(l => l.audioUrl);

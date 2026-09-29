@@ -242,6 +242,37 @@ describe('studio', { skip: skipReason }, () => {
     assert.equal(layout.tiles.find(tile => tile.start === 6).top, Math.min(...lanes), 'free time goes back to the first lane');
   });
 
+  test('changing the character of a line moves it to that character track', async () => {
+    // Сейчас открыта сцена из SRT: все 4 реплики у одного персонажа
+    const renameTo = async (page, id, name) => {
+      await page.evaluate(lineId => { selectLine(session.lines.find(l => l.id === lineId)); startCharacterEdit(lineId); }, id);
+      await page.evaluate(value => {
+        document.getElementById('charInput').value = value;
+        document.querySelector('.insp-char-form').dispatchEvent(new Event('submit', { cancelable: true }));
+      }, name);
+    };
+    const ids = await alice.evaluate(() => session.lines.map(l => l.id));
+    await renameTo(alice, ids[0], 'Рена');
+    await waitFor(bob, id => {
+      const row = [...document.querySelectorAll('.track-row')].find(r => r.querySelector('.char-name')?.textContent === 'Рена');
+      return row && row.querySelector(`#line-block-${id}`);
+    }, 5000, ids[0]);
+    assert.equal(await bob.evaluate(() => document.querySelectorAll('.track-row').length), 2, 'a new track appeared');
+
+    // Роль «Рена» заняла Алиса — Боб не может перенести туда реплику, а свободную в новую роль может
+    await alice.evaluate(() => claimCharacter('Рена'));
+    await waitFor(bob, () => session.characterClaims['Рена'] === 'Alice', 5000);
+    const before = await bob.evaluate(id => session.lines.find(l => l.id === id).character, ids[1]);
+    await renameTo(bob, ids[1], 'Рена');
+    await waitFor(bob, () => /Alice/.test(document.getElementById('toast').textContent), 3000);
+    assert.equal(await bob.evaluate(id => session.lines.find(l => l.id === id).character, ids[1]), before, 'line stayed with its character');
+    await renameTo(bob, ids[2], 'Мион');
+    await waitFor(alice, id => session.lines.find(l => l.id === id).character === 'Мион', 5000, ids[2]);
+
+    // Реплику Алисы Боб переименовать не может — кнопки ✎ у него нет
+    assert.equal(await bob.evaluate(id => { selectLine(session.lines.find(l => l.id === id)); return !!document.querySelector('.insp-rename'); }, ids[0]), false);
+  });
+
   test('no page errors', () => {
     for (const page of [alice, bob]) assert.deepEqual(page.errors, []);
   });
