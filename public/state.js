@@ -37,6 +37,7 @@
       ? Math.max(0, Math.min(0.8, storedAutoDuckAmount))
       : 0.4,
     prompterEnabled: storage.getItem('dubline_prompter') !== '0',
+    cueEnabled: storage.getItem('dubline_cue') !== '0',
     prompterSize: Number.isFinite(storedPrompterSize)
       ? Math.max(14, Math.min(36, storedPrompterSize))
       : 20,

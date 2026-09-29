@@ -433,6 +433,88 @@
     'system.sessionDeleted': "🗑 {nick} видалив сесію «{title}» ({takes} дублів)"
   });
 
+  Object.assign(messages.en, {
+    'cue.setting': "Visual countdown before recording",
+    'cue.setting.help': "A bar and dots over the video show when to start speaking. No sound.",
+    'cue.ready': "Get ready…",
+    'cue.speak': "🔴 Speak!",
+    'cue.finish': "You can stop",
+    'record.hint': "After you press it, the video rewinds 2 seconds. Start speaking when “Speak!” appears over the video.",
+    'toast.selectLine': "First select a line on the timeline",
+    'toast.claimFirst': "First claim this line — “Claim” in the inspector",
+    'error.mic': "No microphone access. Allow it: click the 🔒 icon left of the address bar → Microphone → Allow, then reload the page.",
+    'help.title': "❓ How to play Dubline",
+    'help.step1.title': "🎧 Put on headphones",
+    'help.step1': "With speakers, the video sound leaks into your microphone and the take gets an echo.",
+    'help.step2.title': "🙋 Claim a line",
+    'help.step2': "Click a tile on the timeline below and choose “Claim this line” — or take the whole role. Other players’ lines are protected.",
+    'help.step3.title': "🎙️ Record a take",
+    'help.step3': "Press “Record” or R. The video rewinds 2 seconds: wait for the bar to cross the screen and “Speak!” to appear. Recording stops by itself; press the button again to stop earlier.",
+    'help.step4.title': "▶ Listen back",
+    'help.step4': "In the inspector on the right: “▶ Take”. Not happy — “Record again”. Voice effects and pitch are there too.",
+    'help.step5.title': "↔ Fix the timing",
+    'help.step5': "Drag a take along the timeline with the mouse. If all your takes are late (e.g. Bluetooth headphones), set the delay on your card on the left.",
+    'help.step6.title': "🎬 Watch together",
+    'help.step6': "When the lines are dubbed, the host presses “Watch together” and the video starts for everyone at once. The finished video is in “Files & Export”.",
+    'help.hotkeys': "Hotkeys",
+    'help.keys': "Space — play/pause · R — record the selected line · ← → — seek 3 s · Ctrl+wheel — timeline zoom · Esc — close windows",
+    'help.ok': "Got it, let’s play!"
+  });
+  Object.assign(messages.ru, {
+    'cue.setting': "Визуальный отсчёт перед записью",
+    'cue.setting.help': "Полоска и точки над видео показывают, когда начинать говорить. Без звука.",
+    'cue.ready': "Приготовьтесь…",
+    'cue.speak': "🔴 Говорите!",
+    'cue.finish': "Можно заканчивать",
+    'record.hint': "После нажатия видео отмотается на 2 секунды назад. Начинайте говорить, когда над видео появится «Говорите!».",
+    'toast.selectLine': "Сначала выберите реплику на таймлайне",
+    'toast.claimFirst': "Сначала займите эту реплику — кнопка «Занять» в инспекторе",
+    'error.mic': "Нет доступа к микрофону. Разрешите его: нажмите на значок 🔒 слева от адреса сайта → Микрофон → Разрешить, затем обновите страницу.",
+    'help.title': "❓ Как играть в Dubline",
+    'help.step1.title': "🎧 Наденьте наушники",
+    'help.step1': "Если играть через колонки, звук видео попадёт в микрофон и в дубле будет эхо.",
+    'help.step2.title': "🙋 Займите реплику",
+    'help.step2': "Нажмите на плитку на таймлайне внизу и выберите «Занять эту реплику» — или возьмите сразу всю роль. Чужие реплики защищены от перезаписи.",
+    'help.step3.title': "🎙️ Запишите дубль",
+    'help.step3': "Нажмите «Записать» или R. Видео отмотается на 2 секунды назад: дождитесь, пока полоска пробежит по экрану и появится «Говорите!». Запись остановится сама; чтобы закончить раньше, нажмите кнопку ещё раз.",
+    'help.step4.title': "▶ Послушайте",
+    'help.step4': "В инспекторе справа — «▶ Дубль». Не понравилось — «Переписать». Там же голосовые эффекты и питч.",
+    'help.step5.title': "↔ Подгоните по времени",
+    'help.step5': "Дубль можно перетащить мышкой по таймлайну. Если опаздывают все ваши дубли (например, Bluetooth-наушники) — настройте задержку в своей карточке слева.",
+    'help.step6.title': "🎬 Смотрите вместе",
+    'help.step6': "Когда реплики озвучены, хост нажимает «Смотрим вместе» — ролик запустится у всех одновременно. Готовое видео — в «Файлы и экспорт».",
+    'help.hotkeys': "Горячие клавиши",
+    'help.keys': "Пробел — плей/пауза · R — записать выбранную реплику · ← → — перемотка на 3 с · Ctrl+колесо — масштаб таймлайна · Esc — закрыть окна",
+    'help.ok': "Понятно, играем!"
+  });
+  Object.assign(messages.uk, {
+    'cue.setting': "Візуальний відлік перед записом",
+    'cue.setting.help': "Смужка й крапки над відео показують, коли починати говорити. Без звуку.",
+    'cue.ready': "Приготуйтеся…",
+    'cue.speak': "🔴 Говоріть!",
+    'cue.finish': "Можна закінчувати",
+    'record.hint': "Після натискання відео відмотається на 2 секунди назад. Починайте говорити, коли над відео з’явиться «Говоріть!».",
+    'toast.selectLine': "Спочатку виберіть репліку на таймлайні",
+    'toast.claimFirst': "Спочатку займіть цю репліку — кнопка «Зайняти» в інспекторі",
+    'error.mic': "Немає доступу до мікрофона. Дозвольте його: натисніть на значок 🔒 ліворуч від адреси сайту → Мікрофон → Дозволити, потім оновіть сторінку.",
+    'help.title': "❓ Як грати в Dubline",
+    'help.step1.title': "🎧 Надягніть навушники",
+    'help.step1': "Якщо грати через колонки, звук відео потрапить у мікрофон і в дублі буде луна.",
+    'help.step2.title': "🙋 Займіть репліку",
+    'help.step2': "Натисніть на плитку на таймлайні внизу й виберіть «Зайняти цю репліку» — або візьміть одразу всю роль. Чужі репліки захищені від перезапису.",
+    'help.step3.title': "🎙️ Запишіть дубль",
+    'help.step3': "Натисніть «Записати» або R. Відео відмотається на 2 секунди назад: дочекайтеся, поки смужка пробіжить екраном і з’явиться «Говоріть!». Запис зупиниться сам; щоб закінчити раніше, натисніть кнопку ще раз.",
+    'help.step4.title': "▶ Послухайте",
+    'help.step4': "В інспекторі праворуч — «▶ Дубль». Не сподобалося — «Перезаписати». Там же голосові ефекти й пітч.",
+    'help.step5.title': "↔ Підженіть за часом",
+    'help.step5': "Дубль можна перетягнути мишкою по таймлайну. Якщо запізнюються всі ваші дублі (наприклад, Bluetooth-навушники) — налаштуйте затримку у своїй картці ліворуч.",
+    'help.step6.title': "🎬 Дивіться разом",
+    'help.step6': "Коли репліки озвучено, хост натискає «Дивимося разом» — ролик запуститься в усіх одночасно. Готове відео — у «Файли й експорт».",
+    'help.hotkeys': "Гарячі клавіші",
+    'help.keys': "Пробіл — плей/пауза · R — записати вибрану репліку · ← → — перемотування на 3 с · Ctrl+коліщатко — масштаб таймлайну · Esc — закрити вікна",
+    'help.ok': "Зрозуміло, граємо!"
+  });
+
   let language = localStorage.getItem('dubline_language');
   if (!messages[language]) {
     const browser = String(navigator.language || 'en').toLowerCase();

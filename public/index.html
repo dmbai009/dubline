@@ -308,6 +308,25 @@
     .switch-ui input:checked + .switch-slider:before { transform: translateX(18px); }
     .upload-btn { background: linear-gradient(135deg, #8b5cf6, #6d28d9); color: white; padding: 9px 14px; border-radius: var(--radius-sm); cursor: pointer; font-weight: 600; font-size: 12px; display: inline-block; text-align: center; }
     .upload-btn.disabled { opacity: 0.45; cursor: not-allowed; }
+    /* Визуальный отсчёт перед записью */
+    .record-cue { position: absolute; inset: 0; pointer-events: none; z-index: 6; }
+    .cue-streamer { position: absolute; top: 0; bottom: 0; width: 3px; margin-left: -1px; background: linear-gradient(180deg, transparent, rgba(250, 204, 21, 0.95) 20%, rgba(250, 204, 21, 0.95) 80%, transparent); box-shadow: 0 0 14px rgba(250, 204, 21, 0.7); }
+    .cue-pill { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; background: rgba(10, 10, 14, 0.78); backdrop-filter: blur(6px); padding: 6px 14px; border-radius: 999px; font-weight: 700; font-size: 13px; color: #fff; white-space: nowrap; transition: background 0.15s; }
+    .cue-dot { width: 10px; height: 10px; border-radius: 50%; background: #3a3a48; transition: background 0.1s, box-shadow 0.1s; }
+    .cue-dot.on { background: #facc15; box-shadow: 0 0 8px #facc15; }
+    .record-cue.speak .cue-pill { background: rgba(220, 38, 38, 0.92); }
+    .record-cue.speak .cue-dot { background: #fff; box-shadow: none; }
+    .record-cue.finish .cue-pill { background: rgba(5, 150, 105, 0.9); }
+    .record-cue.finish .cue-dot { background: #fff; box-shadow: none; }
+
+    /* Как играть */
+    .help-steps { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .help-step { background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); line-height: 1.45; }
+    .help-step b { color: var(--text); font-size: 13px; }
+
+    /* Всплывающие подсказки */
+    .toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 1500; background: rgba(20, 20, 27, 0.95); border: 1px solid var(--border-strong); color: var(--text); padding: 10px 16px; border-radius: 999px; font-size: 13px; font-weight: 600; box-shadow: var(--shadow); max-width: 90vw; text-align: center; }
+
     .session-btn { max-width: 260px; }
     .session-btn #sessionBtnTitle { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 190px; }
     .session-item { display: flex; align-items: center; gap: 12px; padding: 12px; background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius-sm); }
@@ -380,6 +399,16 @@
               <div class="setting-sub" data-i18n="noiseSuppression.help">Встроенный фильтр фонового шума микрофона (WebRTC)</div>
             </div>
             <label class="switch-ui"><input type="checkbox" id="settingsNoiseSuppression"><span class="switch-slider"></span></label>
+          </div>
+        </div>
+
+        <div class="setting-card">
+          <div class="setting-card-row">
+            <div>
+              <div class="setting-label" data-i18n="cue.setting">Визуальный отсчёт перед записью</div>
+              <div class="setting-sub" data-i18n="cue.setting.help">Полоска и точки над видео показывают, когда начинать говорить. Без звука.</div>
+            </div>
+            <label class="switch-ui"><input type="checkbox" id="settingsCue" checked><span class="switch-slider"></span></label>
           </div>
         </div>
 
@@ -600,6 +629,33 @@
     </div>
   </div>
 
+  <!-- МОДАЛЬНОЕ ОКНО: КАК ИГРАТЬ -->
+  <div id="helpModal" class="modal-overlay" style="display: none;">
+    <div class="modal-card modal-large" style="width: 620px;">
+      <div class="modal-header-row">
+        <h2 data-i18n="help.title">❓ Как играть в Dubline</h2>
+        <button class="modal-close-icon" onclick="closeHelpModal()" data-i18n-title="close" title="Закрыть">✕</button>
+      </div>
+      <div class="help-steps">
+        <div class="help-step"><b data-i18n="help.step1.title">🎧 Наденьте наушники</b><span data-i18n="help.step1"></span></div>
+        <div class="help-step"><b data-i18n="help.step2.title">🙋 Займите реплику</b><span data-i18n="help.step2"></span></div>
+        <div class="help-step"><b data-i18n="help.step3.title">🎙️ Запишите дубль</b><span data-i18n="help.step3"></span></div>
+        <div class="help-step"><b data-i18n="help.step4.title">▶ Послушайте</b><span data-i18n="help.step4"></span></div>
+        <div class="help-step"><b data-i18n="help.step5.title">↔ Подгоните по времени</b><span data-i18n="help.step5"></span></div>
+        <div class="help-step"><b data-i18n="help.step6.title">🎬 Смотрите вместе</b><span data-i18n="help.step6"></span></div>
+      </div>
+      <div class="setting-card">
+        <div class="setting-label" data-i18n="help.hotkeys">Горячие клавиши</div>
+        <div class="setting-sub" data-i18n="help.keys"></div>
+      </div>
+      <div style="display: flex; justify-content: flex-end; margin-top: 4px;">
+        <button class="btn-record" data-i18n="help.ok" onclick="closeHelpModal()">Понятно, играем!</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" style="display: none;"></div>
+
   <div id="connectionBanner" class="connection-banner" style="display: none;"></div>
 
   <!-- ШАПКА -->
@@ -620,6 +676,7 @@
     </div>
 
     <div class="header-right">
+      <button class="btn-header-action" onclick="openHelpModal()" data-i18n-title="help.title" title="Как играть">❓</button>
       <button class="btn-header-action session-btn" id="sessionBtn" onclick="openSessionsModal()" data-i18n-title="sessions.title" title="Сессии комнаты">🎬 <span id="sessionBtnTitle">—</span> ▾</button>
       <button class="btn-header-action" data-i18n="files" onclick="openFilesModal()">📁 Файлы и Экспорт</button>
       <button class="btn-header-action" data-i18n="settings" onclick="openSettingsModal()">⚙️ Настройки</button>
@@ -655,6 +712,14 @@
               <span id="prompterChar" class="prompter-char"></span>
               <span id="prompterText" class="prompter-text"></span>
               <div id="prompterProgress" class="prompter-progress"></div>
+            </div>
+            <!-- Визуальный отсчёт перед записью (без звука) -->
+            <div id="recordCue" class="record-cue" style="display: none;">
+              <div id="recordCueBar" class="cue-streamer"></div>
+              <div class="cue-pill">
+                <span class="cue-dot"></span><span class="cue-dot"></span><span class="cue-dot"></span>
+                <span id="recordCueLabel"></span>
+              </div>
             </div>
             <div id="watchOverlay" class="watch-overlay" style="display: none;">
               <div id="watchCountdown" class="watch-countdown" style="display: none;"></div>

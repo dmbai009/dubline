@@ -50,19 +50,24 @@ function stopVisualizer() {
   if (canvas) canvas.style.display = 'none';
 }
 
+// Подготовка перед репликой: видео отматывается назад, игрок успевает сориентироваться
+const PRE_ROLL = 2.0;
+
 window.handleStudioRecord = async function(lineId) {
   const line = session.lines.find(l => l.id === lineId);
-  const btn = document.getElementById('recBtn');
-  if (!line || !btn) return;
+  if (!line) return;
 
   const owner = getLineOwner(line);
   if (owner !== myName) {
-    alert(t('error.notOwner'));
+    showToast(t('toast.claimFirst'));
     return;
   }
 
+  const btn = document.getElementById('recBtn');
+  if (!btn) return;
+
   if (watchMode && recordState === 'idle') {
-    alert(t('watch.noRecord'));
+    showToast(t('watch.noRecord'));
     return;
   }
 
@@ -84,6 +89,8 @@ window.handleStudioRecord = async function(lineId) {
     alert(t('error.mic'));
     return;
   }
+  // Пока спрашивали разрешение на микрофон, запись могли начать заново — проверяем
+  if (recordState !== 'idle') return;
 
   if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   if (audioCtx.state === 'suspended') audioCtx.resume();
@@ -97,7 +104,7 @@ window.handleStudioRecord = async function(lineId) {
 
   startVisualizer(micStream);
 
-  const preRoll = Math.min(1.0, line.start);
+  const preRoll = Math.min(PRE_ROLL, line.start);
   const startTime = Number((line.start - preRoll).toFixed(2));
   currentRecordingStartTime = startTime;
   video.currentTime = startTime;
@@ -178,6 +185,7 @@ window.handleStudioRecord = async function(lineId) {
   btn.className = 'btn-prep';
   btn.innerText = t('record.preparing');
   video.play();
+  startRecordCue(line, preRoll);
 
   const checkSpeechInterval = setInterval(() => {
     if (video.currentTime >= line.start - 0.05) {
@@ -206,6 +214,7 @@ function finishRecording({ discard = false } = {}) {
 
   video.pause();
   stopVisualizer();
+  stopRecordCue();
 
   const btn = document.getElementById('recBtn');
   if (btn) {
@@ -236,3 +245,47 @@ window.updateUserMicGain = function(val) {
   const disp = document.getElementById('gainDisplay');
   if (disp) disp.innerText = `${val}%`;
 };
+
+// ==========================================
+// ВИЗУАЛЬНЫЙ ОТСЧЁТ ПЕРЕД ЗАПИСЬЮ (без звука)
+// Полоса проходит по видео, три точки загораются по очереди, затем «Говорите!».
+// Все привязано ко времени видео, поэтому не разъезжается с картинкой.
+// ==========================================
+const recordCue = document.getElementById('recordCue');
+const recordCueBar = document.getElementById('recordCueBar');
+const recordCueLabel = document.getElementById('recordCueLabel');
+const recordCueDots = [...recordCue.querySelectorAll('.cue-dot')];
+let cueFrame = null;
+
+function startRecordCue(line, preRoll) {
+  stopRecordCue();
+  if (!cueEnabled) return;
+  recordCue.style.display = 'block';
+
+  const tick = () => {
+    const now = video.currentTime;
+    const untilSpeech = line.start - now;
+    let mode = 'ready';
+    if (untilSpeech <= 0.02) mode = now <= line.end ? 'speak' : 'finish';
+
+    recordCue.className = `record-cue ${mode === 'ready' ? '' : mode}`;
+    recordCueBar.style.display = mode === 'ready' && preRoll > 0 ? 'block' : 'none';
+    if (mode === 'ready') {
+      const progress = preRoll > 0 ? Math.min(1, Math.max(0, 1 - untilSpeech / preRoll)) : 1;
+      recordCueBar.style.left = `${progress * 100}%`;
+      // Точки загораются за 3/4, 2/4 и 1/4 подготовки до реплики
+      recordCueDots.forEach((dot, i) => {
+        dot.classList.toggle('on', untilSpeech <= ((recordCueDots.length - i) / (recordCueDots.length + 1)) * preRoll);
+      });
+    }
+    recordCueLabel.textContent = t(mode === 'ready' ? 'cue.ready' : mode === 'speak' ? 'cue.speak' : 'cue.finish');
+    cueFrame = requestAnimationFrame(tick);
+  };
+  tick();
+}
+
+function stopRecordCue() {
+  cancelAnimationFrame(cueFrame);
+  recordCue.style.display = 'none';
+  recordCue.className = 'record-cue';
+}

@@ -42,6 +42,7 @@ function syncSettingsUi() {
   settingsAutoDuckVal.textContent = `${settingsAutoDuckAmount.value}%`;
   document.getElementById('autoDuckSubRow').style.opacity = autoDuckEnabled ? '1' : '0.45';
   settingsPrompter.checked = prompterEnabled;
+  settingsCue.checked = cueEnabled;
   settingsPrompterSize.value = prompterSize;
   settingsPrompterSizeVal.textContent = `${prompterSize}px`;
   document.getElementById('prompterSubRow').style.opacity = prompterEnabled ? '1' : '0.45';
@@ -143,6 +144,7 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'KeyR') {
     e.preventDefault();
     if (selectedLine) handleStudioRecord(selectedLine.id);
+    else showToast(t('toast.selectLine'));
   }
 
   // Стрелки — перемотка на 3 секунды
@@ -160,6 +162,7 @@ window.addEventListener('keydown', (e) => {
     closeSettingsModal();
     closeFilesModal();
     closeSessionsModal();
+    closeHelpModal();
   }
 });
 
@@ -232,6 +235,9 @@ function showInspector(line) {
       ? `<button class="btn-play" onclick="previewTake(${line.id})">${t('listenTake', { owner: esc(author) })}</button>`
       : `<button class="btn-play" onclick="previewTake(${line.id})">${t('listenTakeAnon')}</button>`;
   }
+
+  // Подсказка новичкам: запись начинается не сразу, а после отсчёта
+  if (isOwnedByMe && recordState === 'idle') recordBtnHtml += `<p class="take-hint">${t('record.hint')}</p>`;
 
   inspector.innerHTML = `
     <h3>${esc(line.character)} (${t('line')} #${line.id})</h3>
@@ -312,6 +318,40 @@ function takePanelHtml(line, editable) {
     </div>
   `;
 }
+
+// ==========================================
+// ВСПЛЫВАЮЩИЕ ПОДСКАЗКИ И «КАК ИГРАТЬ»
+// ==========================================
+const toastEl = document.getElementById('toast');
+const helpModal = document.getElementById('helpModal');
+let toastTimer = null;
+
+function showToast(text) {
+  toastEl.textContent = text;
+  toastEl.style.display = 'block';
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { toastEl.style.display = 'none'; }, 3000);
+}
+
+window.openHelpModal = function() {
+  helpModal.style.display = 'flex';
+};
+
+window.closeHelpModal = function() {
+  helpModal.style.display = 'none';
+  localStorage.setItem('dubline_help_seen', '1');
+};
+
+// При первом заходе показываем правила (после ввода ника, если его еще нет)
+function maybeShowHelp() {
+  if (!localStorage.getItem('dubline_help_seen') && myName) openHelpModal();
+}
+
+const settingsCue = document.getElementById('settingsCue');
+settingsCue.addEventListener('change', () => {
+  cueEnabled = settingsCue.checked;
+  localStorage.setItem('dubline_cue', cueEnabled ? '1' : '0');
+});
 
 // ==========================================
 // РАЗМЕРЫ ПАНЕЛЕЙ (разделители как в Vegas / Photoshop)
@@ -409,4 +449,5 @@ window.resetLayout = function() {
 
 // Запуск
 applyLayout();
+maybeShowHelp();
 syncSettingsUi();

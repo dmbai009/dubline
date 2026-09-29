@@ -256,6 +256,7 @@ window.handleNickSubmit = function(e) {
 
   joinRoom();
   refreshViews();
+  maybeShowHelp();
 };
 
 // ==========================================
