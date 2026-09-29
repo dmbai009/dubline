@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Collaborative voice dubbing on a timeline",
   "main": "server.js",
+  "license": "MIT",
   "scripts": {
     "start": "node server.js",
     "test": "node --test",

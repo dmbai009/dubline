@@ -172,3 +172,7 @@ The test suite covers subtitle parsing, identifier sanitization, HTML/client int
 - **Client:** plain JavaScript, Web Audio API, MediaRecorder, WebCodecs, Mediabunny, JSZip, Canvas
 
 No system FFmpeg installation or frontend build step is required.
+
+## License
+
+[MIT](LICENSE)
