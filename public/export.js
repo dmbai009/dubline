@@ -10,10 +10,21 @@ const renderOrigVol = document.getElementById('renderOrigVol');
 const renderDubVal = document.getElementById('renderDubVal');
 const renderBackingVal = document.getElementById('renderBackingVal');
 const renderOrigVal = document.getElementById('renderOrigVal');
+const longExportWarning = document.getElementById('longExportWarning');
+const LONG_EXPORT_WARNING_SECONDS = 20 * 60;
 
 renderDubVol.oninput = () => renderDubVal.innerText = `${renderDubVol.value}%`;
 renderBackingVol.oninput = () => renderBackingVal.innerText = `${renderBackingVol.value}%`;
 renderOrigVol.oninput = () => renderOrigVal.innerText = `${renderOrigVol.value}%`;
+
+window.updateExportDurationWarning = function() {
+  const duration = Number(video.duration);
+  const isLong = !!(session && session.loaded && Number.isFinite(duration) && duration >= LONG_EXPORT_WARNING_SECONDS);
+  longExportWarning.style.display = isLong ? 'block' : 'none';
+  if (isLong) longExportWarning.textContent = t('warning.longExport', { minutes: Math.ceil(duration / 60) });
+};
+
+video.addEventListener('loadedmetadata', updateExportDurationWarning);
 
 window.openRenderModal = function() {
   if (!session || !session.loaded) {

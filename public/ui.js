@@ -113,6 +113,7 @@ window.switchFilesTab = function(tab) {
     document.getElementById(`tabContent${suffix}`).classList.toggle('active', name === tab);
   });
   if (tab === 'library') loadServerPacks();
+  if (tab === 'export') updateExportDurationWarning();
 };
 
 window.addEventListener('dubline-language-changed', () => {
@@ -128,6 +129,7 @@ window.addEventListener('dubline-language-changed', () => {
   if (session && session.loaded) renderTimeline();
   if (selectedLine) showInspector(selectedLine);
   renderChatHistory();
+  updateExportDurationWarning();
 });
 
 // ==========================================

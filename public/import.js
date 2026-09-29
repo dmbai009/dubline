@@ -26,6 +26,15 @@ zipInput.addEventListener('change', async (e) => {
 // ИМПОРТ И БИБЛИОТЕКА МОДОВ
 // ==========================================
 const libraryList = document.getElementById('filesLibraryList');
+const customVideoInput = document.getElementById('customVideoInput');
+const mkvCompatibilityWarning = document.getElementById('mkvCompatibilityWarning');
+
+function updateMkvCompatibilityWarning() {
+  const file = customVideoInput.files[0];
+  mkvCompatibilityWarning.style.display = file && /\.mkv$/i.test(file.name) ? 'block' : 'none';
+}
+
+customVideoInput.addEventListener('change', updateMkvCompatibilityWarning);
 
 async function loadServerPacks() {
   libraryList.innerHTML = `<span style="color:#a1a1aa; padding:10px;">${t('packs.loading')}</span>`;
@@ -69,7 +78,7 @@ window.loadSavedPack = async function(filename) {
 
 window.uploadCustomScene = async function() {
   if (!amHost()) return alert(t('onlyHost'));
-  const videoFile = document.getElementById('customVideoInput').files[0];
+  const videoFile = customVideoInput.files[0];
   const subtitleFile = document.getElementById('customSubInput').files[0];
   const status = document.getElementById('customUploadStatus');
   const button = document.getElementById('customUploadBtn');
@@ -92,6 +101,7 @@ window.uploadCustomScene = async function() {
     status.textContent = t('upload.done');
     // Следующий импорт начинается с пустой формы (старые субтитры не подхватятся к новому видео)
     ['customVideoInput', 'customSubInput', 'customSceneTitle'].forEach(id => { document.getElementById(id).value = ''; });
+    updateMkvCompatibilityWarning();
     status.style.color = '#10b981';
     setTimeout(closeFilesModal, 700);
   } catch (err) {

@@ -351,6 +351,7 @@
     .setting-card-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
     .setting-label { font-size: 12px; font-weight: 700; color: var(--text); }
     .setting-sub { font-size: 11px; color: var(--muted); line-height: 1.4; }
+    .setting-warning { display: none; padding: 8px 10px; color: #fbbf24; background: rgba(120, 53, 15, 0.22); border: 1px solid rgba(245, 158, 11, 0.35); border-radius: var(--radius-sm); font-size: 11px; line-height: 1.45; }
     .text-input { background: var(--panel-3); border: 1px solid var(--border); color: var(--text); padding: 8px 10px; border-radius: var(--radius-sm); font-weight: 600; outline: none; font-size: 12px; }
     .text-input:focus { border-color: var(--accent); }
     .switch-ui { position: relative; display: inline-block; width: 40px; height: 22px; flex-shrink: 0; }
@@ -614,6 +615,7 @@
               <span style="font-size: 11px; color: var(--muted); font-weight: 700;" data-i18n="videoFile">Видео (.mp4 / .mkv):</span>
               <input type="file" id="customVideoInput" accept="video/mp4,video/x-matroska,.mp4,.mkv" style="width: 100%; font-size: 11px; margin-top: 2px;">
             </div>
+            <div id="mkvCompatibilityWarning" class="setting-warning" data-i18n="warning.mkvCodec"></div>
             <div>
               <span style="font-size: 11px; color: var(--muted); font-weight: 700;" data-i18n="subtitleFile">Субтитры (необязательно для MKV):</span>
               <input type="file" id="customSubInput" accept=".ass,.ssa,.srt,.vtt" style="width: 100%; font-size: 11px; margin-top: 2px;">
@@ -641,6 +643,7 @@
         <div class="setting-card">
           <div class="setting-label" data-i18n="videoExport">1. Экспорт готового видео (WebCodecs)</div>
           <div class="setting-sub" data-i18n="videoExport.help">Быстрый экспорт MP4 со сведённым звуком прямо в браузере</div>
+          <div id="longExportWarning" class="setting-warning"></div>
           <div style="display: flex; flex-direction: column; gap: 8px; margin: 6px 0;">
             <div>
               <div style="display:flex; justify-content:space-between; font-size:11px; font-weight:700;">

@@ -841,6 +841,8 @@
   });
 
   Object.assign(messages.en, {
+    'warning.mkvCodec': "MKV is remuxed without video conversion. HEVC/H.265, especially 10-bit video, may not play in Chrome or Edge. H.264 is the safest choice.",
+    'warning.longExport': "This scene is about {minutes} minutes long. Export runs in browser memory and may require several GB of RAM. For reliable export, split long episodes or films into shorter scenes.",
     'upload.tooBigTunnel': "The file is {size} MB, but uploads through the shared link are limited to about {max} MB. The host can upload it on their own computer by opening http://localhost:3000 (a pack .zip can also be put into the public/packs folder — it appears in the library).",
     'upload.rejectedByTunnel': "The shared link rejected the file as too large. The host can upload it on their own computer at http://localhost:3000.",
     'upload.networkFailed': "The upload was interrupted (the connection or tunnel dropped). Try again; large files are best uploaded by the host at http://localhost:3000.",
@@ -848,6 +850,8 @@
     'help.step1': "With speakers, the video sound leaks into your microphone and the take gets an echo. Wired headphones are best: Bluetooth headsets drop to low sound quality while the microphone is on. Play in Chrome or Edge."
   });
   Object.assign(messages.ru, {
+    'warning.mkvCodec': "MKV переносится в MP4 без перекодирования видео. HEVC/H.265, особенно 10-битное видео, может не воспроизводиться в Chrome или Edge. Надёжнее всего H.264.",
+    'warning.longExport': "Длительность сцены — около {minutes} мин. Экспорт выполняется в памяти браузера и может потребовать несколько гигабайтов ОЗУ. Для надёжного экспорта разделите длинный эпизод или фильм на короткие сцены.",
     'upload.tooBigTunnel': "Файл весит {size} МБ, а через ссылку-туннель можно загрузить примерно до {max} МБ. Хост может загрузить его сам на своём компьютере, открыв http://localhost:3000 (.zip пака можно ещё положить в папку public/packs — он появится в библиотеке).",
     'upload.rejectedByTunnel': "Ссылка-туннель не пропустила файл: он слишком большой. Хост может загрузить его сам на своём компьютере через http://localhost:3000.",
     'upload.networkFailed': "Загрузка оборвалась (пропала связь или туннель). Попробуйте ещё раз; большие файлы лучше загружать хосту через http://localhost:3000.",
@@ -855,6 +859,8 @@
     'help.step1': "Если играть через колонки, звук видео попадёт в микрофон и в дубле будет эхо. Лучше проводные: Bluetooth-гарнитура при включённом микрофоне переходит в режим с плохим звуком. Играйте в Chrome или Edge."
   });
   Object.assign(messages.uk, {
+    'warning.mkvCodec': "MKV переноситься в MP4 без перекодування відео. HEVC/H.265, особливо 10-бітне відео, може не відтворюватися в Chrome або Edge. Найнадійніший варіант — H.264.",
+    'warning.longExport': "Тривалість сцени — близько {minutes} хв. Експорт виконується в пам’яті браузера й може потребувати кілька гігабайтів ОЗП. Для надійного експорту розділіть довгий епізод або фільм на коротші сцени.",
     'upload.tooBigTunnel': "Файл важить {size} МБ, а через посилання-тунель можна завантажити приблизно до {max} МБ. Хост може завантажити його сам на своєму комп’ютері, відкривши http://localhost:3000 (.zip пака можна ще покласти в теку public/packs — він з’явиться в бібліотеці).",
     'upload.rejectedByTunnel': "Посилання-тунель не пропустило файл: він завеликий. Хост може завантажити його сам на своєму комп’ютері через http://localhost:3000.",
     'upload.networkFailed': "Завантаження обірвалося (зник зв’язок або тунель). Спробуйте ще раз; великі файли краще завантажувати хосту через http://localhost:3000.",
