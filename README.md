@@ -127,6 +127,25 @@ The end-to-end suite drives real Chrome/Edge (`puppeteer-core`, no browser downl
 
 The server folders can be overridden with `DUBLINE_DATA_DIR`, `DUBLINE_UPLOAD_DIR` and `DUBLINE_PACKS_DIR`.
 
+## Project structure
+
+```text
+server.js              entry point: wires the modules together and starts the server
+server/config.js       folders, limits, DUBLINE_* overrides
+server/app.js          Express app, HTTP server, Socket.IO, static files
+server/state.js        in-memory state shared by all modules (rooms, online players, recording, P2P, watch)
+server/rooms.js        rooms and sessions, rooms.json persistence, public room view, audio track detection
+server/parsers.js      Voxalike/Choicer Voicer packs and ASS/SSA/SRT/VTT subtitles
+server/media.js        ffmpeg: durations, MKV subtitles, audio track extraction
+server/files.js        paths behind /uploads and /packs, file sizes and hashes, take files
+server/presence.js     online players, recording status, P2P seeders, watch-together, chat
+server/auth.js         nickname ownership, host rights, room password
+server/log.js          host event log
+server/routes.js       HTTP API: pack and scene import, take upload and deletion
+server/sockets/        Socket.IO handlers: room, roles, host, trash, p2p
+public/                browser client (plain scripts, loaded in order from index.html)
+```
+
 ## Controls
 
 | Key | Action |

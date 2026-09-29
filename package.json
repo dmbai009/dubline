@@ -7,7 +7,7 @@
     "start": "node server.js",
     "test": "node --test",
     "test:e2e": "node --test --test-concurrency=1 e2e/studio.e2e.js e2e/room.e2e.js e2e/media.e2e.js",
-    "check": "node --check server.js && node --check public/i18n.js && node --check public/state.js && node --check public/audio-fx.js && node --check public/audio.js && node --check public/player.js && node --check public/recording.js && node --check public/import.js && node --check public/export.js && node --check public/room.js && node --check public/p2p.js && node --check public/chat.js && node --check public/ui.js"
+    "check": "node tools/check.js"
   },
   "dependencies": {
     "adm-zip": "^0.6.1",
