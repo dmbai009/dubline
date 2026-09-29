@@ -159,6 +159,7 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'Escape') {
     closeSettingsModal();
     closeFilesModal();
+    closeSessionsModal();
   }
 });
 

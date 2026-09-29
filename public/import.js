@@ -202,3 +202,88 @@ window.resetLocalMedia = function() {
   if (session && session.loaded) swapVideoSource();
   updateLocalMediaStatus();
 };
+
+// ==========================================
+// СЕССИИ: несколько сцен в комнате, каждая со своими дублями
+// ==========================================
+const sessionsModal = document.getElementById('sessionsModal');
+const sessionsList = document.getElementById('sessionsList');
+const sessionBtnTitle = document.getElementById('sessionBtnTitle');
+const sessionsNewBtn = document.getElementById('sessionsNewBtn');
+
+function sessionItems() {
+  return (session && session.sessionList) || [];
+}
+
+function formatSessionDate(ts) {
+  if (!ts) return '—';
+  return new Date(ts).toLocaleString(i18n.getLanguage(), { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
+function renderSessions() {
+  const items = sessionItems();
+  const host = amHost();
+  sessionBtnTitle.textContent = session && session.loaded ? session.title : t('sessions.none');
+  sessionsNewBtn.style.display = host ? '' : 'none';
+
+  if (!items.length) {
+    sessionsList.innerHTML = `<div class="setting-sub">${t('sessions.empty')}</div>`;
+    return;
+  }
+
+  sessionsList.innerHTML = (host ? '' : `<div class="setting-sub">${t('sessions.onlyHost')}</div>`) + items.map(item => {
+    const pct = item.total ? Math.round((item.recorded / item.total) * 100) : 0;
+    const kind = t(item.kind === 'pack' ? 'sessions.kind.pack' : 'sessions.kind.custom');
+    const actions = host ? `
+      <div class="session-actions">
+        ${item.active ? '' : `<button class="btn-play" onclick="switchSession(${jsArg(item.id)})">${t('sessions.open')}</button>`}
+        <button class="btn-icon" title="${esc(t('sessions.rename'))}" onclick="renameSession(${jsArg(item.id)})">✎</button>
+        <button class="btn-icon" title="${esc(t('sessions.delete'))}" onclick="deleteSession(${jsArg(item.id)})">🗑</button>
+      </div>` : '';
+    return `
+      <div class="session-item ${item.active ? 'active' : ''}">
+        <div class="session-main">
+          <div class="session-title">${esc(item.title || '—')}${item.active ? ` <span class="tag you">${t('sessions.active')}</span>` : ''}</div>
+          <div class="session-meta">${kind} · ${t('sessions.progress', { recorded: item.recorded, total: item.total })} · ${t('sessions.updated', { date: formatSessionDate(item.updatedAt) })}</div>
+          <div class="progress"><div style="width:${pct}%"></div></div>
+        </div>
+        ${actions}
+      </div>`;
+  }).join('');
+}
+
+window.openSessionsModal = function() {
+  renderSessions();
+  sessionsModal.style.display = 'flex';
+};
+
+window.closeSessionsModal = function() {
+  sessionsModal.style.display = 'none';
+};
+
+window.switchSession = function(id) {
+  const recording = [...new Set(liveRecordings.values())].filter(nick => nick !== myName);
+  if (recording.length && !confirm(t('sessions.recordingConfirm', { names: recording.join(', ') }))) return;
+  if (recordState !== 'idle') finishRecording({ discard: true });
+  socket.emit('host_switch_session', { id });
+  closeSessionsModal();
+};
+
+window.renameSession = function(id) {
+  const item = sessionItems().find(entry => entry.id === id);
+  if (!item) return;
+  const next = prompt(t('sessions.renamePrompt'), item.title || '');
+  if (next && next.trim() && next.trim() !== item.title) socket.emit('host_rename_session', { id, title: next.trim() });
+};
+
+window.deleteSession = function(id) {
+  const item = sessionItems().find(entry => entry.id === id);
+  if (!item) return;
+  if (!confirm(t('sessions.deleteConfirm', { title: item.title || '—', takes: item.recorded }))) return;
+  socket.emit('host_delete_session', { id });
+};
+
+window.newSessionFromImport = function() {
+  closeSessionsModal();
+  openFilesModal();
+};

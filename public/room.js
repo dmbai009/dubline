@@ -292,6 +292,7 @@ function updateHostUi() {
     hostPanel.innerHTML = t('host.name', { name: esc(roomHost) });
   }
 
+  renderSessions();
   const canManagePacks = amHost();
   uploadLabel.classList.toggle('disabled', !canManagePacks);
   zipInput.disabled = !canManagePacks;
@@ -322,7 +323,20 @@ socket.on('force_pause', () => {
 socket.on('session_updated', (data) => {
   session = data;
   if (!session || !session.loaded) {
+    // В комнате нет сессии (например, удалили последнюю) — очищаем студию
+    cancelMediaDownload();
+    loadedVideoUrl = null;
+    video.removeAttribute('src');
+    backing.removeAttribute('src');
+    video.load();
+    selectedLine = null;
+    timeline.innerHTML = '';
+    timeline.appendChild(playhead);
+    playhead.style.display = 'none';
+    inspector.innerHTML = `<h3>${t('inspector.title')}</h3><p>${t('inspector.empty')}</p>`;
     updateDownloadButtons();
+    renderLobby();
+    renderSessions();
     return;
   }
 
@@ -340,6 +354,7 @@ socket.on('session_updated', (data) => {
   updateDownloadButtons();
   updateLocalMediaStatus();
   renderLobby();
+  renderSessions();
 
   applyVolumes();
   renderTimeline();

@@ -82,12 +82,22 @@ function sanitizeChatText(raw) {
 // ==========================================
 // КОМНАТЫ (с сохранением на диск)
 // ==========================================
+// Поля сцены, которые принадлежат сессии (см. раздел «Сессии» ниже)
+const SESSION_FIELDS = ['loaded', 'title', 'kind', 'zipUrl', 'videoUrl', 'backingUrl', 'lines', 'characterClaims', 'createdAt', 'updatedAt'];
 const rooms = loadRooms();
 const roomSockets = {}; // { roomId: { socketId: { nick, clientId } } }
 
 function loadRooms() {
   try {
-    if (fs.existsSync(ROOMS_FILE)) return JSON.parse(fs.readFileSync(ROOMS_FILE, 'utf8')) || {};
+    if (fs.existsSync(ROOMS_FILE)) {
+      const loaded = JSON.parse(fs.readFileSync(ROOMS_FILE, 'utf8')) || {};
+      // После чтения из JSON поля активной сессии и ее запись в sessions — разные объекты; связываем обратно
+      for (const room of Object.values(loaded)) {
+        const active = room.sessions && room.activeSessionId && room.sessions[room.activeSessionId];
+        if (active) SESSION_FIELDS.forEach(field => { room[field] = active[field]; });
+      }
+      return loaded;
+    }
   } catch (err) {
     console.error('[Dubline] Не удалось прочитать сохраненные комнаты:', err.message);
   }
@@ -96,6 +106,7 @@ function loadRooms() {
 
 function writeRoomsNow() {
   try {
+    Object.values(rooms).forEach(snapshotActive);
     const tmpFile = ROOMS_FILE + '.tmp';
     fs.writeFileSync(tmpFile, JSON.stringify(rooms));
     fs.renameSync(tmpFile, ROOMS_FILE);
@@ -135,7 +146,100 @@ function getRoom(roomId) {
   for (const key in defaults) {
     if (rooms[roomId][key] === undefined) rooms[roomId][key] = defaults[key];
   }
-  return rooms[roomId];
+  const room = rooms[roomId];
+  if (!room.sessions) room.sessions = {};
+  if (room.activeSessionId === undefined) room.activeSessionId = null;
+  // Комнаты из старых версий: текущая сцена становится первой сессией
+  if (room.loaded && !room.activeSessionId) {
+    room.activeSessionId = newSessionId();
+    room.kind = room.zipUrl ? 'pack' : 'custom';
+    room.createdAt = room.updatedAt = Date.now();
+    snapshotActive(room);
+  }
+  return room;
+}
+
+// ==========================================
+// СЕССИИ: в комнате несколько сцен со своими дублями и ролями, активна одна.
+// Активная сессия лежит прямо в полях комнаты (с ними работает весь остальной код),
+// а room.sessions[id] ссылается на те же массивы.
+// ==========================================
+
+function emptySession() {
+  return { loaded: false, title: '', kind: null, zipUrl: '', videoUrl: '', backingUrl: '', lines: [], characterClaims: {}, createdAt: null, updatedAt: null };
+}
+
+function newSessionId() {
+  return `s${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+}
+
+function snapshotActive(room) {
+  if (!room.activeSessionId || !room.sessions) return;
+  const snapshot = { id: room.activeSessionId };
+  SESSION_FIELDS.forEach(field => { snapshot[field] = room[field]; });
+  room.sessions[room.activeSessionId] = snapshot;
+}
+
+function activateSession(room, id) {
+  snapshotActive(room);
+  const target = room.sessions[id];
+  Object.assign(room, emptySession());
+  if (target) SESSION_FIELDS.forEach(field => { room[field] = target[field]; });
+  room.activeSessionId = target ? id : null;
+}
+
+// Каждый импорт — новая сессия; предыдущие остаются вместе с дублями
+function startNewSession(room, fields) {
+  snapshotActive(room);
+  const now = Date.now();
+  room.activeSessionId = newSessionId();
+  Object.assign(room, emptySession(), fields, { loaded: true, createdAt: now, updatedAt: now });
+  snapshotActive(room);
+}
+
+function sessionSummaries(room) {
+  snapshotActive(room);
+  return Object.values(room.sessions)
+    .map(session => ({
+      id: session.id,
+      title: session.title,
+      kind: session.kind,
+      createdAt: session.createdAt,
+      updatedAt: session.updatedAt,
+      total: (session.lines || []).length,
+      recorded: (session.lines || []).filter(line => line.audioUrl).length,
+      active: session.id === room.activeSessionId
+    }))
+    .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+}
+
+// Папка сцены внутри uploads (pack_… или custom_…), если url указывает на нее
+function sceneDirOf(url) {
+  const match = /^\/uploads\/([^/]+)\//.exec(decodeURIComponent(url || ''));
+  return match && /^(pack_|custom_)/.test(match[1]) ? match[1] : null;
+}
+
+// Используется ли папка сцены еще какой-нибудь сессией в любой комнате
+function isSceneDirUsed(dir) {
+  return Object.values(rooms).some(room => [room, ...Object.values(room.sessions || {})]
+    .some(session => sceneDirOf(session.videoUrl) === dir || sceneDirOf(session.backingUrl) === dir));
+}
+
+function deleteSessionFiles(session) {
+  let takes = 0;
+  (session.lines || []).forEach(line => {
+    if (line.audioUrl) {
+      deleteTakeFile(line.audioUrl);
+      takes++;
+    }
+  });
+  const dirs = new Set([sceneDirOf(session.videoUrl), sceneDirOf(session.backingUrl)].filter(Boolean));
+  dirs.forEach(dir => {
+    if (isSceneDirUsed(dir)) return;
+    const full = path.join(UPLOAD_DIR, dir);
+    if (full.startsWith(UPLOAD_DIR + path.sep)) fs.rm(full, { recursive: true, force: true }, () => {});
+  });
+  return takes;
 }
 
 // Размеры медиафайлов показываем на кнопках скачивания. Кэшируем, чтобы не дергать диск
@@ -187,9 +291,10 @@ function forgetFileSizes(...urls) {
 
 // Секреты (clientId игроков) никогда не уходят клиентам
 function publicRoom(room) {
-  const { hostClientId, nickOwners, chat, ...rest } = room;
+  const { hostClientId, nickOwners, chat, sessions, ...rest } = room;
   return {
     ...rest,
+    sessionList: sessionSummaries(room),
     videoSize: fileSizeForUrl(room.videoUrl),
     backingSize: fileSizeForUrl(room.backingUrl),
     zipSize: fileSizeForUrl(room.zipUrl),
@@ -556,16 +661,16 @@ function loadPackIntoRoom(roomId, packName, buffer, forceExtract) {
   const room = getRoom(roomId);
   const pack = readPack(buffer, packName, forceExtract);
 
-  // Дубли от прошлого пака больше не нужны — чистим диск
-  room.lines.forEach(line => deleteTakeFile(line.audioUrl));
-
-  room.loaded = true;
-  room.title = pack.title;
-  room.zipUrl = `/packs/${encodeURIComponent(packName)}`;
-  room.videoUrl = pack.videoUrl;
-  room.backingUrl = pack.backingUrl;
-  room.lines = pack.lines;
-  room.characterClaims = {};
+  // Новый пак — новая сессия: прошлые сессии и их дубли остаются
+  startNewSession(room, {
+    title: pack.title,
+    kind: 'pack',
+    zipUrl: `/packs/${encodeURIComponent(packName)}`,
+    videoUrl: pack.videoUrl,
+    backingUrl: pack.backingUrl,
+    lines: pack.lines,
+    characterClaims: {}
+  });
   forgetFileSizes(room.zipUrl, room.videoUrl, room.backingUrl);
   delete recordingNow[roomId];
   endWatch(roomId, null, '🎬 Совместный просмотр остановлен: сменился пак');
@@ -935,15 +1040,15 @@ app.post('/api/upload-custom', acceptCustomFiles(MAX_PACK_MB), async (req, res) 
       throw new HttpError(400, 'В файле субтитров не найдено реплик');
     }
 
-    room.lines.forEach(line => deleteTakeFile(line.audioUrl));
-
-    room.loaded = true;
-    room.title = customTitle;
-    room.zipUrl = '';
-    room.videoUrl = `/uploads/${encodeURIComponent(dirName)}/${encodeURIComponent(videoName)}`;
-    room.backingUrl = '';
-    room.lines = lines;
-    room.characterClaims = {};
+    startNewSession(room, {
+      title: customTitle,
+      kind: 'custom',
+      zipUrl: '',
+      videoUrl: `/uploads/${encodeURIComponent(dirName)}/${encodeURIComponent(videoName)}`,
+      backingUrl: '',
+      lines,
+      characterClaims: {}
+    });
     forgetFileSizes(room.videoUrl);
     delete recordingNow[roomId];
     endWatch(roomId, null, '🎬 Совместный просмотр остановлен: сменилась сцена');
@@ -990,6 +1095,7 @@ app.post('/api/upload-line-audio', acceptFile('audio', MAX_TAKE_MB), (req, res) 
     line.audioStart = audioStart !== null ? Math.max(0, audioStart) : line.start;
     line.recordedStart = line.audioStart;
     line.recordedBy = userName;
+    room.updatedAt = Date.now();
     // Выбранный голос (эффект/питч) переживает перезапись дубля
     const hasTrim = trimStart !== null && trimEnd !== null && trimStart >= 0 && trimEnd > trimStart;
     line.trimStart = hasTrim ? trimStart : null;
@@ -1292,6 +1398,66 @@ io.on('connection', socket => {
     chatTimestamps.push(now);
 
     addChatMessage(roomId, { nick, text: clean });
+  });
+
+  // ---------- Сессии (управляет хост) ----------
+  function resetSceneState(reason) {
+    delete recordingNow[roomId];
+    endWatch(roomId, null, reason);
+    delete p2pSeeders[roomId];
+    broadcastRecording(roomId);
+    broadcastSeeders(roomId);
+  }
+
+  socket.on('host_switch_session', ({ id } = {}) => {
+    if (!roomId) return;
+    const room = getRoom(roomId);
+    if (!isHost(room, clientId) || !room.sessions[id] || id === room.activeSessionId) return;
+    activateSession(room, id);
+    resetSceneState('🎬 Совместный просмотр остановлен: сменилась сессия');
+    saveRooms();
+    emitSession(roomId);
+    addSystemMessage(roomId, 'system.sessionSwitched', { nick, title: room.title }, `🎬 ${nick} открыл сессию «${room.title}»`);
+    logEvent(roomId, `🎬 ${nick} открыл сессию «${room.title}»`);
+  });
+
+  socket.on('host_rename_session', ({ id, title } = {}) => {
+    if (!roomId) return;
+    const room = getRoom(roomId);
+    const clean = sanitizeChatText(title).slice(0, 80);
+    if (!isHost(room, clientId) || !room.sessions[id] || !clean) return;
+    if (id === room.activeSessionId) room.title = clean;
+    room.sessions[id].title = clean;
+    snapshotActive(room);
+    saveRooms();
+    emitSession(roomId);
+    logEvent(roomId, `✎ Сессия переименована: «${clean}»`);
+  });
+
+  socket.on('host_delete_session', ({ id } = {}) => {
+    if (!roomId) return;
+    const room = getRoom(roomId);
+    if (!isHost(room, clientId) || !room.sessions[id]) return;
+    snapshotActive(room);
+    const doomed = room.sessions[id];
+
+    if (id === room.activeSessionId) {
+      // Удаляем открытую — переходим на самую свежую из оставшихся (или на пустую комнату)
+      room.activeSessionId = null;
+      const next = Object.values(room.sessions)
+        .filter(session => session.id !== id)
+        .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0];
+      if (next) activateSession(room, next.id);
+      else Object.assign(room, emptySession());
+      resetSceneState('🎬 Совместный просмотр остановлен: сессия удалена');
+    }
+    delete room.sessions[id];
+    const takes = deleteSessionFiles(doomed);
+
+    saveRooms();
+    emitSession(roomId);
+    addSystemMessage(roomId, 'system.sessionDeleted', { nick, title: doomed.title, takes }, `🗑 ${nick} удалил сессию «${doomed.title}» (${takes} дублей)`);
+    logEvent(roomId, `🗑 ${nick} удалил сессию «${doomed.title}» и ее файлы (${takes} дублей)`);
   });
 
   // ---------- Задержка микрофона игрока ----------

@@ -369,6 +369,70 @@
     'localMedia.activeP2p': "⚡ Відео завантажено до вас ({size}) — ви роздаєте його іншим"
   });
 
+  Object.assign(messages.en, {
+    'sessions.title': "🎬 Room sessions",
+    'sessions.help': "Every import (pack, video + subtitles, or a mod from the library) creates a new session. Older sessions keep all their takes, and you can switch between them.",
+    'sessions.empty': "No sessions yet — import a scene",
+    'sessions.none': "No session",
+    'sessions.onlyHost': "Only the host can switch, rename or delete sessions",
+    'sessions.active': "open",
+    'sessions.open': "▶ Open",
+    'sessions.rename': "Rename",
+    'sessions.delete': "Delete",
+    'sessions.new': "➕ New session (import)",
+    'sessions.progress': "{recorded}/{total} dubbed",
+    'sessions.updated': "changed {date}",
+    'sessions.kind.pack': "📦 Pack",
+    'sessions.kind.custom': "🎞️ Video + subtitles",
+    'sessions.renamePrompt': "New session name:",
+    'sessions.deleteConfirm': "Delete session “{title}”?\n\nIts {takes} takes and scene files will be deleted permanently. The pack archive in the mod library stays.\n\nThis cannot be undone.",
+    'sessions.recordingConfirm': "Recording right now: {names}. Switch session anyway? Their takes will not be saved.",
+    'system.sessionSwitched': "🎬 {nick} opened session “{title}”",
+    'system.sessionDeleted': "🗑 {nick} deleted session “{title}” ({takes} takes)"
+  });
+  Object.assign(messages.ru, {
+    'sessions.title': "🎬 Сессии комнаты",
+    'sessions.help': "Каждый импорт (пак, видео + субтитры или мод из библиотеки) создаёт новую сессию. Старые сессии остаются со всеми дублями — между ними можно переключаться.",
+    'sessions.empty': "Сессий пока нет — импортируйте сцену",
+    'sessions.none': "Нет сессии",
+    'sessions.onlyHost': "Переключать, переименовывать и удалять сессии может только хост",
+    'sessions.active': "открыта",
+    'sessions.open': "▶ Открыть",
+    'sessions.rename': "Переименовать",
+    'sessions.delete': "Удалить",
+    'sessions.new': "➕ Новая сессия (импорт)",
+    'sessions.progress': "{recorded}/{total} озвучено",
+    'sessions.updated': "изменена {date}",
+    'sessions.kind.pack': "📦 Пак",
+    'sessions.kind.custom': "🎞️ Видео + субтитры",
+    'sessions.renamePrompt': "Новое название сессии:",
+    'sessions.deleteConfirm': "Удалить сессию «{title}»?\n\nЕё {takes} дублей и файлы сцены будут удалены безвозвратно. Архив пака в библиотеке модов останется.\n\nЭто нельзя отменить.",
+    'sessions.recordingConfirm': "Сейчас записывают: {names}. Всё равно переключить сессию? Их дубли не сохранятся.",
+    'system.sessionSwitched': "🎬 {nick} открыл сессию «{title}»",
+    'system.sessionDeleted': "🗑 {nick} удалил сессию «{title}» ({takes} дублей)"
+  });
+  Object.assign(messages.uk, {
+    'sessions.title': "🎬 Сесії кімнати",
+    'sessions.help': "Кожен імпорт (пак, відео + субтитри або мод з бібліотеки) створює нову сесію. Старі сесії залишаються з усіма дублями — між ними можна перемикатися.",
+    'sessions.empty': "Сесій поки немає — імпортуйте сцену",
+    'sessions.none': "Немає сесії",
+    'sessions.onlyHost': "Перемикати, перейменовувати та видаляти сесії може лише хост",
+    'sessions.active': "відкрита",
+    'sessions.open': "▶ Відкрити",
+    'sessions.rename': "Перейменувати",
+    'sessions.delete': "Видалити",
+    'sessions.new': "➕ Нова сесія (імпорт)",
+    'sessions.progress': "{recorded}/{total} озвучено",
+    'sessions.updated': "змінена {date}",
+    'sessions.kind.pack': "📦 Пак",
+    'sessions.kind.custom': "🎞️ Відео + субтитри",
+    'sessions.renamePrompt': "Нова назва сесії:",
+    'sessions.deleteConfirm': "Видалити сесію «{title}»?\n\nЇї {takes} дублів і файли сцени буде видалено назавжди. Архів пака в бібліотеці модів залишиться.\n\nЦе не можна скасувати.",
+    'sessions.recordingConfirm': "Зараз записують: {names}. Усе одно перемкнути сесію? Їхні дублі не збережуться.",
+    'system.sessionSwitched': "🎬 {nick} відкрив сесію «{title}»",
+    'system.sessionDeleted': "🗑 {nick} видалив сесію «{title}» ({takes} дублів)"
+  });
+
   let language = localStorage.getItem('dubline_language');
   if (!messages[language]) {
     const browser = String(navigator.language || 'en').toLowerCase();
