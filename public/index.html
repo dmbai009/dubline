@@ -174,6 +174,10 @@
     .video-prompter { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); background: rgba(10, 10, 14, 0.82); backdrop-filter: blur(8px); padding: 8px 18px; border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.12); color: #fff; font-size: 20px; max-width: 85%; text-align: center; pointer-events: none; z-index: 10; box-shadow: var(--shadow); line-height: 1.35; }
     .prompter-char { color: var(--accent-2); font-weight: 700; margin-right: 8px; }
     .prompter-text { font-weight: 500; }
+    .prompter-line + .prompter-line { margin-top: 8px; padding-top: 6px; border-top: 1px solid rgba(255, 255, 255, 0.1); }
+    .prompter-line.dim { opacity: 0.45; font-size: 0.8em; }
+    .prompter-line.recording .prompter-char { color: #fca5a5; }
+    .prompter-more { font-size: 0.65em; color: var(--muted); margin-top: 4px; }
     .prompter-progress { height: 3px; background: var(--accent); border-radius: 3px; margin-top: 6px; width: 0; transition: width 0.06s linear; }
 
     .audio-mixer { width: 100%; background: var(--panel); border-top: 1px solid var(--border); padding: 8px 14px; display: flex; gap: 18px; align-items: center; justify-content: center; font-size: 11px; color: var(--muted); flex-wrap: wrap; }
@@ -824,9 +828,6 @@
             <audio id="backingAudio" crossorigin="anonymous"></audio>
             <audio id="originalTrackAudio" crossorigin="anonymous"></audio>
             <div id="videoPrompter" class="video-prompter" style="display: none;">
-              <span id="prompterChar" class="prompter-char"></span>
-              <span id="prompterText" class="prompter-text"></span>
-              <div id="prompterProgress" class="prompter-progress"></div>
             </div>
             <!-- Визуальный отсчёт перед записью (без звука) -->
             <div id="recordCue" class="record-cue" style="display: none;">

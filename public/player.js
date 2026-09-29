@@ -167,9 +167,8 @@ playhead.style.cssText = `
 `;
 timeline.appendChild(playhead);
 const videoPrompter = document.getElementById('videoPrompter');
-const prompterChar = document.getElementById('prompterChar');
-const prompterText = document.getElementById('prompterText');
-const prompterProgress = document.getElementById('prompterProgress');
+const PROMPTER_MAX_LINES = 4;
+let prompterKey = '';
 
 function updatePrompter() {
   // Шрифт суфлёра не больше ~4.5% ширины видео, чтобы на маленьком окне он не закрывал картинку
@@ -179,16 +178,36 @@ function updatePrompter() {
     return;
   }
   const current = video.currentTime || 0;
-  const recording = recordingLineId != null && session.lines.find(line => line.id === recordingLineId);
-  const line = recording || session.lines.find(item => current >= item.start && current <= item.end);
-  if (!line) {
+  // Все реплики, которые звучат сейчас (персонажи могут говорить одновременно);
+  // при записи своя реплика — первой и выделена, остальные приглушены
+  const recording = recordingLineId != null ? session.lines.find(line => line.id === recordingLineId) : null;
+  const active = session.lines
+    .filter(line => line !== recording && current >= line.start && current <= line.end)
+    .sort((a, b) => a.start - b.start || a.id - b.id);
+  const shown = (recording ? [recording, ...active] : active).slice(0, PROMPTER_MAX_LINES);
+  const hidden = (recording ? 1 : 0) + active.length - shown.length;
+  if (!shown.length) {
     videoPrompter.style.display = 'none';
+    prompterKey = '';
     return;
   }
-  prompterChar.textContent = `${line.character}:`;
-  prompterText.textContent = line.caption || '…';
-  const progress = Math.max(0, Math.min(1, (current - line.start) / Math.max(0.05, line.end - line.start)));
-  prompterProgress.style.width = `${progress * 100}%`;
+
+  // Строки пересобираем только когда меняется набор реплик, а каждый кадр двигаем полоски
+  const key = `${recording ? recording.id : ''}|${shown.map(line => line.id).join(',')}|${hidden}`;
+  if (key !== prompterKey) {
+    prompterKey = key;
+    videoPrompter.innerHTML = shown.map(line => `
+      <div class="prompter-line ${recording ? (line === recording ? 'recording' : 'dim') : ''}" data-line="${line.id}">
+        <span class="prompter-char">${esc(line.character)}:</span>
+        <span class="prompter-text">${esc(line.caption || '…')}</span>
+        <div class="prompter-progress"></div>
+      </div>`).join('') + (hidden > 0 ? `<div class="prompter-more">${t('prompter.more', { n: hidden })}</div>` : '');
+  }
+  videoPrompter.querySelectorAll('.prompter-line').forEach(row => {
+    const line = shown.find(item => item.id === Number(row.dataset.line));
+    const progress = line ? Math.max(0, Math.min(1, (current - line.start) / Math.max(0.05, line.end - line.start))) : 0;
+    row.querySelector('.prompter-progress').style.width = `${progress * 100}%`;
+  });
   videoPrompter.style.display = 'block';
 }
 

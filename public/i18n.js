@@ -830,6 +830,16 @@
     'trash.nothingFound': "Нічого не знайдено"
   });
 
+  Object.assign(messages.en, {
+    'prompter.more': "+{n} more at the same time"
+  });
+  Object.assign(messages.ru, {
+    'prompter.more': "+ ещё {n} одновременно"
+  });
+  Object.assign(messages.uk, {
+    'prompter.more': "+ ще {n} одночасно"
+  });
+
   let language = localStorage.getItem('dubline_language');
   if (!messages[language]) {
     const browser = String(navigator.language || 'en').toLowerCase();

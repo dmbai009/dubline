@@ -240,6 +240,29 @@ describe('studio', { skip: skipReason }, () => {
     }
     assert.equal(layout.rowHeight, 6 + 3 * 54, 'row grows to fit the lanes');
     assert.equal(layout.tiles.find(tile => tile.start === 6).top, Math.min(...lanes), 'free time goes back to the first lane');
+
+    // Суфлёр над видео показывает все реплики, звучащие одновременно
+    const prompter = await alice.evaluate(async () => {
+      video.currentTime = 3.2;
+      await new Promise(resolve => video.addEventListener('seeked', resolve, { once: true }));
+      updatePrompter();
+      const rows = () => [...document.querySelectorAll('#videoPrompter .prompter-line')];
+      const plain = rows().map(row => row.querySelector('.prompter-text').textContent);
+      // Во время записи своя реплика — первой и выделена, остальные приглушены
+      const second = session.lines.find(l => /two$/.test(l.caption));
+      recordingLineId = second.id;
+      updatePrompter();
+      const recording = rows().map(row => ({ text: row.querySelector('.prompter-text').textContent, cls: row.className.trim() }));
+      recordingLineId = null;
+      updatePrompter();
+      return { plain, recording, visible: getComputedStyle(document.getElementById('videoPrompter')).display };
+    });
+    // (в тестовых сабах текст реплики — «A: one»: однобуквенный префикс не считается именем персонажа)
+    assert.deepEqual(prompter.plain.map(text => text.split(' ').pop()), ['one', 'two', 'three']);
+    assert.match(prompter.recording[0].text, /two$/);
+    assert.match(prompter.recording[0].cls, /recording/);
+    assert.ok(prompter.recording.slice(1).every(row => /dim/.test(row.cls)));
+    assert.equal(prompter.visible, 'block');
   });
 
   test('changing the character of a line moves it to that character track', async () => {
