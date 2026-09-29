@@ -25,6 +25,67 @@ test('static DOM references exist and legacy modal IDs are gone', () => {
   for (const legacy of ['nickInput', 'libraryModal', 'renderModal']) assert.doesNotMatch(app, new RegExp(`getElementById\\(['"]${legacy}`));
 });
 
+test('state and audio modules load before the application coordinator', () => {
+  const scripts = [...html.matchAll(/<script[^>]+src=["']([^"']+)["']/g)].map(match => match[1]);
+  const positions = ['state.js', 'audio-fx.js', 'audio.js', 'app.js'].map(name => scripts.indexOf(name));
+  assert.ok(positions.every(position => position >= 0), 'a required client module is missing');
+  assert.deepEqual([...positions].sort((a, b) => a - b), positions);
+});
+
+test('state module owns persisted settings and compatibility aliases', () => {
+  const values = new Map([
+    ['dubline_nick', 'Mira'],
+    ['dubline_auto_duck_amount', '0.65'],
+    ['dubline_prompter_size', '28']
+  ]);
+  const context = {
+    localStorage: {
+      getItem: key => values.get(key) ?? null,
+      setItem: (key, value) => values.set(key, value)
+    },
+    crypto: { randomUUID: () => 'client-test-id' }
+  };
+  context.window = context;
+  vm.runInNewContext(fs.readFileSync('public/state.js', 'utf8'), context);
+  assert.equal(context.DublineState.data.myName, 'Mira');
+  assert.equal(context.DublineState.data.clientId, 'client-test-id');
+  assert.equal(context.DublineState.data.autoDuckAmount, 0.65);
+  context.session = { loaded: true };
+  assert.equal(context.DublineState.data.session.loaded, true);
+});
+
+test('audio module exposes bounded take timing without leaking playback internals', () => {
+  const context = {
+    window: {
+      DublineAudioFx: {
+        effectTailSeconds: effect => effect === 'cave' ? 2 : 0,
+        fetchAndDecode: async () => null,
+        renderVoice: async buffer => buffer
+      }
+    },
+    console,
+    setTimeout,
+    clearTimeout,
+    Audio: function Audio() {}
+  };
+  vm.runInNewContext(fs.readFileSync('public/audio.js', 'utf8'), context);
+  const controller = context.window.DublineAudio.createController({
+    video: { volume: 1 },
+    backing: { volume: 1 },
+    getSession: () => null,
+    getVolumes: () => ({ original: 0, backing: 1, recorded: 1, isMuted: false }),
+    getSettings: () => ({ autoDuckEnabled: true, autoDuckAmount: 0.4 }),
+    isRenderInProgress: () => false,
+    getRecordingLineId: () => null
+  });
+  assert.deepEqual(
+    { ...controller.takeBounds({ effect: 'cave', trimStart: 1, trimEnd: 3 }, 8) },
+    { from: 1, to: 5 }
+  );
+  assert.equal(context.window.rawTakeCache, undefined);
+  assert.equal(context.window.playCtx, undefined);
+});
+
 test('all interface translation keys exist in English, Russian and Ukrainian', () => {
   const context = {
     window: { dispatchEvent() {} },

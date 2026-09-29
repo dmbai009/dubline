@@ -9,38 +9,7 @@ const urlParams = new URLSearchParams(window.location.search);
 const currentRoom = urlParams.get('room') || 'main';
 document.getElementById('roomNameLabel').innerText = currentRoom;
 
-let session = null;
-let selectedLine = null;
-let mediaRecorder = null;
-let audioChunks = [];
-
-let myName = localStorage.getItem('dubline_nick') || '';
-const clientId = getClientId();
-let roomHost = null;
-let hostOnline = false;
-let discardTake = false;
-let userMicGain = parseFloat(localStorage.getItem('dubline_mic_gain')) || 1.0;
-let noiseSuppression = localStorage.getItem('dubline_noise_suppression') !== '0';
-let autoDuckEnabled = localStorage.getItem('dubline_auto_duck') !== '0';
-const storedAutoDuckAmount = parseFloat(localStorage.getItem('dubline_auto_duck_amount') ?? '0.4');
-let autoDuckAmount = Number.isFinite(storedAutoDuckAmount) ? Math.max(0, Math.min(0.8, storedAutoDuckAmount)) : 0.4;
-let prompterEnabled = localStorage.getItem('dubline_prompter') !== '0';
-const storedPrompterSize = parseInt(localStorage.getItem('dubline_prompter_size') || '20', 10);
-let prompterSize = Number.isFinite(storedPrompterSize) ? Math.max(14, Math.min(36, storedPrompterSize)) : 20;
-
-let audioCtx = null;
-let analyser = null;
-let micStream = null;
-let isVisualizerRunning = false;
-let recordState = 'idle';
-let recordStopTimeout = null;
-let previewAudio = null;
-let previewSource = null;
-let currentRecordingStartTime = 0;
-let recordingLineId = null;
-let renderInProgress = false;
-
-const volumes = { original: 0.0, backing: 1.0, recorded: 1.0, isMuted: false };
+const state = window.DublineState.data;
 
 const video = document.getElementById('mainVideo');
 const backing = document.getElementById('backingAudio');
@@ -57,17 +26,33 @@ const nickError = document.getElementById('nickError');
 const hostPanel = document.getElementById('hostPanel');
 const uploadLabel = document.getElementById('uploadLabel');
 
-// Постоянный секретный ID устройства: к нему сервер привязывает ник и права хоста
-function getClientId() {
-  let id = localStorage.getItem('dubline_client_id');
-  if (!id) {
-    id = (window.crypto && crypto.randomUUID)
-      ? crypto.randomUUID()
-      : Date.now().toString(36) + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
-    localStorage.setItem('dubline_client_id', id);
-  }
-  return id;
-}
+const audio = window.DublineAudio.createController({
+  video,
+  backing,
+  getSession: () => state.session,
+  getVolumes: () => state.volumes,
+  getSettings: () => ({
+    autoDuckEnabled: state.autoDuckEnabled,
+    autoDuckAmount: state.autoDuckAmount
+  }),
+  isRenderInProgress: () => state.renderInProgress,
+  getRecordingLineId: () => state.recordingLineId
+});
+
+const {
+  applyVolumes,
+  ensurePlayCtx,
+  getProcessedTake,
+  getRawTake,
+  precacheTakes,
+  resetLine,
+  scheduleTakes,
+  setDucking,
+  stopAllTakes,
+  takeBounds,
+  takeDryBounds,
+  takeStartTime
+} = audio;
 
 // Экранирование пользовательского текста перед вставкой в HTML
 function esc(value) {
@@ -346,17 +331,6 @@ const volOriginalVal = document.getElementById('volOriginalVal');
 const volBackingVal = document.getElementById('volBackingVal');
 const volRecordedVal = document.getElementById('volRecordedVal');
 
-function applyVolumes() {
-  const muted = volumes.isMuted;
-  if (videoGain && backingGain && playCtx) {
-    setDucking(duckingActive, true);
-    takesBus.gain.setValueAtTime(muted ? 0 : volumes.recorded, playCtx.currentTime);
-  } else {
-    video.volume = muted ? 0 : effectiveOriginalVolume();
-    backing.volume = muted || renderInProgress ? 0 : volumes.backing;
-  }
-}
-
 muteAllCheckbox.addEventListener('change', (e) => { volumes.isMuted = e.target.checked; applyVolumes(); });
 volOriginal.addEventListener('input', (e) => { volumes.original = e.target.value / 100; volOriginalVal.innerText = `${e.target.value}%`; applyVolumes(); });
 volBacking.addEventListener('input', (e) => { volumes.backing = e.target.value / 100; volBackingVal.innerText = `${e.target.value}%`; applyVolumes(); });
@@ -414,193 +388,6 @@ function syncPlayheadLoop() {
 // ==========================================
 // ВОСПРОИЗВЕДЕНИЕ ДУБЛЕЙ (Web Audio, с эффектами и обрезкой)
 // ==========================================
-const TAKE_LOOKAHEAD = 0.25; // запускаем дубль заранее и точно планируем старт по аудиочасам
-const rawTakeCache = new Map();       // url -> Promise<AudioBuffer | null>
-const processedTakeCache = new Map(); // url|effect|pitch -> Promise<AudioBuffer | null>
-let playCtx = null;
-let takesBus = null;
-let videoSourceNode = null;
-let backingSourceNode = null;
-let videoGain = null;
-let backingGain = null;
-let duckingActive = false;
-const duckingTakes = new Set();
-const duckStartTimers = new Map();
-let playGeneration = 0;
-const startedTakes = new Set();
-const activeTakeSources = new Map(); // lineId -> AudioBufferSourceNode
-
-function ensurePlayCtx() {
-  if (!playCtx) {
-    playCtx = new (window.AudioContext || window.webkitAudioContext)();
-    takesBus = playCtx.createGain();
-    takesBus.connect(playCtx.destination);
-    videoSourceNode = playCtx.createMediaElementSource(video);
-    backingSourceNode = playCtx.createMediaElementSource(backing);
-    videoGain = playCtx.createGain();
-    backingGain = playCtx.createGain();
-    videoSourceNode.connect(videoGain).connect(playCtx.destination);
-    backingSourceNode.connect(backingGain).connect(playCtx.destination);
-    video.volume = 1;
-    backing.volume = 1;
-    applyVolumes();
-  }
-  if (playCtx.state === 'suspended') playCtx.resume();
-  return playCtx;
-}
-
-function effectiveOriginalVolume() {
-  return session && !session.backingUrl ? volumes.backing : volumes.original;
-}
-
-function rampGain(param, value, seconds, immediate) {
-  if (!playCtx) return;
-  const now = playCtx.currentTime;
-  if (typeof param.cancelAndHoldAtTime === 'function') param.cancelAndHoldAtTime(now);
-  else {
-    param.cancelScheduledValues(now);
-    param.setValueAtTime(param.value, now);
-  }
-  if (immediate) param.setValueAtTime(value, now);
-  else param.linearRampToValueAtTime(value, now + seconds);
-}
-
-function setDucking(active, immediate = false) {
-  duckingActive = !!active && autoDuckEnabled;
-  if (!playCtx || !videoGain || !backingGain) return;
-  const muted = volumes.isMuted;
-  const factor = duckingActive ? 1 - autoDuckAmount : 1;
-  const seconds = duckingActive ? 0.08 : 0.25;
-  rampGain(videoGain.gain, muted ? 0 : effectiveOriginalVolume() * factor, seconds, immediate);
-  rampGain(backingGain.gain, muted || renderInProgress ? 0 : volumes.backing * factor, seconds, immediate);
-}
-
-function updateDuckingState() {
-  setDucking(duckingTakes.size > 0);
-}
-
-function takeStartTime(line) {
-  return (line.audioStart !== null && line.audioStart !== undefined) ? line.audioStart : line.start;
-}
-
-function takeDryBounds(line, duration = Infinity) {
-  const trimOn = line.trimEnabled !== false && line.trimStart != null && line.trimEnd != null;
-  const from = trimOn ? Math.max(0, line.trimStart) : 0;
-  const to = trimOn ? Math.min(duration, line.trimEnd) : duration;
-  return { from, to };
-}
-
-// Какая часть файла дубля звучит (с учетом автообрезки тишины)
-function takeBounds(line, duration = Infinity) {
-  const dry = takeDryBounds(line, duration);
-  const tail = effectTailSeconds(line.effect || 'none');
-  const trimOn = line.trimEnabled !== false && line.trimStart != null && line.trimEnd != null;
-  const from = dry.from;
-  const to = trimOn ? Math.min(duration, dry.to + tail) : duration;
-  return { from, to };
-}
-
-function getRawTake(url) {
-  if (!rawTakeCache.has(url)) rawTakeCache.set(url, fetchAndDecode(url).catch(() => null));
-  return rawTakeCache.get(url);
-}
-
-function getProcessedTake(line) {
-  if (!line.audioUrl) return Promise.resolve(null);
-  const key = `${line.audioUrl}|${line.effect || 'none'}|${line.pitch || 0}|${line.trimEnabled !== false}|${line.trimStart}|${line.trimEnd}`;
-  if (!processedTakeCache.has(key)) {
-    const job = getRawTake(line.audioUrl)
-      .then(buf => buf && renderVoice(buf, line.effect || 'none', line.pitch || 0, takeDryBounds(line, buf.duration)))
-      .catch(err => {
-        console.error('[Dubline] Не удалось обработать дубль:', err);
-        return null;
-      });
-    processedTakeCache.set(key, job);
-  }
-  return processedTakeCache.get(key);
-}
-
-function precacheTakes() {
-  if (!session || !session.lines) return;
-  session.lines.forEach(line => { if (line.audioUrl) getProcessedTake(line); });
-}
-
-function scheduleTakes(current) {
-  session.lines.forEach(line => {
-    if (!line.audioUrl || startedTakes.has(line.id) || line.id === recordingLineId) return;
-    const start = takeStartTime(line);
-    const { from, to } = takeBounds(line);
-    const end = Number.isFinite(to) ? start + to : start + 60;
-    if (current >= start + from - TAKE_LOOKAHEAD && current < end) startTake(line);
-  });
-}
-
-async function startTake(line) {
-  startedTakes.add(line.id);
-  const generation = playGeneration;
-  const buffer = await getProcessedTake(line);
-  if (!buffer || generation !== playGeneration || video.paused) return;
-
-  const ctx = ensurePlayCtx();
-  const start = takeStartTime(line);
-  const { from, to } = takeBounds(line, buffer.duration);
-  const now = video.currentTime;
-  const when = start + from;
-  const offset = from + Math.max(0, now - when);
-  if (offset >= to) return;
-
-  const src = ctx.createBufferSource();
-  src.buffer = buffer;
-  // Короткий fade-in, чтобы не было щелчка при старте с середины
-  const fade = ctx.createGain();
-  const at = ctx.currentTime + Math.max(0, when - now);
-  fade.gain.setValueAtTime(0, at);
-  fade.gain.linearRampToValueAtTime(1, at + 0.012);
-  src.connect(fade);
-  fade.connect(takesBus);
-  src.start(at, offset, to - offset);
-
-  stopTake(line.id);
-  activeTakeSources.set(line.id, src);
-  const delay = Math.max(0, (at - ctx.currentTime) * 1000);
-  const timer = setTimeout(() => {
-    duckStartTimers.delete(line.id);
-    if (activeTakeSources.get(line.id) === src) {
-      duckingTakes.add(line.id);
-      updateDuckingState();
-    }
-  }, delay);
-  duckStartTimers.set(line.id, timer);
-  src.onended = () => {
-    if (activeTakeSources.get(line.id) === src) activeTakeSources.delete(line.id);
-    duckingTakes.delete(line.id);
-    updateDuckingState();
-  };
-}
-
-function stopTake(lineId) {
-  const timer = duckStartTimers.get(lineId);
-  if (timer) clearTimeout(timer);
-  duckStartTimers.delete(lineId);
-  const src = activeTakeSources.get(lineId);
-  if (src) {
-    activeTakeSources.delete(lineId);
-    try { src.stop(); } catch (e) {}
-  }
-  duckingTakes.delete(lineId);
-  updateDuckingState();
-}
-
-function stopAllTakes() {
-  playGeneration++;
-  startedTakes.clear();
-  [...activeTakeSources.keys()].forEach(stopTake);
-  duckStartTimers.forEach(clearTimeout);
-  duckStartTimers.clear();
-  duckingTakes.clear();
-  setDucking(false);
-}
-
 video.addEventListener('play', () => {
   ensurePlayCtx();
   stopAllTakes();
@@ -683,8 +470,7 @@ socket.on('line_updated', (updatedLine) => {
   if (idx !== -1) {
     // Сдвиг/эффекты меняются на лету: если дубль сейчас звучит, перезапускаем его с новыми параметрами
     if (!video.paused) {
-      stopTake(updatedLine.id);
-      startedTakes.delete(updatedLine.id);
+      resetLine(updatedLine.id);
     }
     session.lines[idx] = updatedLine;
     updateLineBlock(updatedLine);
@@ -1174,39 +960,15 @@ window.unclaimCharacter = function(char) { socket.emit('unclaim_character', { ch
 window.claimSingleLine = function(lineId) { socket.emit('claim_line', { lineId }); };
 window.unclaimSingleLine = function(lineId) { socket.emit('unclaim_line', { lineId }); };
 
-function stopPreview() {
-  if (previewAudio) {
-    previewAudio.pause();
-    previewAudio = null;
-  }
-  if (previewSource) {
-    try { previewSource.stop(); } catch (e) {}
-    previewSource = null;
-  }
-}
-
 window.playAudio = function(url) {
-  stopPreview();
-  previewAudio = new Audio(url);
-  previewAudio.volume = volumes.isMuted ? 0 : volumes.recorded;
-  previewAudio.play().catch(err => console.error(err));
+  audio.playAudio(url).catch(error => console.error(error));
 };
 
 // Прослушать дубль так, как он прозвучит в ролике: с эффектом, питчем и обрезкой
 window.previewTake = async function(lineId) {
-  stopPreview();
   const line = session.lines.find(l => l.id === lineId);
   if (!line) return;
-  const ctx = ensurePlayCtx();
-  const buffer = await getProcessedTake(line);
-  if (!buffer) return alert(t('error.take'));
-
-  const { from, to } = takeBounds(line, buffer.duration);
-  const src = ctx.createBufferSource();
-  src.buffer = buffer;
-  src.connect(takesBus);
-  src.start(0, from, Math.max(0.05, to - from));
-  previewSource = src;
+  if (!await audio.previewTake(line)) alert(t('error.take'));
 };
 
 function startVisualizer(stream) {

@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "test": "node --test",
-    "check": "node --check server.js && node --check public/i18n.js && node --check public/audio-fx.js && node --check public/app.js"
+    "check": "node --check server.js && node --check public/i18n.js && node --check public/state.js && node --check public/audio-fx.js && node --check public/audio.js && node --check public/app.js"
   },
   "dependencies": {
     "adm-zip": "^0.6.1",

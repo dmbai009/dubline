@@ -337,4 +337,4 @@ function limitPeak(buffer, maxPeak = 0.95) {
   return buffer;
 }
 
-window.DublineAudioFx = { VOICE_EFFECTS, effectTailSeconds };
+window.DublineAudioFx = { VOICE_EFFECTS, effectTailSeconds, fetchAndDecode, renderVoice };
