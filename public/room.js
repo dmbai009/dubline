@@ -527,7 +527,8 @@ socket.on('watch_start', ({ position, at }) => {
 
   // Обратный отсчет, затем старт по серверным часам — у всех в один момент
   const tick = () => {
-    const left = Math.ceil((at - serverNow()) / 1000);
+    // Часы игрока могут отставать от серверных на миллисекунды — не показываем «4» на трехсекундном отсчете
+    const left = Math.min(3, Math.ceil((at - serverNow()) / 1000));
     watchCountdown.textContent = left > 0 ? String(left) : '';
     watchCountdown.style.display = left > 0 ? 'block' : 'none';
   };
