@@ -240,6 +240,16 @@ const p2pSeeders = {};   // roomId -> { url: Set(socketId) } — у кого и�
 const watchState = {};   // roomId -> { active, playing, position, at }
 const WATCH_COUNTDOWN_MS = 3000;
 
+// Завершает совместный просмотр и обязательно сообщает об этом всем браузерам,
+// иначе у игроков останется включенным режим просмотра (и заблокированная запись)
+function endWatch(roomId, by, reason) {
+  if (!watchState[roomId]) return false;
+  delete watchState[roomId];
+  io.to(roomId).emit('watch_stop', { by });
+  if (reason) logEvent(roomId, reason);
+  return true;
+}
+
 function recordingList(roomId) {
   return Object.entries(recordingNow[roomId] || {}).map(([lineId, rec]) => ({ lineId: Number(lineId), nick: rec.nick }));
 }
@@ -558,7 +568,7 @@ function loadPackIntoRoom(roomId, packName, buffer, forceExtract) {
   room.characterClaims = {};
   forgetFileSizes(room.zipUrl, room.videoUrl, room.backingUrl);
   delete recordingNow[roomId];
-  delete watchState[roomId];
+  endWatch(roomId, null, '🎬 Совместный просмотр остановлен: сменился пак');
   delete p2pSeeders[roomId];
 
   saveRooms();
@@ -936,7 +946,7 @@ app.post('/api/upload-custom', acceptCustomFiles(MAX_PACK_MB), async (req, res) 
     room.characterClaims = {};
     forgetFileSizes(room.videoUrl);
     delete recordingNow[roomId];
-    delete watchState[roomId];
+    endWatch(roomId, null, '🎬 Совместный просмотр остановлен: сменилась сцена');
     delete p2pSeeders[roomId];
 
     saveRooms();
@@ -1049,11 +1059,7 @@ io.on('connection', socket => {
       logEvent(roomId, `← ${nick || 'игрок без ника'} вышел${why}. Онлайн: ${onlineCount(roomId)}`, reason === 'ping timeout' || reason === 'transport error' ? 'warn' : 'info');
 
       // Хост ушел совсем — совместный просмотр заканчивается
-      if (wasHost && !isHostOnline(roomId) && watchState[roomId]) {
-        delete watchState[roomId];
-        io.to(roomId).emit('watch_stop', { by: nick });
-        logEvent(roomId, '🎬 Совместный просмотр остановлен: хост вышел');
-      }
+      if (wasHost && !isHostOnline(roomId)) endWatch(roomId, nick, '🎬 Совместный просмотр остановлен: хост вышел');
     }
   }
 
@@ -1110,7 +1116,9 @@ io.on('connection', socket => {
     socket.emit('chat_history', room.chat);
     socket.emit('recording_state', recordingList(roomId));
     socket.emit('p2p_seeders', seedersSummary(roomId));
+    // Актуальное состояние просмотра: подхватить идущий или сбросить зависший
     if (watchState[roomId]) socket.emit('watch_sync', watchState[roomId]);
+    else socket.emit('watch_stop', {});
     broadcastRoomUsers(roomId);
 
     const who = nick || 'игрок без ника';
@@ -1381,12 +1389,13 @@ io.on('connection', socket => {
   });
 
   socket.on('host_watch_stop', () => {
-    if (!roomId || !watchState[roomId]) return;
-    if (!isHost(getRoom(roomId), clientId)) return;
-    delete watchState[roomId];
-    io.to(roomId).emit('watch_stop', { by: nick });
-    addSystemMessage(roomId, 'system.watchStop', { nick }, `⏹ ${nick} остановил совместный просмотр`);
-    logEvent(roomId, `⏹ ${nick} остановил совместный просмотр`);
+    if (!roomId || !isHost(getRoom(roomId), clientId)) return;
+    if (endWatch(roomId, nick, `⏹ ${nick} остановил совместный просмотр`)) {
+      addSystemMessage(roomId, 'system.watchStop', { nick }, `⏹ ${nick} остановил совместный просмотр`);
+    } else {
+      // На сервере просмотра уже нет, а у кого-то он «завис» — сбрасываем у всех
+      io.to(roomId).emit('watch_stop', { by: nick });
+    }
   });
 
   socket.on('disconnect', leaveCurrentRoom);

@@ -329,6 +329,8 @@ socket.on('session_updated', (data) => {
   // Не перезагружаем видео, если пак не поменялся (например, при смене ролей)
   if (loadedVideoUrl !== session.videoUrl) {
     loadedVideoUrl = session.videoUrl;
+    // Новый пак — совместный просмотр старого точно закончился
+    if (watchMode) exitWatchMode();
     forgetStaleLocalMedia();
     loadSceneMedia();
     selectedLine = null;
