@@ -39,6 +39,7 @@ const pendingTakeLines = new Set();
 // Несколько выделенных реплик (Ctrl/Shift+клик) — для массового назначения персонажа
 const multiSelection = new Set();
 let lastClickedLineId = null;
+let revealLineId = null; // реплика, к которой прокрутить таймлайн после перерисовки (сменили персонажа)
 
 // Видео/интершум, выбранные игроком со своего диска, чтобы не качать их через туннель
 let localMedia = null; // { forVideoUrl, videoUrl, videoBlob, backingUrl, backingBlob, size }
@@ -374,8 +375,10 @@ function renderTimeline() {
     const canRenameTrack = amHost() || session.lines.filter(l => l.character === char).every(l => { const owner = getLineOwner(l); return !owner || owner === myName; });
     const renameTrackBtn = canRenameTrack ? `<button class="track-rename" title="${esc(t('char.renameTrack', { name: char }))}" onclick="renameCharacterTrack(${jsArg(char)})">✎</button>` : '';
     label.innerHTML = `
-      <span class="char-name-row"><span class="char-name" title="${esc(char)}">${esc(char)}</span>${renameTrackBtn}</span>
-      ${roleHtml}
+      <div class="track-label-inner">
+        <span class="char-name-row"><span class="char-name" title="${esc(char)}">${esc(char)}</span>${renameTrackBtn}</span>
+        ${roleHtml}
+      </div>
     `;
 
     const trackArea = document.createElement('div');
@@ -431,6 +434,16 @@ function renderTimeline() {
     row.appendChild(trackArea);
     timeline.appendChild(row);
   });
+
+  if (revealLineId != null) {
+    const tile = document.getElementById(`line-block-${revealLineId}`);
+    revealLineId = null;
+    if (tile) {
+      tile.scrollIntoView({ block: 'center', inline: 'nearest' });
+      tile.classList.add('flash');
+      setTimeout(() => tile.classList.remove('flash'), 1200);
+    }
+  }
 }
 
 function updateLineBlockVisual(el, line) {

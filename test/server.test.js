@@ -16,6 +16,21 @@ test('ASS parser extracts timing, actor and cleaned text', () => {
   });
 });
 
+test('ASS parser skips typesetting drawings and cleans \\h / \\N', () => {
+  const ass = [
+    '[Events]',
+    'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text',
+    'Dialogue: 0,0:00:01.00,0:00:02.00,Sign,,0,0,0,,{\\p1\\pos(10,10)}m 0 0 l 157 0 157 26 0 26',
+    'Dialogue: 0,0:00:01.00,0:00:02.00,Sign,,0,0,0,,m 0 0 l 490 0 490 271 0 271',
+    'Dialogue: 0,0:00:03.00,0:00:04.00,Sign,,0,0,0,,{\\an8}1\\hИмя:\\hАноним',
+    'Dialogue: 0,0:00:05.00,0:00:06.00,Default,Makoto,0,0,0,,Школа\\Nнадежды',
+    'Comment: 0,0:00:07.00,0:00:08.00,Default,,0,0,0,,закомментировано'
+  ].join('\n');
+  const lines = parseSubtitles(Buffer.from(ass), 'sample.ass');
+  assert.deepEqual(lines.map(l => l.caption), ['1 Имя: Аноним', 'Школа надежды']);
+  assert.equal(lines[1].character, 'Makoto');
+});
+
 test('SRT parser supports plain and bracketed character prefixes', () => {
   const srt = `1\n00:00:01,000 --> 00:00:02,500\nBob: First line\n\n2\n00:00:03,000 --> 00:00:04,000\n[Alice]: Second line\n`;
   const lines = parseSubtitles(Buffer.from(srt), 'sample.srt');

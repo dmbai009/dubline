@@ -243,18 +243,27 @@ function showInspector(line) {
 
   // Сменить персонажа может хост, владелец реплики или кто угодно, если реплика свободна
   const canRename = amHost() || !owner || owner === myName;
-  const renameBtn = canRename ? `<button class="insp-rename" onclick="startCharacterEdit(${line.id})" title="${esc(t('char.rename'))}">✎</button>` : '';
+  const characterNames = [...new Set(session.lines.map(l => l.character))].sort((a, b) => a.localeCompare(b));
+  const characterRow = canRename ? `
+    <form class="insp-row insp-char-form" onsubmit="saveLineCharacter(event, ${line.id})" title="${esc(t('char.rename'))}">
+      <span class="insp-label">🎭</span>
+      <input id="charInput" class="text-input" list="charList" maxlength="40" value="${esc(line.character)}" placeholder="${esc(t('char.placeholder'))}">
+      <datalist id="charList">${characterNames.map(name => `<option value="${esc(name)}"></option>`).join('')}</datalist>
+      <button type="submit" class="btn-outline">${t('char.apply')}</button>
+    </form>` : '';
+  const deleteLineBtn = amHost() ? `<button class="btn-outline" onclick="deleteLines([${line.id}])">${t('line.delete')}</button>` : '';
 
   inspector.innerHTML = `
     <div class="insp-head">
-      <div class="insp-title"><b>${esc(line.character)}</b>${renameBtn}<span>#${line.id}</span></div>
+      <div class="insp-title"><b>${esc(line.character)}</b><span>#${line.id}</span></div>
       ${chip}
     </div>
     <div class="insp-meta">${line.start}–${line.end} s · ${duration} s${line.audioUrl && author ? ` · ${t('recordedBy', { owner: esc(author) })}` : ''}</div>
     <div class="insp-caption">${esc(line.caption || '…')}</div>
+    ${characterRow}
     ${pendingNotice}
     <div class="insp-actions">${primary}</div>
-    ${secondary.length ? `<div class="insp-actions secondary">${secondary.join('')}</div>` : ''}
+    ${secondary.length || deleteLineBtn ? `<div class="insp-actions secondary">${secondary.join('')}${deleteLineBtn}</div>` : ''}
     ${hint}
     <canvas id="visualizerCanvas" width="320" height="28"></canvas>
     ${micRow}
@@ -277,6 +286,7 @@ function showMultiInspector() {
     </form>
     <div class="insp-actions secondary">
       ${amHost() ? `<button class="btn-host" onclick="releaseSelectedLines()">${t('multi.release')}</button>` : ''}
+      ${amHost() ? `<button class="btn-outline" onclick="deleteLines([...multiSelection])">${t('multi.delete')}</button>` : ''}
       <button class="btn-outline" onclick="clearMultiSelection()">${t('multi.clear')}</button>
     </div>
     <p class="take-hint">${t('multi.hint')}</p>
@@ -287,6 +297,7 @@ window.assignSelectedCharacter = function(e) {
   e.preventDefault();
   const name = document.getElementById('multiCharInput').value.trim();
   if (!name) return;
+  revealLineId = [...multiSelection][0];
   socket.emit('set_lines_character', { lineIds: [...multiSelection], character: name }, result => {
     if (!result) return;
     showToast(t('multi.done', { moved: result.moved, name }) + (result.skipped ? ' ' + t('multi.skipped', { n: result.skipped }) : ''));
@@ -300,20 +311,13 @@ window.releaseSelectedLines = function() {
 // Смена персонажа реплики: она переезжает на дорожку этого персонажа
 window.startCharacterEdit = function(lineId) {
   const line = session.lines.find(l => l.id === lineId);
-  const title = inspector.querySelector('.insp-title');
-  if (!line || !title) return;
-  const characters = [...new Set(session.lines.map(l => l.character))].sort((a, b) => a.localeCompare(b));
-  title.outerHTML = `
-    <form class="insp-char-form" onsubmit="saveLineCharacter(event, ${line.id})">
-      <input id="charInput" class="text-input" list="charList" maxlength="40" value="${esc(line.character)}" placeholder="${esc(t('char.placeholder'))}">
-      <datalist id="charList">${characters.map(name => `<option value="${esc(name)}"></option>`).join('')}</datalist>
-      <button type="submit" class="btn-play">OK</button>
-      <button type="button" class="btn-icon" onclick="showInspector(selectedLine)">✕</button>
-    </form>`;
+  if (!line) return;
+  if (!selectedLine || selectedLine.id !== lineId) selectLine(line);
   const input = document.getElementById('charInput');
-  input.focus();
-  input.select();
-  input.addEventListener('keydown', e => { if (e.key === 'Escape') { e.stopPropagation(); showInspector(selectedLine); } });
+  if (input) {
+    input.focus();
+    input.select();
+  }
 };
 
 window.saveLineCharacter = function(e, lineId) {
@@ -326,7 +330,15 @@ window.saveLineCharacter = function(e, lineId) {
     showToast(t('char.roleTaken', { name, owner: roleOwner }));
     return;
   }
+  revealLineId = lineId; // после перерисовки прокрутим к реплике на ее новой дорожке
   socket.emit('set_line_character', { lineId, character: name });
+};
+
+// Хост удаляет реплики (например, надписи на экране, которые не нужно озвучивать)
+window.deleteLines = function(lineIds) {
+  if (!lineIds.length || !confirm(t('line.deleteConfirm', { n: lineIds.length }))) return;
+  socket.emit('host_delete_lines', { lineIds });
+  if (lineIds.length > 1) clearMultiSelection();
 };
 
 // Настройки записанного дубля: голос, питч, обрезка тишины, сдвиг — плотной сеткой

@@ -740,6 +740,25 @@
     'help.keys': "Пробіл — плей/пауза · R — записати вибрану репліку · ← → — перемотування на 3 с · Ctrl/Shift+клік — виділити кілька реплік · Ctrl+коліщатко — масштаб таймлайну · Esc — закрити вікна"
   });
 
+  Object.assign(messages.en, {
+    'char.apply': "Set",
+    'line.delete': "🗑 Delete line",
+    'line.deleteConfirm': "Delete {n} line(s) from this session? Their takes are deleted too. Use it for on-screen signs and other text that is not dubbed.",
+    'multi.delete': "🗑 Delete selected"
+  });
+  Object.assign(messages.ru, {
+    'char.apply': "Назначить",
+    'line.delete': "🗑 Удалить реплику",
+    'line.deleteConfirm': "Удалить реплик из этой сессии: {n}? Их дубли тоже удалятся. Подходит для надписей на экране и другого текста, который не озвучивают.",
+    'multi.delete': "🗑 Удалить выбранные"
+  });
+  Object.assign(messages.uk, {
+    'char.apply': "Призначити",
+    'line.delete': "🗑 Видалити репліку",
+    'line.deleteConfirm': "Видалити реплік із цієї сесії: {n}? Їхні дублі теж видаляться. Підходить для написів на екрані та іншого тексту, який не озвучують.",
+    'multi.delete': "🗑 Видалити вибрані"
+  });
+
   let language = localStorage.getItem('dubline_language');
   if (!messages[language]) {
     const browser = String(navigator.language || 'en').toLowerCase();

@@ -280,7 +280,10 @@
 
     .track-row { display: flex; height: 60px; border-bottom: 1px solid var(--border); position: relative; background: var(--panel); }
     .track-row:nth-child(even) { background: #16161e; }
-    .track-label { width: 180px; min-width: 180px; background: var(--panel-2); height: 100%; display: flex; flex-direction: column; justify-content: center; padding: 0 10px; position: sticky; left: 0; z-index: 20; border-right: 1px solid var(--border-strong); box-shadow: 4px 0 10px rgba(0, 0, 0, 0.35); }
+    .track-label { width: 180px; min-width: 180px; background: var(--panel-2); height: 100%; display: flex; flex-direction: column; justify-content: flex-start; padding: 0 10px; position: sticky; left: 0; z-index: 20; border-right: 1px solid var(--border-strong); box-shadow: 4px 0 10px rgba(0, 0, 0, 0.35); }
+    /* Имя дорожки держится вверху видимой части строки, даже если строка очень высокая */
+    .track-label-inner { position: sticky; top: 32px; display: flex; flex-direction: column; padding-top: 8px; }
+    .line-block.flash { box-shadow: 0 0 0 3px rgba(167, 139, 250, 0.9); }
     .track-label .char-name { font-weight: 700; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .track-timeline { position: relative; height: 100%; }
     .role-btn { font-size: 10px; padding: 2px 7px; border-radius: 999px; border: 1px solid var(--border-strong); background: var(--panel-3); color: var(--muted); margin-top: 4px; align-self: flex-start; }

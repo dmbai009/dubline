@@ -63,7 +63,7 @@ The import dialog also accepts:
 
 For MKV input, the bundled `ffmpeg-static` binary extracts the first supported subtitle stream and remuxes video into MP4 without video re-encoding. Audio is copied when MP4 supports its codec and converted to AAC only when necessary.
 
-ASS imports use the Aegisub `Name` field for the character. SRT/VTT lines may use prefixes such as `Alice: text`, `[Alice]: text`, or `(Alice): text`. When a scene has no separate backing track, video audio is treated as the background channel and participates in auto-ducking.
+ASS imports use the Aegisub `Name` field for the character; typesetting drawings (`\p1` vector shapes) and comment lines are skipped, and `\N` / `\h` become spaces. When an MKV has several subtitle tracks, the importer prefers full/dialogue tracks over signs, songs and forced ones (the choice is written to the server log). The host can delete lines that should not be dubbed (on-screen signs, song lyrics) from the inspector or for a whole selection. SRT/VTT lines may use prefixes such as `Alice: text`, `[Alice]: text`, or `(Alice): text`. When a scene has no separate backing track, video audio is treated as the background channel and participates in auto-ducking.
 
 ## Requirements and installation
 

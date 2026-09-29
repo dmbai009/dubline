@@ -103,6 +103,7 @@ function loadRooms() {
         const active = room.sessions && room.activeSessionId && room.sessions[room.activeSessionId];
         if (active) SESSION_FIELDS.forEach(field => { room[field] = active[field]; });
         [room, ...Object.values(room.sessions || {})].forEach(repairLineDurations);
+        [room, ...Object.values(room.sessions || {})].forEach(cleanImportedCaptions);
         delete room.audioTracksPending; // извлечение дорожек не пережило перезапуск — начнем заново
       }
       return loaded;
@@ -131,6 +132,21 @@ function repairLineDurations(session) {
     }
   }
   if (fixed) console.log(`[Dubline] Исправлены длины реплик в «${session.title}»: ${fixed} шт.`);
+}
+
+// Сцены, импортированные до исправления разбора ASS: убираем реплики-рисунки (без дублей) и теги \h, \N
+function cleanImportedCaptions(session) {
+  if (!session || !Array.isArray(session.lines) || session.captionsCleaned) return;
+  session.captionsCleaned = true;
+  repairedOnLoad = true;
+  if (session.kind !== 'custom') return;
+  const before = session.lines.length;
+  const kept = session.lines.filter(line => line.audioUrl || !isAssDrawing(line.caption || ''));
+  kept.forEach(line => { line.caption = cleanAssText(line.caption || ''); });
+  if (kept.length !== before) {
+    session.lines.splice(0, session.lines.length, ...kept); // тот же массив — связь активной сессии не рвется
+    console.log(`[Dubline] Из «${session.title}» убраны реплики-рисунки из субтитров: ${before - kept.length} шт.`);
+  }
 }
 
 function writeRoomsNow() {
@@ -926,9 +942,37 @@ function findEmbeddedSubtitleMap(filePath) {
   });
   if (probe.error) throw new HttpError(500, `Не удалось проверить MKV: ${probe.error.message}`);
   const output = `${probe.stdout || ''}\n${probe.stderr || ''}`;
-  const streams = [...output.matchAll(/Stream #0:(\d+)(?:\([^)]*\))?: Subtitle: ([^,\s]+)/gi)];
-  const supported = streams.find(match => /^(ass|ssa|subrip|srt|webvtt)$/i.test(match[2]));
-  return supported ? `0:${supported[1]}` : null;
+  // Разбираем дорожки субтитров вместе с их названиями (title) и языком
+  const tracks = [];
+  let current = null;
+  for (const line of output.split(/\r?\n/)) {
+    const stream = /Stream #0:(\d+)(?:\[[^\]]*\])?(?:\((\w+)\))?: (\w+): ([^,\s]+)/.exec(line);
+    if (stream) {
+      current = stream[3] === 'Subtitle' && /^(ass|ssa|subrip|srt|webvtt)$/i.test(stream[4])
+        ? { index: stream[1], language: stream[2] || '', title: '', order: tracks.length }
+        : null;
+      if (current) tracks.push(current);
+      continue;
+    }
+    const title = /^\s+title\s*:\s*(.+)$/.exec(line);
+    if (title && current && !current.title) current.title = title[1].trim();
+  }
+  if (!tracks.length) return null;
+
+  // В релизах часто несколько дорожек: «Надписи», «Песни», «Полные». Для озвучки нужны реплики
+  const score = track => {
+    const name = `${track.title} ${track.language}`.toLowerCase();
+    let value = 0;
+    if (/sign|надпис|song|песн|forced|караоке|karaoke|opening|ending|\bop\b|\bed\b/.test(name)) value -= 10;
+    if (/full|полн|dialog|диалог|субтитры/.test(name)) value += 5;
+    if (/rus|ru\b|русск/.test(name)) value += 1;
+    return value;
+  };
+  const chosen = [...tracks].sort((a, b) => score(b) - score(a) || a.order - b.order)[0];
+  if (tracks.length > 1) {
+    logEvent(null, `🔤 В MKV ${tracks.length} дорожки субтитров (${tracks.map(t => t.title || t.language || `#${t.index}`).join(', ')}), выбрана: ${chosen.title || chosen.language || `#${chosen.index}`}`);
+  }
+  return `0:${chosen.index}`;
 }
 
 function isMkvFile(file) {
@@ -958,6 +1002,17 @@ function parseSrtTime(h, m, s, ms) {
   const seconds = parseFloat(s) || 0;
   const millis = parseFloat(ms) || 0;
   return hours * 3600 + minutes * 60 + seconds + millis / 1000;
+}
+
+// Строка ASS в режиме рисования ({\p1} и т.п.) или сама похожа на векторные команды «m 0 0 l 157 0…»
+function isAssDrawing(rawText) {
+  if (/\{[^}]*\\p[1-9]/i.test(rawText)) return true;
+  return /^m\s+-?\d+(\.\d+)?\s+-?\d+(\.\d+)?(\s+[mlbspc]?\s*-?\d+(\.\d+)?)*\s*$/i.test(rawText.replace(/\{[^}]*\}/g, '').trim());
+}
+
+// Убираем теги оформления; \N, \n и неразрывный \h превращаем в пробелы
+function cleanAssText(rawText) {
+  return rawText.replace(/\{[^}]*\}/g, '').replace(/\\[Nnh]/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
 function parseSubtitles(buffer, fileName) {
@@ -1005,7 +1060,9 @@ function parseSubtitles(buffer, fileName) {
           caption = parts[9] || '';
         }
 
-        caption = caption.replace(/\{[^}]+\}/g, '').replace(/\\N/gi, ' ').replace(/\\n/gi, ' ').trim();
+        // Векторные рисунки тайпсеттеров (\p1…) — это не реплики, пропускаем
+        if (isAssDrawing(caption)) continue;
+        caption = cleanAssText(caption);
         if (caption) {
           lines.push({
             id: idCounter++,
@@ -1844,6 +1901,23 @@ io.on('connection', socket => {
     emitSession(roomId);
     logEvent(roomId, `✎ ${nick}: дорожка «${from}» → «${name}» (${lines.length} реплик)`);
     reply({ ok: true, moved: lines.length });
+  });
+
+  // Хост удаляет выбранные реплики (например, надписи на экране, которые не нужно озвучивать)
+  socket.on('host_delete_lines', ({ lineIds } = {}) => {
+    if (!roomId || !Array.isArray(lineIds)) return;
+    const room = getRoom(roomId);
+    if (!isHost(room, clientId)) return;
+    const doomed = new Set(lineIds);
+    const removed = room.lines.filter(line => doomed.has(line.id));
+    if (!removed.length) return;
+    removed.forEach(line => deleteTakeFile(line.audioUrl));
+    room.lines.splice(0, room.lines.length, ...room.lines.filter(line => !doomed.has(line.id)));
+    dropEmptyRoleClaims(room);
+    snapshotActive(room);
+    saveRooms();
+    emitSession(roomId);
+    logEvent(roomId, `🗑 ${nick} удалил реплик: ${removed.length}`);
   });
 
   // Хост освобождает выбранные реплики, которые кто-то занял по ошибке

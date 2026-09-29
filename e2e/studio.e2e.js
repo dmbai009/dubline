@@ -270,7 +270,7 @@ describe('studio', { skip: skipReason }, () => {
     await waitFor(alice, id => session.lines.find(l => l.id === id).character === 'Мион', 5000, ids[2]);
 
     // Реплику Алисы Боб переименовать не может — кнопки ✎ у него нет
-    assert.equal(await bob.evaluate(id => { selectLine(session.lines.find(l => l.id === id)); return !!document.querySelector('.insp-rename'); }, ids[0]), false);
+    assert.equal(await bob.evaluate(id => { selectLine(session.lines.find(l => l.id === id)); return !!document.getElementById('charInput'); }, ids[0]), false);
   });
 
   test('select several lines and assign a character; rename whole tracks; host releases lines', async () => {
@@ -316,8 +316,12 @@ describe('studio', { skip: skipReason }, () => {
     // Кликаем только когда у Алисы на экране уже актуальный таймлайн (после переименования дорожки он перерисовывается)
     await waitFor(alice, id => [...document.querySelectorAll('.char-name')].some(n => n.textContent === 'Рэна')
       && document.getElementById(`line-block-${id}`)?.innerText.includes('Bob'), 5000, mistaken);
-    await click(alice, mistaken);
-    await click(alice, freeIds[1], 'Control');
+    // Здесь кликаем прямо по элементам плиток: после переименований дорожек таймлайн Алисы
+    // перестраивается, и клик по экранным координатам может попасть в соседнюю плитку
+    await alice.evaluate((a, b) => {
+      document.getElementById(`line-block-${a}`).dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      document.getElementById(`line-block-${b}`).dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: true }));
+    }, mistaken, freeIds[1]);
     const picked = await waitFor(alice, (a, b) => multiSelection.has(a) && multiSelection.has(b) && [...multiSelection], 3000, mistaken, freeIds[1])
       .catch(async err => {
         const info = await alice.evaluate(id => {
@@ -335,6 +339,49 @@ describe('studio', { skip: skipReason }, () => {
     await alice.evaluate(() => releaseSelectedLines());
     await waitFor(bob, id => !session.lines.find(l => l.id === id).claimedBy, 5000, mistaken);
     await alice.keyboard.press('Escape');
+  });
+
+  test('ASS import skips typesetting drawings; host deletes lines; view follows a moved line', async () => {
+    const ass = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'dubline-ass-')), 'episode.ass');
+    fs.writeFileSync(ass, [
+      '[Events]',
+      'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text',
+      'Dialogue: 0,0:00:01.00,0:00:02.00,Sign,,0,0,0,,{\\p1}m 0 0 l 157 0 157 26 0 26',
+      'Dialogue: 0,0:00:01.00,0:00:02.00,Sign,,0,0,0,,m 0 0 l 490 0 490 271 0 271',
+      'Dialogue: 0,0:00:02.50,0:00:03.50,Sign,,0,0,0,,{\\an8}Школа\\hнадежды',
+      'Dialogue: 0,0:00:04.00,0:00:05.00,Default,,0,0,0,,Первая реплика',
+      'Dialogue: 0,0:00:06.00,0:00:07.00,Default,,0,0,0,,Вторая реплика',
+      'Dialogue: 0,0:00:08.00,0:00:09.00,Default,,0,0,0,,Третья реплика'
+    ].join('\n'));
+    await alice.evaluate(() => openFilesModal());
+    await (await alice.$('#customVideoInput')).uploadFile(fixtureVideoPath());
+    await (await alice.$('#customSubInput')).uploadFile(ass);
+    await alice.evaluate(() => uploadCustomScene());
+    const captions = await waitFor(alice, () => session.loaded && session.lines.length && document.querySelectorAll('.line-block').length === session.lines.length && session.lines.map(l => l.caption), 15000);
+    assert.deepEqual(captions, ['Школа надежды', 'Первая реплика', 'Вторая реплика', 'Третья реплика'], 'drawings dropped, \\h cleaned');
+
+    // Хост удаляет надпись на экране
+    const sign = await alice.evaluate(() => session.lines[0].id);
+    await alice.evaluate(id => { window.confirm = () => true; deleteLines([id]); }, sign);
+    await waitFor(bob, id => session.lines.length === 3 && !session.lines.some(l => l.id === id), 5000, sign);
+    assert.equal(await bob.evaluate(() => typeof deleteLines === 'function' && !document.querySelector('#inspector button[onclick^="deleteLines"]')), true, 'players have no delete button');
+
+    // Видимая строка «🎭 Персонаж» в инспекторе; после смены персонажа таймлайн показывает реплику
+    const target = await alice.evaluate(() => session.lines[2].id);
+    await alice.evaluate(id => selectLine(session.lines.find(l => l.id === id)), target);
+    await waitFor(alice, () => !!document.getElementById('charInput'));
+    await alice.evaluate(() => { timelineContainer.scrollTop = 0; });
+    await alice.evaluate(() => {
+      document.getElementById('charInput').value = 'Ёсида';
+      document.querySelector('.insp-char-form').dispatchEvent(new Event('submit', { cancelable: true }));
+    });
+    await waitFor(alice, id => {
+      const tile = document.getElementById(`line-block-${id}`);
+      if (!tile || session.lines.find(l => l.id === id).character !== 'Ёсида') return false;
+      const box = tile.getBoundingClientRect();
+      const view = timelineContainer.getBoundingClientRect();
+      return box.top >= view.top && box.bottom <= view.bottom;
+    }, 5000, target);
   });
 
   test('the import form is empty after a successful import', async () => {
