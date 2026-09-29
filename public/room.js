@@ -106,23 +106,121 @@ socket.on('nick_state', ({ nick, error, errorKey, errorParams }) => {
 
   if (!myName) showNickModal(error);
   else if (error) alert(error);
+  renderLobby();
 
   updateHostUi();
 });
 
 let lastOnlineUsers = [];
 
-function renderOnlineUsers() {
-  const recordingNicks = new Set(liveRecordings.values());
-  usersOnlineText.innerHTML = `${lastOnlineUsers.length} (${lastOnlineUsers.map(u =>
-    (u === roomHost ? '👑 ' : '') + (recordingNicks.has(u) ? '🔴 ' : '') + esc(u)).join(', ')})`;
+// ==========================================
+// ЛОББИ: список игроков, прогресс, задержка
+// ==========================================
+const lobbyList = document.getElementById('lobbyList');
+const lobbyProgressCount = document.getElementById('lobbyProgressCount');
+const lobbyProgressTotal = document.getElementById('lobbyProgressTotal');
+const lobbyProgressBar = document.getElementById('lobbyProgressBar');
+const sceneProgressText = document.getElementById('sceneProgressText');
+const sceneProgressBar = document.getElementById('sceneProgressBar');
+const sceneProgressPct = document.getElementById('sceneProgressPct');
+
+function initials(nick) {
+  const words = String(nick).trim().split(/[\s_.-]+/).filter(Boolean);
+  const letters = words.length > 1 ? words[0][0] + words[1][0] : String(nick).slice(0, 2);
+  return letters.toUpperCase();
 }
+
+function formatMs(ms) {
+  return t('latency.value', { ms: `${ms > 0 ? '+' : ''}${ms}` });
+}
+
+function playerCardHtml(nick, stats, online) {
+  const isMe = nick === myName;
+  const recordingLine = [...liveRecordings.entries()].find(([, who]) => who === nick);
+  const latencyMs = Math.round(latencyFor(nick) * 1000);
+  const pct = stats.claimed ? Math.round((stats.recorded / stats.claimed) * 100) : (stats.recorded ? 100 : 0);
+  const classes = ['player-card', isMe ? 'me' : '', online ? '' : 'offline', recordingLine ? 'recording' : ''].filter(Boolean).join(' ');
+
+  const tags = [
+    nick === roomHost ? `<span class="tag host">👑 ${t('lobby.host')}</span>` : '',
+    isMe ? `<span class="tag you">${t('lobby.you')}</span>` : ''
+  ].join('');
+
+  const extra = [
+    recordingLine ? `<span class="tag rec">${t('lobby.recording', { id: recordingLine[0] })}</span>` : '',
+    seedingNicks.has(nick) ? `<span class="tag seed">${t('lobby.seeding')}</span>` : ''
+  ].filter(Boolean).join(' ');
+
+  let latencyHtml = '';
+  if (isMe) {
+    latencyHtml = `
+      <div class="player-latency" title="${esc(t('latency.help'))}">
+        <span>${t('latency.label')}</span>
+        <b>${formatMs(latencyMs)}</b>
+        <button class="btn-icon" onclick="nudgeLatency(-10)">−10</button>
+        <button class="btn-icon" onclick="nudgeLatency(10)">+10</button>
+        <button class="btn-icon" onclick="setMyLatency(0)" ${latencyMs ? '' : 'disabled'} title="${esc(t('reset'))}">⟲</button>
+      </div>`;
+  } else if (latencyMs) {
+    latencyHtml = `<div class="player-latency"><span>${t('latency.label')}</span><b>${formatMs(latencyMs)}</b></div>`;
+  }
+
+  return `
+    <div class="${classes}">
+      <div class="player-head">
+        <div class="avatar" style="background:${playerColor(nick)}">${esc(initials(nick))}<span class="dot"></span></div>
+        <div class="player-name" title="${esc(nick)}">${esc(nick)}</div>
+        <div class="player-tags">${tags}</div>
+      </div>
+      <div class="player-stats"><span>${t('lobby.recorded', { n: stats.recorded })}</span><span>${t('lobby.claimed', { n: stats.claimed })}</span></div>
+      <div class="progress"><div style="width:${pct}%"></div></div>
+      ${extra ? `<div>${extra}</div>` : ''}
+      ${latencyHtml}
+    </div>`;
+}
+
+function renderLobby() {
+  const progress = sceneProgress();
+  const pct = progress.total ? Math.round((progress.recorded / progress.total) * 100) : 0;
+  usersOnlineText.textContent = String(lastOnlineUsers.length);
+  lobbyProgressCount.textContent = progress.recorded;
+  lobbyProgressTotal.textContent = progress.total;
+  lobbyProgressBar.style.width = `${pct}%`;
+  sceneProgressText.textContent = `${progress.recorded} / ${progress.total}`;
+  sceneProgressBar.style.width = `${pct}%`;
+  sceneProgressPct.textContent = `${pct}%`;
+
+  const empty = { recorded: 0, claimed: 0 };
+  const online = [...new Set(lastOnlineUsers)];
+  const order = nick => (nick === myName ? 0 : nick === roomHost ? 1 : 2);
+  online.sort((a, b) => order(a) - order(b) || a.localeCompare(b));
+  // Не в сети, но что-то заняли или записали — тоже показываем, чтобы был виден их вклад
+  const offline = [...progress.perPlayer.keys()].filter(nick => !online.includes(nick)).sort((a, b) => a.localeCompare(b));
+
+  let html = `<div class="lobby-section">${t('lobby.online', { n: online.length })}</div>`;
+  html += online.map(nick => playerCardHtml(nick, progress.perPlayer.get(nick) || empty, true)).join('');
+  if (offline.length) {
+    html += `<div class="lobby-section">${t('lobby.offline', { n: offline.length })}</div>`;
+    html += offline.map(nick => playerCardHtml(nick, progress.perPlayer.get(nick) || empty, false)).join('');
+  }
+  lobbyList.innerHTML = html;
+}
+
+// Поправка задержки игрока поменялась — у всех сдвигаются его дубли
+socket.on('latency_updated', (latency) => {
+  if (!session) return;
+  session.latency = latency || {};
+  if (!video.paused) stopAllTakes();
+  if (session.loaded) renderTimeline();
+  if (selectedLine) showInspector(selectedLine);
+  renderLobby();
+});
 
 socket.on('room_users_updated', ({ users, host, hostOnline: online }) => {
   roomHost = host;
   hostOnline = online;
   lastOnlineUsers = users;
-  renderOnlineUsers();
+  renderLobby();
   updateHostUi();
 });
 
@@ -137,7 +235,7 @@ socket.on('recording_state', (list) => {
       if (line) updateLineBlock(line);
     });
   }
-  renderOnlineUsers();
+  renderLobby();
 });
 
 if (!myName) {
@@ -232,14 +330,14 @@ socket.on('session_updated', (data) => {
   if (loadedVideoUrl !== session.videoUrl) {
     loadedVideoUrl = session.videoUrl;
     forgetStaleLocalMedia();
-    video.src = mediaUrl(session.videoUrl);
-    backing.src = mediaUrl(session.backingUrl);
+    loadSceneMedia();
     selectedLine = null;
     inspector.innerHTML = `<h3>${t('inspector.title')}</h3><p style="color: #71717a;">${t('inspector.empty')}</p>`;
   }
 
   updateDownloadButtons();
   updateLocalMediaStatus();
+  renderLobby();
 
   applyVolumes();
   renderTimeline();
@@ -264,6 +362,7 @@ socket.on('line_updated', (updatedLine) => {
     }
     session.lines[idx] = updatedLine;
     updateLineBlock(updatedLine);
+    renderLobby();
     if (updatedLine.audioUrl) getProcessedTake(updatedLine);
     if (selectedLine && selectedLine.id === updatedLine.id) {
       selectedLine = updatedLine;

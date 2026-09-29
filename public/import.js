@@ -115,9 +115,29 @@ function forgetStaleLocalMedia() {
 
 function updateLocalMediaStatus() {
   const active = !!(localMedia && session && localMedia.forVideoUrl === session.videoUrl);
-  localMediaStatus.textContent = active ? t('localMedia.active', { size: formatSize(localMedia.size) }) : t('localMedia.inactive');
+  const activeKey = active && localMedia.source === 'p2p' ? 'localMedia.activeP2p' : 'localMedia.active';
+  localMediaStatus.textContent = active ? t(activeKey, { size: formatSize(localMedia.size) }) : t('localMedia.inactive');
   localMediaStatus.style.color = active ? '#10b981' : '#71717a';
   localMediaResetBtn.style.display = active ? 'inline-flex' : 'none';
+  // Есть файл целиком — сообщаем серверу, что можем раздавать его другим
+  announceHave();
+}
+
+// Видео (и интершум) теперь играют из памяти браузера: с диска игрока или полученные по P2P
+function setLocalMedia({ video: videoBlob, backing: backingBlob, source }) {
+  cancelMediaDownload();
+  revokeLocalMedia();
+  localMedia = {
+    forVideoUrl: session.videoUrl,
+    videoBlob,
+    videoUrl: URL.createObjectURL(videoBlob),
+    backingBlob,
+    backingUrl: backingBlob ? URL.createObjectURL(backingBlob) : null,
+    size: videoBlob.size,
+    source
+  };
+  swapVideoSource();
+  updateLocalMediaStatus();
 }
 
 function baseName(url) {
@@ -170,17 +190,7 @@ localMediaInput.addEventListener('change', async () => {
       return;
     }
 
-    revokeLocalMedia();
-    localMedia = {
-      forVideoUrl: session.videoUrl,
-      videoBlob: media.video,
-      videoUrl: URL.createObjectURL(media.video),
-      backingBlob: media.backing,
-      backingUrl: media.backing ? URL.createObjectURL(media.backing) : null,
-      size: media.video.size
-    };
-    swapVideoSource();
-    updateLocalMediaStatus();
+    setLocalMedia({ video: media.video, backing: media.backing, source: 'disk' });
   } catch (err) {
     localMediaStatus.textContent = t('error.generic', { message: err.message });
     localMediaStatus.style.color = '#ef4444';

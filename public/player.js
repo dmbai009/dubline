@@ -5,8 +5,13 @@
 const i18n = window.DublineI18n;
 const t = (key, params) => i18n.t(key, params);
 i18n.apply();
-const pxPerSec = 60;
 const labelWidth = 180;
+
+// Масштаб таймлайна: пикселей на секунду (Ctrl+колесо, кнопки − / + / «Вся сцена»)
+const ZOOM_DEFAULT = 60;
+const ZOOM_MIN = 2;
+const ZOOM_MAX = 400;
+let pxPerSec = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Number(localStorage.getItem('dubline_zoom')) || ZOOM_DEFAULT));
 
 const urlParams = new URLSearchParams(window.location.search);
 const currentRoom = urlParams.get('room') || 'main';
@@ -27,6 +32,8 @@ const downloadPackNone = document.getElementById('downloadOriginalPackNone');
 
 // Кто сейчас записывает какую реплику (приходит от сервера): lineId -> ник
 const liveRecordings = new Map();
+// Кто из игроков раздает видео сцены по P2P (ники)
+const seedingNicks = new Set();
 
 // Видео/интершум, выбранные игроком со своего диска, чтобы не качать их через туннель
 let localMedia = null; // { forVideoUrl, videoUrl, videoBlob, backingUrl, backingBlob, size }
@@ -60,8 +67,43 @@ const audio = window.DublineAudio.createController({
     autoDuckAmount: state.autoDuckAmount
   }),
   isRenderInProgress: () => state.renderInProgress,
-  getRecordingLineId: () => state.recordingLineId
+  getRecordingLineId: () => state.recordingLineId,
+  getLatency: nick => latencyFor(nick)
 });
+
+// Поправка задержки микрофона игрока в секундах (хранится на сервере в мс)
+function latencyFor(nick) {
+  const ms = nick && state.session && state.session.latency ? state.session.latency[nick] : 0;
+  return (Number(ms) || 0) / 1000;
+}
+
+// Цвет игрока: одинаковый у всех, выводится из ника
+function playerColor(nick) {
+  let hash = 0;
+  for (const ch of String(nick || '')) hash = (hash * 31 + ch.codePointAt(0)) >>> 0;
+  return `hsl(${hash % 360}, 62%, 52%)`;
+}
+
+// Сколько реплик озвучено: всего и по каждому игроку
+function sceneProgress() {
+  const lines = (state.session && state.session.lines) || [];
+  const perPlayer = new Map();
+  const entry = nick => {
+    if (!perPlayer.has(nick)) perPlayer.set(nick, { recorded: 0, claimed: 0 });
+    return perPlayer.get(nick);
+  };
+  let recorded = 0;
+  lines.forEach(line => {
+    const owner = getLineOwner(line);
+    if (owner) entry(owner).claimed++;
+    if (line.audioUrl) {
+      recorded++;
+      const author = line.recordedBy || owner;
+      if (author) entry(author).recorded++;
+    }
+  });
+  return { total: lines.length, recorded, perPlayer };
+}
 
 const {
   applyVolumes,
@@ -69,6 +111,7 @@ const {
   getProcessedTake,
   getRawTake,
   precacheTakes,
+  rawTakeStart,
   resetLine,
   scheduleTakes,
   setDucking,
@@ -120,7 +163,8 @@ const prompterText = document.getElementById('prompterText');
 const prompterProgress = document.getElementById('prompterProgress');
 
 function updatePrompter() {
-  videoPrompter.style.fontSize = `${prompterSize}px`;
+  // Шрифт суфлёра не больше ~4.5% ширины видео, чтобы на маленьком окне он не закрывал картинку
+  videoPrompter.style.fontSize = `min(${prompterSize}px, 4.5cqw)`;
   if (!prompterEnabled || !session || !session.lines) {
     videoPrompter.style.display = 'none';
     return;
@@ -182,6 +226,7 @@ video.addEventListener('seeked', () => {
   updatePrompter();
 });
 video.addEventListener('timeupdate', updatePrompter);
+video.addEventListener('loadedmetadata', () => { if (session && session.loaded) renderTimeline(); });
 
 function getLineOwner(line) {
   if (!session) return null;
@@ -209,6 +254,16 @@ function probeDuration(url) {
   return durationCache.get(url);
 }
 
+const MIN_TILE_PX = 22;
+const TIMELINE_TAIL = 5; // секунд пустого места после конца сцены
+
+// Длина сцены на таймлайне: до конца видео или последней реплики
+function timelineSeconds() {
+  const lastLine = Math.max(0, ...((session && session.lines) || []).map(l => l.end));
+  const videoLength = Number.isFinite(video.duration) ? video.duration : 0;
+  return Math.max(lastLine, videoLength, 30);
+}
+
 function renderTimeline() {
   timeline.innerHTML = '';
   timeline.appendChild(playhead);
@@ -217,8 +272,8 @@ function renderTimeline() {
 
   playhead.style.display = 'block';
 
-  const maxTime = Math.max(...session.lines.map(l => l.end), 200);
-  const trackWidth = (maxTime + 15) * pxPerSec;
+  const maxTime = timelineSeconds();
+  const trackWidth = (maxTime + TIMELINE_TAIL) * pxPerSec;
   const characters = [...new Set(session.lines.map(l => l.character))];
   const allowCharacterClaims = characters.length > 1;
 
@@ -239,7 +294,8 @@ function renderTimeline() {
     video.currentTime = Math.max(0, clickX / pxPerSec);
   };
 
-  for (let sec = 0; sec <= maxTime + 10; sec += 5) {
+  const tickStep = [1, 2, 5, 10, 15, 30, 60].find(step => step * pxPerSec >= 70) || 120;
+  for (let sec = 0; sec <= maxTime + TIMELINE_TAIL; sec += tickStep) {
     const tick = document.createElement('div');
     tick.className = 'ruler-tick';
     tick.style.left = `${sec * pxPerSec}px`;
@@ -291,7 +347,7 @@ function renderTimeline() {
       block.className = 'line-block';
       block.id = `line-block-${line.id}`;
       block.style.left = `${line.start * pxPerSec}px`;
-      block.style.width = `${Math.max((line.end - line.start) * pxPerSec, 75)}px`;
+      block.style.width = `${Math.max((line.end - line.start) * pxPerSec, MIN_TILE_PX)}px`;
 
       updateLineBlockVisual(block, line);
 
@@ -308,7 +364,7 @@ function renderTimeline() {
         probeDuration(line.originalAudioUrl).then(seconds => {
           if (!seconds) return;
           line.end = Number((line.start + seconds).toFixed(2));
-          if (block.isConnected) block.style.width = `${Math.max((line.end - line.start) * pxPerSec, 75)}px`;
+          if (block.isConnected) block.style.width = `${Math.max((line.end - line.start) * pxPerSec, MIN_TILE_PX)}px`;
           if (selectedLine && selectedLine.id === line.id) showInspector(line);
         });
       }
@@ -324,6 +380,7 @@ function updateLineBlockVisual(el, line) {
   const owner = getLineOwner(line);
 
   el.className = 'line-block';
+  if (selectedLine && selectedLine.id === line.id) el.classList.add('selected');
   if (line.audioUrl) el.classList.add('recorded');
   else if (owner === myName) el.classList.add('claimed-me');
   else if (owner) el.classList.add('claimed-other');
@@ -336,7 +393,9 @@ function updateLineBlockVisual(el, line) {
     nickBadge = `<span class="tile-nick live">🔴 ${liveNick === myName ? t('you') : esc(liveNick)}</span>`;
   } else if (owner) {
     const isMe = (owner === myName);
-    nickBadge = `<span class="tile-nick ${isMe ? 'me' : 'other'}">${isMe ? t('you') : esc(owner)}</span>`;
+    nickBadge = isMe
+      ? `<span class="tile-nick me">${t('you')}</span>`
+      : `<span class="tile-nick other" style="background:${playerColor(owner)}">${esc(owner)}</span>`;
   }
 
   el.innerHTML = `
@@ -365,9 +424,13 @@ function enableTakeDrag(el, lineId) {
     const line = session.lines.find(l => l.id === lineId);
     if (!line) return;
 
+    // Shift — двигаем сразу все свои дубли: это поправка задержки микрофона
+    if (e.shiftKey) return startLatencyDrag(e, el);
+
     const startX = e.clientX;
-    const origStart = takeStartTime(line);
-    let newStart = origStart;
+    const origRaw = rawTakeStart(line);
+    const latency = latencyFor(line.recordedBy);
+    let newRaw = origRaw;
     let moved = false;
     const canvas = el.querySelector('.wave-canvas');
     const hint = document.createElement('span');
@@ -381,10 +444,10 @@ function enableTakeDrag(el, lineId) {
         el.classList.add('dragging');
         el.appendChild(hint);
       }
-      newStart = Math.max(0, origStart + dx / pxPerSec);
-      if (canvas) canvas.style.left = `${(newStart - line.start) * pxPerSec}px`;
-      const shift = newStart - (line.recordedStart ?? origStart);
-      hint.innerText = `${shift >= 0 ? '+' : ''}${shift.toFixed(2)}с`;
+      newRaw = Math.max(0, origRaw + dx / pxPerSec);
+      if (canvas) canvas.style.left = `${(newRaw - latency - line.start) * pxPerSec}px`;
+      const shift = newRaw - (line.recordedStart ?? origRaw);
+      hint.innerText = `${shift >= 0 ? '+' : ''}${shift.toFixed(2)}s`;
     };
 
     const onUp = () => {
@@ -394,7 +457,7 @@ function enableTakeDrag(el, lineId) {
       hint.remove();
       if (!moved) return;
       el.dataset.justDragged = '1';
-      setTakeProps(lineId, { audioStart: Number(newStart.toFixed(3)) });
+      setTakeProps(lineId, { audioStart: Number(newRaw.toFixed(3)) });
     };
 
     window.addEventListener('pointermove', onMove);
@@ -402,13 +465,63 @@ function enableTakeDrag(el, lineId) {
   };
 }
 
+// Shift+перетаскивание: сдвигает все дубли игрока разом и сохраняет это как его задержку
+function startLatencyDrag(e, grabbed) {
+  const startX = e.clientX;
+  const origMs = Math.round(latencyFor(myName) * 1000);
+  let newMs = origMs;
+  let moved = false;
+  const mine = session.lines.filter(l => l.audioUrl && l.recordedBy === myName);
+  const tiles = mine.map(line => ({ line, el: document.getElementById(`line-block-${line.id}`) })).filter(item => item.el);
+  const hint = document.createElement('span');
+  hint.className = 'drag-hint latency';
+
+  const onMove = (ev) => {
+    const dx = ev.clientX - startX;
+    if (!moved && Math.abs(dx) < 4) return;
+    if (!moved) {
+      moved = true;
+      tiles.forEach(item => item.el.classList.add('latency-drag'));
+      grabbed.appendChild(hint);
+    }
+    // Тянем вправо — дубли звучат позже, значит поправка уменьшается
+    newMs = Math.max(-1000, Math.min(1000, Math.round(origMs - (dx / pxPerSec) * 1000)));
+    tiles.forEach(({ line, el }) => {
+      const canvas = el.querySelector('.wave-canvas');
+      if (canvas) canvas.style.left = `${(rawTakeStart(line) - newMs / 1000 - line.start) * pxPerSec}px`;
+    });
+    hint.innerText = t('latency.value', { ms: `${newMs > 0 ? '+' : ''}${newMs}` });
+  };
+
+  const onUp = () => {
+    window.removeEventListener('pointermove', onMove);
+    window.removeEventListener('pointerup', onUp);
+    tiles.forEach(item => item.el.classList.remove('latency-drag'));
+    hint.remove();
+    if (!moved) return;
+    grabbed.dataset.justDragged = '1';
+    setMyLatency(newMs);
+  };
+
+  window.addEventListener('pointermove', onMove);
+  window.addEventListener('pointerup', onUp);
+}
+
+window.setMyLatency = function(ms) {
+  socket.emit('set_latency', { ms: Math.round(ms) });
+};
+
+window.nudgeLatency = function(deltaMs) {
+  setMyLatency(Math.round(latencyFor(myName) * 1000) + deltaMs);
+};
+
 window.setTakeProps = function(lineId, props) {
   socket.emit('set_take_props', { lineId, ...props });
 };
 
 window.nudgeTake = function(lineId, delta) {
   const line = session.lines.find(l => l.id === lineId);
-  if (line) setTakeProps(lineId, { audioStart: Number(Math.max(0, takeStartTime(line) + delta).toFixed(3)) });
+  if (line) setTakeProps(lineId, { audioStart: Number(Math.max(0, rawTakeStart(line) + delta).toFixed(3)) });
 };
 
 window.resetTakeShift = function(lineId) {
@@ -512,6 +625,9 @@ function updateLineBlock(line) {
 }
 
 function selectLine(line) {
+  document.querySelectorAll('.line-block.selected').forEach(el => el.classList.remove('selected'));
+  const tile = document.getElementById(`line-block-${line.id}`);
+  if (tile) tile.classList.add('selected');
   selectedLine = line;
   video.currentTime = line.start;
   showInspector(line);
@@ -527,3 +643,50 @@ window.previewTake = async function(lineId) {
   if (!line) return;
   if (!await audio.previewTake(line)) alert(t('error.take'));
 };
+
+// ==========================================
+// МАСШТАБ ТАЙМЛАЙНА
+// ==========================================
+const zoomLabel = document.getElementById('zoomLabel');
+let zoomFrame = null;
+
+function updateZoomLabel() {
+  zoomLabel.textContent = `${Math.round((pxPerSec / ZOOM_DEFAULT) * 100)}%`;
+}
+
+// anchorX — точка на экране, время под которой остается на месте (курсор мыши или центр)
+function setTimelineZoom(next, anchorX = timelineContainer.clientWidth / 2) {
+  const clamped = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, next));
+  if (Math.abs(clamped - pxPerSec) < 0.01) return;
+  const anchorTime = Math.max(0, (timelineContainer.scrollLeft + anchorX - labelWidth) / pxPerSec);
+  pxPerSec = clamped;
+  localStorage.setItem('dubline_zoom', String(Math.round(pxPerSec * 100) / 100));
+  updateZoomLabel();
+
+  cancelAnimationFrame(zoomFrame);
+  zoomFrame = requestAnimationFrame(() => {
+    if (session && session.loaded) renderTimeline();
+    playhead.style.left = `${labelWidth + video.currentTime * pxPerSec}px`;
+    timelineContainer.scrollLeft = Math.max(0, anchorTime * pxPerSec + labelWidth - anchorX);
+  });
+}
+
+window.zoomTimeline = function(factor) {
+  setTimelineZoom(pxPerSec * factor);
+};
+
+window.fitTimeline = function() {
+  if (!session || !session.lines || !session.lines.length) return;
+  const available = timelineContainer.clientWidth - labelWidth - 16;
+  setTimelineZoom(available / (timelineSeconds() + TIMELINE_TAIL), 0);
+  requestAnimationFrame(() => { timelineContainer.scrollLeft = 0; });
+};
+
+timelineContainer.addEventListener('wheel', (e) => {
+  if (!e.ctrlKey && !e.metaKey) return;
+  e.preventDefault();
+  const rect = timelineContainer.getBoundingClientRect();
+  setTimelineZoom(pxPerSec * (e.deltaY < 0 ? 1.15 : 1 / 1.15), e.clientX - rect.left);
+}, { passive: false });
+
+updateZoomLabel();

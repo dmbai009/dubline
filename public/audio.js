@@ -11,7 +11,8 @@
       getVolumes,
       getSettings,
       isRenderInProgress,
-      getRecordingLineId
+      getRecordingLineId,
+      getLatency = () => 0
     } = options;
 
     const TAKE_LOOKAHEAD = 0.25;
@@ -100,8 +101,14 @@
       }
     }
 
-    function takeStartTime(line) {
+    // Где дубль лежит на таймлайне по данным сервера (с ручным сдвигом)
+    function rawTakeStart(line) {
       return (line.audioStart !== null && line.audioStart !== undefined) ? line.audioStart : line.start;
+    }
+
+    // Где дубль реально звучит: минус поправка задержки микрофона того, кто его записал
+    function takeStartTime(line) {
+      return rawTakeStart(line) - (Number(getLatency(line.recordedBy)) || 0);
     }
 
     function takeDryBounds(line, duration = Infinity) {
@@ -276,6 +283,7 @@
       playAudio,
       precacheTakes,
       previewTake,
+      rawTakeStart,
       resetLine,
       scheduleTakes,
       setDucking,

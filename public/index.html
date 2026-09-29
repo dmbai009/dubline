@@ -2,241 +2,315 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title data-i18n="app.title">Dubline — Collaborative dubbing studio</title>
   <link rel="icon" href="data:,">
   <script src="/socket.io/socket.io.js"></script>
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-    body { background: #121214; color: #e1e1e6; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
-    
-    /* ШАПКА */
-    header {
-      background: #202024; padding: 8px 16px; display: flex; align-items: center; justify-content: space-between;
-      border-bottom: 1px solid #323238; z-index: 30; gap: 12px; min-height: 48px;
+    /* ==========================================
+       ДИЗАЙН-ТОКЕНЫ
+       ========================================== */
+    :root {
+      --bg: #0b0b10;
+      --panel: #14141b;
+      --panel-2: #1a1a23;
+      --panel-3: #22222d;
+      --border: #2a2a36;
+      --border-strong: #3a3a48;
+      --text: #ececf3;
+      --muted: #9090a0;
+      --faint: #5c5c6c;
+      --accent: #8b5cf6;
+      --accent-2: #a78bfa;
+      --accent-soft: rgba(139, 92, 246, 0.16);
+      --success: #10b981;
+      --success-soft: rgba(16, 185, 129, 0.16);
+      --warning: #f59e0b;
+      --warning-soft: rgba(245, 158, 11, 0.16);
+      --danger: #ef4444;
+      --radius: 10px;
+      --radius-sm: 6px;
+      --shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+      --gap: 6px;
+
+      /* Размеры панелей (меняются разделителями и запоминаются) */
+      --lobby-w: 250px;
+      --inspector-w: 360px;
+      --chat-w: 300px;
+      --top-h: 50vh;
     }
-    .header-left { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
-    .header-center { display: flex; align-items: center; justify-content: center; flex: 1; min-width: 0; }
-    .header-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 
-    .room-badge { display: flex; align-items: center; gap: 8px; background: #27272a; padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: bold; border: 1px solid #3f3f46; white-space: nowrap; }
-    .room-badge span { color: #8257e5; }
-    .btn-share { background: #3f3f46; color: #fff; padding: 3px 8px; border-radius: 4px; font-size: 11px; cursor: pointer; border: none; font-weight: bold; transition: background 0.15s; }
-    .btn-share:hover { background: #52525b; }
-
-    .users-online { display: flex; align-items: center; gap: 6px; font-size: 11px; color: #10b981; background: #064e3b33; padding: 4px 8px; border-radius: 4px; border: 1px solid #10b98144; font-weight: bold; white-space: nowrap; }
-
-    .host-panel { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: bold; color: #fbbf24; background: #78350f33; padding: 4px 10px; border-radius: 6px; border: 1px solid #f59e0b44; white-space: nowrap; }
-    .host-panel.offline { color: #a1a1aa; background: #27272a; border-color: #3f3f46; }
-    .btn-host { background: #b45309; color: #fff; padding: 3px 8px; font-size: 11px; border-radius: 4px; border: none; font-weight: bold; cursor: pointer; }
-    .btn-host:hover { background: #d97706; }
-
-    .btn-header-action {
-      background: #27272a; color: #e1e1e6; border: 1px solid #3f3f46; padding: 6px 12px;
-      border-radius: 6px; font-weight: bold; font-size: 11px; cursor: pointer; display: flex;
-      align-items: center; gap: 6px; transition: all 0.15s ease; white-space: nowrap;
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; }
+    body {
+      font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: radial-gradient(1200px 600px at 20% -10%, #1b1430 0%, transparent 60%), var(--bg);
+      color: var(--text); display: flex; flex-direction: column; overflow: hidden; font-size: 13px;
     }
-    .btn-header-action:hover { background: #3f3f46; color: #fff; border-color: #52525b; }
-    .btn-header-files { border-color: #2563eb66; color: #93c5fd; }
-    .btn-header-files:hover { background: #1e3a8a33; border-color: #3b82f6; }
-    .btn-header-settings { border-color: #8257e566; color: #c4b5fd; }
-    .btn-header-settings:hover { background: #5b21b633; border-color: #8257e5; }
+    button, input, select { font-family: inherit; }
+    ::-webkit-scrollbar { width: 10px; height: 10px; }
+    ::-webkit-scrollbar-thumb { background: #2c2c3a; border-radius: 10px; border: 2px solid transparent; background-clip: padding-box; }
+    ::-webkit-scrollbar-thumb:hover { background: #3c3c4e; border: 2px solid transparent; background-clip: padding-box; }
+    ::-webkit-scrollbar-track { background: transparent; }
 
-    .btn-chat-toggle { background: #3f3f46; color: white; padding: 6px 12px; border-radius: 6px; font-weight: bold; font-size: 11px; position: relative; border: none; cursor: pointer; white-space: nowrap; }
-    .btn-chat-toggle.active { background: #5b21b6; }
-    .chat-unread { display: none; position: absolute; top: -6px; right: -6px; background: #ef4444; color: #fff; border-radius: 9px; font-size: 10px; min-width: 18px; height: 18px; line-height: 18px; padding: 0 4px; text-align: center; }
-
-    /* ОСНОВНАЯ ЗОНА */
-    .main-area { display: flex; height: 48vh; border-bottom: 2px solid #323238; background: #000; }
-    .video-box { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; background: #000; min-width: 0; }
-    .video-wrapper { flex: 1; display: flex; align-items: center; justify-content: center; width: 100%; overflow: hidden; position: relative; }
-    video { max-height: 100%; max-width: 100%; }
-
-    /* СУФЛЁР (СУБТИТРЫ) НА ВИДЕО */
-    .video-prompter {
-      position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
-      background: rgba(10, 10, 14, 0.82); backdrop-filter: blur(8px);
-      padding: 8px 18px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.15);
-      color: #fff; font-size: 20px; max-width: 85%; text-align: center;
-      pointer-events: none; z-index: 10; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
-      line-height: 1.35;
-    }
-    .prompter-char { color: #a78bfa; font-weight: bold; margin-right: 8px; }
-    .prompter-text { font-weight: 500; }
-    .prompter-progress { height: 3px; background: #8257e5; border-radius: 3px; margin-top: 6px; width: 0; transition: width 0.06s linear; }
-
-    /* МИКШЕР */
-    .audio-mixer {
-      width: 100%; background: #18181b; border-top: 1px solid #27272a; padding: 6px 16px;
-      display: flex; gap: 16px; align-items: center; justify-content: center; font-size: 11px; color: #a1a1aa;
-    }
-    .mixer-channel { display: flex; align-items: center; gap: 6px; }
-    .mixer-channel span.label { font-weight: bold; color: #e1e1e6; }
-    .mixer-channel input[type="range"] { accent-color: #8257e5; width: 75px; cursor: pointer; }
-    .mixer-channel span.val { width: 30px; font-variant-numeric: tabular-nums; color: #71717a; }
-    .mute-toggle { display: flex; align-items: center; gap: 6px; cursor: pointer; font-weight: bold; color: #ef4444; border-right: 1px solid #323238; padding-right: 14px; }
-
-    .inspector { width: 360px; background: #1a1a1e; border-left: 1px solid #323238; padding: 16px; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
-    .inspector > * { flex-shrink: 0; }
-
-    /* ТАЙМЛАЙН */
-    .timeline-container { flex: 1; overflow: auto; background: #141417; position: relative; scroll-behavior: smooth; }
-    .timeline-wrapper { display: inline-flex; flex-direction: column; min-width: 100%; position: relative; padding-bottom: 40px; }
-
-    .ruler-row { display: flex; height: 26px; background: #1a1a1e; border-bottom: 2px solid #27272a; position: sticky; top: 0; z-index: 25; }
-    .ruler-corner { width: 180px; min-width: 180px; background: #202024; position: sticky; left: 0; z-index: 30; border-right: 2px solid #3f3f46; display: flex; align-items: center; padding-left: 12px; font-size: 10px; color: #71717a; text-transform: uppercase; font-weight: bold; }
-    .ruler-ticks { position: relative; height: 100%; cursor: pointer; }
-    .ruler-tick { position: absolute; top: 0; bottom: 0; border-left: 1px solid #3f3f46; font-size: 10px; color: #a1a1aa; padding-left: 4px; display: flex; align-items: center; }
-
-    .track-row { display: flex; height: 60px; border-bottom: 1px solid #27272a; position: relative; background: #16161a; }
-    .track-row:nth-child(even) { background: #18181d; }
-    
-    .track-label { width: 180px; min-width: 180px; background: #202024; height: 100%; display: flex; flex-direction: column; justify-content: center; padding: 0 10px; position: sticky; left: 0; z-index: 20; border-right: 2px solid #3f3f46; box-shadow: 4px 0 8px rgba(0, 0, 0, 0.4); }
-    .track-label .char-name { font-weight: bold; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .track-timeline { position: relative; height: 100%; }
-
-    .role-btn { font-size: 10px; padding: 2px 6px; border-radius: 4px; border: 1px solid #52525b; background: #27272a; color: #a1a1aa; cursor: pointer; margin-top: 3px; align-self: flex-start; }
-    .role-btn:hover { background: #3f3f46; color: #fff; }
-    .role-badge { font-size: 10px; padding: 2px 6px; border-radius: 4px; margin-top: 3px; font-weight: bold; align-self: flex-start; }
-    .role-badge.me { background: #5b21b6; color: #ddd6fe; border: 1px solid #7c3aed; }
-    .role-badge.other { background: #78350f; color: #fde68a; border: 1px solid #d97706; }
-
-    .line-block { position: absolute; height: 48px; top: 6px; background: #27272a; border: 1px solid #52525b; border-radius: 6px; padding: 4px 8px; cursor: pointer; overflow: hidden; font-size: 11px; transition: transform 0.1s; display: flex; flex-direction: column; justify-content: space-between; }
-    .line-block:hover { transform: translateY(-2px); border-color: #a1a1aa; z-index: 15; }
-    .line-block.claimed-me { background: #311b58; border-color: #8b5cf6; }
-    .line-block.claimed-other { background: #451a03; border-color: #f59e0b; }
-    .line-block.recorded { background: #054f31; border-color: #10b981; }
-    .line-block > :not(.wave-canvas) { position: relative; z-index: 1; }
-    .connection-banner { position: fixed; top: 0; left: 0; right: 0; z-index: 2000; padding: 8px 16px; text-align: center; font-size: 13px; font-weight: bold; color: #fff; box-shadow: 0 4px 16px rgba(0,0,0,0.5); }
-    .connection-banner.offline { background: #b91c1c; animation: bannerPulse 1.6s ease-in-out infinite; }
-    .connection-banner.online { background: #047857; }
-    @keyframes bannerPulse { 50% { background: #7f1d1d; } }
-
-    .line-block.live-recording { border-color: #ef4444 !important; box-shadow: 0 0 0 2px #ef444466; animation: pulseRecord 1.5s infinite; }
-    .tile-nick.live { background: #dc2626; color: #fff; }
-
-    .watch-overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: space-between; pointer-events: none; z-index: 5; }
-    .watch-countdown { margin: auto; font-size: 120px; font-weight: 900; color: #fff; text-shadow: 0 4px 24px rgba(0,0,0,0.8); }
-    .watch-bar { pointer-events: auto; margin-top: 10px; display: flex; align-items: center; gap: 10px; background: rgba(91,33,182,0.9); color: #fff; padding: 6px 12px; border-radius: 999px; font-size: 12px; font-weight: bold; }
-    .watch-bar button { padding: 2px 10px; font-size: 11px; }
-
-    .line-block.draggable { cursor: grab; }
-    .line-block.dragging { cursor: grabbing; transform: none; border-color: #34d399; box-shadow: 0 0 0 2px #34d39955; z-index: 16; }
-    .drag-hint { position: absolute !important; right: 4px; bottom: 3px; background: #065f46; color: #d1fae5; font-size: 10px; font-weight: bold; padding: 1px 5px; border-radius: 3px; }
-
-    .take-panel { background: #202024; padding: 8px 10px; border-radius: 6px; display: flex; flex-direction: column; gap: 6px; font-size: 11px; color: #a1a1aa; }
-    .take-row { display: flex; align-items: center; gap: 6px; }
-    .take-row > span:first-child { font-weight: bold; color: #e1e1e6; white-space: nowrap; }
-    .take-row select { flex: 1; background: #27272a; color: #fff; border: 1px solid #3f3f46; border-radius: 4px; padding: 3px 6px; font-size: 11px; }
-    .take-row button { padding: 3px 6px; font-size: 10px; }
-    .take-row button:disabled { opacity: 0.4; cursor: default; }
-    .take-val { color: #71717a; font-variant-numeric: tabular-nums; margin-left: auto; white-space: nowrap; }
-    .take-hint { font-size: 10px; color: #52525b; }
-    .wave-canvas { position: absolute; top: 0; height: 100%; pointer-events: none; z-index: 0; }
-
-    .tile-nick { font-size: 9px; font-weight: bold; padding: 1px 4px; border-radius: 3px; }
-    .tile-nick.me { background: #7c3aed; color: #fff; }
-    .tile-nick.other { background: #d97706; color: #fff; }
-
-    #visualizerCanvas { width: 100%; height: 32px; background: #121214; border-radius: 6px; border: 1px solid #323238; display: none; }
-
+    /* ==========================================
+       КНОПКИ
+       ========================================== */
+    button { cursor: pointer; border: none; border-radius: var(--radius-sm); padding: 7px 12px; font-weight: 600; font-size: 12px; color: #fff; transition: filter 0.15s, background 0.15s, border-color 0.15s, transform 0.05s; }
+    button:hover:not(:disabled) { filter: brightness(1.12); }
+    button:active:not(:disabled) { transform: translateY(1px); }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+    .btn-record { background: linear-gradient(135deg, #8b5cf6, #6d28d9); }
+    .btn-record:disabled { background: var(--panel-3); color: var(--faint); }
+    .btn-prep { background: linear-gradient(135deg, #f59e0b, #d97706); }
+    .btn-stop { background: #52525b; }
+    .btn-play { background: linear-gradient(135deg, #10b981, #059669); }
+    .btn-claim { background: linear-gradient(135deg, #3b82f6, #2563eb); }
+    .btn-unclaim { background: var(--panel-3); border: 1px solid var(--border-strong); }
+    .btn-delete { background: linear-gradient(135deg, #ef4444, #b91c1c); }
+    .btn-outline { background: transparent; border: 1px solid var(--border-strong); color: var(--text); }
+    .btn-outline:hover:not(:disabled) { background: var(--panel-3); }
+    .btn-icon { background: var(--panel-3); border: 1px solid var(--border); color: var(--text); padding: 4px 9px; font-size: 12px; line-height: 1.2; }
+    .btn-icon:hover:not(:disabled) { border-color: var(--border-strong); }
+    .btn-host { background: rgba(245, 158, 11, 0.18); color: #fcd34d; border: 1px solid rgba(245, 158, 11, 0.35); padding: 4px 10px; font-size: 11px; }
+    .btn-host:hover:not(:disabled) { background: rgba(245, 158, 11, 0.3); }
+    .recording-active { animation: pulseRecord 1.5s infinite; background: linear-gradient(135deg, #ef4444, #b91c1c) !important; }
     @keyframes pulseRecord {
       0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
       70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
       100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
     }
-    .recording-active { animation: pulseRecord 1.5s infinite; background: #ef4444 !important; }
 
-    button { cursor: pointer; border: none; border-radius: 4px; padding: 6px 10px; font-weight: bold; font-size: 11px; }
-    .btn-record { background: #8257e5; color: white; }
-    .btn-record:disabled { background: #3f3f46; color: #71717a; cursor: not-allowed; }
-    .btn-prep { background: #d97706; color: white; }
-    .btn-stop { background: #6b7280; color: white; }
-    .btn-play { background: #10b981; color: white; }
-    .btn-claim { background: #2563eb; color: white; }
-    .btn-unclaim { background: #4b5563; color: white; }
-    .btn-delete { background: #dc2626; color: white; }
-    .btn-outline { background: transparent; border: 1px solid #52525b; color: #fff; }
+    /* ==========================================
+       ШАПКА
+       ========================================== */
+    header {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      padding: 8px 14px; min-height: 52px; z-index: 30;
+      background: rgba(20, 20, 27, 0.85); backdrop-filter: blur(10px); border-bottom: 1px solid var(--border);
+    }
+    .header-left, .header-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+    .header-center { display: flex; align-items: center; justify-content: center; flex: 1; min-width: 0; }
+    .brand { display: flex; align-items: center; gap: 8px; font-size: 17px; font-weight: 800; letter-spacing: 0.2px; }
+    .brand-logo { width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; background: linear-gradient(135deg, #8b5cf6, #ec4899); font-size: 15px; box-shadow: 0 4px 14px rgba(139, 92, 246, 0.45); }
+    .brand small { font-size: 10px; color: var(--accent-2); font-weight: 600; text-transform: uppercase; letter-spacing: 1px; }
 
-    /* ЧАТ */
-    .chat-panel { width: 300px; background: #16161a; border-left: 1px solid #323238; display: flex; flex-direction: column; min-height: 0; }
-    .chat-header { padding: 10px 12px; font-size: 12px; font-weight: bold; border-bottom: 1px solid #27272a; color: #a1a1aa; }
-    .chat-messages { flex: 1; overflow-y: auto; padding: 8px 12px; display: flex; flex-direction: column; gap: 6px; font-size: 12px; line-height: 1.35; min-height: 0; }
+    .room-badge { display: flex; align-items: center; gap: 8px; background: var(--panel-2); padding: 4px 6px 4px 12px; border-radius: 999px; font-size: 12px; font-weight: 600; border: 1px solid var(--border); white-space: nowrap; }
+    .room-badge #roomNameLabel { color: var(--accent-2); }
+    .btn-share { background: var(--accent-soft); color: var(--accent-2); padding: 4px 10px; border-radius: 999px; font-size: 11px; }
+    .users-online { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--success); background: var(--success-soft); padding: 5px 10px; border-radius: 999px; font-weight: 600; white-space: nowrap; }
+
+    .host-panel { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: #fcd34d; background: rgba(245, 158, 11, 0.08); padding: 4px 6px 4px 12px; border-radius: 999px; border: 1px solid rgba(245, 158, 11, 0.25); white-space: nowrap; }
+    .host-panel.offline { color: var(--muted); background: var(--panel-2); border-color: var(--border); }
+
+    .btn-header-action { background: var(--panel-2); color: var(--text); border: 1px solid var(--border); padding: 7px 12px; border-radius: 999px; font-weight: 600; font-size: 12px; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; text-decoration: none; }
+    .btn-header-action:hover { background: var(--panel-3); border-color: var(--border-strong); }
+    .btn-chat-toggle { background: var(--panel-2); border: 1px solid var(--border); color: var(--text); padding: 7px 12px; border-radius: 999px; font-size: 12px; position: relative; white-space: nowrap; }
+    .btn-chat-toggle.active { background: var(--accent-soft); border-color: rgba(139, 92, 246, 0.5); color: var(--accent-2); }
+    .chat-unread { display: none; position: absolute; top: -6px; right: -6px; background: var(--danger); color: #fff; border-radius: 9px; font-size: 10px; min-width: 18px; height: 18px; line-height: 18px; padding: 0 4px; text-align: center; }
+
+    /* ==========================================
+       РАСКЛАДКА: лобби | студия (верх + таймлайн)
+       ========================================== */
+    .workspace { flex: 1; min-height: 0; display: grid; grid-template-columns: var(--lobby-w) var(--gap) minmax(0, 1fr); padding: var(--gap); }
+    .studio { min-width: 0; min-height: 0; display: grid; grid-template-rows: var(--top-h) var(--gap) minmax(0, 1fr); }
+    .main-area { min-height: 0; display: flex; }
+    .panel { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; min-width: 0; min-height: 0; }
+    .panel-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+
+    /* Разделители панелей */
+    .splitter { position: relative; flex-shrink: 0; }
+    .splitter::after { content: ""; position: absolute; border-radius: 3px; background: transparent; transition: background 0.15s; }
+    .splitter-x { width: var(--gap); cursor: col-resize; }
+    .splitter-x::after { top: 30%; bottom: 30%; left: 2px; width: 2px; }
+    .splitter-y { height: var(--gap); cursor: row-resize; }
+    .splitter-y::after { left: 35%; right: 35%; top: 2px; height: 2px; }
+    .splitter:hover::after, .splitter.dragging::after { background: var(--accent); }
+    body.resizing { user-select: none; }
+    body.resizing video { pointer-events: none; }
+
+    /* ==========================================
+       ЛОББИ
+       ========================================== */
+    .lobby-panel { display: flex; flex-direction: column; }
+    .lobby-summary { padding: 12px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px; }
+    .lobby-summary-row { display: flex; justify-content: space-between; align-items: baseline; font-size: 12px; color: var(--muted); }
+    .lobby-summary-row b { color: var(--text); font-size: 18px; font-variant-numeric: tabular-nums; }
+    .progress { height: 6px; background: var(--panel-3); border-radius: 999px; overflow: hidden; }
+    .progress > div { height: 100%; width: 0; background: linear-gradient(90deg, #8b5cf6, #10b981); border-radius: 999px; transition: width 0.3s; }
+    .lobby-list { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+    .lobby-section { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; color: var(--faint); padding: 8px 4px 2px; }
+    .player-card { background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 9px 10px; display: flex; flex-direction: column; gap: 6px; }
+    .player-card.me { border-color: rgba(139, 92, 246, 0.45); background: linear-gradient(180deg, rgba(139, 92, 246, 0.08), transparent), var(--panel-2); }
+    .player-card.offline { opacity: 0.55; }
+    .player-card.recording { border-color: rgba(239, 68, 68, 0.6); }
+    .player-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .avatar { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 800; color: #fff; flex-shrink: 0; position: relative; }
+    .avatar .dot { position: absolute; right: -1px; bottom: -1px; width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--panel-2); background: var(--success); }
+    .player-card.offline .avatar .dot { background: var(--faint); }
+    .player-card.recording .avatar .dot { background: var(--danger); animation: pulseRecord 1.5s infinite; }
+    .player-name { font-weight: 700; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
+    .player-tags { display: flex; gap: 4px; flex-shrink: 0; }
+    .tag { font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 999px; background: var(--panel-3); color: var(--muted); white-space: nowrap; }
+    .tag.host { background: var(--warning-soft); color: #fcd34d; }
+    .tag.you { background: var(--accent-soft); color: var(--accent-2); }
+    .tag.rec { background: rgba(239, 68, 68, 0.2); color: #fca5a5; }
+    .tag.seed { background: rgba(34, 211, 238, 0.14); color: #67e8f9; }
+    .player-stats { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .player-latency { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--muted); }
+    .player-latency b { color: var(--text); font-variant-numeric: tabular-nums; min-width: 54px; }
+    .player-latency button { padding: 2px 7px; font-size: 11px; }
+    .lobby-footer { padding: 10px 12px; border-top: 1px solid var(--border); font-size: 11px; color: var(--muted); display: flex; flex-direction: column; gap: 6px; }
+    .lobby-footer .progress > div { background: linear-gradient(90deg, #22d3ee, #8b5cf6); }
+
+    /* ==========================================
+       ВИДЕО, МИКШЕР, СУФЛЁР
+       ========================================== */
+    .video-box { flex: 1; display: flex; flex-direction: column; position: relative; background: #000; min-width: 0; }
+    .video-wrapper { container-type: inline-size; flex: 1; display: flex; align-items: center; justify-content: center; width: 100%; overflow: hidden; position: relative; min-height: 0; }
+    video { max-height: 100%; max-width: 100%; }
+    .video-prompter { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); background: rgba(10, 10, 14, 0.82); backdrop-filter: blur(8px); padding: 8px 18px; border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.12); color: #fff; font-size: 20px; max-width: 85%; text-align: center; pointer-events: none; z-index: 10; box-shadow: var(--shadow); line-height: 1.35; }
+    .prompter-char { color: var(--accent-2); font-weight: 700; margin-right: 8px; }
+    .prompter-text { font-weight: 500; }
+    .prompter-progress { height: 3px; background: var(--accent); border-radius: 3px; margin-top: 6px; width: 0; transition: width 0.06s linear; }
+
+    .audio-mixer { width: 100%; background: var(--panel); border-top: 1px solid var(--border); padding: 8px 14px; display: flex; gap: 18px; align-items: center; justify-content: center; font-size: 11px; color: var(--muted); flex-wrap: wrap; }
+    .mixer-channel { display: flex; align-items: center; gap: 8px; }
+    .mixer-channel span.label { font-weight: 600; color: var(--text); }
+    .mixer-channel input[type="range"] { accent-color: var(--accent); width: 90px; cursor: pointer; }
+    .mixer-channel span.val { width: 34px; font-variant-numeric: tabular-nums; color: var(--faint); }
+    .mute-toggle { display: flex; align-items: center; gap: 6px; cursor: pointer; font-weight: 600; color: #fca5a5; border-right: 1px solid var(--border); padding-right: 16px; }
+
+    .watch-overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: space-between; pointer-events: none; z-index: 5; }
+    .watch-countdown { margin: auto; font-size: 120px; font-weight: 900; color: #fff; text-shadow: 0 4px 24px rgba(0, 0, 0, 0.8); }
+    .watch-bar { pointer-events: auto; margin-top: 10px; display: flex; align-items: center; gap: 10px; background: rgba(109, 40, 217, 0.9); color: #fff; padding: 6px 8px 6px 14px; border-radius: 999px; font-size: 12px; font-weight: 700; box-shadow: var(--shadow); }
+    .watch-bar button { padding: 3px 10px; font-size: 11px; border-color: rgba(255, 255, 255, 0.4); }
+
+    /* ==========================================
+       ИНСПЕКТОР
+       ========================================== */
+    .inspector { width: var(--inspector-w); padding: 14px; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; flex-shrink: 0; }
+    .inspector > * { flex-shrink: 0; }
+    .inspector h3 { font-size: 15px; }
+    .inspector p { color: var(--muted); line-height: 1.45; }
+    .inspector strong { color: var(--text); }
+    #visualizerCanvas { width: 100%; height: 32px; background: var(--bg); border-radius: var(--radius-sm); border: 1px solid var(--border); display: none; }
+    .take-panel { background: var(--panel-2); border: 1px solid var(--border); padding: 10px; border-radius: var(--radius-sm); display: flex; flex-direction: column; gap: 8px; font-size: 11px; color: var(--muted); }
+    .take-row { display: flex; align-items: center; gap: 6px; }
+    .take-row > span:first-child { font-weight: 600; color: var(--text); white-space: nowrap; }
+    .take-row select { flex: 1; background: var(--panel-3); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 4px 6px; font-size: 11px; }
+    .take-row button { padding: 3px 7px; font-size: 10px; }
+    .take-val { color: var(--faint); font-variant-numeric: tabular-nums; margin-left: auto; white-space: nowrap; }
+    .take-hint { font-size: 10px; color: var(--faint); }
+
+    /* ==========================================
+       ЧАТ
+       ========================================== */
+    .chat-panel { width: var(--chat-w); display: flex; flex-direction: column; flex-shrink: 0; }
+    .chat-header { padding: 10px 12px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; border-bottom: 1px solid var(--border); color: var(--muted); }
+    .chat-messages { flex: 1; overflow-y: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 7px; font-size: 12px; line-height: 1.4; min-height: 0; }
     .chat-msg { word-wrap: break-word; overflow-wrap: anywhere; }
-    .chat-msg .chat-time { color: #52525b; font-size: 10px; font-variant-numeric: tabular-nums; }
-    .chat-msg .chat-nick { color: #f59e0b; }
-    .chat-msg.me .chat-nick { color: #a78bfa; }
-    .chat-msg.system { color: #71717a; font-style: italic; font-size: 11px; }
-    .chat-empty { color: #52525b; font-size: 11px; text-align: center; margin-top: 12px; }
-    .chat-form { display: flex; gap: 6px; padding: 8px; border-top: 1px solid #27272a; }
-    .chat-form input { flex: 1; min-width: 0; background: #27272a; border: 1px solid #3f3f46; color: #fff; padding: 6px 8px; border-radius: 4px; outline: none; font-size: 12px; }
-    .chat-form input:focus { border-color: #8257e5; }
+    .chat-msg .chat-time { color: var(--faint); font-size: 10px; font-variant-numeric: tabular-nums; }
+    .chat-msg .chat-nick { color: #fcd34d; }
+    .chat-msg.me .chat-nick { color: var(--accent-2); }
+    .chat-msg.system { color: var(--faint); font-style: italic; font-size: 11px; }
+    .chat-empty { color: var(--faint); font-size: 11px; text-align: center; margin-top: 12px; }
+    .chat-form { display: flex; gap: 6px; padding: 8px; border-top: 1px solid var(--border); }
+    .chat-form input { flex: 1; min-width: 0; background: var(--panel-2); border: 1px solid var(--border); color: var(--text); padding: 7px 10px; border-radius: var(--radius-sm); outline: none; font-size: 12px; }
+    .chat-form input:focus { border-color: var(--accent); }
 
-    /* МОДАЛЬНЫЕ ОКНА И ВКЛАДКИ */
-    .modal-overlay {
-      position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-      background: rgba(0, 0, 0, 0.85); backdrop-filter: blur(8px);
-      display: flex; align-items: center; justify-content: center;
-      z-index: 1000;
-    }
-    .modal-card {
-      background: #1e1e24; border: 1px solid #3f3f46; border-radius: 12px;
-      padding: 24px; width: 440px; box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
-      text-align: center; display: flex; flex-direction: column; gap: 12px;
-    }
-    .modal-card.modal-large {
-      width: 560px; max-width: 95vw; max-height: 85vh; overflow-y: auto; text-align: left;
-    }
-    .modal-header-row {
-      display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;
-    }
-    .modal-header-row h2 { font-size: 17px; color: #fff; }
-    .modal-close-icon {
-      background: transparent; border: none; color: #71717a; font-size: 20px;
-      cursor: pointer; padding: 2px 6px; line-height: 1; border-radius: 4px;
-    }
-    .modal-close-icon:hover { color: #fff; background: #27272a; }
+    /* ==========================================
+       ТАЙМЛАЙН
+       ========================================== */
+    .timeline-panel { display: flex; flex-direction: column; }
+    .timeline-toolbar { display: flex; align-items: center; gap: 14px; padding: 7px 12px; border-bottom: 1px solid var(--border); background: var(--panel-2); flex-shrink: 0; flex-wrap: wrap; }
+    .scene-progress { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--muted); flex: 1; min-width: 220px; }
+    .scene-progress b { color: var(--text); font-variant-numeric: tabular-nums; }
+    .scene-progress .progress { flex: 1; max-width: 260px; }
+    .zoom-controls { display: flex; align-items: center; gap: 4px; }
+    .zoom-controls span { min-width: 46px; text-align: center; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .toolbar-hint { font-size: 11px; color: var(--faint); }
 
-    .modal-tabs {
-      display: flex; gap: 4px; border-bottom: 1px solid #323238; margin-bottom: 16px;
-    }
-    .modal-tab-btn {
-      background: transparent; border: none; color: #a1a1aa; padding: 8px 14px;
-      font-size: 12px; font-weight: bold; cursor: pointer; border-bottom: 2px solid transparent;
-      border-radius: 4px 4px 0 0; transition: all 0.15s;
-    }
-    .modal-tab-btn:hover { color: #fff; background: #27272a; }
-    .modal-tab-btn.active { color: #a78bfa; border-bottom-color: #8257e5; background: #27272a; }
+    .timeline-container { flex: 1; overflow: auto; background: var(--panel); position: relative; }
+    .timeline-wrapper { display: inline-flex; flex-direction: column; min-width: 100%; position: relative; padding-bottom: 40px; }
+    .ruler-row { display: flex; height: 26px; background: var(--panel-2); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 25; }
+    .ruler-corner { width: 180px; min-width: 180px; background: var(--panel-2); position: sticky; left: 0; z-index: 30; border-right: 1px solid var(--border-strong); display: flex; align-items: center; padding-left: 12px; font-size: 10px; color: var(--faint); text-transform: uppercase; font-weight: 700; letter-spacing: 0.6px; }
+    .ruler-ticks { position: relative; height: 100%; cursor: pointer; }
+    .ruler-tick { position: absolute; top: 0; bottom: 0; border-left: 1px solid var(--border-strong); font-size: 10px; color: var(--muted); padding-left: 4px; display: flex; align-items: center; font-variant-numeric: tabular-nums; }
 
-    .tab-content { display: none; flex-direction: column; gap: 12px; }
+    .track-row { display: flex; height: 60px; border-bottom: 1px solid var(--border); position: relative; background: var(--panel); }
+    .track-row:nth-child(even) { background: #16161e; }
+    .track-label { width: 180px; min-width: 180px; background: var(--panel-2); height: 100%; display: flex; flex-direction: column; justify-content: center; padding: 0 10px; position: sticky; left: 0; z-index: 20; border-right: 1px solid var(--border-strong); box-shadow: 4px 0 10px rgba(0, 0, 0, 0.35); }
+    .track-label .char-name { font-weight: 700; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .track-timeline { position: relative; height: 100%; }
+    .role-btn { font-size: 10px; padding: 2px 7px; border-radius: 999px; border: 1px solid var(--border-strong); background: var(--panel-3); color: var(--muted); margin-top: 4px; align-self: flex-start; }
+    .role-btn:hover { color: #fff; }
+    .role-badge { font-size: 10px; padding: 2px 7px; border-radius: 999px; margin-top: 4px; font-weight: 700; align-self: flex-start; }
+    .role-badge.me { background: var(--accent-soft); color: var(--accent-2); border: 1px solid rgba(139, 92, 246, 0.45); }
+    .role-badge.other { background: var(--warning-soft); color: #fcd34d; border: 1px solid rgba(245, 158, 11, 0.4); }
+
+    .line-block { position: absolute; height: 48px; top: 6px; background: linear-gradient(180deg, #262633, #1f1f2a); border: 1px solid var(--border-strong); border-radius: 8px; padding: 4px 8px; cursor: pointer; overflow: hidden; font-size: 11px; transition: transform 0.1s, border-color 0.15s; display: flex; flex-direction: column; justify-content: space-between; }
+    .line-block:hover { transform: translateY(-2px); border-color: #6b6b80; z-index: 15; }
+    .line-block.claimed-me { background: linear-gradient(180deg, #3a2466, #2a1a4a); border-color: #8b5cf6; }
+    .line-block.claimed-other { background: linear-gradient(180deg, #4a2a0a, #351d06); border-color: #d97706; }
+    .line-block.recorded { background: linear-gradient(180deg, #0b5a3c, #07402b); border-color: #10b981; }
+    .line-block.selected { outline: 2px solid #fff; outline-offset: 1px; z-index: 16; }
+    .line-block > :not(.wave-canvas) { position: relative; z-index: 1; }
+    .line-block.live-recording { border-color: var(--danger) !important; box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.4); animation: pulseRecord 1.5s infinite; }
+    .line-block.draggable { cursor: grab; }
+    .line-block.dragging { cursor: grabbing; transform: none; border-color: #34d399; box-shadow: 0 0 0 2px rgba(52, 211, 153, 0.35); z-index: 16; }
+    .line-block.latency-drag { border-color: #22d3ee; box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.35); }
+    .drag-hint { position: absolute !important; right: 4px; bottom: 3px; background: #065f46; color: #d1fae5; font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 4px; }
+    .drag-hint.latency { background: #155e75; color: #cffafe; }
+    .wave-canvas { position: absolute; top: 0; height: 100%; pointer-events: none; z-index: 0; }
+    .tile-nick { font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 999px; color: #fff; }
+    .tile-nick.me { background: var(--accent); }
+    .tile-nick.other { background: #b45309; }
+    .tile-nick.live { background: var(--danger); }
+
+    /* ==========================================
+       ПЛАШКА СВЯЗИ
+       ========================================== */
+    .connection-banner { position: fixed; top: 0; left: 0; right: 0; z-index: 2000; padding: 8px 16px; text-align: center; font-size: 13px; font-weight: 700; color: #fff; box-shadow: var(--shadow); }
+    .connection-banner.offline { background: #b91c1c; animation: bannerPulse 1.6s ease-in-out infinite; }
+    .connection-banner.online { background: #047857; }
+    @keyframes bannerPulse { 50% { background: #7f1d1d; } }
+
+    /* ==========================================
+       МОДАЛЬНЫЕ ОКНА
+       ========================================== */
+    .modal-overlay { position: fixed; inset: 0; background: rgba(5, 5, 10, 0.75); backdrop-filter: blur(10px); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+    .modal-card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 24px; width: 440px; box-shadow: var(--shadow); text-align: center; display: flex; flex-direction: column; gap: 12px; }
+    .modal-card h2 { font-size: 18px; }
+    .modal-card p { color: var(--muted); }
+    .modal-card.modal-large { width: 580px; max-width: 95vw; max-height: 85vh; overflow-y: auto; text-align: left; }
+    .modal-header-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+    .modal-header-row h2 { font-size: 17px; }
+    .modal-close-icon { background: transparent; color: var(--muted); font-size: 18px; padding: 2px 8px; line-height: 1; }
+    .modal-close-icon:hover { color: #fff; background: var(--panel-3); }
+    .modal-tabs { display: flex; gap: 4px; background: var(--panel-2); padding: 4px; border-radius: 999px; margin-bottom: 8px; }
+    .modal-tab-btn { flex: 1; background: transparent; color: var(--muted); padding: 7px 12px; font-size: 12px; border-radius: 999px; }
+    .modal-tab-btn:hover { color: #fff; }
+    .modal-tab-btn.active { color: #fff; background: var(--accent); box-shadow: 0 4px 14px rgba(139, 92, 246, 0.35); }
+    .tab-content { display: none; flex-direction: column; gap: 10px; }
     .tab-content.active { display: flex; }
-
-    .setting-card {
-      background: #16161a; border: 1px solid #27272a; border-radius: 8px;
-      padding: 12px 14px; display: flex; flex-direction: column; gap: 8px;
-    }
+    .setting-card { background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
     .setting-card-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
-    .setting-label { font-size: 12px; font-weight: bold; color: #e1e1e6; }
-    .setting-sub { font-size: 11px; color: #71717a; }
-
-    /* Тумблер (Switch) */
+    .setting-label { font-size: 12px; font-weight: 700; color: var(--text); }
+    .setting-sub { font-size: 11px; color: var(--muted); line-height: 1.4; }
+    .text-input { background: var(--panel-3); border: 1px solid var(--border); color: var(--text); padding: 8px 10px; border-radius: var(--radius-sm); font-weight: 600; outline: none; font-size: 12px; }
+    .text-input:focus { border-color: var(--accent); }
     .switch-ui { position: relative; display: inline-block; width: 40px; height: 22px; flex-shrink: 0; }
     .switch-ui input { opacity: 0; width: 0; height: 0; }
-    .switch-slider {
-      position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
-      background-color: #3f3f46; transition: .2s; border-radius: 22px;
-    }
-    .switch-slider:before {
-      position: absolute; content: ""; height: 16px; width: 16px; left: 3px; bottom: 3px;
-      background-color: white; transition: .2s; border-radius: 50%;
-    }
-    .switch-ui input:checked + .switch-slider { background-color: #8257e5; }
+    .switch-slider { position: absolute; cursor: pointer; inset: 0; background-color: var(--panel-3); border: 1px solid var(--border-strong); transition: .2s; border-radius: 22px; }
+    .switch-slider:before { position: absolute; content: ""; height: 16px; width: 16px; left: 2px; bottom: 2px; background-color: white; transition: .2s; border-radius: 50%; }
+    .switch-ui input:checked + .switch-slider { background-color: var(--accent); border-color: var(--accent); }
     .switch-ui input:checked + .switch-slider:before { transform: translateX(18px); }
-
-    .upload-btn { background: #8257e5; color: white; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 11px; display: inline-block; text-align: center; }
+    .upload-btn { background: linear-gradient(135deg, #8b5cf6, #6d28d9); color: white; padding: 9px 14px; border-radius: var(--radius-sm); cursor: pointer; font-weight: 600; font-size: 12px; display: inline-block; text-align: center; }
     .upload-btn.disabled { opacity: 0.45; cursor: not-allowed; }
-    .pack-item { display: flex; justify-content: space-between; align-items: center; padding: 10px; background: #141417; border: 1px solid #323238; border-radius: 6px; font-size: 12px; text-align: left; }
-    .file-dropzone { border: 2px dashed #3f3f46; border-radius: 8px; padding: 16px; text-align: center; background: #141417; transition: border-color 0.15s; }
-    .file-dropzone:hover { border-color: #8257e5; }
+    .pack-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 12px; text-align: left; }
+    input[type="range"] { accent-color: var(--accent); }
+    input[type="file"] { color: var(--muted); }
   </style>
 </head>
 <body>
@@ -246,10 +320,10 @@
     <div class="modal-card">
       <h2 data-i18n="welcome">🎙️ Добро пожаловать в Dubline</h2>
       <p data-i18n="welcome.help">Введите ваш никнейм для озвучки, чтобы друзья видели, кто какие роли занял:</p>
-      <p id="nickError" style="display: none; color: #ef4444; font-weight: bold;"></p>
+      <p id="nickError" style="display: none; color: var(--danger); font-weight: 700;"></p>
       <form id="nickForm" onsubmit="handleNickSubmit(event)">
-        <input type="text" id="modalNickInput" class="modal-input" maxlength="16" data-i18n-placeholder="nickname.placeholder" placeholder="Ваш никнейм..." required style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid #52525b; background: #141417; color: #fff; font-size: 14px; font-weight: bold; outline: none; text-align: center;">
-        <button type="submit" class="btn-record" data-i18n="enterStudio" style="width: 100%; margin-top: 10px; padding: 10px;">Войти в студию</button>
+        <input type="text" id="modalNickInput" class="text-input" maxlength="16" data-i18n-placeholder="nickname.placeholder" placeholder="Ваш никнейм..." required style="width: 100%; padding: 11px; font-size: 14px; text-align: center;">
+        <button type="submit" class="btn-record" data-i18n="enterStudio" style="width: 100%; margin-top: 10px; padding: 11px;">Войти в студию</button>
       </form>
     </div>
   </div>
@@ -267,20 +341,17 @@
         <button id="tabBtnPlayer" class="modal-tab-btn" data-i18n="playerTab" onclick="switchSettingsTab('player')">🎛️ Плеер и Комната</button>
       </div>
 
-      <!-- Вкладка: Пользователь -->
       <div id="tabContentUser" class="tab-content active">
         <div class="setting-card">
-          <div class="setting-card-row">
-            <div>
-              <div class="setting-label" data-i18n="nickname">Ваш никнейм в комнате</div>
-              <div class="setting-sub" data-i18n="nickname.help">Отображается на ваших репликах и в чате</div>
-            </div>
+          <div>
+            <div class="setting-label" data-i18n="nickname">Ваш никнейм в комнате</div>
+            <div class="setting-sub" data-i18n="nickname.help">Отображается на ваших репликах и в чате</div>
           </div>
           <div style="display: flex; gap: 8px;">
-            <input type="text" id="settingsNickInput" maxlength="16" data-i18n-placeholder="nickname.placeholder" placeholder="Введите ник..." style="flex: 1; background: #27272a; border: 1px solid #3f3f46; color: #fff; padding: 7px 10px; border-radius: 6px; font-weight: bold; outline: none; font-size: 12px;">
+            <input type="text" id="settingsNickInput" class="text-input" maxlength="16" data-i18n-placeholder="nickname.placeholder" placeholder="Введите ник..." style="flex: 1;">
             <button class="btn-play" data-i18n="save" onclick="saveNickFromSettings()">Сохранить</button>
           </div>
-          <div id="settingsNickStatus" style="font-size: 11px; color: #10b981; display: none;"></div>
+          <div id="settingsNickStatus" style="font-size: 11px; color: var(--success); display: none;"></div>
         </div>
 
         <div class="setting-card">
@@ -289,9 +360,9 @@
               <div class="setting-label" data-i18n="micGain">Чувствительность микрофона (Gain)</div>
               <div class="setting-sub" data-i18n="micGain.help">Усиление звука для тихих гарнитур и микрофонов</div>
             </div>
-            <span id="settingsMicGainVal" style="font-weight: bold; color: #8257e5; font-size: 12px; font-variant-numeric: tabular-nums;">100%</span>
+            <span id="settingsMicGainVal" style="font-weight: 700; color: var(--accent-2); font-size: 12px; font-variant-numeric: tabular-nums;">100%</span>
           </div>
-          <input type="range" id="settingsMicGain" min="30" max="300" step="5" value="100" style="width: 100%; accent-color: #8257e5; cursor: pointer;">
+          <input type="range" id="settingsMicGain" min="30" max="300" step="5" value="100" style="width: 100%; cursor: pointer;">
         </div>
 
         <div class="setting-card">
@@ -300,24 +371,20 @@
               <div class="setting-label" data-i18n="noiseSuppression">Шумоподавление и эхоподавление браузера</div>
               <div class="setting-sub" data-i18n="noiseSuppression.help">Встроенный фильтр фонового шума микрофона (WebRTC)</div>
             </div>
-            <label class="switch-ui">
-              <input type="checkbox" id="settingsNoiseSuppression" checked>
-              <span class="switch-slider"></span>
-            </label>
+            <label class="switch-ui"><input type="checkbox" id="settingsNoiseSuppression" checked><span class="switch-slider"></span></label>
           </div>
         </div>
 
         <div class="setting-card">
           <div class="setting-card-row">
             <div><div class="setting-label" data-i18n="language">Язык</div><div class="setting-sub" data-i18n="language.help">Язык интерфейса на этом устройстве</div></div>
-            <select id="settingsLanguage" style="background:#27272a;border:1px solid #3f3f46;color:#fff;padding:7px 10px;border-radius:6px;">
+            <select id="settingsLanguage" class="text-input">
               <option value="en">English</option><option value="ru">Русский</option><option value="uk">Українська</option>
             </select>
           </div>
         </div>
       </div>
 
-      <!-- Вкладка: Плеер и Комната -->
       <div id="tabContentPlayer" class="tab-content">
         <div class="setting-card">
           <div class="setting-card-row">
@@ -325,17 +392,14 @@
               <div class="setting-label" data-i18n="autoDuck">Автодакинг (Auto-Ducking)</div>
               <div class="setting-sub" data-i18n="autoDuck.help">Автоматически приглушает интершум/музыку во время звучания дублей</div>
             </div>
-            <label class="switch-ui">
-              <input type="checkbox" id="settingsAutoDuck" checked>
-              <span class="switch-slider"></span>
-            </label>
+            <label class="switch-ui"><input type="checkbox" id="settingsAutoDuck" checked><span class="switch-slider"></span></label>
           </div>
           <div id="autoDuckSubRow" style="display: flex; flex-direction: column; gap: 4px; margin-top: 4px;">
             <div style="display: flex; justify-content: space-between; font-size: 11px;">
-              <span style="color: #a1a1aa;" data-i18n="duckAmount">Сила приглушения фона:</span>
-              <span id="settingsAutoDuckVal" style="font-weight: bold; color: #8257e5;">40%</span>
+              <span style="color: var(--muted);" data-i18n="duckAmount">Сила приглушения фона:</span>
+              <span id="settingsAutoDuckVal" style="font-weight: 700; color: var(--accent-2);">40%</span>
             </div>
-            <input type="range" id="settingsAutoDuckAmount" min="0" max="80" step="5" value="40" style="width: 100%; accent-color: #8257e5; cursor: pointer;">
+            <input type="range" id="settingsAutoDuckAmount" min="0" max="80" step="5" value="40" style="width: 100%; cursor: pointer;">
           </div>
         </div>
 
@@ -345,17 +409,34 @@
               <div class="setting-label" data-i18n="prompter">Суфлёр на видео (Субтитры)</div>
               <div class="setting-sub" data-i18n="prompter.help">Отображает текущую реплику и персонажа поверх видеоплеера</div>
             </div>
-            <label class="switch-ui">
-              <input type="checkbox" id="settingsPrompter" checked>
-              <span class="switch-slider"></span>
-            </label>
+            <label class="switch-ui"><input type="checkbox" id="settingsPrompter" checked><span class="switch-slider"></span></label>
           </div>
           <div id="prompterSubRow" style="display: flex; flex-direction: column; gap: 4px; margin-top: 4px;">
             <div style="display: flex; justify-content: space-between; font-size: 11px;">
-              <span style="color: #a1a1aa;" data-i18n="prompterSize">Размер шрифта субтитров:</span>
-              <span id="settingsPrompterSizeVal" style="font-weight: bold; color: #8257e5;">20px</span>
+              <span style="color: var(--muted);" data-i18n="prompterSize">Размер шрифта субтитров:</span>
+              <span id="settingsPrompterSizeVal" style="font-weight: 700; color: var(--accent-2);">20px</span>
             </div>
-            <input type="range" id="settingsPrompterSize" min="14" max="36" step="1" value="20" style="width: 100%; accent-color: #8257e5; cursor: pointer;">
+            <input type="range" id="settingsPrompterSize" min="14" max="36" step="1" value="20" style="width: 100%; cursor: pointer;">
+          </div>
+        </div>
+
+        <div class="setting-card">
+          <div class="setting-card-row">
+            <div>
+              <div class="setting-label" data-i18n="p2p.setting">Раздавать видео друзьям (P2P)</div>
+              <div class="setting-sub" data-i18n="p2p.setting.help">Когда у вас есть видео сцены, вы отдаёте его по кусочкам другим игрокам напрямую — хосту не приходится раздавать его всем</div>
+            </div>
+            <label class="switch-ui"><input type="checkbox" id="settingsP2P" checked><span class="switch-slider"></span></label>
+          </div>
+        </div>
+
+        <div class="setting-card">
+          <div class="setting-card-row">
+            <div>
+              <div class="setting-label" data-i18n="layout.reset">Раскладка панелей</div>
+              <div class="setting-sub" data-i18n="layout.reset.help">Размеры панелей меняются перетаскиванием разделителей, двойной клик по разделителю — сброс</div>
+            </div>
+            <button class="btn-outline" data-i18n="reset" onclick="resetLayout()">Сброс</button>
           </div>
         </div>
       </div>
@@ -368,7 +449,7 @@
 
   <!-- МОДАЛЬНОЕ ОКНО: ФАЙЛЫ И ЭКСПОРТ -->
   <div id="filesModal" class="modal-overlay" style="display: none;">
-    <div class="modal-card modal-large" style="width: 580px;">
+    <div class="modal-card modal-large" style="width: 600px;">
       <div class="modal-header-row">
         <h2 data-i18n="files.title">📁 Файлы и Экспорт</h2>
         <button class="modal-close-icon" onclick="closeFilesModal()" data-i18n-title="close" title="Закрыть">✕</button>
@@ -380,135 +461,109 @@
         <button id="tabBtnExport" class="modal-tab-btn" data-i18n="exportTab" onclick="switchFilesTab('export')">🎬 Экспорт</button>
       </div>
 
-      <!-- Вкладка: Импорт -->
       <div id="tabContentImport" class="tab-content active">
-        <!-- Загрузка Voxalike ZIP -->
         <div class="setting-card">
           <div class="setting-label" data-i18n="zipImport">1. Загрузка пака Voxalike (.zip)</div>
           <div class="setting-sub" data-i18n="zipImport.help">Поддерживаются стандартные архивы сцен Voxalike и The Choicer Voicer с GameBanana</div>
-          <div style="margin-top: 4px;">
-            <label class="upload-btn" id="uploadLabel" style="width: 100%;">
-              <span data-i18n="chooseZip">⬆ Выбрать .ZIP архив</span>
-              <input type="file" id="zipInput" accept=".zip" style="display: none;">
-            </label>
-          </div>
+          <label class="upload-btn" id="uploadLabel" style="width: 100%;">
+            <span data-i18n="chooseZip">⬆ Выбрать .ZIP архив</span>
+            <input type="file" id="zipInput" accept=".zip" style="display: none;">
+          </label>
         </div>
 
-        <!-- Раздельная загрузка Видео + Субтитров -->
         <div class="setting-card">
           <div class="setting-label" data-i18n="customImport">2. Видео + субтитры</div>
           <div class="setting-sub" data-i18n="customImport.help">Загрузите видео и субтитры, чтобы создать сцену</div>
-
           <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 4px;">
             <div>
-              <span style="font-size: 11px; color: #a1a1aa; font-weight: bold;" data-i18n="videoFile">Видео (.mp4 / .mkv):</span>
+              <span style="font-size: 11px; color: var(--muted); font-weight: 700;" data-i18n="videoFile">Видео (.mp4 / .mkv):</span>
               <input type="file" id="customVideoInput" accept="video/mp4,video/x-matroska,.mp4,.mkv" style="width: 100%; font-size: 11px; margin-top: 2px;">
             </div>
-
             <div>
-              <span style="font-size: 11px; color: #a1a1aa; font-weight: bold;" data-i18n="subtitleFile">Субтитры (необязательно для MKV):</span>
+              <span style="font-size: 11px; color: var(--muted); font-weight: 700;" data-i18n="subtitleFile">Субтитры (необязательно для MKV):</span>
               <input type="file" id="customSubInput" accept=".ass,.ssa,.srt,.vtt" style="width: 100%; font-size: 11px; margin-top: 2px;">
             </div>
-
             <div>
-              <span style="font-size: 11px; color: #a1a1aa; font-weight: bold;" data-i18n="sceneTitle">Название сцены (необязательно):</span>
-              <input type="text" id="customSceneTitle" data-i18n-placeholder="sceneTitle.placeholder" placeholder="Моя новая сцена..." maxlength="80" style="width: 100%; background: #27272a; border: 1px solid #3f3f46; color: #fff; padding: 6px 8px; border-radius: 4px; font-size: 11px; outline: none; margin-top: 2px;">
+              <span style="font-size: 11px; color: var(--muted); font-weight: 700;" data-i18n="sceneTitle">Название сцены (необязательно):</span>
+              <input type="text" id="customSceneTitle" class="text-input" data-i18n-placeholder="sceneTitle.placeholder" placeholder="Моя новая сцена..." maxlength="80" style="width: 100%; margin-top: 2px;">
             </div>
-
             <div id="customUploadStatus" style="font-size: 11px; display: none;"></div>
-
-            <button id="customUploadBtn" class="btn-play" onclick="uploadCustomScene()" style="padding: 8px 12px; margin-top: 4px;">
+            <button id="customUploadBtn" class="btn-play" onclick="uploadCustomScene()" style="padding: 9px 12px;">
               <span data-i18n="createScene">🚀 Создать сцену</span>
             </button>
           </div>
         </div>
       </div>
 
-      <!-- Вкладка: Моды на сервере -->
       <div id="tabContentLibrary" class="tab-content">
         <div class="setting-sub" data-i18n="library.help">Выберите любой ранее загруженный мод для моментального запуска в комнате:</div>
-        <div id="filesLibraryList" style="display: flex; flex-direction: column; gap: 8px; overflow-y: auto; max-height: 320px; padding: 2px;">
-          <span style="color: #71717a;" data-i18n="searchingPacks">Поиск модов...</span>
+        <div id="filesLibraryList" style="display: flex; flex-direction: column; gap: 8px; overflow-y: auto; max-height: 340px; padding: 2px;">
+          <span style="color: var(--faint);" data-i18n="searchingPacks">Поиск модов...</span>
         </div>
       </div>
 
-      <!-- Вкладка: Экспорт -->
       <div id="tabContentExport" class="tab-content">
-        <!-- Экспорт видео WebCodecs -->
         <div class="setting-card">
           <div class="setting-label" data-i18n="videoExport">1. Экспорт готового видео (WebCodecs)</div>
           <div class="setting-sub" data-i18n="videoExport.help">Быстрый экспорт MP4 со сведённым звуком прямо в браузере</div>
-
           <div style="display: flex; flex-direction: column; gap: 8px; margin: 6px 0;">
             <div>
-              <div style="display:flex; justify-content:space-between; font-size:11px; font-weight:bold;">
-                <span data-i18n="dubTrack">🎙️ Записанный дубляж:</span>
-                <span id="renderDubVal">100%</span>
+              <div style="display:flex; justify-content:space-between; font-size:11px; font-weight:700;">
+                <span data-i18n="dubTrack">🎙️ Записанный дубляж:</span><span id="renderDubVal">100%</span>
               </div>
-              <input type="range" id="renderDubVol" min="0" max="150" value="100" style="width:100%; accent-color:#10b981;">
+              <input type="range" id="renderDubVol" min="0" max="150" value="100" style="width:100%; accent-color: var(--success);">
             </div>
-
             <div>
-              <div style="display:flex; justify-content:space-between; font-size:11px; font-weight:bold;">
-                <span data-i18n="backingTrack">🎵 Интершум (музыка и спецэффекты):</span>
-                <span id="renderBackingVal">100%</span>
+              <div style="display:flex; justify-content:space-between; font-size:11px; font-weight:700;">
+                <span data-i18n="backingTrack">🎵 Интершум (музыка и спецэффекты):</span><span id="renderBackingVal">100%</span>
               </div>
-              <input type="range" id="renderBackingVol" min="0" max="150" value="100" style="width:100%; accent-color:#8257e5;">
+              <input type="range" id="renderBackingVol" min="0" max="150" value="100" style="width:100%;">
             </div>
-
             <div>
-              <div style="display:flex; justify-content:space-between; font-size:11px; font-weight:bold;">
-                <span data-i18n="originalTrack">🗣️ Оригинальный звук видео:</span>
-                <span id="renderOrigVal">0%</span>
+              <div style="display:flex; justify-content:space-between; font-size:11px; font-weight:700;">
+                <span data-i18n="originalTrack">🗣️ Оригинальный звук видео:</span><span id="renderOrigVal">0%</span>
               </div>
-              <input type="range" id="renderOrigVol" min="0" max="150" value="0" style="width:100%; accent-color:#f59e0b;">
+              <input type="range" id="renderOrigVol" min="0" max="150" value="0" style="width:100%; accent-color: var(--warning);">
             </div>
           </div>
-
-          <div id="renderProgressBox" style="display: none; background:#121214; padding:10px; border-radius:6px; border:1px solid #3f3f46;">
-            <span id="renderStatusText" data-i18n="rendering" style="font-size:12px; font-weight:bold; color:#10b981;">⏳ Идет запись видео...</span>
-            <div style="width:100%; height:6px; background:#27272a; border-radius:3px; margin-top:6px; overflow:hidden;">
-              <div id="renderProgressBar" style="width:0%; height:100%; background:#10b981; transition:width 0.1s;"></div>
-            </div>
+          <div id="renderProgressBox" style="display: none; background: var(--bg); padding:10px; border-radius: var(--radius-sm); border:1px solid var(--border);">
+            <span id="renderStatusText" data-i18n="rendering" style="font-size:12px; font-weight:700; color: var(--success);">⏳ Идет запись видео...</span>
+            <div class="progress" style="margin-top:6px;"><div id="renderProgressBar" style="background: var(--success);"></div></div>
           </div>
-
-          <button id="startRenderBtn" class="btn-play" onclick="startVideoRender()" style="padding: 8px 14px; margin-top: 4px;">
+          <button id="startRenderBtn" class="btn-play" onclick="startVideoRender()" style="padding: 9px 14px;">
             <span data-i18n="startExport">▶ Начать экспорт видео MP4</span>
           </button>
         </div>
 
-        <!-- Экспорт Стемов для REAPER -->
         <div class="setting-card">
           <div class="setting-label" data-i18n="stemExport">2. Стемы персонажей для REAPER (.zip)</div>
           <div class="setting-sub" data-i18n="stemExport.help">Цельные WAV-дорожки персонажей от 0:00</div>
-          <div id="stemsStatus" class="setting-sub" style="display:none;color:#10b981;"></div>
-          <button id="downloadStemsBtn" class="btn-header-action" onclick="downloadReaperStems()" style="padding: 8px 14px; justify-content: center; margin-top: 4px; background: #27272a;">
+          <div id="stemsStatus" class="setting-sub" style="display:none; color: var(--success);"></div>
+          <button id="downloadStemsBtn" class="btn-header-action" onclick="downloadReaperStems()" style="justify-content: center;">
             <span data-i18n="downloadStems">🎛️ Создать и скачать WAV-стемы</span>
           </button>
         </div>
 
-        <!-- Скачивание исходного мода -->
         <div class="setting-card">
           <div class="setting-label" data-i18n="sourcePack">3. Исходный мод сцены (.zip)</div>
           <div class="setting-sub" data-i18n="sourcePack.help">Скачать исходный ZIP-архив текущего мода для друзей</div>
-          <a id="downloadOriginalPackBtn" class="btn-header-action" href="#" download style="text-decoration: none; padding: 8px 14px; justify-content: center; margin-top: 4px; display: none;">
+          <a id="downloadOriginalPackBtn" class="btn-header-action" href="#" download style="justify-content: center; display: none;">
             <span data-i18n="downloadSource">📥 Скачать исходный архив мода (.zip)</span>
           </a>
-          <span id="downloadOriginalPackNone" data-i18n="sourceUnavailable" style="font-size: 11px; color: #71717a;">Архив недоступен (сцена загружена вручную или без ZIP)</span>
-          <a id="downloadVideoBtn" class="btn-header-action" href="#" download style="text-decoration: none; padding: 8px 14px; justify-content: center; margin-top: 4px; display: none; background: #27272a;">
+          <span id="downloadOriginalPackNone" data-i18n="sourceUnavailable" style="font-size: 11px; color: var(--faint);">Архив недоступен (сцена загружена вручную или без ZIP)</span>
+          <a id="downloadVideoBtn" class="btn-header-action" href="#" download style="justify-content: center; display: none;">
             <span></span>
           </a>
         </div>
 
-        <!-- Видео с диска игрока -->
         <div class="setting-card">
           <div class="setting-label" data-i18n="localMedia">4. Видео с вашего диска</div>
           <div class="setting-sub" data-i18n="localMedia.help">Экономит интернет хоста</div>
-          <label class="btn-header-action" style="padding: 8px 14px; justify-content: center; margin-top: 4px; cursor: pointer;">
+          <label class="btn-header-action" style="justify-content: center; cursor: pointer;">
             <span data-i18n="localMedia.choose">📂 Выбрать .zip или видео</span>
             <input type="file" id="localMediaInput" accept=".zip,video/*,.mkv" style="display: none;">
           </label>
-          <div style="display: flex; align-items: center; gap: 8px; margin-top: 4px;">
+          <div style="display: flex; align-items: center; gap: 8px;">
             <span id="localMediaStatus" class="setting-sub"></span>
             <button id="localMediaResetBtn" class="btn-outline" data-i18n="localMedia.reset" onclick="resetLocalMedia()" style="display: none;">Снова брать с хоста</button>
           </div>
@@ -525,101 +580,134 @@
 
   <!-- ШАПКА -->
   <header>
-    <!-- ЛЕВАЯ ЧАСТЬ: Логотип + Комната -->
     <div class="header-left">
-      <h2>🎬 Dubline <span style="font-size: 10px; color: #8257e5; font-weight: normal;">Studio</span></h2>
-
+      <div class="brand"><div class="brand-logo">🎬</div> Dubline <small>Studio</small></div>
       <div class="room-badge">
         <span data-i18n="room">Комната:</span> <span id="roomNameLabel">main</span>
         <button class="btn-share" data-i18n="share" data-i18n-title="share.title" onclick="copyInviteLink()" title="Скопировать ссылку для друзей">🔗 Поделиться</button>
       </div>
-
-      <div class="users-online" id="usersOnlineBadge" title="Пользователи в комнате">
+      <div class="users-online" id="usersOnlineBadge">
         <span data-i18n="online">👥 В сети:</span> <span id="usersOnlineText">1</span>
       </div>
     </div>
 
-    <!-- ЦЕНТРАЛЬНАЯ ЧАСТЬ: Статус хоста и управление -->
     <div class="header-center">
       <div class="host-panel offline" id="hostPanel">👑 Хост: —</div>
     </div>
 
-    <!-- ПРАВАЯ ЧАСТЬ: Ровно 3 кнопки -->
     <div class="header-right">
-      <button class="btn-header-action btn-header-files" data-i18n="files" onclick="openFilesModal()">📁 Файлы и Экспорт</button>
-      <button class="btn-header-action btn-header-settings" data-i18n="settings" onclick="openSettingsModal()">⚙️ Настройки</button>
+      <button class="btn-header-action" data-i18n="files" onclick="openFilesModal()">📁 Файлы и Экспорт</button>
+      <button class="btn-header-action" data-i18n="settings" onclick="openSettingsModal()">⚙️ Настройки</button>
       <button class="btn-chat-toggle" id="chatToggleBtn" onclick="toggleChat()"><span data-i18n="chat">💬 Чат</span><span class="chat-unread" id="chatUnread">0</span></button>
     </div>
   </header>
 
-  <!-- ОСНОВНАЯ ЗОНА СТУДИИ -->
-  <div class="main-area">
-    <div class="video-box">
-      <div class="video-wrapper">
-        <video id="mainVideo" controls crossorigin="anonymous"></video>
-        <audio id="backingAudio" crossorigin="anonymous"></audio>
-        <!-- Суфлёр поверх видео -->
-        <div id="videoPrompter" class="video-prompter" style="display: none;">
-          <span id="prompterChar" class="prompter-char"></span>
-          <span id="prompterText" class="prompter-text"></span>
-          <div id="prompterProgress" class="prompter-progress"></div>
-        </div>
-        <!-- Совместный просмотр -->
-        <div id="watchOverlay" class="watch-overlay" style="display: none;">
-          <div id="watchCountdown" class="watch-countdown" style="display: none;"></div>
-          <div class="watch-bar">
-            <span id="watchLabel"></span>
-            <button id="watchLeaveBtn" class="btn-outline" data-i18n="watch.leave" onclick="leaveWatch()">Выйти</button>
+  <!-- РАБОЧАЯ ОБЛАСТЬ -->
+  <div class="workspace" id="workspace">
+    <!-- ЛОББИ -->
+    <aside class="panel lobby-panel" id="lobbyPanel">
+      <div class="panel-title"><span data-i18n="lobby.title">Игроки</span></div>
+      <div class="lobby-summary">
+        <div class="lobby-summary-row"><span data-i18n="progress.scene">Озвучено</span><span><b id="lobbyProgressCount">0</b> / <span id="lobbyProgressTotal">0</span></span></div>
+        <div class="progress"><div id="lobbyProgressBar"></div></div>
+      </div>
+      <div class="lobby-list" id="lobbyList"></div>
+      <div class="lobby-footer" id="p2pBox" style="display: none;">
+        <span id="p2pStatusText"></span>
+        <div class="progress"><div id="p2pProgressBar"></div></div>
+      </div>
+    </aside>
+
+    <div class="splitter splitter-x" data-resize="lobby" data-dir="1" data-i18n-title="splitter.hint" title="Перетащите, чтобы изменить размер"></div>
+
+    <div class="studio">
+      <div class="main-area">
+        <div class="panel video-box">
+          <div class="video-wrapper">
+            <video id="mainVideo" controls crossorigin="anonymous"></video>
+            <audio id="backingAudio" crossorigin="anonymous"></audio>
+            <div id="videoPrompter" class="video-prompter" style="display: none;">
+              <span id="prompterChar" class="prompter-char"></span>
+              <span id="prompterText" class="prompter-text"></span>
+              <div id="prompterProgress" class="prompter-progress"></div>
+            </div>
+            <div id="watchOverlay" class="watch-overlay" style="display: none;">
+              <div id="watchCountdown" class="watch-countdown" style="display: none;"></div>
+              <div class="watch-bar">
+                <span id="watchLabel"></span>
+                <button id="watchLeaveBtn" class="btn-outline" data-i18n="watch.leave" onclick="leaveWatch()">Выйти</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="audio-mixer">
+            <label class="mute-toggle">
+              <input type="checkbox" id="muteAllCheckbox">
+              <span data-i18n="muteAll">🔇 Замутить всё</span>
+            </label>
+            <div class="mixer-channel">
+              <span class="label" data-i18n="original">Оригинал:</span>
+              <input type="range" id="volOriginal" min="0" max="100" value="0">
+              <span class="val" id="volOriginalVal">0%</span>
+            </div>
+            <div class="mixer-channel">
+              <span class="label" data-i18n="background">Интершум:</span>
+              <input type="range" id="volBacking" min="0" max="100" value="100">
+              <span class="val" id="volBackingVal">100%</span>
+            </div>
+            <div class="mixer-channel">
+              <span class="label" data-i18n="dubbing">Дубляж:</span>
+              <input type="range" id="volRecorded" min="0" max="100" value="100">
+              <span class="val" id="volRecordedVal">100%</span>
+            </div>
           </div>
         </div>
+
+        <div class="splitter splitter-x" data-resize="inspector" data-dir="-1" data-i18n-title="splitter.hint" title="Перетащите, чтобы изменить размер"></div>
+
+        <div class="panel inspector" id="inspector">
+          <h3 data-i18n="inspector.title">Инспектор реплики</h3>
+          <p data-i18n="inspector.empty">Выберите реплику на таймлайне снизу для записи. (Пробел — плей/пауза, R — запись)</p>
+        </div>
+
+        <div class="splitter splitter-x" id="chatSplitter" data-resize="chat" data-dir="-1" data-i18n-title="splitter.hint" title="Перетащите, чтобы изменить размер"></div>
+
+        <div class="panel chat-panel" id="chatPanel">
+          <div class="chat-header" data-i18n="chat.title">💬 Чат комнаты</div>
+          <div class="chat-messages" id="chatMessages">
+            <div class="chat-empty" id="chatEmpty" data-i18n="chat.empty">Сообщений пока нет. Напишите первым!</div>
+          </div>
+          <form class="chat-form" id="chatForm">
+            <input type="text" id="chatInput" maxlength="500" data-i18n-placeholder="chat.placeholder" placeholder="Сообщение... (Enter)" autocomplete="off">
+            <button type="submit" class="btn-record">➤</button>
+          </form>
+        </div>
       </div>
 
-      <div class="audio-mixer">
-        <label class="mute-toggle">
-          <input type="checkbox" id="muteAllCheckbox">
-          <span data-i18n="muteAll">🔇 Замутить всё</span>
-        </label>
+      <div class="splitter splitter-y" data-resize="top" data-dir="1" data-i18n-title="splitter.hint" title="Перетащите, чтобы изменить размер"></div>
 
-        <div class="mixer-channel">
-          <span class="label" data-i18n="original">Оригинал:</span>
-          <input type="range" id="volOriginal" min="0" max="100" value="0">
-          <span class="val" id="volOriginalVal">0%</span>
+      <!-- ТАЙМЛАЙН -->
+      <div class="panel timeline-panel">
+        <div class="timeline-toolbar">
+          <div class="scene-progress">
+            <span data-i18n="progress.scene">Озвучено</span>
+            <b id="sceneProgressText">0 / 0</b>
+            <div class="progress"><div id="sceneProgressBar"></div></div>
+            <span id="sceneProgressPct">0%</span>
+          </div>
+          <span class="toolbar-hint" data-i18n="timeline.hint">Ctrl+колесо — масштаб · Shift+перетаскивание своего дубля — задержка микрофона</span>
+          <div class="zoom-controls">
+            <button class="btn-icon" id="zoomOutBtn" onclick="zoomTimeline(1 / 1.25)" data-i18n-title="zoom.out" title="Уменьшить">−</button>
+            <span id="zoomLabel">100%</span>
+            <button class="btn-icon" id="zoomInBtn" onclick="zoomTimeline(1.25)" data-i18n-title="zoom.in" title="Увеличить">+</button>
+            <button class="btn-icon" id="zoomFitBtn" onclick="fitTimeline()" data-i18n="zoom.fit">⤢ Вся сцена</button>
+          </div>
         </div>
-
-        <div class="mixer-channel">
-          <span class="label" data-i18n="background">Интершум:</span>
-          <input type="range" id="volBacking" min="0" max="100" value="100">
-          <span class="val" id="volBackingVal">100%</span>
-        </div>
-
-        <div class="mixer-channel">
-          <span class="label" data-i18n="dubbing">Дубляж:</span>
-          <input type="range" id="volRecorded" min="0" max="100" value="100">
-          <span class="val" id="volRecordedVal">100%</span>
+        <div class="timeline-container" id="timelineContainer">
+          <div class="timeline-wrapper" id="timeline"></div>
         </div>
       </div>
     </div>
-
-    <div class="inspector" id="inspector">
-      <h3 data-i18n="inspector.title">Инспектор реплики</h3>
-      <p data-i18n="inspector.empty" style="color: #71717a;">Выберите реплику на таймлайне снизу для записи. (Пробел — плей/пауза, R — запись)</p>
-    </div>
-
-    <div class="chat-panel" id="chatPanel">
-      <div class="chat-header" data-i18n="chat.title">💬 Чат комнаты</div>
-      <div class="chat-messages" id="chatMessages">
-        <div class="chat-empty" id="chatEmpty" data-i18n="chat.empty">Сообщений пока нет. Напишите первым!</div>
-      </div>
-      <form class="chat-form" id="chatForm">
-        <input type="text" id="chatInput" maxlength="500" data-i18n-placeholder="chat.placeholder" placeholder="Сообщение... (Enter)" autocomplete="off">
-        <button type="submit" class="btn-record">➤</button>
-      </form>
-    </div>
-  </div>
-
-  <!-- ТАЙМЛАЙН -->
-  <div class="timeline-container" id="timelineContainer">
-    <div class="timeline-wrapper" id="timeline"></div>
   </div>
 
   <script src="/vendor/jszip/jszip.min.js"></script>
@@ -632,6 +720,7 @@
   <script src="import.js"></script>
   <script src="export.js"></script>
   <script src="room.js"></script>
+  <script src="p2p.js"></script>
   <script src="chat.js"></script>
   <script src="ui.js"></script>
 </body>

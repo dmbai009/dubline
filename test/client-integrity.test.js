@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 
 const html = fs.readFileSync('public/index.html', 'utf8');
-const CLIENT_MODULES = ['player.js', 'recording.js', 'import.js', 'export.js', 'room.js', 'chat.js', 'ui.js'];
+const CLIENT_MODULES = ['player.js', 'recording.js', 'import.js', 'export.js', 'room.js', 'p2p.js', 'chat.js', 'ui.js'];
 const app = CLIENT_MODULES.map(name => fs.readFileSync(`public/${name}`, 'utf8')).join('\n');
 const server = fs.readFileSync('server.js', 'utf8');
 

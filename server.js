@@ -5,6 +5,7 @@ const multer = require('multer');
 const AdmZip = require('adm-zip');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { spawn, spawnSync } = require('child_process');
 const ffmpegPath = require('ffmpeg-static');
 
@@ -29,6 +30,7 @@ const MAX_CHAT_HISTORY = 100;
 const CHAT_RATE_LIMIT = { count: 5, windowMs: 5000 };
 const VOICE_EFFECTS = ['none', 'robot', 'radio', 'monster', 'thoughts', 'cave', 'behindDoor', 'megaphone'];
 const MAX_PITCH = 12;         // полутонов вверх/вниз
+const MAX_LATENCY_MS = 1000;  // предел поправки задержки микрофона
 const MAX_TAKE_SHIFT = 30;    // насколько далеко (в секундах) дубль можно утащить от реплики
 
 for (const dir of [UPLOAD_DIR, PACKS_DIR, DATA_DIR]) {
@@ -127,7 +129,8 @@ function getRoom(roomId) {
     host: null,
     hostClientId: null,
     nickOwners: {},
-    chat: []
+    chat: [],
+    latency: {}           // поправка задержки микрофона игроков: ник -> мс
   };
   for (const key in defaults) {
     if (rooms[roomId][key] === undefined) rooms[roomId][key] = defaults[key];
@@ -138,13 +141,19 @@ function getRoom(roomId) {
 // Размеры медиафайлов показываем на кнопках скачивания. Кэшируем, чтобы не дергать диск
 // на каждую рассылку сессии; неизвестные размеры (файл еще пишется) не кэшируем.
 const fileSizeCache = new Map();
+const fileHashCache = new Map();
+
+function diskPathForUrl(url) {
+  const full = path.join(PUBLIC_DIR, decodeURIComponent(url).replace(/^\/+/, ''));
+  return full.startsWith(PUBLIC_DIR + path.sep) ? full : null;
+}
 
 function fileSizeForUrl(url) {
   if (!url) return null;
   if (fileSizeCache.has(url)) return fileSizeCache.get(url);
   try {
-    const full = path.join(PUBLIC_DIR, decodeURIComponent(url).replace(/^\/+/, ''));
-    if (!full.startsWith(PUBLIC_DIR + path.sep)) return null;
+    const full = diskPathForUrl(url);
+    if (!full) return null;
     const size = fs.statSync(full).size;
     fileSizeCache.set(url, size);
     return size;
@@ -153,8 +162,27 @@ function fileSizeForUrl(url) {
   }
 }
 
+// SHA-256 медиафайла: игроки проверяют им видео, полученное от других игроков по P2P
+function fileHashForUrl(url) {
+  if (!url) return null;
+  if (fileHashCache.has(url)) return fileHashCache.get(url);
+  try {
+    const full = diskPathForUrl(url);
+    if (!full) return null;
+    const hash = crypto.createHash('sha256').update(fs.readFileSync(full)).digest('hex');
+    fileHashCache.set(url, hash);
+    return hash;
+  } catch (err) {
+    return null;
+  }
+}
+
 function forgetFileSizes(...urls) {
-  urls.forEach(url => { if (url) fileSizeCache.delete(url); });
+  urls.forEach(url => {
+    if (!url) return;
+    fileSizeCache.delete(url);
+    fileHashCache.delete(url);
+  });
 }
 
 // Секреты (clientId игроков) никогда не уходят клиентам
@@ -164,7 +192,9 @@ function publicRoom(room) {
     ...rest,
     videoSize: fileSizeForUrl(room.videoUrl),
     backingSize: fileSizeForUrl(room.backingUrl),
-    zipSize: fileSizeForUrl(room.zipUrl)
+    zipSize: fileSizeForUrl(room.zipUrl),
+    videoHash: fileHashForUrl(room.videoUrl),
+    backingHash: fileHashForUrl(room.backingUrl)
   };
 }
 
@@ -206,6 +236,7 @@ function onlineCount(roomId) {
 // СТАТУС ЗАПИСИ И СОВМЕСТНЫЙ ПРОСМОТР (живут только в памяти)
 // ==========================================
 const recordingNow = {}; // roomId -> { lineId: { nick, socketId } }
+const p2pSeeders = {};   // roomId -> { url: Set(socketId) } — у кого из игроков уже есть медиафайл целиком
 const watchState = {};   // roomId -> { active, playing, position, at }
 const WATCH_COUNTDOWN_MS = 3000;
 
@@ -215,6 +246,29 @@ function recordingList(roomId) {
 
 function broadcastRecording(roomId) {
   io.to(roomId).emit('recording_state', recordingList(roomId));
+}
+
+function clearSocketSeeds(roomId, socketId) {
+  const byUrl = p2pSeeders[roomId];
+  if (!byUrl) return false;
+  let changed = false;
+  for (const url of Object.keys(byUrl)) {
+    if (byUrl[url].delete(socketId)) changed = true;
+    if (!byUrl[url].size) delete byUrl[url];
+  }
+  return changed;
+}
+
+function seedersSummary(roomId) {
+  const summary = {};
+  for (const [url, ids] of Object.entries(p2pSeeders[roomId] || {})) {
+    summary[url] = [...ids].map(id => (roomSockets[roomId] && roomSockets[roomId][id] || {}).nick).filter(Boolean);
+  }
+  return summary;
+}
+
+function broadcastSeeders(roomId) {
+  io.to(roomId).emit('p2p_seeders', seedersSummary(roomId));
 }
 
 function clearSocketRecordings(roomId, socketId) {
@@ -505,6 +559,7 @@ function loadPackIntoRoom(roomId, packName, buffer, forceExtract) {
   forgetFileSizes(room.zipUrl, room.videoUrl, room.backingUrl);
   delete recordingNow[roomId];
   delete watchState[roomId];
+  delete p2pSeeders[roomId];
 
   saveRooms();
   emitSession(roomId);
@@ -882,6 +937,7 @@ app.post('/api/upload-custom', acceptCustomFiles(MAX_PACK_MB), async (req, res) 
     forgetFileSizes(room.videoUrl);
     delete recordingNow[roomId];
     delete watchState[roomId];
+    delete p2pSeeders[roomId];
 
     saveRooms();
     emitSession(roomId);
@@ -986,6 +1042,7 @@ io.on('connection', socket => {
       delete roomSockets[roomId][socket.id];
       socket.leave(roomId);
       if (clearSocketRecordings(roomId, socket.id)) broadcastRecording(roomId);
+      if (clearSocketSeeds(roomId, socket.id)) broadcastSeeders(roomId);
       broadcastRoomUsers(roomId);
 
       const why = typeof reason === 'string' ? ` — ${DISCONNECT_REASONS[reason] || reason}` : '';
@@ -1008,6 +1065,10 @@ io.on('connection', socket => {
       if (l.claimedBy === oldName) l.claimedBy = newName;
       if (l.recordedBy === oldName) l.recordedBy = newName;
     });
+    if (room.latency[oldName] !== undefined && room.latency[newName] === undefined) {
+      room.latency[newName] = room.latency[oldName];
+      delete room.latency[oldName];
+    }
   }
 
   socket.on('join_room', (data = {}) => {
@@ -1048,6 +1109,7 @@ io.on('connection', socket => {
     socket.emit('session_updated', publicRoom(room));
     socket.emit('chat_history', room.chat);
     socket.emit('recording_state', recordingList(roomId));
+    socket.emit('p2p_seeders', seedersSummary(roomId));
     if (watchState[roomId]) socket.emit('watch_sync', watchState[roomId]);
     broadcastRoomUsers(roomId);
 
@@ -1222,6 +1284,54 @@ io.on('connection', socket => {
     chatTimestamps.push(now);
 
     addChatMessage(roomId, { nick, text: clean });
+  });
+
+  // ---------- Задержка микрофона игрока ----------
+  // Одна поправка на все дубли игрока (например, для Bluetooth-наушников)
+  socket.on('set_latency', ({ ms } = {}) => {
+    if (!roomId || !nick) return;
+    const value = Math.round(Number(ms));
+    if (!Number.isFinite(value)) return;
+    const room = getRoom(roomId);
+    const clamped = Math.max(-MAX_LATENCY_MS, Math.min(MAX_LATENCY_MS, value));
+    if (clamped === 0) delete room.latency[nick];
+    else room.latency[nick] = clamped;
+    saveRooms();
+    io.to(roomId).emit('latency_updated', room.latency);
+    logEvent(roomId, `⏱ ${nick}: поправка задержки ${clamped > 0 ? '+' : ''}${clamped} мс`);
+  });
+
+  // ---------- P2P-раздача видео между игроками ----------
+  // Сервер только сводит игроков: сами куски видео идут напрямую браузер-браузер (WebRTC)
+  socket.on('p2p_have', ({ urls } = {}) => {
+    if (!roomId || !Array.isArray(urls)) return;
+    const room = getRoom(roomId);
+    const allowed = new Set([room.videoUrl, room.backingUrl].filter(Boolean));
+    const byUrl = p2pSeeders[roomId] || (p2pSeeders[roomId] = {});
+    clearSocketSeeds(roomId, socket.id);
+    urls.filter(url => allowed.has(url)).forEach(url => {
+      (byUrl[url] || (byUrl[url] = new Set())).add(socket.id);
+    });
+    broadcastSeeders(roomId);
+  });
+
+  socket.on('p2p_find', ({ url } = {}, ack) => {
+    if (typeof ack !== 'function') return;
+    if (!roomId) return ack([]);
+    const ids = [...((p2pSeeders[roomId] || {})[url] || [])].filter(id => id !== socket.id);
+    ack(ids);
+  });
+
+  socket.on('p2p_signal', ({ to, data } = {}) => {
+    if (!roomId || typeof to !== 'string' || !roomSockets[roomId] || !roomSockets[roomId][to]) return;
+    io.to(to).emit('p2p_signal', { from: socket.id, data });
+  });
+
+  socket.on('p2p_report', ({ url, p2pBytes, httpBytes, peers } = {}) => {
+    if (!roomId) return;
+    const mb = bytes => (Math.max(0, Number(bytes) || 0) / 1048576).toFixed(1);
+    const name = decodeURIComponent(String(url || '').split('/').pop() || 'файл');
+    logEvent(roomId, `⚡ ${nick || 'игрок'} получил ${name}: ${mb(p2pBytes)} МБ от игроков (${Number(peers) || 0}), ${mb(httpBytes)} МБ с сервера`);
   });
 
   // ---------- Статус записи ----------

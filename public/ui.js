@@ -115,6 +115,8 @@ window.switchFilesTab = function(tab) {
 
 window.addEventListener('dubline-language-changed', () => {
   updateHostUi();
+  renderLobby();
+  updateP2pStatus();
   updateDownloadButtons();
   updateLocalMediaStatus();
   if (watchMode) showWatchOverlay();
@@ -265,7 +267,7 @@ function takePanelHtml(line, editable) {
   if (!line.audioUrl) return '';
   const effect = line.effect || 'none';
   const pitch = line.pitch || 0;
-  const shift = line.recordedStart != null ? takeStartTime(line) - line.recordedStart : 0;
+  const shift = line.recordedStart != null ? rawTakeStart(line) - line.recordedStart : 0;
   const hasTrim = line.trimStart != null && line.trimEnd != null;
   const signed = (v, digits) => `${v > 0 ? '+' : ''}${Number(v).toFixed(digits)}`;
 
@@ -310,5 +312,100 @@ function takePanelHtml(line, editable) {
   `;
 }
 
+// ==========================================
+// РАЗМЕРЫ ПАНЕЛЕЙ (разделители как в Vegas / Photoshop)
+// ==========================================
+const LAYOUT_KEY = 'dubline_layout';
+const layoutLimits = {
+  lobby: [190, 460],
+  inspector: [280, 660],
+  chat: [220, 540],
+  top: [200, () => window.innerHeight - 220]
+};
+const layoutVars = { lobby: '--lobby-w', inspector: '--inspector-w', chat: '--chat-w', top: '--top-h' };
+
+function layoutDefaults() {
+  // На небольших экранах оставляем видео больше места
+  const compact = window.innerWidth < 1500;
+  return {
+    lobby: compact ? 210 : 250,
+    inspector: compact ? 320 : 360,
+    chat: compact ? 250 : 300,
+    top: Math.round(window.innerHeight * 0.5)
+  };
+}
+
+function loadLayout() {
+  try {
+    return { ...layoutDefaults(), ...JSON.parse(localStorage.getItem(LAYOUT_KEY) || '{}') };
+  } catch (err) {
+    return layoutDefaults();
+  }
+}
+
+let layout = loadLayout();
+
+function clampLayout(key, value) {
+  const [min, maxRaw] = layoutLimits[key];
+  const max = Math.max(min, typeof maxRaw === 'function' ? maxRaw() : maxRaw);
+  return Math.round(Math.min(max, Math.max(min, value)));
+}
+
+function applyLayout() {
+  for (const key of Object.keys(layoutVars)) {
+    layout[key] = clampLayout(key, layout[key]);
+    document.documentElement.style.setProperty(layoutVars[key], `${layout[key]}px`);
+  }
+}
+
+function saveLayout() {
+  localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout));
+}
+
+document.querySelectorAll('.splitter[data-resize]').forEach(splitter => {
+  const key = splitter.dataset.resize;
+  const dir = Number(splitter.dataset.dir) || 1;
+  const vertical = splitter.classList.contains('splitter-y');
+
+  splitter.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const startPos = vertical ? e.clientY : e.clientX;
+    const startValue = layout[key];
+    splitter.setPointerCapture(e.pointerId);
+    splitter.classList.add('dragging');
+    document.body.classList.add('resizing');
+
+    const onMove = (ev) => {
+      layout[key] = clampLayout(key, startValue + dir * ((vertical ? ev.clientY : ev.clientX) - startPos));
+      applyLayout();
+    };
+    const onUp = () => {
+      splitter.removeEventListener('pointermove', onMove);
+      splitter.removeEventListener('pointerup', onUp);
+      splitter.classList.remove('dragging');
+      document.body.classList.remove('resizing');
+      saveLayout();
+    };
+    splitter.addEventListener('pointermove', onMove);
+    splitter.addEventListener('pointerup', onUp);
+  });
+
+  splitter.addEventListener('dblclick', () => {
+    layout[key] = layoutDefaults()[key];
+    applyLayout();
+    saveLayout();
+  });
+});
+
+window.addEventListener('resize', applyLayout);
+
+window.resetLayout = function() {
+  layout = layoutDefaults();
+  applyLayout();
+  saveLayout();
+};
+
 // Запуск
+applyLayout();
 syncSettingsUi();

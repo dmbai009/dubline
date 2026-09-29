@@ -7,6 +7,11 @@ The project is inspired by Voxalike and The Choicer Voicer, while removing the n
 ## Features
 
 - **Parallel recording.** Every player can claim and record their own lines without waiting for other actors.
+- **Studio layout.** A player lobby on the left, video, inspector and chat on top, and the timeline below. Drag the dividers to resize any panel (double-click resets it); sizes are remembered per browser.
+- **Lobby and progress.** Players are listed as cards with online/recording status, host and “you” tags, and how many lines each has claimed and recorded. Players who left but contributed stay visible, dimmed. The overall “dubbed N / total” progress is shown in the lobby and above the timeline.
+- **Timeline zoom.** Ctrl+mouse wheel zooms around the cursor; the toolbar has −/+ and “Whole scene”. The ruler adapts its tick spacing to the zoom level.
+- **Per-player microphone delay.** Bluetooth headsets make takes sound late. Each player has one delay correction applied to all their takes, in playback, video export and stems: adjust it with ±10 ms on your lobby card, or Shift+drag any of your takes on the timeline to move them all at once.
+- **Peer-to-peer video sharing.** Players who open the room through the tunnel download the scene video and backing track in full, taking 64 KB pieces directly from other players over WebRTC and only the missing pieces from the host. The file is checked against the server’s SHA-256, played locally, and then shared onward, so the host’s upload is used roughly once instead of once per player. “Watch now from the host” skips the wait; the feature can be turned off in settings. Room state still lives on the host’s server.
 - **Rooms and live synchronization.** Packs, roles, takes, host state, and chat are synchronized through Socket.IO. Add `?room=your-room` to the URL to create a separate session.
 - **Persistent sessions.** Room state is stored in `data/rooms.json`; uploaded media and takes stay available after a server restart.
 - **Host controls.** The first participant becomes the room host and can change scenes, pause playback for everyone, or release stale role claims. Pausing everyone asks for confirmation if someone is recording right now.

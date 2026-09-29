@@ -20,6 +20,7 @@ function isChatOpen() {
 
 function setChatOpen(open) {
   chatPanel.style.display = open ? 'flex' : 'none';
+  document.getElementById('chatSplitter').style.display = open ? '' : 'none';
   chatToggleBtn.classList.toggle('active', open);
   localStorage.setItem('dubline_chat_open', open ? '1' : '0');
   if (open) {
