@@ -1,0 +1,7 @@
+node_modules/
+public/uploads/
+public/packs/
+*.log
+.env
+.DS_Store
+Thumbs.db
