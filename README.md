@@ -19,6 +19,8 @@ The project is inspired by Voxalike and The Choicer Voicer, while removing the n
 - **Watch together.** The host plays the finished scene for the whole room at once: a 3-second countdown, a start synchronized to the server clock, and periodic drift correction. Pause and seeking follow the host; recording is disabled until the host stops the screening.
 - **Live recording status.** Everyone sees which line is being recorded and by whom: the tile pulses red and the player gets a 🔴 in the online list.
 - **Connection banner.** If the tunnel or server drops, players see “No connection, reconnecting…” and the page rejoins the room automatically when the server is back.
+- **Takes are never lost to a dropped connection.** If an upload fails (network drop, tunnel 502), the take is kept in the browser (IndexedDB, survives a page reload), marked ⏳ on the timeline, and re-sent automatically with backoff and as soon as the connection returns. The server recognizes a repeated upload and never stores it twice; a late take lands in the session it was recorded in, even if the host has switched sessions.
+- **Room password and kicking.** The host can set a room password in Settings (players already inside stay; new devices enter it once, repeated wrong attempts are blocked; only a salted scrypt hash is stored) and remove a player with ✖ on their lobby card. Kicked devices cannot rejoin until the host allows it.
 - **Host event log.** The server console prints who joined or left (with the reason, e.g. closed tab vs. lost connection), saved takes, pack changes, rejected requests, and errors; the host also receives the same log in the browser console (F12). An error in one handler is logged instead of taking the whole server down.
 - **Play video from your own disk.** Download buttons show the file size; a player who already has the pack `.zip` or scene video can pick it in *Files & Export*, and the video then plays (and exports) from their computer instead of through the host’s tunnel.
 - **Studio recording tools.** Pre-roll, microphone gain, optional browser noise/echo suppression, silence detection, waveform previews, non-destructive trimming, and manual take alignment.
@@ -108,6 +110,17 @@ https://random-words.trycloudflare.com/?room=pizza-night
 The address changes every time the tunnel restarts. Players simply open the new link and enter the same nickname: a nickname is reserved only while its owner is online, so returning players get their nickname, roles and takes back (and the host gets host rights back).
 
 Do not share a tunnel publicly. Dubline is designed as a small self-hosted server for trusted groups, not as a hardened public multi-tenant service.
+
+## Development and tests
+
+```bash
+npm test          # fast unit and integrity checks
+npm run test:e2e  # browser end-to-end suite (about a minute)
+```
+
+The end-to-end suite drives real Chrome/Edge (`puppeteer-core`, no browser download) with a fake microphone. Every run starts its own server with temporary `data/`, `uploads/` and `packs/` folders, so your real rooms are never touched, and generates a small test scene with `ffmpeg-static` (no third-party content). It covers recording and the countdown, effects, take dragging and per-player delay, zoom and panels, host tools, watch-together, sessions, reliable uploads, password and kicking, reconnects, P2P sharing, local media and WebCodecs export. If Chrome is installed in a non-standard place, set `CHROME_PATH`.
+
+The server folders can be overridden with `DUBLINE_DATA_DIR`, `DUBLINE_UPLOAD_DIR` and `DUBLINE_PACKS_DIR`.
 
 ## Controls
 

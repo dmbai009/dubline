@@ -160,6 +160,8 @@
     .player-latency { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--muted); }
     .player-latency b { color: var(--text); font-variant-numeric: tabular-nums; min-width: 54px; }
     .player-latency button { padding: 2px 7px; font-size: 11px; }
+    .kick-btn { background: transparent; color: var(--faint); padding: 0 4px; font-size: 13px; line-height: 1; }
+    .kick-btn:hover:not(:disabled) { color: var(--danger); filter: none; }
     .lobby-footer { padding: 10px 12px; border-top: 1px solid var(--border); font-size: 11px; color: var(--muted); display: flex; flex-direction: column; gap: 6px; }
     .lobby-footer .progress > div { background: linear-gradient(90deg, #22d3ee, #8b5cf6); }
 
@@ -287,6 +289,10 @@
     .tile-nick.me { background: var(--accent); }
     .tile-nick.other { background: #b45309; }
     .tile-nick.live { background: var(--danger); }
+    .tile-nick.pending { background: #a16207; }
+    .line-block.pending-upload { border-style: dashed; border-color: #eab308 !important; }
+    .insp-pending { display: flex; align-items: center; gap: 8px; background: rgba(234, 179, 8, 0.12); border: 1px solid rgba(234, 179, 8, 0.4); color: #fde68a; border-radius: var(--radius-sm); padding: 7px 10px; font-size: 11px; line-height: 1.4; }
+    .insp-pending button { flex-shrink: 0; padding: 4px 9px; font-size: 11px; }
 
     /* ==========================================
        ПЛАШКА СВЯЗИ
@@ -372,6 +378,27 @@
         <input type="text" id="modalNickInput" class="text-input" maxlength="16" data-i18n-placeholder="nickname.placeholder" placeholder="Ваш никнейм..." required style="width: 100%; padding: 11px; font-size: 14px; text-align: center;">
         <button type="submit" class="btn-record" data-i18n="enterStudio" style="width: 100%; margin-top: 10px; padding: 11px;">Войти в студию</button>
       </form>
+    </div>
+  </div>
+
+  <!-- Пароль комнаты -->
+  <div id="passwordModal" class="modal-overlay" style="display: none;">
+    <div class="modal-card">
+      <h2 data-i18n="pw.title">🔒 Комната защищена паролем</h2>
+      <p data-i18n="pw.help">Спросите пароль у хоста комнаты</p>
+      <p id="passwordError" style="display: none; color: var(--danger); font-weight: 700;"></p>
+      <form id="passwordForm" onsubmit="submitRoomPassword(event)">
+        <input type="password" id="passwordInput" class="text-input" maxlength="64" data-i18n-placeholder="pw.placeholder" placeholder="Пароль" required style="width: 100%; padding: 11px; font-size: 14px; text-align: center;">
+        <button type="submit" class="btn-record" data-i18n="pw.enter" style="width: 100%; margin-top: 10px; padding: 11px;">Войти</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Доступ закрыт -->
+  <div id="deniedModal" class="modal-overlay" style="display: none;">
+    <div class="modal-card">
+      <h2 data-i18n="kicked.title">⛔ Вас удалили из комнаты</h2>
+      <p data-i18n="kicked.help">Хост закрыл вам доступ. Вернуться можно, только если он разрешит.</p>
     </div>
   </div>
 
@@ -475,6 +502,20 @@
             </div>
             <input type="range" id="settingsPrompterSize" min="14" max="36" step="1" value="20" style="width: 100%; cursor: pointer;">
           </div>
+        </div>
+
+        <div class="setting-card">
+          <div>
+            <div class="setting-label" data-i18n="pw.setting">🔒 Пароль комнаты</div>
+            <div class="setting-sub" data-i18n="pw.setting.help">Новые игроки вводят его один раз. Те, кто уже в комнате, остаются.</div>
+          </div>
+          <div id="passwordHostControls" style="display: flex; gap: 8px;">
+            <input type="password" id="roomPasswordInput" class="text-input" maxlength="64" data-i18n-placeholder="pw.new" placeholder="Новый пароль" style="flex: 1;">
+            <button class="btn-play" data-i18n="pw.set" onclick="setRoomPassword()">Установить</button>
+            <button class="btn-outline" id="removePasswordBtn" data-i18n="pw.remove" onclick="removeRoomPassword()">Убрать</button>
+          </div>
+          <div id="passwordStatus" class="setting-sub"></div>
+          <button class="btn-outline" id="unbanBtn" onclick="unbanAll()" style="display: none; align-self: flex-start;"></button>
         </div>
 
         <div class="setting-card">
@@ -683,7 +724,7 @@
     <div class="header-left">
       <div class="brand"><div class="brand-logo">🎬</div> Dubline <small>Studio</small></div>
       <div class="room-badge">
-        <span data-i18n="room">Комната:</span> <span id="roomNameLabel">main</span>
+        <span data-i18n="room">Комната:</span> <span id="roomNameLabel">main</span><span id="roomLockIcon" style="display: none;" data-i18n-title="pw.statusOn" title="Комната защищена паролем">🔒</span>
         <button class="btn-share" data-i18n="share" data-i18n-title="share.title" onclick="copyInviteLink()" title="Скопировать ссылку для друзей">🔗 Поделиться</button>
       </div>
       <div class="users-online" id="usersOnlineBadge">

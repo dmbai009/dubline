@@ -11,13 +11,15 @@ const ffmpegPath = require('ffmpeg-static');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: '*' } });
+// Страница и сокет всегда на одном адресе, поэтому чужим сайтам подключаться не разрешаем
+const io = new Server(server);
 
 const PORT = process.env.PORT || 3000;
 const PUBLIC_DIR = path.join(__dirname, 'public');
-const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
-const PACKS_DIR = path.join(PUBLIC_DIR, 'packs');
-const DATA_DIR = path.join(__dirname, 'data');
+// Папки можно переопределить переменными окружения (так тесты не трогают рабочие данные)
+const UPLOAD_DIR = path.resolve(process.env.DUBLINE_UPLOAD_DIR || path.join(PUBLIC_DIR, 'uploads'));
+const PACKS_DIR = path.resolve(process.env.DUBLINE_PACKS_DIR || path.join(PUBLIC_DIR, 'packs'));
+const DATA_DIR = path.resolve(process.env.DUBLINE_DATA_DIR || path.join(__dirname, 'data'));
 const ROOMS_FILE = path.join(DATA_DIR, 'rooms.json');
 
 const MAX_PACK_MB = 300;       // размер .zip пака
@@ -40,6 +42,7 @@ for (const dir of [UPLOAD_DIR, PACKS_DIR, DATA_DIR]) {
 // Медиа паков и дубли не меняются по одному адресу — пусть браузер кэширует их,
 // а не перекачивает через туннель при каждой перерисовке
 app.use('/uploads', express.static(UPLOAD_DIR, { maxAge: '1h' }));
+app.use('/packs', express.static(PACKS_DIR));
 app.use(express.static(PUBLIC_DIR));
 // Mediabunny (MP4-мультиплексор для рендера через WebCodecs) раздаем прямо из node_modules
 app.use('/vendor/mediabunny', express.static(path.join(__dirname, 'node_modules', 'mediabunny', 'dist', 'bundles')));
@@ -141,7 +144,11 @@ function getRoom(roomId) {
     hostClientId: null,
     nickOwners: {},
     chat: [],
-    latency: {}           // поправка задержки микрофона игроков: ник -> мс
+    latency: {},          // поправка задержки микрофона игроков: ник -> мс
+    passwordHash: null,   // пароль комнаты (scrypt), сам пароль не хранится
+    passwordSalt: null,
+    admitted: [],         // устройства, уже вводившие пароль (повторно не спрашиваем)
+    banned: []            // устройства, которых хост выгнал
   };
   for (const key in defaults) {
     if (rooms[roomId][key] === undefined) rooms[roomId][key] = defaults[key];
@@ -248,8 +255,12 @@ const fileSizeCache = new Map();
 const fileHashCache = new Map();
 
 function diskPathForUrl(url) {
-  const full = path.join(PUBLIC_DIR, decodeURIComponent(url).replace(/^\/+/, ''));
-  return full.startsWith(PUBLIC_DIR + path.sep) ? full : null;
+  const rel = decodeURIComponent(url).replace(/^\/+/, '');
+  const [top, ...rest] = rel.split('/');
+  const base = top === 'uploads' ? UPLOAD_DIR : top === 'packs' ? PACKS_DIR : null;
+  if (!base) return null;
+  const full = path.join(base, ...rest);
+  return full.startsWith(base + path.sep) ? full : null;
 }
 
 function fileSizeForUrl(url) {
@@ -291,9 +302,11 @@ function forgetFileSizes(...urls) {
 
 // Секреты (clientId игроков) никогда не уходят клиентам
 function publicRoom(room) {
-  const { hostClientId, nickOwners, chat, sessions, ...rest } = room;
+  const { hostClientId, nickOwners, chat, sessions, passwordHash, passwordSalt, admitted, banned, ...rest } = room;
   return {
     ...rest,
+    hasPassword: !!room.passwordHash,
+    bannedCount: (room.banned || []).length,
     sessionList: sessionSummaries(room),
     videoSize: fileSizeForUrl(room.videoUrl),
     backingSize: fileSizeForUrl(room.backingUrl),
@@ -454,6 +467,33 @@ function isAuthorized(room, nick, clientId) {
   return !!nick && !!clientId && room.nickOwners[nick] === clientId;
 }
 
+// ==========================================
+// ПАРОЛЬ КОМНАТЫ И ВЫГНАННЫЕ ИГРОКИ
+// ==========================================
+const MAX_PASSWORD_ATTEMPTS = 5;
+
+function hashPassword(password, salt) {
+  return crypto.scryptSync(String(password), salt, 32).toString('hex');
+}
+
+function setRoomPassword(room, password) {
+  if (!password) {
+    room.passwordHash = null;
+    room.passwordSalt = null;
+    room.admitted = [];
+    return;
+  }
+  room.passwordSalt = crypto.randomBytes(16).toString('hex');
+  room.passwordHash = hashPassword(password, room.passwordSalt);
+}
+
+function checkRoomPassword(room, password) {
+  if (!room.passwordHash || !password) return false;
+  const expected = Buffer.from(room.passwordHash, 'hex');
+  const actual = Buffer.from(hashPassword(password, room.passwordSalt), 'hex');
+  return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
+}
+
 function isHost(room, clientId) {
   return !!clientId && room.hostClientId === clientId;
 }
@@ -545,7 +585,8 @@ function emptyTake() {
     trimEnabled: true,
     effect: 'none',
     pitch: 0,
-    recordedBy: null      // кто записал дубль (чтобы его можно было послушать, даже когда реплика освобождена)
+    recordedBy: null,     // кто записал дубль (чтобы его можно было послушать, даже когда реплика освобождена)
+    uploadId: null        // id отправки: повтор той же отправки не сохраняется дважды
   };
 }
 
@@ -1078,13 +1119,28 @@ app.post('/api/upload-line-audio', acceptFile('audio', MAX_TAKE_MB), (req, res) 
     const trimStart = parseSeconds(req.body.trimStart);
     const trimEnd = parseSeconds(req.body.trimEnd);
 
+    const uploadId = String(req.body.uploadId || '').slice(0, 64);
+    const sessionId = String(req.body.sessionId || '');
+
     if (!req.file || !lineId) throw new HttpError(400, 'Некорректные данные');
     if (!isAuthorized(room, userName, req.body.clientId)) throw new HttpError(403, 'Ник не подтвержден — перезайдите в комнату');
 
-    const line = room.lines.find(l => l.id === lineId);
+    // Дубль мог прийти с задержкой (повторная отправка после обрыва связи): кладем его в ту сессию,
+    // где он был записан, даже если хост уже переключился на другую
+    snapshotActive(room);
+    const isActiveSession = !sessionId || sessionId === room.activeSessionId;
+    const target = isActiveSession ? room : room.sessions[sessionId];
+    if (!target) throw new HttpError(410, 'Сессия, в которой записан дубль, уже удалена');
+
+    const line = target.lines.find(l => l.id === lineId);
     if (!line) throw new HttpError(404, 'Реплика не найдена');
 
-    const owner = getLineOwner(room, line);
+    // Повтор той же отправки (ответ сервера потерялся) — второй раз не сохраняем
+    if (uploadId && line.uploadId === uploadId && line.audioUrl) {
+      return res.json({ success: true, audioUrl: line.audioUrl, audioStart: line.audioStart, duplicate: true });
+    }
+
+    const owner = target.characterClaims[line.character] || line.claimedBy || null;
     if (owner !== userName) throw new HttpError(403, 'Реплика занята другим игроком');
 
     const fileName = `line_${roomId}_${lineId}_${Date.now()}.webm`;
@@ -1095,7 +1151,8 @@ app.post('/api/upload-line-audio', acceptFile('audio', MAX_TAKE_MB), (req, res) 
     line.audioStart = audioStart !== null ? Math.max(0, audioStart) : line.start;
     line.recordedStart = line.audioStart;
     line.recordedBy = userName;
-    room.updatedAt = Date.now();
+    line.uploadId = uploadId || null;
+    target.updatedAt = Date.now();
     // Выбранный голос (эффект/питч) переживает перезапись дубля
     const hasTrim = trimStart !== null && trimEnd !== null && trimStart >= 0 && trimEnd > trimStart;
     line.trimStart = hasTrim ? trimStart : null;
@@ -1105,8 +1162,9 @@ app.post('/api/upload-line-audio', acceptFile('audio', MAX_TAKE_MB), (req, res) 
     if (!line.pitch) line.pitch = 0;
 
     saveRooms();
-    io.to(roomId).emit('line_updated', line);
-    logEvent(roomId, `💾 ${userName} сохранил дубль реплики #${lineId} (${Math.round(req.file.size / 1024)} КБ)`);
+    if (isActiveSession) io.to(roomId).emit('line_updated', line);
+    else emitSession(roomId); // дубль ушел в неактивную сессию — обновим только ее прогресс в списке
+    logEvent(roomId, `💾 ${userName} сохранил дубль реплики #${lineId} (${Math.round(req.file.size / 1024)} КБ)${isActiveSession ? '' : ` в сессию «${target.title}»`}`);
     res.json({ success: true, audioUrl: line.audioUrl, audioStart: line.audioStart });
   } catch (err) {
     sendError(res, err);
@@ -1150,6 +1208,7 @@ io.on('connection', socket => {
   let nick = '';
   let clientId = '';
   let chatTimestamps = [];
+  let passwordAttempts = 0;
 
   function leaveCurrentRoom(reason) {
     if (roomId && roomSockets[roomId] && roomSockets[roomId][socket.id]) {
@@ -1188,11 +1247,30 @@ io.on('connection', socket => {
     if (!nextClientId) return;
 
     const nextRoomId = sanitizeRoomId(data.room);
+    const candidateRoom = getRoom(nextRoomId);
+    const isRoomHost = candidateRoom.hostClientId === nextClientId;
+
+    // Выгнанных не пускаем; в запароленную комнату — только с верным паролем (один раз на устройство)
+    if (!isRoomHost && candidateRoom.banned.includes(nextClientId)) {
+      logEvent(nextRoomId, '⛔ Выгнанный игрок пытался вернуться', 'warn');
+      return socket.emit('join_denied', { reason: 'banned' });
+    }
+    if (!isRoomHost && candidateRoom.passwordHash && !candidateRoom.admitted.includes(nextClientId)) {
+      if (passwordAttempts >= MAX_PASSWORD_ATTEMPTS) return socket.emit('join_denied', { reason: 'tooMany' });
+      if (!data.password) return socket.emit('join_denied', { reason: 'password' });
+      if (!checkRoomPassword(candidateRoom, data.password)) {
+        passwordAttempts++;
+        logEvent(nextRoomId, `⚠ Неверный пароль комнаты (попытка ${passwordAttempts} из ${MAX_PASSWORD_ATTEMPTS})`, 'warn');
+        return socket.emit('join_denied', { reason: passwordAttempts >= MAX_PASSWORD_ATTEMPTS ? 'tooMany' : 'wrongPassword' });
+      }
+      candidateRoom.admitted.push(nextClientId);
+    }
+
     if (roomId && roomId !== nextRoomId) leaveCurrentRoom();
 
     roomId = nextRoomId;
     clientId = nextClientId;
-    const room = getRoom(roomId);
+    const room = candidateRoom;
 
     let requested = sanitizeNick(data.nick);
     const previousOwner = requested ? room.nickOwners[requested] : null;
@@ -1398,6 +1476,66 @@ io.on('connection', socket => {
     chatTimestamps.push(now);
 
     addChatMessage(roomId, { nick, text: clean });
+  });
+
+  // ---------- Пароль комнаты и выгнанные (управляет хост) ----------
+  socket.on('host_set_password', ({ password } = {}) => {
+    if (!roomId) return;
+    const room = getRoom(roomId);
+    if (!isHost(room, clientId)) return;
+    const clean = String(password || '').slice(0, 64);
+    setRoomPassword(room, clean);
+    // Все, кто уже в комнате, остаются: их устройства считаем допущенными
+    if (clean) room.admitted = [...new Set(onlineMembers(roomId).map(m => m.clientId))];
+    saveRooms();
+    emitSession(roomId);
+    if (clean) {
+      addSystemMessage(roomId, 'system.passwordSet', { nick }, `🔒 ${nick} поставил пароль на комнату`);
+      logEvent(roomId, `🔒 ${nick} поставил пароль на комнату`);
+    } else {
+      addSystemMessage(roomId, 'system.passwordRemoved', { nick }, `🔓 ${nick} убрал пароль комнаты`);
+      logEvent(roomId, `🔓 ${nick} убрал пароль комнаты`);
+    }
+  });
+
+  socket.on('host_kick', ({ nick: target } = {}) => {
+    if (!roomId) return;
+    const room = getRoom(roomId);
+    const victim = sanitizeNick(target);
+    if (!isHost(room, clientId) || !victim || victim === nick) return;
+
+    const victims = Object.entries(roomSockets[roomId] || {}).filter(([, member]) => member.nick === victim);
+    const ids = new Set(victims.map(([, member]) => member.clientId));
+    if (room.nickOwners[victim]) ids.add(room.nickOwners[victim]);
+    ids.delete(room.hostClientId);
+    if (!ids.size) return;
+
+    room.banned = [...new Set([...room.banned, ...ids])];
+    room.admitted = room.admitted.filter(id => !ids.has(id));
+    delete room.nickOwners[victim];
+    saveRooms();
+
+    victims.forEach(([socketId]) => {
+      const target = io.sockets.sockets.get(socketId);
+      if (target) {
+        target.emit('kicked', { by: nick });
+        target.disconnect(true);
+      }
+    });
+    emitSession(roomId);
+    addSystemMessage(roomId, 'system.kicked', { nick: victim }, `⛔ ${victim} удален из комнаты`);
+    logEvent(roomId, `⛔ ${nick} выгнал ${victim}`);
+  });
+
+  socket.on('host_unban_all', () => {
+    if (!roomId) return;
+    const room = getRoom(roomId);
+    if (!isHost(room, clientId) || !room.banned.length) return;
+    const count = room.banned.length;
+    room.banned = [];
+    saveRooms();
+    emitSession(roomId);
+    logEvent(roomId, `✅ ${nick} разрешил вернуться выгнанным (${count})`);
   });
 
   // ---------- Сессии (управляет хост) ----------

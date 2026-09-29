@@ -540,6 +540,113 @@
     'record.hint': "Запис почнеться після відліку над відео — говоріть на «Говоріть!»."
   });
 
+  Object.assign(messages.en, {
+    'take.pending': "⏳ not sent",
+    'take.pendingNotice': "⏳ The take has not reached the server yet. It is saved in your browser and will be sent automatically when the connection is back.",
+    'take.sendNow': "Send now",
+    'toast.takeQueued': "No connection — the take is saved in your browser and will be sent automatically",
+    'toast.takeSent': "✅ The pending take has been delivered",
+    'toast.takeDropped': "The take was not saved: {reason}",
+    'unload.pendingTakes': "Some takes have not been sent yet"
+  });
+  Object.assign(messages.ru, {
+    'take.pending': "⏳ не отправлен",
+    'take.pendingNotice': "⏳ Дубль ещё не дошёл до сервера. Он сохранён в браузере и отправится сам, как только появится связь.",
+    'take.sendNow': "Отправить сейчас",
+    'toast.takeQueued': "Нет связи — дубль сохранён в браузере и отправится автоматически",
+    'toast.takeSent': "✅ Неотправленный дубль доставлен",
+    'toast.takeDropped': "Дубль не сохранён: {reason}",
+    'unload.pendingTakes': "Есть дубли, которые ещё не отправлены"
+  });
+  Object.assign(messages.uk, {
+    'take.pending': "⏳ не надіслано",
+    'take.pendingNotice': "⏳ Дубль ще не дійшов до сервера. Він збережений у браузері й надішлеться сам, щойно з’явиться зв’язок.",
+    'take.sendNow': "Надіслати зараз",
+    'toast.takeQueued': "Немає зв’язку — дубль збережено в браузері, він надішлеться автоматично",
+    'toast.takeSent': "✅ Ненадісланий дубль доставлено",
+    'toast.takeDropped': "Дубль не збережено: {reason}",
+    'unload.pendingTakes': "Є дублі, які ще не надіслано"
+  });
+
+  Object.assign(messages.en, {
+    'pw.title': "🔒 This room is password-protected",
+    'pw.help': "Ask the room host for the password",
+    'pw.placeholder': "Password",
+    'pw.enter': "Enter",
+    'pw.wrong': "Wrong password",
+    'pw.tooMany': "Too many attempts. Reload the page and try again.",
+    'pw.setting': "🔒 Room password",
+    'pw.setting.help': "New players enter it once. Players already in the room stay.",
+    'pw.new': "New password",
+    'pw.set': "Set",
+    'pw.remove': "Remove",
+    'pw.statusOn': "The room is password-protected",
+    'pw.statusOff': "No password: anyone with the link can join",
+    'pw.onlyHost': "only the host can change it",
+    'pw.unban': "Let kicked players back ({n})",
+    'pw.saved': "Password set",
+    'kick.button': "Kick from the room",
+    'kick.confirm': "Kick {nick} from the room? They can only come back if you allow it.",
+    'kick.noPassword': "Tip: the room has no password, so they could rejoin from another browser. Set a password in Settings.",
+    'kicked.title': "⛔ You were removed from the room",
+    'kicked.help': "The host closed your access. You can come back only if they allow it.",
+    'system.kicked': "⛔ {nick} was removed from the room",
+    'system.passwordSet': "🔒 {nick} set a room password",
+    'system.passwordRemoved': "🔓 {nick} removed the room password"
+  });
+  Object.assign(messages.ru, {
+    'pw.title': "🔒 Комната защищена паролем",
+    'pw.help': "Спросите пароль у хоста комнаты",
+    'pw.placeholder': "Пароль",
+    'pw.enter': "Войти",
+    'pw.wrong': "Неверный пароль",
+    'pw.tooMany': "Слишком много попыток. Обновите страницу и попробуйте снова.",
+    'pw.setting': "🔒 Пароль комнаты",
+    'pw.setting.help': "Новые игроки вводят его один раз. Те, кто уже в комнате, остаются.",
+    'pw.new': "Новый пароль",
+    'pw.set': "Установить",
+    'pw.remove': "Убрать",
+    'pw.statusOn': "Комната защищена паролем",
+    'pw.statusOff': "Пароля нет: зайти может любой, у кого есть ссылка",
+    'pw.onlyHost': "менять может только хост",
+    'pw.unban': "Разрешить вернуться выгнанным ({n})",
+    'pw.saved': "Пароль установлен",
+    'kick.button': "Выгнать из комнаты",
+    'kick.confirm': "Выгнать {nick} из комнаты? Вернуться он сможет, только если вы разрешите.",
+    'kick.noPassword': "Совет: у комнаты нет пароля, поэтому можно зайти снова из другого браузера. Поставьте пароль в настройках.",
+    'kicked.title': "⛔ Вас удалили из комнаты",
+    'kicked.help': "Хост закрыл вам доступ. Вернуться можно, только если он разрешит.",
+    'system.kicked': "⛔ {nick} удалён из комнаты",
+    'system.passwordSet': "🔒 {nick} поставил пароль на комнату",
+    'system.passwordRemoved': "🔓 {nick} убрал пароль комнаты"
+  });
+  Object.assign(messages.uk, {
+    'pw.title': "🔒 Кімната захищена паролем",
+    'pw.help': "Запитайте пароль у хоста кімнати",
+    'pw.placeholder': "Пароль",
+    'pw.enter': "Увійти",
+    'pw.wrong': "Неправильний пароль",
+    'pw.tooMany': "Забагато спроб. Оновіть сторінку й спробуйте знову.",
+    'pw.setting': "🔒 Пароль кімнати",
+    'pw.setting.help': "Нові гравці вводять його один раз. Ті, хто вже в кімнаті, залишаються.",
+    'pw.new': "Новий пароль",
+    'pw.set': "Встановити",
+    'pw.remove': "Прибрати",
+    'pw.statusOn': "Кімната захищена паролем",
+    'pw.statusOff': "Пароля немає: зайти може будь-хто, у кого є посилання",
+    'pw.onlyHost': "змінювати може лише хост",
+    'pw.unban': "Дозволити повернутися вигнаним ({n})",
+    'pw.saved': "Пароль встановлено",
+    'kick.button': "Вигнати з кімнати",
+    'kick.confirm': "Вигнати {nick} з кімнати? Повернутися він зможе, лише якщо ви дозволите.",
+    'kick.noPassword': "Порада: у кімнати немає пароля, тож можна зайти знову з іншого браузера. Поставте пароль у налаштуваннях.",
+    'kicked.title': "⛔ Вас видалили з кімнати",
+    'kicked.help': "Хост закрив вам доступ. Повернутися можна, лише якщо він дозволить.",
+    'system.kicked': "⛔ {nick} видалено з кімнати",
+    'system.passwordSet': "🔒 {nick} поставив пароль на кімнату",
+    'system.passwordRemoved': "🔓 {nick} прибрав пароль кімнати"
+  });
+
   let language = localStorage.getItem('dubline_language');
   if (!messages[language]) {
     const browser = String(navigator.language || 'en').toLowerCase();

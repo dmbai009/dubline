@@ -153,38 +153,26 @@ window.handleStudioRecord = async function(lineId) {
       console.warn('[Dubline] Не удалось проанализировать дубль:', err);
     }
 
-    const formData = new FormData();
-    formData.append('lineId', lineId);
-    formData.append('userName', myName);
-    formData.append('clientId', clientId);
-    formData.append('audioStart', currentRecordingStartTime);
-    if (speech) {
-      formData.append('trimStart', speech.start);
-      formData.append('trimEnd', speech.end);
-    }
-    formData.append('audio', audioBlob);
-
     btn.innerText = t('record.saving');
-    const res = await fetch(`/api/upload-line-audio?room=${encodeURIComponent(currentRoom)}`, { method: 'POST', body: formData });
-    if (!res.ok) {
-      alert(await readError(res));
-      showInspector(line);
-      return;
-    }
-    const resData = await res.json();
-
-    if (resData.success) {
-      const fresh = session.lines.find(l => l.id === lineId) || line;
-      selectedLine = fresh;
-      showInspector(fresh);
-    }
+    await submitTake({
+      uploadId: newUploadId(),
+      room: currentRoom,
+      sessionId: session.activeSessionId || '',
+      lineId,
+      nick: myName,
+      audioStart: currentRecordingStartTime,
+      trimStart: speech ? speech.start : null,
+      trimEnd: speech ? speech.end : null,
+      blob: audioBlob,
+      createdAt: Date.now()
+    });
   };
 
   mediaRecorder.start(100);
   socket.emit('recording_status', { lineId, recording: true });
   btn.className = 'btn-prep';
   btn.innerText = t('record.preparing');
-  video.play();
+  video.play().catch(() => {}); // запись могли сразу прервать (пауза у всех) — это не ошибка
   startRecordCue(line, preRoll);
 
   const checkSpeechInterval = setInterval(() => {
@@ -289,3 +277,181 @@ function stopRecordCue() {
   recordCue.style.display = 'none';
   recordCue.className = 'record-cue';
 }
+
+// ==========================================
+// НАДЕЖНАЯ ОТПРАВКА ДУБЛЕЙ
+// Если связь моргнула, дубль не теряется: он лежит в браузере (IndexedDB) и
+// отправляется повторно, пока сервер его не примет. Повтор той же отправки
+// сервер узнает по uploadId и второй раз не сохраняет.
+// ==========================================
+const pendingTakes = new Map(); // uploadId -> запись
+let retryTimer = null;
+let retryDelay = 2000;
+let queuedToastShown = false;
+
+function newUploadId() {
+  return (window.crypto && crypto.randomUUID) ? crypto.randomUUID()
+    : Date.now().toString(36) + Math.random().toString(36).slice(2);
+}
+
+const takeStore = (() => {
+  let dbPromise = null;
+  function db() {
+    if (!dbPromise) {
+      dbPromise = new Promise((resolve, reject) => {
+        const request = indexedDB.open('dubline', 1);
+        request.onupgradeneeded = () => request.result.createObjectStore('pendingTakes', { keyPath: 'uploadId' });
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+    }
+    return dbPromise;
+  }
+  async function run(mode, action) {
+    try {
+      const database = await db();
+      return await new Promise((resolve, reject) => {
+        const tx = database.transaction('pendingTakes', mode);
+        const request = action(tx.objectStore('pendingTakes'));
+        tx.oncomplete = () => resolve(request ? request.result : undefined);
+        tx.onerror = () => reject(tx.error);
+      });
+    } catch (err) {
+      return null; // приватный режим и т.п. — остаемся с очередью в памяти
+    }
+  }
+  return {
+    put: entry => run('readwrite', store => store.put(entry)),
+    remove: id => run('readwrite', store => store.delete(id)),
+    all: () => run('readonly', store => store.getAll())
+  };
+})();
+
+function isPendingLine(lineId) {
+  const sessionId = session && session.activeSessionId;
+  return [...pendingTakes.values()].some(entry => entry.lineId === lineId && (!entry.sessionId || entry.sessionId === sessionId));
+}
+
+function refreshPendingUi(lineId) {
+  pendingTakeLines.clear();
+  for (const entry of pendingTakes.values()) {
+    if (!entry.sessionId || entry.sessionId === (session && session.activeSessionId)) pendingTakeLines.add(entry.lineId);
+  }
+  if (!session || !session.lines) return;
+  const line = session.lines.find(l => l.id === lineId);
+  if (line) updateLineBlock(line);
+  if (selectedLine && selectedLine.id === lineId && recordState === 'idle') showInspector(selectedLine);
+}
+
+// Сервер точно не примет этот дубль — повторять бессмысленно
+function isPermanentFailure(status) {
+  return status === 400 || status === 403 || status === 404 || status === 410 || status === 413;
+}
+
+async function submitTake(entry) {
+  // Новый дубль той же реплики заменяет старый неотправленный
+  for (const [id, old] of pendingTakes) {
+    if (old.lineId === entry.lineId && old.sessionId === entry.sessionId && id !== entry.uploadId) {
+      pendingTakes.delete(id);
+      takeStore.remove(id);
+    }
+  }
+  pendingTakes.set(entry.uploadId, entry);
+  takeStore.put(entry);
+  refreshPendingUi(entry.lineId);
+  return sendTake(entry);
+}
+
+async function sendTake(entry) {
+  const form = new FormData();
+  form.append('lineId', entry.lineId);
+  form.append('userName', entry.nick);
+  form.append('clientId', clientId);
+  form.append('uploadId', entry.uploadId);
+  form.append('sessionId', entry.sessionId);
+  form.append('audioStart', entry.audioStart);
+  if (entry.trimStart != null && entry.trimEnd != null) {
+    form.append('trimStart', entry.trimStart);
+    form.append('trimEnd', entry.trimEnd);
+  }
+  form.append('audio', entry.blob, 'take.webm');
+
+  let res = null;
+  try {
+    res = await fetch(`/api/upload-line-audio?room=${encodeURIComponent(entry.room)}`, { method: 'POST', body: form });
+  } catch (err) {
+    res = null; // сеть недоступна
+  }
+
+  if (res && res.ok) {
+    const wasRetry = entry.attempts > 0;
+    pendingTakes.delete(entry.uploadId);
+    takeStore.remove(entry.uploadId);
+    refreshPendingUi(entry.lineId);
+    if (wasRetry) showToast(t('toast.takeSent'));
+    if (!pendingTakes.size) {
+      retryDelay = 2000;
+      queuedToastShown = false;
+    }
+    return true;
+  }
+
+  if (res && isPermanentFailure(res.status)) {
+    const reason = await readError(res);
+    pendingTakes.delete(entry.uploadId);
+    takeStore.remove(entry.uploadId);
+    refreshPendingUi(entry.lineId);
+    alert(t('toast.takeDropped', { reason }));
+    return false;
+  }
+
+  // Обрыв связи или сервер/туннель временно недоступен (502/503/504) — попробуем позже
+  entry.attempts = (entry.attempts || 0) + 1;
+  if (!queuedToastShown) {
+    showToast(t('toast.takeQueued'));
+    queuedToastShown = true;
+  }
+  scheduleRetry();
+  return false;
+}
+
+function scheduleRetry() {
+  clearTimeout(retryTimer);
+  retryTimer = setTimeout(flushPendingTakes, retryDelay);
+  retryDelay = Math.min(30000, retryDelay * 2);
+}
+
+async function flushPendingTakes() {
+  clearTimeout(retryTimer);
+  for (const entry of [...pendingTakes.values()]) {
+    if (!pendingTakes.has(entry.uploadId)) continue;
+    if (!await sendTake(entry)) break; // сервер все еще недоступен — дальше не ломимся
+  }
+}
+
+window.retryPendingTakes = function() {
+  retryDelay = 2000;
+  flushPendingTakes();
+};
+
+// Связь вернулась — сразу отправляем, что накопилось (вызывается из room.js при подключении сокета)
+function onConnectionRestored() {
+  if (!pendingTakes.size) return;
+  retryDelay = 2000;
+  setTimeout(flushPendingTakes, 500);
+}
+
+// Дубли, не отправленные до перезагрузки страницы
+takeStore.all().then(entries => {
+  (entries || []).filter(entry => entry.room === currentRoom).forEach(entry => pendingTakes.set(entry.uploadId, entry));
+  if (pendingTakes.size) {
+    pendingTakes.forEach(entry => pendingTakeLines.add(entry.lineId));
+    setTimeout(flushPendingTakes, 1500);
+  }
+});
+
+window.addEventListener('beforeunload', (e) => {
+  if (!pendingTakes.size) return;
+  e.preventDefault();
+  e.returnValue = t('unload.pendingTakes');
+});

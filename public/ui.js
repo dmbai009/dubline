@@ -136,7 +136,7 @@ window.addEventListener('keydown', (e) => {
   // Пробел — плей/пауза
   if (e.code === 'Space') {
     e.preventDefault();
-    if (video.paused) video.play();
+    if (video.paused) video.play().catch(() => {});
     else video.pause();
   }
 
@@ -222,6 +222,11 @@ function showInspector(line) {
       : `<button class="btn-host" onclick="unclaimSingleLine(${line.id})">${t('host.releaseLine', { owner: esc(owner) })}</button>`);
   }
 
+  // Дубль записан, но еще не дошел до сервера
+  const pendingNotice = isOwnedByMe && pendingTakeLines.has(line.id)
+    ? `<div class="insp-pending"><span>${t('take.pendingNotice')}</span><button class="btn-outline" onclick="retryPendingTakes()">${t('take.sendNow')}</button></div>`
+    : '';
+
   // Подсказка новичкам: запись начинается не сразу, а после отсчёта (пока нет своего дубля)
   const hint = isOwnedByMe && !line.audioUrl && recordState === 'idle' ? `<p class="take-hint">${t('record.hint')}</p>` : '';
 
@@ -239,6 +244,7 @@ function showInspector(line) {
     </div>
     <div class="insp-meta">${line.start}–${line.end} s · ${duration} s${line.audioUrl && author ? ` · ${t('recordedBy', { owner: esc(author) })}` : ''}</div>
     <div class="insp-caption">${esc(line.caption || '…')}</div>
+    ${pendingNotice}
     <div class="insp-actions">${primary}</div>
     ${secondary.length ? `<div class="insp-actions secondary">${secondary.join('')}</div>` : ''}
     ${hint}

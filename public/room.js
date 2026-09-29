@@ -5,13 +5,55 @@
 const socket = io();
 
 // Подключение к комнате (и повторное — после переподключения сокета)
+let pendingRoomPassword = '';
+let accessDenied = false;
+
 function joinRoom() {
-  socket.emit('join_room', { room: currentRoom, nick: myName, clientId });
+  if (accessDenied) return;
+  socket.emit('join_room', { room: currentRoom, nick: myName, clientId, password: pendingRoomPassword || undefined });
 }
+
+// ==========================================
+// ПАРОЛЬ КОМНАТЫ / ВЫГНАЛИ
+// ==========================================
+const passwordModal = document.getElementById('passwordModal');
+const passwordInput = document.getElementById('passwordInput');
+const passwordError = document.getElementById('passwordError');
+const deniedModal = document.getElementById('deniedModal');
+
+function showAccessDenied() {
+  accessDenied = true;
+  passwordModal.style.display = 'none';
+  nickModal.style.display = 'none';
+  deniedModal.style.display = 'flex';
+}
+
+socket.on('join_denied', ({ reason }) => {
+  if (reason === 'banned') return showAccessDenied();
+  const errors = { wrongPassword: t('pw.wrong'), tooMany: t('pw.tooMany') };
+  passwordError.textContent = errors[reason] || '';
+  passwordError.style.display = errors[reason] ? 'block' : 'none';
+  passwordModal.style.display = 'flex';
+  nickModal.style.display = 'none';
+  passwordInput.value = '';
+  passwordInput.focus();
+});
+
+window.submitRoomPassword = function(e) {
+  e.preventDefault();
+  pendingRoomPassword = passwordInput.value;
+  joinRoom();
+};
+
+socket.on('kicked', () => {
+  showAccessDenied();
+  socket.disconnect();
+});
 socket.on('connect', () => {
   joinRoom();
   syncClock();
   setConnectionState('online');
+  onConnectionRestored();
 });
 
 // ==========================================
@@ -98,6 +140,9 @@ function showNickModal(error) {
 
 // Сервер сообщает, какой ник за нами закреплен на самом деле
 socket.on('nick_state', ({ nick, error, errorKey, errorParams }) => {
+  // Пустили в комнату — пароль больше не нужен
+  passwordModal.style.display = 'none';
+  pendingRoomPassword = '';
   if (errorKey) error = t(errorKey, errorParams || {});
   myName = nick || '';
   const settingsNick = document.getElementById('settingsNickInput');
@@ -143,7 +188,8 @@ function playerCardHtml(nick, stats, online) {
 
   const tags = [
     nick === roomHost ? `<span class="tag host">👑 ${t('lobby.host')}</span>` : '',
-    isMe ? `<span class="tag you">${t('lobby.you')}</span>` : ''
+    isMe ? `<span class="tag you">${t('lobby.you')}</span>` : '',
+    online && !isMe && amHost() ? `<button class="kick-btn" title="${esc(t('kick.button'))}" onclick="kickPlayer(${jsArg(nick)})">✖</button>` : ''
   ].join('');
 
   const extra = [
@@ -205,6 +251,44 @@ function renderLobby() {
   }
   lobbyList.innerHTML = html;
 }
+
+window.kickPlayer = function(nick) {
+  const text = t('kick.confirm', { nick }) + (session && session.hasPassword ? '' : '\n\n' + t('kick.noPassword'));
+  if (!confirm(text)) return;
+  socket.emit('host_kick', { nick });
+};
+
+// Пароль комнаты в настройках: хост меняет, остальные видят статус
+function updateRoomSecurityUi() {
+  const has = !!(session && session.hasPassword);
+  const host = amHost();
+  document.getElementById('roomLockIcon').style.display = has ? 'inline' : 'none';
+  document.getElementById('passwordHostControls').style.display = host ? 'flex' : 'none';
+  document.getElementById('removePasswordBtn').style.display = host && has ? '' : 'none';
+  const status = document.getElementById('passwordStatus');
+  status.textContent = (has ? t('pw.statusOn') : t('pw.statusOff')) + (host ? '' : ' · ' + t('pw.onlyHost'));
+  const unban = document.getElementById('unbanBtn');
+  const banned = (session && session.bannedCount) || 0;
+  unban.style.display = host && banned ? '' : 'none';
+  unban.textContent = t('pw.unban', { n: banned });
+}
+
+window.setRoomPassword = function() {
+  const input = document.getElementById('roomPasswordInput');
+  const value = input.value.trim();
+  if (!value) return input.focus();
+  socket.emit('host_set_password', { password: value });
+  input.value = '';
+  showToast(t('pw.saved'));
+};
+
+window.removeRoomPassword = function() {
+  socket.emit('host_set_password', { password: '' });
+};
+
+window.unbanAll = function() {
+  socket.emit('host_unban_all');
+};
 
 // Поправка задержки игрока поменялась — у всех сдвигаются его дубли
 socket.on('latency_updated', (latency) => {
@@ -294,6 +378,7 @@ function updateHostUi() {
   }
 
   renderSessions();
+  updateRoomSecurityUi();
   const canManagePacks = amHost();
   uploadLabel.classList.toggle('disabled', !canManagePacks);
   zipInput.disabled = !canManagePacks;
@@ -338,6 +423,7 @@ socket.on('session_updated', (data) => {
     updateDownloadButtons();
     renderLobby();
     renderSessions();
+    updateRoomSecurityUi();
     return;
   }
 
@@ -356,6 +442,7 @@ socket.on('session_updated', (data) => {
   updateLocalMediaStatus();
   renderLobby();
   renderSessions();
+  updateRoomSecurityUi();
 
   applyVolumes();
   renderTimeline();

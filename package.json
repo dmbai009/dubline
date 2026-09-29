@@ -6,19 +6,23 @@
   "scripts": {
     "start": "node server.js",
     "test": "node --test",
+    "test:e2e": "node --test --test-concurrency=1 e2e/studio.e2e.js e2e/room.e2e.js e2e/media.e2e.js",
     "check": "node --check server.js && node --check public/i18n.js && node --check public/state.js && node --check public/audio-fx.js && node --check public/audio.js && node --check public/player.js && node --check public/recording.js && node --check public/import.js && node --check public/export.js && node --check public/room.js && node --check public/p2p.js && node --check public/chat.js && node --check public/ui.js"
   },
   "dependencies": {
     "adm-zip": "^0.6.1",
-    "cors": "^2.8.5",
     "express": "^4.19.2",
     "ffmpeg-static": "^5.3.0",
     "jszip": "^3.10.2",
     "mediabunny": "^1.60.0",
-    "multer": "^1.4.5-lts.1",
+    "multer": "^2.4.0",
     "socket.io": "^4.7.5"
   },
   "allowScripts": {
     "ffmpeg-static@5.3.0": true
+  },
+  "devDependencies": {
+    "puppeteer-core": "^25.12.0",
+    "socket.io-client": "^4.8.4"
   }
 }

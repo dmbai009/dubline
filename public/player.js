@@ -34,6 +34,8 @@ const downloadPackNone = document.getElementById('downloadOriginalPackNone');
 const liveRecordings = new Map();
 // Кто из игроков раздает видео сцены по P2P (ники)
 const seedingNicks = new Set();
+// Реплики, чьи дубли записаны, но еще не дошли до сервера
+const pendingTakeLines = new Set();
 
 // Видео/интершум, выбранные игроком со своего диска, чтобы не качать их через туннель
 let localMedia = null; // { forVideoUrl, videoUrl, videoBlob, backingUrl, backingBlob, size }
@@ -387,7 +389,11 @@ function updateLineBlockVisual(el, line) {
 
   let nickBadge = '';
   const liveNick = liveRecordings.get(line.id);
-  if (liveNick) {
+  if (pendingTakeLines.has(line.id)) {
+    el.classList.add('pending-upload');
+    el.title = t('take.pendingNotice');
+    nickBadge = `<span class="tile-nick pending">${t('take.pending')}</span>`;
+  } else if (liveNick) {
     el.classList.add('live-recording');
     el.title = t('recording.title', { nick: liveNick });
     nickBadge = `<span class="tile-nick live">🔴 ${liveNick === myName ? t('you') : esc(liveNick)}</span>`;
