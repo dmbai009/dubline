@@ -4,7 +4,8 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 
 const html = fs.readFileSync('public/index.html', 'utf8');
-const app = fs.readFileSync('public/app.js', 'utf8');
+const CLIENT_MODULES = ['player.js', 'recording.js', 'import.js', 'export.js', 'room.js', 'chat.js', 'ui.js'];
+const app = CLIENT_MODULES.map(name => fs.readFileSync(`public/${name}`, 'utf8')).join('\n');
 const server = fs.readFileSync('server.js', 'utf8');
 
 test('every inline HTML handler has a client implementation', () => {
@@ -25,9 +26,9 @@ test('static DOM references exist and legacy modal IDs are gone', () => {
   for (const legacy of ['nickInput', 'libraryModal', 'renderModal']) assert.doesNotMatch(app, new RegExp(`getElementById\\(['"]${legacy}`));
 });
 
-test('state and audio modules load before the application coordinator', () => {
+test('client modules load in dependency order', () => {
   const scripts = [...html.matchAll(/<script[^>]+src=["']([^"']+)["']/g)].map(match => match[1]);
-  const positions = ['state.js', 'audio-fx.js', 'audio.js', 'app.js'].map(name => scripts.indexOf(name));
+  const positions = ['i18n.js', 'state.js', 'audio-fx.js', 'audio.js', ...CLIENT_MODULES].map(name => scripts.indexOf(name));
   assert.ok(positions.every(position => position >= 0), 'a required client module is missing');
   assert.deepEqual([...positions].sort((a, b) => a - b), positions);
 });
