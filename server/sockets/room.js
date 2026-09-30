@@ -2,12 +2,12 @@
 const { CHAT_RATE_LIMIT, MAX_LATENCY_MS } = require('../config');
 const { roomSockets, watchState } = require('../state');
 const { io } = require('../app');
-const { sanitizeRoomId, sanitizeNick, sanitizeChatText } = require('../sanitize');
+const { sanitizeNick, sanitizeChatText } = require('../sanitize');
 const { DISCONNECT_REASONS, logEvent } = require('../log');
 const { saveRooms, getRoom, publicRoom, emitSession, ensureAudioTracks } = require('../rooms');
 const { onlineCount, endWatch, recordingList, broadcastRecording, clearSocketSeeds, seedersSummary, broadcastSeeders, clearSocketRecordings, isHostOnline, broadcastRoomUsers, addChatMessage, addSystemMessage } = require('../presence');
-const { isNickFree, takeOverNick, MAX_PASSWORD_ATTEMPTS, checkRoomPassword, isHost } = require('../auth');
-const { isDesktopRoom, hasDesktopHostProof } = require('../desktop');
+const { isNickFree, takeOverNick, MAX_PASSWORD_ATTEMPTS, checkRoomPassword, isPasswordLocked, notePasswordFailure, isHost } = require('../auth');
+const { isDesktopRoom, hasDesktopHostProof, resolveRoomId } = require('../desktop');
 
 module.exports = function registerRoomHandlers(socket, conn) {
   let chatTimestamps = [];
@@ -49,7 +49,7 @@ module.exports = function registerRoomHandlers(socket, conn) {
     const nextClientId = String(data.clientId || '').slice(0, 64);
     if (!nextClientId) return;
 
-    const nextRoomId = sanitizeRoomId(data.room);
+    const nextRoomId = resolveRoomId(data.room);
     const candidateRoom = getRoom(nextRoomId);
     const desktopHost = hasDesktopHostProof(nextRoomId, data.desktopHostToken);
     if (desktopHost) {
@@ -67,9 +67,13 @@ module.exports = function registerRoomHandlers(socket, conn) {
     if (!isRoomHost && candidateRoom.passwordHash && !candidateRoom.admitted.includes(nextClientId)) {
       if (passwordAttempts >= MAX_PASSWORD_ATTEMPTS) return socket.emit('join_denied', { reason: 'tooMany', pin: pinProtected });
       if (!data.password) return socket.emit('join_denied', { reason: 'password', pin: pinProtected });
+      if (isPasswordLocked(nextRoomId)) return socket.emit('join_denied', { reason: 'tooMany', pin: pinProtected });
       if (!checkRoomPassword(candidateRoom, data.password)) {
         passwordAttempts++;
         logEvent(nextRoomId, `⚠ Wrong room password (attempt ${passwordAttempts} of ${MAX_PASSWORD_ATTEMPTS})`, 'warn');
+        if (notePasswordFailure(nextRoomId)) {
+          logEvent(nextRoomId, '⛔ Too many wrong passwords from different devices: new players are refused for a few minutes', 'warn');
+        }
         return socket.emit('join_denied', { reason: passwordAttempts >= MAX_PASSWORD_ATTEMPTS ? 'tooMany' : 'wrongPassword', pin: pinProtected });
       }
       candidateRoom.admitted.push(nextClientId);

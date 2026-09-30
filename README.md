@@ -22,7 +22,7 @@ The project is inspired by Voxalike and The Choicer Voicer, while removing the n
 - **Self-contained Windows app.** The portable `Dubline.exe` starts the local Express/Socket.IO server, chooses a free random port, and offers three clear connection modes: Cloudflare, Porthole, or VPN (Radmin/Hamachi). It stops every bundled background process when the window closes. The host does not need Node.js, FFmpeg, or cloudflared installed.
 - **Desktop guest mode.** The same EXE can join a friend's private Radmin or Hamachi address and enables the microphone only for that exact origin. It gives VPN users a secure-context-compatible alternative to opening an unencrypted private address in a normal browser.
 - **Manual update notice.** On startup, the desktop app checks the latest stable GitHub Release. If a newer semantic version exists, a dismissible corner notice opens its fixed GitHub release page; Dubline never downloads or executes updates automatically, and network/API errors stay silent.
-- **Protected desktop room.** Every app launch generates a new four-character PIN. The public link and masked PIN sit in the top-left invitation panel; guests enter their nickname and PIN before any room state or media URLs are sent. A private per-launch token guarantees that only the local Electron window receives host rights.
+- **Protected desktop room.** Every app launch generates a new four-character PIN. The public link and masked PIN sit in the top-left invitation panel; guests enter their nickname and PIN before any room state or media URLs are sent. The desktop app hosts exactly one room: a link with any other `?room=` leads to the same PIN prompt instead of a new unprotected room. Scene videos, takes and the pack library are served only to the host and to devices that entered the PIN (and were not kicked). A private per-launch token guarantees that only the local Electron window receives host rights.
 - **Parallel recording.** Every player can claim and record their own lines without waiting for other actors.
 - **Studio layout.** A player lobby on the left, video, inspector and chat on top, and the timeline below. Drag the dividers to resize any panel (double-click resets it); sizes are remembered per browser.
 - **Lobby and progress.** Players are listed as cards with online/recording status, host and “you” tags, and how many lines each has claimed and recorded. Players who left but contributed stay visible, dimmed. The overall “dubbed N / total” progress is shown in the lobby and above the timeline.
@@ -37,7 +37,7 @@ The project is inspired by Voxalike and The Choicer Voicer, while removing the n
 - **Live recording status.** Everyone sees which line is being recorded and by whom: the tile pulses red and the player gets a 🔴 in the online list.
 - **Connection banner.** If the tunnel or server drops, players see “No connection, reconnecting…” and the page rejoins the room automatically when the server is back.
 - **Takes are never lost to a dropped connection.** If an upload fails (network drop, tunnel 502), the take is kept in the browser (IndexedDB, survives a page reload), marked ⏳ on the timeline, and re-sent automatically with backoff and as soon as the connection returns. The server recognizes a repeated upload and never stores it twice; a late take lands in the session it was recorded in, even if the host has switched sessions.
-- **Room password and kicking.** The host can set a room password in Settings (players already inside stay; new devices enter it once, repeated wrong attempts are blocked; only a salted scrypt hash is stored) and remove a player with ✖ on their lobby card. Kicked devices cannot rejoin until the host allows it.
+- **Room password and kicking.** The host can set a room password in Settings (players already inside stay; new devices enter it once; five wrong attempts block a device, and 20 wrong attempts from all devices within 10 minutes stop new players for a while, so the password cannot be guessed by reconnecting; only a salted scrypt hash is stored) and remove a player with ✖ on their lobby card. Kicked devices cannot rejoin until the host allows it.
 - **Host event log.** The server console prints who joined or left (with the reason, e.g. closed tab vs. lost connection), saved takes, pack changes, rejected requests, and errors; the host also receives the same log in the browser console (F12). An error in one handler is logged instead of taking the whole server down.
 - **Play video from your own disk.** Download buttons show the file size; a player who already has the pack `.zip` or scene video can pick it in *Files & Export*, and the video then plays (and exports) from their computer instead of through the host’s tunnel.
 - **Studio recording tools.** Pre-roll, microphone gain, optional browser noise/echo suppression, silence detection, waveform previews, non-destructive trimming, and manual take alignment.
@@ -146,7 +146,7 @@ If the server is already running, `start.bat` just opens the page.
 
 ### Other platforms / manual browser server
 
-- Node.js 18 or newer; Node.js 20+ is recommended.
+- Node.js 20.1 or newer.
 - Chrome or Edge is recommended for the fastest WebCodecs export.
 
 ```bash
@@ -178,7 +178,9 @@ The address changes every time the tunnel restarts. Players simply open the new 
 
 Uploads through the tunnel are limited to about 100 MB per file (Cloudflare’s limit), so large videos and packs should be imported by the host at <http://localhost:3000>, or a pack `.zip` can be put into `public/packs/`; Dubline explains this instead of failing silently.
 
-Do not share a tunnel publicly. Dubline is designed as a small self-hosted server for trusted groups, not as a hardened public multi-tenant service.
+Do not share a tunnel publicly. Dubline is designed as a small self-hosted server for trusted groups, not as a hardened public multi-tenant service. The browser server has no PIN: anyone with the link can open their own `?room=` and become its host, and scene files are not access-controlled. Set a room password for anything beyond close friends, or use the desktop app, whose single room and its files are protected by the PIN.
+
+Uploaded files are served with `X-Content-Type-Options: nosniff` and a sandboxing Content-Security-Policy, and packs keep only the media and text files Dubline uses, so a file inside a pack cannot run as a page on Dubline's address.
 
 ## Development and tests
 
@@ -187,7 +189,7 @@ npm test          # fast unit and integrity checks
 npm run test:e2e  # browser end-to-end suite (about a minute)
 ```
 
-The end-to-end suite drives real Chrome/Edge (`puppeteer-core`, no browser download) with a fake microphone. Every run starts its own server with temporary `data/`, `uploads/` and `packs/` folders, so your real rooms are never touched, and generates a small test scene with `ffmpeg-static` (no third-party content). It covers recording and the countdown, effects, take dragging and per-player delay, zoom and panels, host tools, watch-together, sessions, reliable uploads, password and kicking, reconnects, P2P sharing, local media and WebCodecs export. If Chrome is installed in a non-standard place, set `CHROME_PATH`.
+The end-to-end suite drives real Chrome/Edge (`puppeteer-core`, no browser download) with a fake microphone. Every run starts its own server with temporary `data/`, `uploads/` and `packs/` folders, so your real rooms are never touched, and generates a small test scene with `ffmpeg-static` (no third-party content). It covers recording and the countdown, effects, take dragging and per-player delay, zoom and panels, host tools, watch-together, sessions, reliable uploads, password and kicking, reconnects, P2P sharing, local media, WebCodecs export, and the desktop PIN room (the host and PIN guests get the video, strangers get neither the room nor its files). If Chrome is installed in a non-standard place, set `CHROME_PATH`.
 
 The server folders can be overridden with `DUBLINE_DATA_DIR`, `DUBLINE_UPLOAD_DIR` and `DUBLINE_PACKS_DIR`.
 
@@ -198,7 +200,7 @@ server.js              entry point: wires the modules together and starts the se
 electron-main.js       Windows app: local server, Cloudflare tunnel, native window and cleanup
 electron-preload.js    narrow IPC bridge for the public link, PIN status and clipboard
 server/config.js       folders, limits, DUBLINE_* overrides
-server/desktop.js      desktop host proof and generated room-PIN bootstrap
+server/desktop.js      desktop host proof, room-PIN bootstrap, the single desktop room and media access
 server/app.js          Express app, HTTP server, Socket.IO, static files
 server/state.js        in-memory state shared by all modules (rooms, online players, recording, P2P, watch)
 server/rooms.js        rooms and sessions, rooms.json persistence, public room view, audio track detection
@@ -231,7 +233,7 @@ npm test
 npm run check
 ```
 
-The test suite covers subtitle parsing, identifier sanitization, HTML/client integration, translation completeness, and a real FFmpeg MKV round trip with an embedded ASS stream.
+The test suite covers subtitle parsing, identifier sanitization, HTML/client integration, translation completeness, a real FFmpeg MKV round trip with an embedded ASS stream, and access control against a real server (`test/security.test.js`): the desktop PIN for rooms and media, upload rights, refused uploads not being buffered in memory, pack file filtering, kicking, and the password lockout.
 
 ## Stack
 

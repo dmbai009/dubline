@@ -90,6 +90,10 @@ async function main() {
     }));
     assert.ok(result.port >= 38473 && result.port <= 38637, `Unexpected host port ${result.port}`);
     assert.equal(result.mode, hostingMode);
+    // Files are served only to the host and PIN guests: the native window passes, a stranger does not
+    await host.waitForFunction(() => typeof session !== 'undefined' && !!session);
+    assert.equal(await host.evaluate(async () => (await fetch('/api/server-packs')).status), 200, 'the host cannot reach its pack library');
+    assert.equal((await fetch(`http://127.0.0.1:${result.port}/api/server-packs`)).status, 403, 'a stranger can list the pack library');
     if (hostingMode === 'cloudflare') {
       await host.waitForFunction(() => document.getElementById('desktopInviteUrl')?.value.startsWith('https://'));
       result.inviteUrl = await host.$eval('#desktopInviteUrl', input => input.value);

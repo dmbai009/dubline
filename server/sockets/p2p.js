@@ -34,7 +34,9 @@ module.exports = function registerP2pHandlers(socket, conn) {
   socket.on('p2p_report', ({ url, p2pBytes, httpBytes, peers } = {}) => {
     if (!conn.roomId) return;
     const mb = bytes => (Math.max(0, Number(bytes) || 0) / 1048576).toFixed(1);
-    const name = decodeURIComponent(String(url || '').split('/').pop() || 'file');
+    const raw = String(url || '').split('/').pop() || 'file';
+    let name = raw;
+    try { name = decodeURIComponent(raw); } catch (err) { /* malformed escape from a client: log it as is */ }
     logEvent(conn.roomId, `⚡ ${conn.nick || 'player'} received ${name}: ${mb(p2pBytes)} MB from players (${Number(peers) || 0}), ${mb(httpBytes)} MB from the server`);
   });
 };

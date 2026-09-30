@@ -10,6 +10,10 @@ const { probeAudioDuration, getWavDuration } = require('./media');
 // Track name for lines whose pack or subtitles give no speaker
 const DEFAULT_CHARACTER = 'Character';
 
+// Only what Dubline plays or reads is extracted from a pack. Anything else (.html, .svg, .js…) would be
+// served from the app's own origin under /uploads, where a page could read players' device ids.
+const PACK_FILE_EXTENSIONS = new Set(['.mp4', '.webm', '.m4a', '.aac', '.mp3', '.wav', '.ogg', '.oga', '.opus', '.flac', '.ini', '.txt']);
+
 function parseLineContent(content, fileName, fallbackId, originalAudioUrl, audioDuration) {
   if (content.charCodeAt(0) === 0xFEFF) content = content.slice(1);
 
@@ -114,6 +118,7 @@ function readPack(buffer, packName, forceExtract) {
 
     const lower = name.toLowerCase();
     const ext = path.extname(lower);
+    if (!PACK_FILE_EXTENSIONS.has(ext)) return;
     const stem = path.basename(lower, ext);
     const isVoice = ['.wav', '.mp3', '.ogg'].includes(ext) && !lower.startsWith('_');
     const isText = (ext === '.ini' || ext === '.txt') && !lower.startsWith('_') && !lower.includes('readme');
@@ -130,7 +135,14 @@ function readPack(buffer, packName, forceExtract) {
       return;
     }
 
-    const data = entry.getData();
+    let data;
+    try {
+      // adm-zip allocates exactly the size the archive declares and throws if the data is larger,
+      // so the unpacked-size check above cannot be bypassed with falsified headers
+      data = entry.getData();
+    } catch (err) {
+      throw new HttpError(400, `The archive is damaged: ${name}`, 'error.notZip');
+    }
     if (needExtract) fs.writeFileSync(path.join(targetDir, name), data);
 
     if (isVoice) {

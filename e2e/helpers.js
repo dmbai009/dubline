@@ -107,7 +107,8 @@ function buildFixturePack() {
 // ---------- Server ----------
 let nextPort = 3400 + Math.floor(Math.random() * 200);
 
-async function startServer() {
+// extraEnv starts the server in another mode, e.g. as the desktop app's PIN-protected room
+async function startServer(extraEnv = {}) {
   const port = nextPort++;
   const base = fs.mkdtempSync(path.join(os.tmpdir(), 'dubline-e2e-'));
   const dirs = { data: path.join(base, 'data'), uploads: path.join(base, 'uploads'), packs: path.join(base, 'packs') };
@@ -118,7 +119,7 @@ async function startServer() {
   server.start = () => new Promise((resolve, reject) => {
     const proc = spawn(process.execPath, ['server.js'], {
       cwd: ROOT,
-      env: { ...process.env, PORT: String(port), DUBLINE_DATA_DIR: dirs.data, DUBLINE_UPLOAD_DIR: dirs.uploads, DUBLINE_PACKS_DIR: dirs.packs, DUBLINE_OPEN_BROWSER: '' }
+      env: { ...process.env, PORT: String(port), DUBLINE_DATA_DIR: dirs.data, DUBLINE_UPLOAD_DIR: dirs.uploads, DUBLINE_PACKS_DIR: dirs.packs, DUBLINE_OPEN_BROWSER: '', ...extraEnv }
     });
     server.proc = proc;
     const timer = setTimeout(() => reject(new Error(`server did not start:\n${server.log}`)), 15000);

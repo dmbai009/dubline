@@ -895,7 +895,8 @@
     'error.sessionDeleted': "The session this take was recorded in has been deleted.",
     'error.lineNotFound': "Line not found.",
     'error.lineTaken': "The line is claimed by another player.",
-    'error.notYourTake': "You cannot delete someone else's take."
+    'error.notYourTake': "You cannot delete someone else's take.",
+    'error.pinRequired': "Enter the room PIN first."
   });
   Object.assign(messages.ru, {
     'error.internal': "Внутренняя ошибка сервера. Подробности — в окне сервера у хоста.",
@@ -923,7 +924,8 @@
     'error.sessionDeleted': "Сессия, в которой записан дубль, уже удалена.",
     'error.lineNotFound': "Реплика не найдена.",
     'error.lineTaken': "Реплика занята другим игроком.",
-    'error.notYourTake': "Нельзя удалить чужой дубль."
+    'error.notYourTake': "Нельзя удалить чужой дубль.",
+    'error.pinRequired': "Сначала введите PIN комнаты."
   });
   Object.assign(messages.uk, {
     'error.internal': "Внутрішня помилка сервера. Подробиці — у вікні сервера в хоста.",
@@ -951,7 +953,8 @@
     'error.sessionDeleted': "Сесію, в якій записано дубль, уже видалено.",
     'error.lineNotFound': "Репліку не знайдено.",
     'error.lineTaken': "Репліку зайняв інший гравець.",
-    'error.notYourTake': "Не можна видалити чужий дубль."
+    'error.notYourTake': "Не можна видалити чужий дубль.",
+    'error.pinRequired': "Спершу введіть PIN кімнати."
   });
 
   Object.assign(messages.en, {

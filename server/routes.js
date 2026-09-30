@@ -4,7 +4,8 @@ const path = require('path');
 const { UPLOAD_DIR, PACKS_DIR, MAX_PACK_MB, MAX_TAKE_MB, MAX_SUBTITLE_MB, HttpError } = require('./config');
 const { recordingNow, p2pSeeders } = require('./state');
 const { app, io } = require('./app');
-const { sanitizeRoomId, sanitizeNick, sanitizePackName } = require('./sanitize');
+const { sanitizeNick, sanitizePackName } = require('./sanitize');
+const { resolveRoomId } = require('./desktop');
 const { logEvent } = require('./log');
 const { forgetFileSizes, deleteTakeFile } = require('./files');
 const { runFfmpeg, findEmbeddedSubtitleMap } = require('./media');
@@ -48,6 +49,7 @@ function loadPackIntoRoom(roomId, packName, buffer, forceExtract) {
 function uploadErrorHandler(handler, maxMb) {
   return (req, res, next) => handler(req, res, err => {
     if (!err) return next();
+    if (err instanceof HttpError) return sendError(res, err);
     if (err.code === 'LIMIT_FILE_SIZE') {
       logEvent(null, `⚠ Upload rejected: file is larger than ${maxMb} MB`, 'warn');
       return sendJsonError(res, 413, `File is too large (max ${maxMb} MB)`, 'error.fileTooBig', { max: maxMb });
@@ -56,18 +58,50 @@ function uploadErrorHandler(handler, maxMb) {
   });
 }
 
-function acceptFile(field, maxMb) {
+// Uploads are kept in memory, so rights are checked before a file is read at all: the client sends
+// clientId (and the nickname) ahead of the file, and multer calls the filter with those fields parsed.
+// Without this, anyone could make the server buffer hundreds of MB just to be refused afterwards.
+// The route handlers check the same rights again.
+function checkedBefore(authorize) {
+  return (req, file, cb) => {
+    try {
+      authorize(req);
+      cb(null, true);
+    } catch (err) {
+      cb(err);
+    }
+  };
+}
+
+function requireHost(message, key) {
+  return req => {
+    const room = getRoom(resolveRoomId(req.query.room));
+    if (!isHost(room, req.body && req.body.clientId)) throw new HttpError(403, message, key);
+  };
+}
+
+function requireConfirmedNick(req) {
+  const body = req.body || {};
+  const room = getRoom(resolveRoomId(req.query.room));
+  if (!isAuthorized(room, sanitizeNick(body.userName), body.clientId)) {
+    throw new HttpError(403, 'Nickname not confirmed: rejoin the room', 'error.nickNotConfirmed');
+  }
+}
+
+function acceptFile(field, maxMb, authorize) {
   const handler = multer({
     storage: multer.memoryStorage(),
-    limits: { fileSize: maxMb * 1024 * 1024, files: 1 }
+    limits: { fileSize: maxMb * 1024 * 1024, files: 1 },
+    fileFilter: checkedBefore(authorize)
   }).single(field);
   return uploadErrorHandler(handler, maxMb);
 }
 
-function acceptCustomFiles(maxMb) {
+function acceptCustomFiles(maxMb, authorize) {
   const handler = multer({
     storage: multer.memoryStorage(),
-    limits: { fileSize: maxMb * 1024 * 1024 }
+    limits: { fileSize: maxMb * 1024 * 1024 },
+    fileFilter: checkedBefore(authorize)
   }).fields([
     { name: 'video', maxCount: 1 },
     { name: 'subtitles', maxCount: 1 }
@@ -90,9 +124,9 @@ function sendError(res, err) {
 }
 
 // Upload a ZIP mod (kept in the mod library). Host only.
-app.post('/api/upload-pack', acceptFile('pack', MAX_PACK_MB), (req, res) => {
+app.post('/api/upload-pack', acceptFile('pack', MAX_PACK_MB, requireHost('Only the room host can change the pack', 'error.hostOnlyPack')), (req, res) => {
   try {
-    const roomId = sanitizeRoomId(req.query.room);
+    const roomId = resolveRoomId(req.query.room);
     const room = getRoom(roomId);
 
     if (!isHost(room, req.body.clientId)) throw new HttpError(403, 'Only the room host can change the pack', 'error.hostOnlyPack');
@@ -138,7 +172,7 @@ app.get('/api/server-packs', (req, res) => {
 app.post('/api/load-server-pack', (req, res) => {
   try {
     const { filename, room, clientId } = req.body;
-    const roomId = sanitizeRoomId(room);
+    const roomId = resolveRoomId(room);
     if (!isHost(getRoom(roomId), clientId)) throw new HttpError(403, 'Only the room host can change the pack', 'error.hostOnlyPack');
 
     const packName = sanitizePackName(filename);
@@ -155,10 +189,10 @@ app.post('/api/load-server-pack', (req, res) => {
 });
 
 // Separate upload of a video (.mp4 / .mkv) and subtitles (.ass / .ssa / .srt / .vtt)
-app.post('/api/upload-custom', acceptCustomFiles(MAX_PACK_MB), async (req, res) => {
+app.post('/api/upload-custom', acceptCustomFiles(MAX_PACK_MB, requireHost('Only the room host can create a scene', 'error.hostOnlyScene')), async (req, res) => {
   let targetDir = null;
   try {
-    const roomId = sanitizeRoomId(req.query.room);
+    const roomId = resolveRoomId(req.query.room);
     const room = getRoom(roomId);
     if (!isHost(room, req.body.clientId)) throw new HttpError(403, 'Only the room host can create a scene', 'error.hostOnlyScene');
 
@@ -254,9 +288,9 @@ app.post('/api/upload-custom', acceptCustomFiles(MAX_PACK_MB), async (req, res) 
 });
 
 // Take upload
-app.post('/api/upload-line-audio', acceptFile('audio', MAX_TAKE_MB), (req, res) => {
+app.post('/api/upload-line-audio', acceptFile('audio', MAX_TAKE_MB, requireConfirmedNick), (req, res) => {
   try {
-    const roomId = sanitizeRoomId(req.query.room);
+    const roomId = resolveRoomId(req.query.room);
     const room = getRoom(roomId);
 
     const lineId = parseInt(req.body.lineId, 10);
@@ -321,7 +355,7 @@ app.post('/api/upload-line-audio', acceptFile('audio', MAX_TAKE_MB), (req, res) 
 app.post('/api/delete-line-audio', (req, res) => {
   try {
     const { lineId, userName, clientId } = req.body;
-    const roomId = sanitizeRoomId(req.body.room);
+    const roomId = resolveRoomId(req.body.room);
     const room = getRoom(roomId);
 
     const line = room.lines.find(l => l.id === parseInt(lineId, 10));

@@ -12,6 +12,11 @@
         : Date.now().toString(36) + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
       storage.setItem('dubline_client_id', id);
     }
+    // Media (<video>, audio fetches) is plain HTTP without the socket: the cookie tells the server
+    // which device asks, so the desktop app serves files only to players who entered the PIN
+    try {
+      global.document.cookie = `dubline_client=${encodeURIComponent(id)}; path=/; SameSite=Lax`;
+    } catch (err) { /* cookies disabled: the server then refuses media only in the desktop app */ }
     return id;
   }
 

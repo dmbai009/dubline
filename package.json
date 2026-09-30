@@ -5,6 +5,9 @@
   "main": "electron-main.js",
   "author": "dmbai009",
   "license": "MIT",
+  "engines": {
+    "node": ">=20.1"
+  },
   "scripts": {
     "start": "electron .",
     "start:server": "node server.js",
@@ -14,7 +17,7 @@
     "test:electron": "node tools/electron-smoke.js",
     "test:electron:cloudflare": "node tools/electron-smoke.js cloudflare",
     "test": "node --test",
-    "test:e2e": "node --test --test-concurrency=1 e2e/launcher.e2e.js e2e/desktop.e2e.js e2e/studio.e2e.js e2e/room.e2e.js e2e/media.e2e.js",
+    "test:e2e": "node --test --test-concurrency=1 e2e/launcher.e2e.js e2e/desktop.e2e.js e2e/studio.e2e.js e2e/room.e2e.js e2e/media.e2e.js e2e/security.e2e.js",
     "check": "node tools/check.js"
   },
   "dependencies": {

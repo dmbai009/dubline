@@ -1,5 +1,6 @@
 // Nicknames, host rights and the room password
 const crypto = require('crypto');
+const { PASSWORD_FAILURE_LIMIT } = require('./config');
 const { roomSockets } = require('./state');
 
 // A nickname belongs to a device (clientId) while its owner is online in the room.
@@ -56,6 +57,29 @@ function checkRoomPassword(room, password) {
   return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
 }
 
+// Recent wrong-password times per room, shared by all devices
+const passwordFailures = new Map();
+
+function recentPasswordFailures(roomId) {
+  const now = Date.now();
+  const recent = (passwordFailures.get(roomId) || []).filter(t => now - t < PASSWORD_FAILURE_LIMIT.windowMs);
+  if (recent.length) passwordFailures.set(roomId, recent);
+  else passwordFailures.delete(roomId);
+  return recent;
+}
+
+function isPasswordLocked(roomId) {
+  return recentPasswordFailures(roomId).length >= PASSWORD_FAILURE_LIMIT.count;
+}
+
+// Returns true when this failure locks the room
+function notePasswordFailure(roomId) {
+  const recent = recentPasswordFailures(roomId);
+  recent.push(Date.now());
+  passwordFailures.set(roomId, recent);
+  return recent.length === PASSWORD_FAILURE_LIMIT.count;
+}
+
 function isHost(room, clientId) {
   return !!clientId && room.hostClientId === clientId;
 }
@@ -71,6 +95,8 @@ module.exports = {
   MAX_PASSWORD_ATTEMPTS,
   setRoomPassword,
   checkRoomPassword,
+  isPasswordLocked,
+  notePasswordFailure,
   isHost,
   getLineOwner
 };
