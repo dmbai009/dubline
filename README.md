@@ -101,6 +101,25 @@ Wait until the invitation panel says that the link is ready, then copy the invit
 Rooms, imported media, and takes are stored in the app's Windows user-data folder and survive restarts. Closing the native window shuts down the local server and tunnel.
 The **Clear all Dubline data** button in Settings removes every saved room, take, imported video, server pack, and local browser cache after an explicit confirmation, then restarts the app with an empty room.
 
+## Known limitations and troubleshooting
+
+Dubline is ready for normal fandub sessions, but it is still a self-hosted application: the host's computer, connection, and free disk space remain part of the room. These are the main issues to expect:
+
+| Problem | What to do |
+| --- | --- |
+| **Cloudflare stays on “Connecting” or friends cannot open its link.** Quick tunnels may be blocked or unstable on some providers and in some regions. | Switch the running room to **Porthole** or **VPN** from the hosting dialog. Switching methods does not delete the room or its current session. |
+| **Porthole, Radmin, or Hamachi is not detected.** Installation detection alone does not prove that the connection is reachable. | Start the selected client first. In Porthole, join the same Steam lobby and enter the exact TCP port shown by Dubline. With Radmin/Hamachi, join the same private network and wait for its adapter to receive an address. Also allow Dubline on private networks in Windows Firewall. |
+| **A guest can open a VPN address but the microphone is unavailable.** Chrome and Edge do not grant microphone access to ordinary private `http://` addresses. | The guest must start the same `Dubline.exe`, choose **Join as a guest**, and paste the VPN invitation there. Do not use a normal browser tab for a Radmin/Hamachi address. Cloudflare HTTPS and Porthole's `localhost` address can be opened normally. |
+| **Windows SmartScreen or antivirus warns about the EXE.** The current portable build is not signed with a commercial code-signing certificate, and Electron apps are comparatively large. | Download Dubline only from the official [GitHub Releases](https://github.com/dmbai009/dubline/releases) page. Antivirus scanning can also make the first launch or a local build take longer. |
+| **A large or long MKV takes time and temporarily uses a lot of disk space.** Dubline remuxes the video without re-encoding when possible, but may need to convert audio, extract tracks, and keep both the source and processed file during import. | Keep several gigabytes free for an episode or film and wait for processing to finish. H.264 video is the safest option; HEVC/H.265, especially 10-bit video, may not play in Chrome/Edge even after a successful MKV-to-MP4 remux. |
+| **Exporting a 20–120 minute episode or film consumes a lot of RAM or fails.** Browser video export and full-length WAV stems are assembled locally; long projects may require several gigabytes of memory and disk space. | Prefer short scenes, close memory-heavy applications, and export one scene at a time. Dubline shows a warning once a scene reaches 20 minutes. |
+| **A large upload fails through the public link.** Cloudflare tunnel requests are limited to roughly 100 MB, and unstable connections may interrupt long uploads. | Import large media on the host computer itself, use a local/VPN connection, or let players select the same video/pack from their own disks. Failed voice takes are different: they remain in IndexedDB and retry automatically. |
+| **Dubline data keeps growing on drive C:.** Imported videos, extracted audio tracks, packs, takes, room history, and browser caches are intentionally persistent. Development copies additionally contain `node_modules`, Electron caches, and `dist` builds. | Remove individual sessions you no longer need or use **Settings → Clear all Dubline data** for a complete reset. This deletion is permanent, so export important takes first. |
+| **A room disappears after moving to another computer.** Rooms are stored locally on the host and are not synchronized to a cloud account. | Keep the original host data folder or export the material before clearing, reinstalling, or changing computers. There is currently no automatic cloud backup. |
+| **Firefox or Safari behaves differently.** Recording, WebCodecs export, P2P media sharing, and permission handling are developed and tested for Chromium. | Use a current Chrome or Edge browser, or the Windows desktop app. |
+
+If a connection still fails, first verify that the host window is open, the invitation address and port have not changed, and every participant is using the same Porthole lobby or VPN network. The host can open the developer console with `F12`; connection, import, take, and security events are written there and are useful when reporting a reproducible bug.
+
 ### Build the portable EXE
 
 ```bash
