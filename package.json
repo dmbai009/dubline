@@ -1,6 +1,6 @@
 {
   "name": "dubline",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Collaborative voice dubbing on a timeline",
   "main": "electron-main.js",
   "author": "dmbai009",

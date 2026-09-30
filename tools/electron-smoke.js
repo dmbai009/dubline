@@ -57,7 +57,7 @@ async function main() {
     assert.ok(launcher, 'Launcher window did not open');
     assert.equal(await launcher.$$eval('.mode', nodes => nodes.length), 3);
     await launcher.waitForFunction(() => document.getElementById('launcherVersion')?.textContent.startsWith('Dubline v'));
-    assert.equal(await launcher.$eval('#launcherVersion', node => node.textContent), 'Dubline v1.1.0');
+    assert.equal(await launcher.$eval('#launcherVersion', node => node.textContent), `Dubline v${require('../package.json').version}`);
     await launcher.$eval(`[data-mode="${hostingMode}"]`, button => button.click());
     await launcher.$eval('#startHost', button => button.click());
 
