@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { spawn, spawnSync } = require('child_process');
-const ffmpegPath = require('ffmpeg-static');
+const ffmpegPath = process.env.DUBLINE_FFMPEG_PATH || require('ffmpeg-static');
 const { HttpError } = require('./config');
 const { logEvent } = require('./log');
 const { diskPathForUrl } = require('./files');

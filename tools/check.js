@@ -10,7 +10,7 @@ const clientFiles = fs.readdirSync(path.join(root, 'public'))
   .filter(name => name.endsWith('.js')).map(name => path.join('public', name));
 
 let failed = 0;
-for (const file of ['server.js', ...serverFiles, ...clientFiles]) {
+for (const file of ['server.js', 'electron-main.js', 'electron-preload.js', 'tools/build-icons.js', 'tools/download-cloudflared.js', ...serverFiles, ...clientFiles]) {
   const result = spawnSync(process.execPath, ['--check', file], { cwd: root, encoding: 'utf8' });
   if (result.status !== 0) {
     failed++;

@@ -954,6 +954,79 @@
     'error.notYourTake': "Не можна видалити чужий дубль."
   });
 
+  Object.assign(messages.en, {
+    'pin.title': "🔒 Enter the room code",
+    'pin.help': "Enter your nickname and the 4-character PIN shown by the host.",
+    'pin.placeholder': "4-character PIN",
+    'desktop.pin': "PIN",
+    'desktop.invite': "Invitation",
+    'desktop.toggle': "Show or hide invitation",
+    'desktop.showPin': "Show",
+    'desktop.copy': "Copy link",
+    'desktop.copyAll': "Copy link and PIN",
+    'desktop.copiedAll': "Link and PIN copied!",
+    'desktop.shareText': "Dubline invitation\nLink: {url}\nPIN: {pin}",
+    'desktop.copied': "Copied!",
+    'desktop.linkPending': "The public link will appear here…",
+    'desktop.tunnelConnecting': "⏳ Connecting tunnel…",
+    'desktop.tunnelReady': "● Invitation ready",
+    'desktop.tunnelError': "⚠ Tunnel unavailable",
+    'desktop.clearData': "Clear all Dubline data",
+    'desktop.clearData.help': "Deletes rooms, sessions, recordings, imported videos, packs, and local browser data from this computer.",
+    'desktop.clearData.button': "Delete data and restart",
+    'desktop.clearData.confirm': "Permanently delete every Dubline room, session, recording, imported video, pack, and local browser setting on this computer? This cannot be undone.",
+    'desktop.clearData.progress': "Clearing data…",
+    'desktop.clearData.error': "Could not clear Dubline data: {message}"
+  });
+  Object.assign(messages.ru, {
+    'pin.title': "🔒 Введите код комнаты",
+    'pin.help': "Введите ник и 4-значный PIN, который показывает хост.",
+    'pin.placeholder': "4-значный PIN",
+    'desktop.pin': "PIN",
+    'desktop.invite': "Приглашение",
+    'desktop.toggle': "Показать или скрыть приглашение",
+    'desktop.showPin': "Показать",
+    'desktop.copy': "Скопировать ссылку",
+    'desktop.copyAll': "Скопировать ссылку и PIN",
+    'desktop.copiedAll': "Ссылка и PIN скопированы!",
+    'desktop.shareText': "Приглашение в Dubline\nСсылка: {url}\nPIN: {pin}",
+    'desktop.copied': "Скопировано!",
+    'desktop.linkPending': "Публичная ссылка появится здесь…",
+    'desktop.tunnelConnecting': "⏳ Подключение туннеля…",
+    'desktop.tunnelReady': "● Приглашение готово",
+    'desktop.tunnelError': "⚠ Туннель недоступен",
+    'desktop.clearData': "Очистить все данные Dubline",
+    'desktop.clearData.help': "Удаляет комнаты, сессии, записи, импортированные видео, паки и локальные данные браузера на этом компьютере.",
+    'desktop.clearData.button': "Удалить данные и перезапустить",
+    'desktop.clearData.confirm': "Безвозвратно удалить все комнаты, сессии, записи, импортированные видео, паки и локальные настройки Dubline на этом компьютере? Это действие нельзя отменить.",
+    'desktop.clearData.progress': "Очистка данных…",
+    'desktop.clearData.error': "Не удалось очистить данные Dubline: {message}"
+  });
+  Object.assign(messages.uk, {
+    'pin.title': "🔒 Введіть код кімнати",
+    'pin.help': "Введіть нік і 4-значний PIN, який показує хост.",
+    'pin.placeholder': "4-значний PIN",
+    'desktop.pin': "PIN",
+    'desktop.invite': "Запрошення",
+    'desktop.toggle': "Показати або приховати запрошення",
+    'desktop.showPin': "Показати",
+    'desktop.copy': "Скопіювати посилання",
+    'desktop.copyAll': "Скопіювати посилання та PIN",
+    'desktop.copiedAll': "Посилання та PIN скопійовано!",
+    'desktop.shareText': "Запрошення до Dubline\nПосилання: {url}\nPIN: {pin}",
+    'desktop.copied': "Скопійовано!",
+    'desktop.linkPending': "Публічне посилання з’явиться тут…",
+    'desktop.tunnelConnecting': "⏳ Підключення тунелю…",
+    'desktop.tunnelReady': "● Запрошення готове",
+    'desktop.tunnelError': "⚠ Тунель недоступний",
+    'desktop.clearData': "Очистити всі дані Dubline",
+    'desktop.clearData.help': "Видаляє кімнати, сесії, записи, імпортовані відео, паки та локальні дані браузера на цьому комп’ютері.",
+    'desktop.clearData.button': "Видалити дані й перезапустити",
+    'desktop.clearData.confirm': "Безповоротно видалити всі кімнати, сесії, записи, імпортовані відео, паки та локальні налаштування Dubline на цьому комп’ютері? Цю дію не можна скасувати.",
+    'desktop.clearData.progress': "Очищення даних…",
+    'desktop.clearData.error': "Не вдалося очистити дані Dubline: {message}"
+  });
+
   let language = localStorage.getItem('dubline_language');
   if (!messages[language]) {
     const browser = String(navigator.language || 'en').toLowerCase();

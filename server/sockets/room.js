@@ -7,6 +7,7 @@ const { DISCONNECT_REASONS, logEvent } = require('../log');
 const { saveRooms, getRoom, publicRoom, emitSession, ensureAudioTracks } = require('../rooms');
 const { onlineCount, endWatch, recordingList, broadcastRecording, clearSocketSeeds, seedersSummary, broadcastSeeders, clearSocketRecordings, isHostOnline, broadcastRoomUsers, addChatMessage, addSystemMessage } = require('../presence');
 const { isNickFree, takeOverNick, MAX_PASSWORD_ATTEMPTS, checkRoomPassword, isHost } = require('../auth');
+const { isDesktopRoom, hasDesktopHostProof } = require('../desktop');
 
 module.exports = function registerRoomHandlers(socket, conn) {
   let chatTimestamps = [];
@@ -50,7 +51,13 @@ module.exports = function registerRoomHandlers(socket, conn) {
 
     const nextRoomId = sanitizeRoomId(data.room);
     const candidateRoom = getRoom(nextRoomId);
-    const isRoomHost = candidateRoom.hostClientId === nextClientId;
+    const desktopHost = hasDesktopHostProof(nextRoomId, data.desktopHostToken);
+    if (desktopHost) {
+      candidateRoom.hostClientId = nextClientId;
+      if (!candidateRoom.admitted.includes(nextClientId)) candidateRoom.admitted.push(nextClientId);
+    }
+    const isRoomHost = desktopHost || candidateRoom.hostClientId === nextClientId;
+    const pinProtected = isDesktopRoom(nextRoomId);
 
     // Kicked players are refused; a password-protected room needs the right password (once per device)
     if (!isRoomHost && candidateRoom.banned.includes(nextClientId)) {
@@ -58,12 +65,12 @@ module.exports = function registerRoomHandlers(socket, conn) {
       return socket.emit('join_denied', { reason: 'banned' });
     }
     if (!isRoomHost && candidateRoom.passwordHash && !candidateRoom.admitted.includes(nextClientId)) {
-      if (passwordAttempts >= MAX_PASSWORD_ATTEMPTS) return socket.emit('join_denied', { reason: 'tooMany' });
-      if (!data.password) return socket.emit('join_denied', { reason: 'password' });
+      if (passwordAttempts >= MAX_PASSWORD_ATTEMPTS) return socket.emit('join_denied', { reason: 'tooMany', pin: pinProtected });
+      if (!data.password) return socket.emit('join_denied', { reason: 'password', pin: pinProtected });
       if (!checkRoomPassword(candidateRoom, data.password)) {
         passwordAttempts++;
         logEvent(nextRoomId, `⚠ Wrong room password (attempt ${passwordAttempts} of ${MAX_PASSWORD_ATTEMPTS})`, 'warn');
-        return socket.emit('join_denied', { reason: passwordAttempts >= MAX_PASSWORD_ATTEMPTS ? 'tooMany' : 'wrongPassword' });
+        return socket.emit('join_denied', { reason: passwordAttempts >= MAX_PASSWORD_ATTEMPTS ? 'tooMany' : 'wrongPassword', pin: pinProtected });
       }
       candidateRoom.admitted.push(nextClientId);
     }
@@ -89,7 +96,7 @@ module.exports = function registerRoomHandlers(socket, conn) {
     if (conn.nick) takeOverNick(room, conn.roomId, conn.nick, conn.clientId, socket.id);
 
     // The first player in the room becomes the host
-    if (!room.hostClientId) room.hostClientId = conn.clientId;
+    if (!room.hostClientId && !isDesktopRoom(conn.roomId)) room.hostClientId = conn.clientId;
     if (room.hostClientId === conn.clientId && conn.nick) room.host = conn.nick;
 
     socket.join(conn.roomId);
@@ -148,6 +155,7 @@ module.exports = function registerRoomHandlers(socket, conn) {
   // If the host has left, any player can take host rights
   socket.on('claim_host', () => {
     if (!conn.roomId || !conn.nick) return;
+    if (isDesktopRoom(conn.roomId)) return;
     const room = getRoom(conn.roomId);
     if (isHostOnline(conn.roomId)) return;
 

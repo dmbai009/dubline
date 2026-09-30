@@ -1,7 +1,8 @@
 // Dubline entry point: wires the modules from server/ together and starts the HTTP server
 const { PORT } = require('./server/config');
 const { app, server, io } = require('./server/app');
-require('./server/rooms');   // loads saved rooms
+const { flushRooms } = require('./server/rooms'); // loads saved rooms
+const { configureDesktopRoom } = require('./server/desktop');
 require('./server/routes');  // HTTP API
 require('./server/sockets'); // Socket.IO
 const { logEvent } = require('./server/log');
@@ -20,6 +21,8 @@ function openBrowser() {
 }
 
 if (require.main === module) {
+  configureDesktopRoom();
+
   // An error in one handler must not take the game down for everyone: log it and keep running
   process.on('uncaughtException', err => logEvent(null, `💥 Unhandled error (the server keeps running): ${err.stack || err}`, 'error'));
   process.on('unhandledRejection', err => logEvent(null, `💥 Unhandled promise rejection (the server keeps running): ${err && err.stack || err}`, 'error'));
@@ -40,7 +43,15 @@ if (require.main === module) {
   server.listen(PORT, () => {
     console.log(`[Dubline] Server started: http://localhost:${PORT}`);
     console.log('[Dubline] The event log appears here: who joined, who left, errors and dropped connections.');
+    if (typeof process.send === 'function') process.send({ type: 'ready', port: Number(PORT) });
     openBrowser();
+  });
+
+  process.on('message', message => {
+    if (!message || message.type !== 'shutdown') return;
+    flushRooms();
+    server.close(() => process.exit(0));
+    setTimeout(() => process.exit(0), 2000).unref();
   });
 }
 

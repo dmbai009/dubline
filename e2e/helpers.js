@@ -43,6 +43,10 @@ async function launchBrowser(port, { fakeAudioFile = null } = {}) {
     executablePath: CHROME,
     headless: 'new',
     args: [
+      // Headless Chrome can repeatedly crash its GPU process on some Windows drivers/VMs.
+      // The tests exercise WebCodecs and WebRTC, not GPU rendering, so software compositing is sufficient.
+      '--no-sandbox',
+      '--disable-gpu',
       '--use-fake-ui-for-media-stream',
       '--use-fake-device-for-media-stream',
       // Instead of the beep, a prepared sound can be fed to the microphone as a voice

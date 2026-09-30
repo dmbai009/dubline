@@ -6,6 +6,7 @@ const { logEvent } = require('../log');
 const { saveRooms, getRoom, emptySession, snapshotActive, activateSession, deleteSessionFiles, emitSession, ensureAudioTracks } = require('../rooms');
 const { WATCH_COUNTDOWN_MS, endWatch, broadcastRecording, broadcastSeeders, onlineMembers, addSystemMessage } = require('../presence');
 const { setRoomPassword, isHost } = require('../auth');
+const { isDesktopRoom } = require('../desktop');
 
 module.exports = function registerHostHandlers(socket, conn) {
   // ---------- Host rights ----------
@@ -21,6 +22,7 @@ module.exports = function registerHostHandlers(socket, conn) {
   // ---------- Room password and kicked players (host only) ----------
   socket.on('host_set_password', ({ password } = {}) => {
     if (!conn.roomId) return;
+    if (isDesktopRoom(conn.roomId)) return;
     const room = getRoom(conn.roomId);
     if (!isHost(room, conn.clientId)) return;
     const clean = String(password || '').slice(0, 64);

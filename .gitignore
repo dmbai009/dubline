@@ -6,3 +6,6 @@ public/packs/
 .DS_Store
 Thumbs.db
 data/
+dist/
+resources/cloudflared.exe
+resources/cloudflared.exe.download

@@ -1,11 +1,13 @@
 # Dubline
 
-Dubline is a collaborative browser-based dubbing studio and party game. Friends can claim characters or individual lines, record in parallel, review takes on a shared timeline, and export a finished video or DAW-ready character stems.
+Dubline is a collaborative desktop and browser-based dubbing studio and party game. Friends can claim characters or individual lines, record in parallel, review takes on a shared timeline, and export a finished video or DAW-ready character stems.
 
 The project is inspired by Voxalike and The Choicer Voicer, while removing the need for players to record one after another.
 
 ## Features
 
+- **Self-contained Windows app.** The portable `Dubline.exe` starts the local Express/Socket.IO server and a bundled Cloudflare quick tunnel, opens the studio in a native Electron window, and stops both background processes when the window closes. The host does not need Node.js, FFmpeg, or cloudflared installed.
+- **Protected desktop room.** Every app launch generates a new four-character PIN. The public link and masked PIN sit in the top-left invitation panel; guests enter their nickname and PIN before any room state or media URLs are sent. A private per-launch token guarantees that only the local Electron window receives host rights.
 - **Parallel recording.** Every player can claim and record their own lines without waiting for other actors.
 - **Studio layout.** A player lobby on the left, video, inspector and chat on top, and the timeline below. Drag the dividers to resize any panel (double-click resets it); sizes are remembered per browser.
 - **Lobby and progress.** Players are listed as cards with online/recording status, host and “you” tags, and how many lines each has claimed and recorded. Players who left but contributed stay visible, dimmed. The overall “dubbed N / total” progress is shown in the lobby and above the timeline.
@@ -69,7 +71,25 @@ ASS imports use the Aegisub `Name` field for the character; typesetting drawings
 
 Only the host needs to install anything. Friends just open the link in Chrome or Edge. Other browsers (Firefox, Safari) are not supported yet and show a hint to switch; wired headphones are recommended, since Bluetooth headsets drop to low sound quality while the microphone is on.
 
-### Windows (one click)
+### Windows desktop app
+
+Download and run **`Dubline.exe`**. The app starts its server and tunnel automatically. Wait until the invitation panel says that the link is ready, copy the link, and send the separately displayed four-character PIN to your friends. The PIN is masked until the host enables **Show**.
+
+Rooms, imported media, and takes are stored in the app's Windows user-data folder and survive restarts. Closing the native window shuts down the local server and tunnel.
+The **Clear all Dubline data** button in Settings removes every saved room, take, imported video, server pack, and local browser cache after an explicit confirmation, then restarts the app with an empty room.
+
+### Build the portable EXE
+
+```bash
+git clone https://github.com/dmbai009/dubline.git
+cd dubline
+npm install
+npm run dist
+```
+
+`npm run dist` downloads the pinned official Windows `cloudflared` binary, verifies its SHA-256, and creates `dist/Dubline.exe`. The portable file includes Electron, `ffmpeg-static`, and `cloudflared`; the build does not include local `data/`, uploaded scenes, takes, or server packs.
+
+### Legacy browser server (one click)
 
 1. Download the project: **Code → Download ZIP** on GitHub (or `git clone`), and unzip it.
 2. Double-click **`start.bat`**. On the first run it:
@@ -80,7 +100,7 @@ Only the host needs to install anything. Friends just open the link in Chrome or
 
 If the server is already running, `start.bat` just opens the page.
 
-### Other platforms / manual
+### Other platforms / manual browser server
 
 - Node.js 18 or newer; Node.js 20+ is recommended.
 - Chrome or Edge is recommended for the fastest WebCodecs export.
@@ -89,14 +109,14 @@ If the server is already running, `start.bat` just opens the page.
 git clone https://github.com/dmbai009/dubline.git
 cd dubline
 npm install
-npm start
+npm run start:server
 ```
 
 Then open <http://localhost:3000>.
 
-## Inviting friends
+## Inviting friends without the desktop app
 
-The application itself does not expose your local server to the internet. The recommended option is a free [Cloudflare quick tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/do-more-with-tunnels/trycloudflare/): no account, no warning page, and it handles several players at once.
+The Electron app handles sharing automatically. When running the legacy browser server, expose it with a free [Cloudflare quick tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/do-more-with-tunnels/trycloudflare/): no account, no warning page, and it handles several players at once.
 
 ```bash
 cloudflared tunnel --url http://localhost:3000
@@ -131,7 +151,10 @@ The server folders can be overridden with `DUBLINE_DATA_DIR`, `DUBLINE_UPLOAD_DI
 
 ```text
 server.js              entry point: wires the modules together and starts the server
+electron-main.js       Windows app: local server, Cloudflare tunnel, native window and cleanup
+electron-preload.js    narrow IPC bridge for the public link, PIN status and clipboard
 server/config.js       folders, limits, DUBLINE_* overrides
+server/desktop.js      desktop host proof and generated room-PIN bootstrap
 server/app.js          Express app, HTTP server, Socket.IO, static files
 server/state.js        in-memory state shared by all modules (rooms, online players, recording, P2P, watch)
 server/rooms.js        rooms and sessions, rooms.json persistence, public room view, audio track detection
@@ -168,6 +191,7 @@ The test suite covers subtitle parsing, identifier sanitization, HTML/client int
 
 ## Stack
 
+- **Desktop:** Electron, electron-builder, bundled cloudflared and ffmpeg-static
 - **Server:** Node.js, Express, Socket.IO, Multer, adm-zip, ffmpeg-static
 - **Client:** plain JavaScript, Web Audio API, MediaRecorder, WebCodecs, Mediabunny, JSZip, Canvas
 

@@ -10,7 +10,13 @@ let accessDenied = false;
 
 function joinRoom() {
   if (accessDenied) return;
-  socket.emit('join_room', { room: currentRoom, nick: myName, clientId, password: pendingRoomPassword || undefined });
+  socket.emit('join_room', {
+    room: currentRoom,
+    nick: myName,
+    clientId,
+    password: pendingRoomPassword || undefined,
+    desktopHostToken: desktopHostToken || undefined
+  });
 }
 
 // ==========================================
@@ -18,8 +24,10 @@ function joinRoom() {
 // ==========================================
 const passwordModal = document.getElementById('passwordModal');
 const passwordInput = document.getElementById('passwordInput');
+const passwordNickInput = document.getElementById('passwordNickInput');
 const passwordError = document.getElementById('passwordError');
 const deniedModal = document.getElementById('deniedModal');
+let roomUsesPin = false;
 
 function showAccessDenied() {
   accessDenied = true;
@@ -28,11 +36,21 @@ function showAccessDenied() {
   deniedModal.style.display = 'flex';
 }
 
-socket.on('join_denied', ({ reason }) => {
+socket.on('join_denied', ({ reason, pin }) => {
   if (reason === 'banned') return showAccessDenied();
+  roomUsesPin = !!pin;
   const errors = { wrongPassword: t('pw.wrong'), tooMany: t('pw.tooMany') };
   passwordError.textContent = errors[reason] || '';
   passwordError.style.display = errors[reason] ? 'block' : 'none';
+  document.getElementById('passwordTitle').dataset.i18n = roomUsesPin ? 'pin.title' : 'pw.title';
+  document.getElementById('passwordHelp').dataset.i18n = roomUsesPin ? 'pin.help' : 'pw.help';
+  passwordInput.dataset.i18nPlaceholder = roomUsesPin ? 'pin.placeholder' : 'pw.placeholder';
+  document.getElementById('passwordTitle').textContent = t(roomUsesPin ? 'pin.title' : 'pw.title');
+  document.getElementById('passwordHelp').textContent = t(roomUsesPin ? 'pin.help' : 'pw.help');
+  passwordInput.placeholder = t(roomUsesPin ? 'pin.placeholder' : 'pw.placeholder');
+  passwordInput.maxLength = roomUsesPin ? 4 : 64;
+  passwordInput.style.textTransform = roomUsesPin ? 'uppercase' : '';
+  passwordNickInput.value = myName;
   passwordModal.style.display = 'flex';
   nickModal.style.display = 'none';
   passwordInput.value = '';
@@ -41,7 +59,13 @@ socket.on('join_denied', ({ reason }) => {
 
 window.submitRoomPassword = function(e) {
   e.preventDefault();
-  pendingRoomPassword = passwordInput.value;
+  const nick = passwordNickInput.value.trim();
+  if (!nick) return passwordNickInput.focus();
+  myName = nick;
+  localStorage.setItem('dubline_nick', myName);
+  document.getElementById('settingsNickInput').value = myName;
+  pendingRoomPassword = roomUsesPin ? passwordInput.value.trim().toUpperCase() : passwordInput.value;
+  if (roomUsesPin && !/^[A-Z0-9]{4}$/.test(pendingRoomPassword)) return passwordInput.focus();
   joinRoom();
 };
 
@@ -442,11 +466,9 @@ socket.on('recording_state', (list) => {
   renderLobby();
 });
 
-if (!myName) {
-  showNickModal();
-} else {
-  modalNickInput.value = myName;
-}
+// Wait for the server response before choosing a modal: protected guests get one combined
+// nickname + PIN form, while an unprotected room answers with nick_state and opens the nick form.
+if (myName) modalNickInput.value = myName;
 
 window.handleNickSubmit = function(e) {
   e.preventDefault();

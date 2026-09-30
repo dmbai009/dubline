@@ -88,9 +88,13 @@ function saveRooms() {
   saveTimer = setTimeout(writeRoomsNow, 1000);
 }
 
-process.on('SIGINT', () => {
+function flushRooms() {
   clearTimeout(saveTimer);
   writeRoomsNow();
+}
+
+process.on('SIGINT', () => {
+  flushRooms();
   process.exit(0);
 });
 
@@ -281,6 +285,7 @@ if (repairedOnLoad) writeRoomsNow();
 
 module.exports = {
   saveRooms,
+  flushRooms,
   getRoom,
   emptySession,
   snapshotActive,

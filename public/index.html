@@ -4,7 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title data-i18n="app.title">Dubline — Collaborative dubbing studio</title>
-  <link rel="icon" href="data:,">
+  <link rel="icon" type="image/png" sizes="64x64" href="/icon-64.png">
+  <link rel="apple-touch-icon" sizes="256x256" href="/icon-256.png">
   <script src="/socket.io/socket.io.js"></script>
   <style>
     /* ==========================================
@@ -92,13 +93,35 @@
     .header-left, .header-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
     .header-center { display: flex; align-items: center; justify-content: center; flex: 1; min-width: 0; }
     .brand { display: flex; align-items: center; gap: 8px; font-size: 17px; font-weight: 800; letter-spacing: 0.2px; }
-    .brand-logo { width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; background: linear-gradient(135deg, #8b5cf6, #ec4899); font-size: 15px; box-shadow: 0 4px 14px rgba(139, 92, 246, 0.45); }
+    .brand-logo { width: 28px; height: 28px; border-radius: 8px; display: block; object-fit: cover; box-shadow: 0 4px 14px rgba(245, 158, 11, 0.32); }
     .brand small { font-size: 10px; color: var(--accent-2); font-weight: 600; text-transform: uppercase; letter-spacing: 1px; }
 
     .room-badge { display: flex; align-items: center; gap: 8px; background: var(--panel-2); padding: 4px 6px 4px 12px; border-radius: 999px; font-size: 12px; font-weight: 600; border: 1px solid var(--border); white-space: nowrap; }
     .room-badge #roomNameLabel { color: var(--accent-2); }
     .btn-share { background: var(--accent-soft); color: var(--accent-2); padding: 4px 10px; border-radius: 999px; font-size: 11px; }
     .users-online { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--success); background: var(--success-soft); padding: 5px 10px; border-radius: 999px; font-weight: 600; white-space: nowrap; }
+
+    .desktop-invite { display: none; width: 336px; padding: 5px 7px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel-2); flex-direction: column; gap: 5px; }
+    .desktop-mode .desktop-invite { display: flex; }
+    .desktop-mode .users-online, .desktop-mode .room-badge .btn-share { display: none; }
+    .desktop-invite-row { display: flex; align-items: center; gap: 5px; min-width: 0; }
+    .desktop-invite-summary { display: flex; align-items: center; gap: 5px; min-width: 0; }
+    .desktop-invite-toggle { flex: 1; min-width: 0; padding: 4px 7px; background: transparent; color: var(--text); display: flex; align-items: center; gap: 6px; text-align: left; }
+    .desktop-invite-toggle:hover:not(:disabled) { background: var(--panel-3); }
+    .desktop-invite-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .desktop-invite-chevron { color: var(--muted); margin-left: auto; transition: transform 0.15s; }
+    .desktop-invite-details { display: flex; flex-direction: column; gap: 5px; }
+    .desktop-invite.collapsed { width: auto; min-width: 150px; padding: 3px; background: transparent; }
+    .desktop-invite.collapsed .desktop-invite-details { display: none; }
+    .desktop-invite.collapsed .desktop-invite-chevron { transform: rotate(-90deg); }
+    .desktop-copy-all-btn { padding: 4px 8px; background: var(--accent-soft); color: var(--accent-2); border: 1px solid rgba(139, 92, 246, 0.35); white-space: nowrap; }
+    .desktop-invite-status { color: var(--warning); font-size: 10px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .desktop-invite-status.ready { color: var(--success); }
+    .desktop-invite-status.error { color: var(--danger); }
+    .desktop-link-input { min-width: 0; flex: 1; height: 24px; padding: 3px 6px; background: var(--panel-3); color: var(--muted); border: 1px solid var(--border); border-radius: 4px; font-size: 10px; }
+    .desktop-copy-btn { padding: 4px 7px; font-size: 10px; white-space: nowrap; background: var(--accent); }
+    .desktop-pin { margin-left: auto; display: flex; align-items: center; gap: 5px; color: var(--muted); font-size: 10px; white-space: nowrap; }
+    .desktop-pin-code { min-width: 38px; color: #fcd34d; font-size: 12px; font-weight: 800; letter-spacing: 2px; text-align: center; }
 
     .host-panel { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: #fcd34d; background: rgba(245, 158, 11, 0.08); padding: 4px 6px 4px 12px; border-radius: 999px; border: 1px solid rgba(245, 158, 11, 0.25); white-space: nowrap; }
     .host-panel.offline { color: var(--muted); background: var(--panel-2); border-color: var(--border); }
@@ -352,6 +375,8 @@
     .setting-label { font-size: 12px; font-weight: 700; color: var(--text); }
     .setting-sub { font-size: 11px; color: var(--muted); line-height: 1.4; }
     .setting-warning { display: none; padding: 8px 10px; color: #fbbf24; background: rgba(120, 53, 15, 0.22); border: 1px solid rgba(245, 158, 11, 0.35); border-radius: var(--radius-sm); font-size: 11px; line-height: 1.45; }
+    .desktop-only { display: none !important; }
+    .desktop-mode .desktop-only { display: flex !important; }
     .text-input { background: var(--panel-3); border: 1px solid var(--border); color: var(--text); padding: 8px 10px; border-radius: var(--radius-sm); font-weight: 600; outline: none; font-size: 12px; }
     .text-input:focus { border-color: var(--accent); }
     .switch-ui { position: relative; display: inline-block; width: 40px; height: 22px; flex-shrink: 0; }
@@ -422,10 +447,11 @@
   <!-- Room password -->
   <div id="passwordModal" class="modal-overlay" style="display: none;">
     <div class="modal-card">
-      <h2 data-i18n="pw.title">🔒 This room is password-protected</h2>
-      <p data-i18n="pw.help">Ask the room host for the password</p>
+      <h2 id="passwordTitle" data-i18n="pw.title">🔒 This room is password-protected</h2>
+      <p id="passwordHelp" data-i18n="pw.help">Ask the room host for the password</p>
       <p id="passwordError" style="display: none; color: var(--danger); font-weight: 700;"></p>
       <form id="passwordForm" onsubmit="submitRoomPassword(event)">
+        <input type="text" id="passwordNickInput" class="text-input" maxlength="16" data-i18n-placeholder="nickname.placeholder" placeholder="Your nickname…" required style="width: 100%; padding: 11px; font-size: 14px; text-align: center; margin-bottom: 8px;">
         <input type="password" id="passwordInput" class="text-input" maxlength="64" data-i18n-placeholder="pw.placeholder" placeholder="Password" required style="width: 100%; padding: 11px; font-size: 14px; text-align: center;">
         <button type="submit" class="btn-record" data-i18n="pw.enter" style="width: 100%; margin-top: 10px; padding: 11px;">Enter</button>
       </form>
@@ -542,7 +568,7 @@
           </div>
         </div>
 
-        <div class="setting-card">
+        <div class="setting-card" id="roomSecuritySettings">
           <div>
             <div class="setting-label" data-i18n="pw.setting">🔒 Room password</div>
             <div class="setting-sub" data-i18n="pw.setting.help">New players enter it once. Players already in the room stay.</div>
@@ -554,6 +580,14 @@
           </div>
           <div id="passwordStatus" class="setting-sub"></div>
           <button class="btn-outline" id="unbanBtn" onclick="unbanAll()" style="display: none; align-self: flex-start;"></button>
+        </div>
+
+        <div class="setting-card desktop-only">
+          <div>
+            <div class="setting-label" data-i18n="desktop.clearData">Очистить все данные Dubline</div>
+            <div class="setting-sub" data-i18n="desktop.clearData.help">Удаляет комнаты, сессии, записи, импортированные видео, паки и локальный кеш на этом компьютере.</div>
+          </div>
+          <button id="desktopClearDataBtn" class="btn-delete" onclick="clearDesktopData()" style="align-self: flex-start;" data-i18n="desktop.clearData.button">Удалить данные и перезапустить</button>
         </div>
 
         <div class="setting-card">
@@ -788,7 +822,25 @@
   <!-- HEADER -->
   <header>
     <div class="header-left">
-      <div class="brand"><div class="brand-logo">🎬</div> Dubline <small>Studio</small></div>
+      <div class="brand"><img class="brand-logo" src="/icon-64.png" alt=""> Dubline <small>Studio</small></div>
+      <div class="desktop-invite collapsed" id="desktopInvitePanel">
+        <div class="desktop-invite-summary">
+          <button class="desktop-invite-toggle" onclick="toggleDesktopInvitePanel()" data-i18n-title="desktop.toggle" title="Show or hide invitation">
+            <span>🔗</span><span class="desktop-invite-title" data-i18n="desktop.invite">Invitation</span><span class="desktop-invite-chevron">▾</span>
+          </button>
+          <button id="desktopCopyAllBtn" class="desktop-copy-all-btn" onclick="copyDesktopInviteWithPin()" data-i18n-title="desktop.copyAll" title="Copy link and PIN" disabled>PIN ⧉</button>
+        </div>
+        <div class="desktop-invite-details">
+          <div class="desktop-invite-row">
+            <span id="desktopTunnelStatus" class="desktop-invite-status"></span>
+            <label class="desktop-pin"><span data-i18n="desktop.pin">PIN</span> <span id="desktopPinCode" class="desktop-pin-code">••••</span><input id="desktopPinVisible" type="checkbox" onchange="toggleDesktopPin()"><span data-i18n="desktop.showPin">Show</span></label>
+          </div>
+          <div class="desktop-invite-row">
+            <input id="desktopInviteUrl" class="desktop-link-input" type="text" readonly data-i18n-placeholder="desktop.linkPending" placeholder="The public link will appear here…">
+            <button id="desktopCopyBtn" class="desktop-copy-btn" onclick="copyDesktopInvite()" disabled><span id="desktopCopyLabel" data-i18n="desktop.copy">Copy link</span></button>
+          </div>
+        </div>
+      </div>
       <div class="room-badge">
         <span data-i18n="room">Room:</span> <span id="roomNameLabel">main</span><span id="roomLockIcon" style="display: none;" data-i18n-title="pw.statusOn" title="The room is password-protected">🔒</span>
         <button class="btn-share" data-i18n="share" data-i18n-title="share.title" onclick="copyInviteLink()" title="Copy invitation link">🔗 Share</button>

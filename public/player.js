@@ -15,6 +15,12 @@ let pxPerSec = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Number(localStorage.getItem
 
 const urlParams = new URLSearchParams(window.location.search);
 const currentRoom = urlParams.get('room') || 'main';
+const desktopHostToken = urlParams.get('desktopHost') || '';
+if (desktopHostToken) {
+  urlParams.delete('desktopHost');
+  const cleanQuery = urlParams.toString();
+  history.replaceState(null, '', `${window.location.pathname}${cleanQuery ? `?${cleanQuery}` : ''}`);
+}
 document.getElementById('roomNameLabel').innerText = currentRoom;
 
 const state = window.DublineState.data;

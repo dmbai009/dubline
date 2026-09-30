@@ -8,9 +8,101 @@ function refreshViews() {
   if (selectedLine) showInspector(selectedLine);
 }
 
-window.copyInviteLink = function() {
-  navigator.clipboard.writeText(window.location.href);
-  alert(t('invite.copied'));
+let desktopInviteState = null;
+let desktopCopyTimer = null;
+let desktopInviteCollapsed = localStorage.getItem('dubline_invite_collapsed') !== '0';
+
+function desktopPublicInviteUrl() {
+  if (!desktopInviteState || !desktopInviteState.publicUrl) return '';
+  return `${desktopInviteState.publicUrl.replace(/\/$/, '')}/?room=${encodeURIComponent(desktopInviteState.room || currentRoom)}`;
+}
+
+function renderDesktopInvite() {
+  if (!desktopInviteState) return;
+  const panel = document.getElementById('desktopInvitePanel');
+  const status = document.getElementById('desktopTunnelStatus');
+  const input = document.getElementById('desktopInviteUrl');
+  const copy = document.getElementById('desktopCopyBtn');
+  const copyAll = document.getElementById('desktopCopyAllBtn');
+  const showPin = document.getElementById('desktopPinVisible').checked;
+  panel.style.display = 'flex';
+  panel.classList.toggle('collapsed', desktopInviteCollapsed);
+  status.className = `desktop-invite-status ${desktopInviteState.state || ''}`;
+  status.textContent = desktopInviteState.state === 'ready'
+    ? t('desktop.tunnelReady')
+    : desktopInviteState.state === 'error'
+      ? t('desktop.tunnelError')
+      : t('desktop.tunnelConnecting');
+  const inviteUrl = desktopPublicInviteUrl();
+  input.value = inviteUrl;
+  input.placeholder = t('desktop.linkPending');
+  copy.disabled = !inviteUrl;
+  copyAll.disabled = !inviteUrl;
+  document.getElementById('desktopPinCode').textContent = showPin ? desktopInviteState.pin : '••••';
+}
+
+async function initDesktopInvite() {
+  if (!window.dublineDesktop) return;
+  document.body.classList.add('desktop-mode');
+  document.getElementById('roomSecuritySettings').style.display = 'none';
+  desktopInviteState = await window.dublineDesktop.getStatus();
+  renderDesktopInvite();
+  window.dublineDesktop.onTunnelStatus(status => {
+    Object.assign(desktopInviteState, status);
+    renderDesktopInvite();
+  });
+}
+
+window.toggleDesktopPin = renderDesktopInvite;
+
+window.toggleDesktopInvitePanel = function() {
+  desktopInviteCollapsed = !desktopInviteCollapsed;
+  localStorage.setItem('dubline_invite_collapsed', desktopInviteCollapsed ? '1' : '0');
+  renderDesktopInvite();
+};
+
+window.copyDesktopInvite = async function() {
+  const url = desktopPublicInviteUrl();
+  if (!url) return;
+  await window.dublineDesktop.copyText(url);
+  const label = document.getElementById('desktopCopyLabel');
+  label.textContent = t('desktop.copied');
+  clearTimeout(desktopCopyTimer);
+  desktopCopyTimer = setTimeout(() => { label.textContent = t('desktop.copy'); }, 2000);
+};
+
+window.copyDesktopInviteWithPin = async function() {
+  const url = desktopPublicInviteUrl();
+  if (!url || !desktopInviteState?.pin) return;
+  await window.dublineDesktop.copyText(t('desktop.shareText', {
+    url,
+    pin: desktopInviteState.pin
+  }));
+  showToast(t('desktop.copiedAll'));
+};
+
+window.clearDesktopData = async function() {
+  if (!window.dublineDesktop) return;
+  if (!confirm(t('desktop.clearData.confirm'))) return;
+  const button = document.getElementById('desktopClearDataBtn');
+  button.disabled = true;
+  button.textContent = t('desktop.clearData.progress');
+  try {
+    await window.dublineDesktop.clearAllData();
+  } catch (err) {
+    button.disabled = false;
+    button.textContent = t('desktop.clearData.button');
+    alert(t('desktop.clearData.error', { message: err.message }));
+  }
+};
+
+window.copyInviteLink = async function() {
+  const cleanUrl = new URL(window.location.href);
+  cleanUrl.searchParams.delete('desktopHost');
+  const value = desktopPublicInviteUrl() || cleanUrl.href;
+  if (window.dublineDesktop) await window.dublineDesktop.copyText(value);
+  else await navigator.clipboard.writeText(value);
+  showToast(t('invite.copied'));
 };
 
 // ==========================================
@@ -130,6 +222,7 @@ window.addEventListener('dubline-language-changed', () => {
   if (selectedLine) showInspector(selectedLine);
   renderChatHistory();
   updateExportDurationWarning();
+  renderDesktopInvite();
 });
 
 // ==========================================
@@ -544,6 +637,7 @@ window.resetLayout = function() {
 applyLayout();
 maybeShowHelp();
 syncSettingsUi();
+initDesktopInvite();
 
 // ==========================================
 // HINT TO PLAY IN CHROME / EDGE
