@@ -1,4 +1,17 @@
+<div align="center">
+
+<img src="public/icon-256.png" alt="Dubline" width="180">
+
 # Dubline
+
+**Dub scenes with friends, all at the same time.**
+
+![Windows](https://img.shields.io/badge/Windows-portable%20.exe-0078D6)
+![Browser](https://img.shields.io/badge/guests-Chrome%20%7C%20Edge-F4B400)
+![Languages](https://img.shields.io/badge/UI-EN%20%7C%20RU%20%7C%20UK-8B5CF6)
+![License](https://img.shields.io/badge/license-MIT-22C55E)
+
+</div>
 
 Dubline is a collaborative desktop and browser-based dubbing studio and party game. Friends can claim characters or individual lines, record in parallel, review takes on a shared timeline, and export a finished video or DAW-ready character stems.
 
