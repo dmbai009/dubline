@@ -1,6 +1,6 @@
 {
   "name": "dubline",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Collaborative voice dubbing on a timeline",
   "main": "electron-main.js",
   "author": "dmbai009",
@@ -11,8 +11,10 @@
     "prepare:icons": "node tools/build-icons.js",
     "prepare:cloudflared": "node tools/download-cloudflared.js",
     "dist": "npm run prepare:icons && npm run prepare:cloudflared && electron-builder --win portable --x64",
+    "test:electron": "node tools/electron-smoke.js",
+    "test:electron:cloudflare": "node tools/electron-smoke.js cloudflare",
     "test": "node --test",
-    "test:e2e": "node --test --test-concurrency=1 e2e/desktop.e2e.js e2e/studio.e2e.js e2e/room.e2e.js e2e/media.e2e.js",
+    "test:e2e": "node --test --test-concurrency=1 e2e/launcher.e2e.js e2e/desktop.e2e.js e2e/studio.e2e.js e2e/room.e2e.js e2e/media.e2e.js",
     "check": "node tools/check.js"
   },
   "dependencies": {
@@ -43,7 +45,12 @@
     },
     "files": [
       "electron-main.js",
+      "electron-network.js",
+      "electron-update.js",
       "electron-preload.js",
+      "electron-launcher-preload.js",
+      "electron-launcher.js",
+      "electron-launcher.html",
       "server.js",
       "server/**/*",
       "public/**/*",

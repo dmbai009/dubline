@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'">
+  <title>Dubline</title>
+  <style>
+    :root { color-scheme: dark; --bg:#09090d; --panel:#14141b; --panel2:#1c1c25; --border:#30303d; --text:#f4f1ff; --muted:#aaa5b8; --accent:#7c3aed; --accent2:#a78bfa; --good:#34d399; --warn:#fbbf24; --bad:#fb7185; }
+    * { box-sizing:border-box; }
+    body { margin:0; min-height:100vh; background:radial-gradient(circle at 25% -10%,#2b1758 0,transparent 38%),var(--bg); color:var(--text); font:14px/1.45 Inter,Segoe UI,sans-serif; }
+    button,input { font:inherit; }
+    button { cursor:pointer; color:var(--text); border:1px solid var(--border); border-radius:9px; background:var(--panel2); padding:10px 15px; }
+    button:hover { border-color:#625778; }
+    button:disabled { cursor:wait; opacity:.6; }
+    .app { width:min(1000px,calc(100% - 48px)); margin:0 auto; padding:28px 0 28px; }
+    header { display:flex; align-items:center; gap:14px; margin-bottom:20px; }
+    header img { width:52px; height:52px; border-radius:12px; }
+    h1 { margin:0; font-size:27px; }
+    header p { margin:2px 0 0; color:var(--muted); }
+    .lang { margin-left:auto; padding:7px 10px; }
+    .switcher { display:grid; grid-template-columns:1fr 1fr; gap:8px; padding:5px; border:1px solid var(--border); border-radius:12px; background:#101016; }
+    .switcher button.active { background:var(--accent); border-color:var(--accent); }
+    .screen { display:none; margin-top:16px; }
+    .screen.active { display:block; }
+    .lead { color:var(--muted); margin:0 0 14px; }
+    .modes { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; }
+    .mode { min-height:122px; padding:14px; text-align:left; display:flex; flex-direction:column; }
+    .mode.active { border-color:var(--accent2); box-shadow:0 0 0 1px var(--accent2) inset; background:#211934; }
+    .mode strong { display:block; font-size:15px; margin-bottom:5px; }
+    .mode small { display:block; color:var(--muted); }
+    .badge { display:inline-flex; align-items:center; gap:5px; margin-top:auto; padding-top:10px; color:var(--warn); font-size:11px; font-weight:700; }
+    .badge.good { color:var(--good); } .badge.bad { color:var(--bad); }
+    .details { margin-top:13px; padding:16px 18px; border:1px solid var(--border); border-radius:12px; background:var(--panel); }
+    .details h2 { margin:0 0 7px; font-size:18px; }
+    .details p { color:var(--muted); margin:5px 0; }
+    .details ol { margin:10px 0 0; padding-left:22px; color:#d8d3e3; }
+    .details li { margin:6px 0; }
+    .tool-action { margin-top:13px; padding:7px 11px; }
+    .footer { display:flex; align-items:center; gap:12px; margin-top:14px; }
+    .primary { margin-left:auto; background:var(--accent); border-color:var(--accent); font-weight:800; padding:11px 22px; }
+    .error { min-height:20px; color:var(--bad); }
+    .join { max-width:700px; padding:22px; border:1px solid var(--border); border-radius:12px; background:var(--panel); }
+    .join label { display:block; font-weight:700; margin:18px 0 7px; }
+    .join input { width:100%; padding:12px; border:1px solid var(--border); border-radius:9px; background:#0e0e14; color:var(--text); }
+    .join .primary { margin:17px 0 0; }
+    .note { margin-top:15px; padding:11px 13px; border-radius:9px; background:#211b12; color:#f6d989; }
+    .update-banner { position:fixed; right:22px; bottom:22px; z-index:20; width:min(390px,calc(100vw - 44px)); display:none; align-items:flex-start; gap:11px; padding:14px; border:1px solid #5b43a5; border-radius:12px; background:#191329; box-shadow:0 16px 50px rgba(0,0,0,.45); }
+    .update-banner.show { display:flex; }
+    .update-icon { font-size:22px; }
+    .update-copy { flex:1; min-width:0; }
+    .update-copy strong { display:block; margin-bottom:2px; }
+    .update-copy span { color:var(--muted); font-size:12px; }
+    .update-actions { display:flex; gap:7px; margin-top:9px; }
+    .update-download { padding:7px 10px; background:var(--accent); border-color:var(--accent); font-weight:700; }
+    .update-later { padding:7px 10px; }
+    .update-close { padding:2px 7px; border:0; background:transparent; color:var(--muted); font-size:18px; }
+    .app-meta { display:flex; justify-content:center; align-items:center; gap:7px; margin-top:16px; color:var(--muted); font-size:11px; }
+    .app-meta button { padding:0; border:0; background:transparent; color:var(--accent2); font-size:11px; }
+    @media(max-width:850px) { .modes { grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <header>
+      <img src="public/icon-256.png" alt="">
+      <div><h1>Dubline</h1><p data-t="tagline"></p></div>
+      <select id="language" class="lang" aria-label="Language"><option value="en">English</option><option value="ru">Русский</option><option value="uk">Українська</option></select>
+    </header>
+    <nav class="switcher">
+      <button id="hostTab" class="active" data-view="host" data-t="create"></button>
+      <button id="guestTab" data-view="guest" data-t="join"></button>
+    </nav>
+    <section id="hostScreen" class="screen active">
+      <p class="lead" data-t="hostLead"></p>
+      <div id="modes" class="modes"></div>
+      <div id="modeDetails" class="details"></div>
+      <div class="footer"><span id="hostError" class="error"></span><button id="startHost" class="primary" data-t="start"></button></div>
+    </section>
+    <section id="guestScreen" class="screen">
+      <div class="join">
+        <h2 data-t="guestTitle"></h2><p class="lead" data-t="guestLead"></p>
+        <label for="guestAddress" data-t="address"></label>
+        <input id="guestAddress" type="text" spellcheck="false" placeholder="26.12.34.56:38473/?room=main">
+        <div class="note" data-t="guestSecurity"></div>
+        <button id="joinGuest" class="primary" data-t="joinButton"></button>
+        <div id="guestError" class="error"></div>
+      </div>
+    </section>
+    <footer class="app-meta"><span id="launcherVersion">Dubline</span><span>·</span><span data-t="author"></span><span>·</span><button id="projectLink">GitHub</button><span>· MIT</span></footer>
+  </main>
+  <aside id="updateBanner" class="update-banner" aria-live="polite">
+    <div class="update-icon">&#11015;</div>
+    <div class="update-copy"><strong id="updateTitle"></strong><span id="updateVersion"></span><div class="update-actions"><button id="updateDownload" class="update-download"></button><button id="updateLater" class="update-later"></button></div></div>
+    <button id="updateClose" class="update-close" aria-label="Close">&#10005;</button>
+  </aside>
+  <script src="electron-launcher.js"></script>
+</body>
+</html>

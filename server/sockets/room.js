@@ -103,6 +103,12 @@ module.exports = function registerRoomHandlers(socket, conn) {
     if (!roomSockets[conn.roomId]) roomSockets[conn.roomId] = {};
     roomSockets[conn.roomId][socket.id] = { nick: conn.nick, clientId: conn.clientId };
 
+    // The Electron host uses this only as a positive readiness signal for VPN/Porthole modes.
+    // It does not expose room data and is never sent for the desktop host itself.
+    if (isDesktopRoom(conn.roomId) && !desktopHost && typeof process.send === 'function') {
+      try { process.send({ type: 'desktop-guest-joined' }); } catch (err) { /* parent process closed */ }
+    }
+
     saveRooms();
     socket.emit('nick_state', { nick: conn.nick, error, errorKey, errorParams });
     ensureAudioTracks(conn.roomId);

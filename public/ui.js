@@ -11,6 +11,27 @@ function refreshViews() {
 let desktopInviteState = null;
 let desktopCopyTimer = null;
 let desktopInviteCollapsed = localStorage.getItem('dubline_invite_collapsed') !== '0';
+let desktopFailureNotice = '';
+let appUpdateState = null;
+let appUpdateDismissed = false;
+
+const DESKTOP_MODES = ['cloudflare', 'porthole', 'vpn'];
+
+function desktopMode() {
+  return desktopInviteState?.mode || 'cloudflare';
+}
+
+function desktopModeName(mode = desktopMode()) {
+  if (mode === 'vpn' && ['radmin', 'hamachi'].includes(desktopInviteState?.provider)) {
+    return t(`desktop.mode.${desktopInviteState.provider}`);
+  }
+  return t(`desktop.mode.${mode}`);
+}
+
+function desktopStatusText() {
+  const state = desktopInviteState?.state || 'connecting';
+  return t(`desktop.status.${state}`);
+}
 
 function desktopPublicInviteUrl() {
   if (!desktopInviteState || !desktopInviteState.publicUrl) return '';
@@ -28,29 +49,63 @@ function renderDesktopInvite() {
   panel.style.display = 'flex';
   panel.classList.toggle('collapsed', desktopInviteCollapsed);
   status.className = `desktop-invite-status ${desktopInviteState.state || ''}`;
-  status.textContent = desktopInviteState.state === 'ready'
-    ? t('desktop.tunnelReady')
-    : desktopInviteState.state === 'error'
-      ? t('desktop.tunnelError')
-      : t('desktop.tunnelConnecting');
+  status.textContent = desktopStatusText();
+  document.getElementById('desktopModePort').textContent = `${desktopModeName()} · ${desktopInviteState.port || '—'}`;
   const inviteUrl = desktopPublicInviteUrl();
   input.value = inviteUrl;
   input.placeholder = t('desktop.linkPending');
   copy.disabled = !inviteUrl;
   copyAll.disabled = !inviteUrl;
   document.getElementById('desktopPinCode').textContent = showPin ? desktopInviteState.pin : '••••';
+  renderDesktopHostingModal();
+}
+
+function renderDesktopHostingModal() {
+  if (!desktopInviteState) return;
+  const mode = desktopMode();
+  document.querySelectorAll('[data-hosting-mode]').forEach(button => button.classList.toggle('active', button.dataset.hostingMode === mode));
+  document.getElementById('desktopHostingModeTitle').textContent = desktopModeName(mode);
+  const status = document.getElementById('desktopHostingStatus');
+  status.className = `hosting-mode-status ${['ready'].includes(desktopInviteState.state) ? 'ready' : ['error', 'missing', 'stopped'].includes(desktopInviteState.state) ? 'error' : ''}`;
+  status.textContent = desktopStatusText();
+  document.getElementById('desktopHostingPort').textContent = desktopInviteState.port || '—';
+  document.getElementById('desktopHostingDescription').textContent = t(`desktop.description.${mode}`);
+  const instructions = document.getElementById('desktopHostingInstructions');
+  instructions.replaceChildren(...t(`desktop.instructions.${mode}`).split('|').map(value => {
+    const item = document.createElement('li'); item.textContent = value; return item;
+  }));
+  const openTool = document.getElementById('desktopOpenToolBtn');
+  openTool.style.display = mode === 'cloudflare' ? 'none' : '';
+  openTool.textContent = mode === 'vpn' ? t('desktop.openRadmin') : t('desktop.openTool');
+  document.getElementById('desktopOpenHamachiBtn').style.display = mode === 'vpn' ? '' : 'none';
+  document.getElementById('desktopRetryHostingBtn').style.display = mode === 'cloudflare' ? '' : 'none';
+}
+
+function handleDesktopStatus(nextStatus) {
+  if (!desktopInviteState) desktopInviteState = {};
+  Object.assign(desktopInviteState, nextStatus);
+  const failed = ['error', 'missing', 'stopped'].includes(desktopInviteState.state);
+  const noticeKey = `${desktopMode()}:${desktopInviteState.state}:${desktopInviteState.error || ''}`;
+  if (failed && desktopFailureNotice !== noticeKey) {
+    desktopFailureNotice = noticeKey;
+    desktopInviteCollapsed = false;
+    localStorage.setItem('dubline_invite_collapsed', '0');
+    showToast(t('desktop.hostingFailed', { mode: desktopModeName() }));
+    openHostingModal();
+  }
+  if (!failed) desktopFailureNotice = '';
+  renderDesktopInvite();
 }
 
 async function initDesktopInvite() {
   if (!window.dublineDesktop) return;
   document.body.classList.add('desktop-mode');
   document.getElementById('roomSecuritySettings').style.display = 'none';
-  desktopInviteState = await window.dublineDesktop.getStatus();
-  renderDesktopInvite();
-  window.dublineDesktop.onTunnelStatus(status => {
-    Object.assign(desktopInviteState, status);
-    renderDesktopInvite();
-  });
+  handleDesktopStatus(await window.dublineDesktop.getStatus());
+  window.dublineDesktop.onTunnelStatus(handleDesktopStatus);
+  setInterval(async () => {
+    try { handleDesktopStatus(await window.dublineDesktop.getStatus()); } catch (err) { /* app may be closing */ }
+  }, 4000);
 }
 
 window.toggleDesktopPin = renderDesktopInvite;
@@ -74,11 +129,72 @@ window.copyDesktopInvite = async function() {
 window.copyDesktopInviteWithPin = async function() {
   const url = desktopPublicInviteUrl();
   if (!url || !desktopInviteState?.pin) return;
-  await window.dublineDesktop.copyText(t('desktop.shareText', {
+  const mode = desktopMode();
+  const key = mode === 'porthole' ? 'desktop.shareText.porthole'
+    : mode === 'vpn' ? 'desktop.shareText.vpn' : 'desktop.shareText';
+  await window.dublineDesktop.copyText(t(key, {
     url,
-    pin: desktopInviteState.pin
+    pin: desktopInviteState.pin,
+    port: desktopInviteState.port,
+    mode: desktopModeName(mode)
   }));
   showToast(t('desktop.copiedAll'));
+};
+
+window.openHostingModal = function() {
+  if (!window.dublineDesktop) return;
+  renderDesktopHostingModal();
+  document.getElementById('hostingModal').style.display = 'flex';
+};
+
+window.closeHostingModal = function() {
+  document.getElementById('hostingModal').style.display = 'none';
+};
+
+window.selectDesktopHostingMode = async function(mode) {
+  if (!DESKTOP_MODES.includes(mode) || mode === desktopMode()) return;
+  document.querySelectorAll('[data-hosting-mode]').forEach(button => { button.disabled = true; });
+  try { handleDesktopStatus(await window.dublineDesktop.setHostingMode(mode)); }
+  catch (err) { showToast(t('desktop.hostingChangeError', { message: err.message })); }
+  finally { document.querySelectorAll('[data-hosting-mode]').forEach(button => { button.disabled = false; }); }
+};
+
+window.retryDesktopHosting = async function() {
+  try { handleDesktopStatus(await window.dublineDesktop.retryHosting()); }
+  catch (err) { showToast(t('desktop.hostingChangeError', { message: err.message })); }
+};
+
+window.openDesktopNetworkTool = function(tool = '') {
+  const target = tool || (desktopMode() === 'vpn' ? 'radmin' : desktopMode());
+  return window.dublineDesktop.openNetworkTool(target);
+};
+
+function renderAppUpdate() {
+  const banner = document.getElementById('appUpdateBanner');
+  if (appUpdateState?.currentVersion) document.getElementById('desktopAboutVersion').textContent = `Dubline v${appUpdateState.currentVersion}`;
+  const available = !appUpdateDismissed && !appUpdateState?.dismissed && appUpdateState?.state === 'available';
+  banner.classList.toggle('show', available);
+  if (available) document.getElementById('appUpdateVersion').textContent = t('desktop.update.version', { version: appUpdateState.version });
+}
+
+async function initAppUpdate() {
+  if (!window.dublineDesktop || typeof window.dublineDesktop.getUpdateStatus !== 'function') return;
+  try { appUpdateState = await window.dublineDesktop.getUpdateStatus(); renderAppUpdate(); } catch (err) { /* update checks are optional */ }
+  window.dublineDesktop.onUpdateStatus?.(status => { appUpdateState = status; renderAppUpdate(); });
+}
+
+window.openAppUpdate = function() {
+  return window.dublineDesktop?.openUpdate?.();
+};
+
+window.openProjectPage = function() {
+  return window.dublineDesktop?.openProject?.();
+};
+
+window.dismissAppUpdate = function() {
+  appUpdateDismissed = true;
+  renderAppUpdate();
+  window.dublineDesktop?.dismissUpdate?.();
 };
 
 window.clearDesktopData = async function() {
@@ -223,6 +339,7 @@ window.addEventListener('dubline-language-changed', () => {
   renderChatHistory();
   updateExportDurationWarning();
   renderDesktopInvite();
+  renderAppUpdate();
 });
 
 // ==========================================
@@ -266,6 +383,7 @@ window.addEventListener('keydown', (e) => {
 
   // Esc: close modals
   if (e.code === 'Escape') {
+    closeHostingModal();
     closeSettingsModal();
     closeFilesModal();
     closeSessionsModal();
@@ -638,6 +756,7 @@ applyLayout();
 maybeShowHelp();
 syncSettingsUi();
 initDesktopInvite();
+initAppUpdate();
 
 // ==========================================
 // HINT TO PLAY IN CHROME / EDGE

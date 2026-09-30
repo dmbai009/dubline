@@ -40,7 +40,8 @@ if (require.main === module) {
     setTimeout(() => process.exit(1), 500);
   });
 
-  server.listen(PORT, () => {
+  // Bind all IPv4 interfaces so Porthole and private VPN adapters can reach the host.
+  server.listen(PORT, '0.0.0.0', () => {
     console.log(`[Dubline] Server started: http://localhost:${PORT}`);
     console.log('[Dubline] The event log appears here: who joined, who left, errors and dropped connections.');
     if (typeof process.send === 'function') process.send({ type: 'ready', port: Number(PORT) });

@@ -19,7 +19,9 @@ The project is inspired by Voxalike and The Choicer Voicer, while removing the n
 
 ## Features
 
-- **Self-contained Windows app.** The portable `Dubline.exe` starts the local Express/Socket.IO server and a bundled Cloudflare quick tunnel, opens the studio in a native Electron window, and stops both background processes when the window closes. The host does not need Node.js, FFmpeg, or cloudflared installed.
+- **Self-contained Windows app.** The portable `Dubline.exe` starts the local Express/Socket.IO server, chooses a free random port, and offers three clear connection modes: Cloudflare, Porthole, or VPN (Radmin/Hamachi). It stops every bundled background process when the window closes. The host does not need Node.js, FFmpeg, or cloudflared installed.
+- **Desktop guest mode.** The same EXE can join a friend's private Radmin or Hamachi address and enables the microphone only for that exact origin. It gives VPN users a secure-context-compatible alternative to opening an unencrypted private address in a normal browser.
+- **Manual update notice.** On startup, the desktop app checks the latest stable GitHub Release. If a newer semantic version exists, a dismissible corner notice opens its fixed GitHub release page; Dubline never downloads or executes updates automatically, and network/API errors stay silent.
 - **Protected desktop room.** Every app launch generates a new four-character PIN. The public link and masked PIN sit in the top-left invitation panel; guests enter their nickname and PIN before any room state or media URLs are sent. A private per-launch token guarantees that only the local Electron window receives host rights.
 - **Parallel recording.** Every player can claim and record their own lines without waiting for other actors.
 - **Studio layout.** A player lobby on the left, video, inspector and chat on top, and the timeline below. Drag the dividers to resize any panel (double-click resets it); sizes are remembered per browser.
@@ -82,11 +84,19 @@ ASS imports use the Aegisub `Name` field for the character; typesetting drawings
 
 ## Requirements and installation
 
-Only the host needs to install anything. Friends just open the link in Chrome or Edge. Other browsers (Firefox, Safari) are not supported yet and show a hint to switch; wired headphones are recommended, since Bluetooth headsets drop to low sound quality while the microphone is on.
+With the default Cloudflare method, only the host needs the app and friends open its HTTPS link in Chrome or Edge. Alternative connection methods may require Porthole or the same VPN client on both sides; Radmin and Hamachi guests also open `Dubline.exe` in guest mode so their microphone works. Other browsers (Firefox, Safari) are not supported yet and show a hint to switch; wired headphones are recommended, since Bluetooth headsets drop to low sound quality while the microphone is on.
 
 ### Windows desktop app
 
-Download and run **`Dubline.exe`**. The app starts its server and tunnel automatically. Wait until the invitation panel says that the link is ready, copy the link, and send the separately displayed four-character PIN to your friends. The PIN is masked until the host enables **Show**.
+Download and run **`Dubline.exe`**, then choose **Create a room** or **Join as a guest**. A host chooses one of three connection methods before entering a nickname:
+
+- **Cloudflare (recommended):** creates and checks a public HTTPS link automatically. If the tunnel cannot start, Dubline opens a visible warning with the alternatives.
+- **Porthole:** install the free Porthole app from Steam on both computers, join the same lobby, and set its TCP port to the port shown by Dubline. The guest opens the copied `localhost` link in Chrome/Edge, where microphone access is allowed.
+- **VPN (Radmin VPN or Hamachi):** everyone joins the same private network using either client. Dubline automatically picks up the active adapter and its address. The host copies that address; each friend starts `Dubline.exe`, chooses **Join as a guest**, and pastes it. This restricted window grants microphone permission only to the selected private origin.
+
+The server selects a free port at random from `38473–38637` and displays it in the invitation panel and connection instructions. The host can switch methods while the room is running without losing its session. Dubline detects whether Porthole, Radmin, or Hamachi is installed/running and whether a VPN address is available; a successful guest connection is the final reachability confirmation.
+
+Wait until the invitation panel says that the link is ready, then copy the invitation and PIN. The PIN is masked until the host enables **Show**, and **Copy link and PIN** does not reveal it on screen.
 
 Rooms, imported media, and takes are stored in the app's Windows user-data folder and survive restarts. Closing the native window shuts down the local server and tunnel.
 The **Clear all Dubline data** button in Settings removes every saved room, take, imported video, server pack, and local browser cache after an explicit confirmation, then restarts the app with an empty room.
@@ -101,6 +111,8 @@ npm run dist
 ```
 
 `npm run dist` downloads the pinned official Windows `cloudflared` binary, verifies its SHA-256, and creates `dist/Dubline.exe`. The portable file includes Electron, `ffmpeg-static`, and `cloudflared`; the build does not include local `data/`, uploaded scenes, takes, or server packs.
+
+To publish an update, increment `version` in `package.json`, build and test `Dubline.exe`, then create a stable GitHub Release in `dmbai009/dubline` with a matching tag such as `v1.1.0` and attach the EXE. A tag without a GitHub Release, a draft, or a prerelease does not trigger the in-app notice.
 
 ### Legacy browser server (one click)
 

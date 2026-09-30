@@ -2,7 +2,8 @@
 const fs = require('fs');
 const path = require('path');
 
-const PORT = process.env.PORT || 3000;
+const requestedPort = Number(process.env.PORT || 3000);
+const PORT = Number.isInteger(requestedPort) && requestedPort > 0 && requestedPort <= 65535 ? requestedPort : 3000;
 const ROOT_DIR = path.join(__dirname, '..'); // project root (server modules live in server/)
 const PUBLIC_DIR = path.join(ROOT_DIR, 'public');
 // Folders can be overridden with environment variables (so tests never touch real data)

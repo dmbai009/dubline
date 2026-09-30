@@ -118,10 +118,12 @@
     .desktop-invite-status { color: var(--warning); font-size: 10px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .desktop-invite-status.ready { color: var(--success); }
     .desktop-invite-status.error { color: var(--danger); }
+    .desktop-invite-status.missing, .desktop-invite-status.stopped, .desktop-invite-status.needsSetup { color: var(--danger); }
     .desktop-link-input { min-width: 0; flex: 1; height: 24px; padding: 3px 6px; background: var(--panel-3); color: var(--muted); border: 1px solid var(--border); border-radius: 4px; font-size: 10px; }
     .desktop-copy-btn { padding: 4px 7px; font-size: 10px; white-space: nowrap; background: var(--accent); }
     .desktop-pin { margin-left: auto; display: flex; align-items: center; gap: 5px; color: var(--muted); font-size: 10px; white-space: nowrap; }
     .desktop-pin-code { min-width: 38px; color: #fcd34d; font-size: 12px; font-weight: 800; letter-spacing: 2px; text-align: center; }
+    .desktop-mode-port { color: var(--muted); font-size: 10px; margin-left: auto; white-space: nowrap; }
 
     .host-panel { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: #fcd34d; background: rgba(245, 158, 11, 0.08); padding: 4px 6px 4px 12px; border-radius: 999px; border: 1px solid rgba(245, 158, 11, 0.25); white-space: nowrap; }
     .host-panel.offline { color: var(--muted); background: var(--panel-2); border-color: var(--border); }
@@ -350,6 +352,14 @@
     .connection-banner.online { background: #047857; }
     .browser-banner { position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%); z-index: 1900; max-width: min(640px, calc(100vw - 32px)); display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: #78350f; color: #fef3c7; border-radius: var(--radius-sm); font-size: 13px; box-shadow: var(--shadow); }
     .browser-banner .modal-close-icon { color: inherit; }
+    .app-update-banner { position: fixed; right: 18px; bottom: 18px; z-index: 1950; width: min(390px, calc(100vw - 36px)); display: none; align-items: flex-start; gap: 10px; padding: 13px; background: #191329; border: 1px solid rgba(139, 92, 246, 0.65); border-radius: var(--radius); box-shadow: var(--shadow); }
+    .app-update-banner.show { display: flex; }
+    .app-update-icon { font-size: 21px; }
+    .app-update-copy { flex: 1; min-width: 0; }
+    .app-update-copy strong { display: block; font-size: 13px; }
+    .app-update-copy span { display: block; margin-top: 2px; color: var(--muted); font-size: 11px; }
+    .app-update-actions { display: flex; gap: 6px; margin-top: 8px; }
+    .app-update-actions button { padding: 6px 9px; font-size: 11px; }
     @keyframes bannerPulse { 50% { background: #7f1d1d; } }
 
     /* ==========================================
@@ -387,6 +397,16 @@
     .switch-ui input:checked + .switch-slider:before { transform: translateX(18px); }
     .upload-btn { background: linear-gradient(135deg, #8b5cf6, #6d28d9); color: white; padding: 9px 14px; border-radius: var(--radius-sm); cursor: pointer; font-weight: 600; font-size: 12px; display: inline-block; text-align: center; }
     .upload-btn.disabled { opacity: 0.45; cursor: not-allowed; }
+    .hosting-modes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+    .hosting-mode { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; padding: 11px; background: var(--panel-2); border: 1px solid var(--border); color: var(--text); text-align: left; }
+    .hosting-mode.active { border-color: var(--accent-2); background: var(--accent-soft); box-shadow: 0 0 0 1px var(--accent-2) inset; }
+    .hosting-mode span { font-size: 11px; color: var(--muted); }
+    .hosting-mode-status { font-size: 11px; font-weight: 700; color: var(--warning); }
+    .hosting-mode-status.ready { color: var(--success); }
+    .hosting-mode-status.error { color: var(--danger); }
+    .hosting-instructions { margin: 0; padding-left: 20px; color: var(--muted); font-size: 11px; line-height: 1.55; }
+    .hosting-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .hosting-port { color: var(--accent-2); font-weight: 800; font-variant-numeric: tabular-nums; }
     /* Visual countdown before recording */
     .record-cue { position: absolute; inset: 0; pointer-events: none; z-index: 6; }
     .cue-streamer { position: absolute; top: 0; bottom: 0; width: 3px; margin-left: -1px; background: linear-gradient(180deg, transparent, rgba(250, 204, 21, 0.95) 20%, rgba(250, 204, 21, 0.95) 80%, transparent); box-shadow: 0 0 14px rgba(250, 204, 21, 0.7); }
@@ -466,6 +486,36 @@
     </div>
   </div>
 
+  <!-- MODAL: DESKTOP HOSTING -->
+  <div id="hostingModal" class="modal-overlay" style="display: none;">
+    <div class="modal-card modal-large">
+      <div class="modal-header-row">
+        <h2 data-i18n="desktop.hosting.title">Connection method</h2>
+        <button class="modal-close-icon" onclick="closeHostingModal()" data-i18n-title="close" title="Close">&#10005;</button>
+      </div>
+      <p class="setting-sub" data-i18n="desktop.hosting.help">Switching methods does not close the room or erase its data.</p>
+      <div class="hosting-modes">
+        <button class="hosting-mode" data-hosting-mode="cloudflare" onclick="selectDesktopHostingMode('cloudflare')"><b>Cloudflare</b><span data-i18n="desktop.mode.cloudflare.help">Automatic public HTTPS link</span></button>
+        <button class="hosting-mode" data-hosting-mode="porthole" onclick="selectDesktopHostingMode('porthole')"><b>Porthole</b><span data-i18n="desktop.mode.porthole.help">Port sharing through Steam</span></button>
+        <button class="hosting-mode" data-hosting-mode="vpn" onclick="selectDesktopHostingMode('vpn')"><b data-i18n="desktop.mode.vpn">VPN</b><span data-i18n="desktop.mode.vpn.help">Radmin VPN or Hamachi</span></button>
+      </div>
+      <div class="setting-card">
+        <div class="setting-card-row">
+          <div><div id="desktopHostingModeTitle" class="setting-label"></div><div id="desktopHostingStatus" class="hosting-mode-status"></div></div>
+          <div><span data-i18n="desktop.port">Port:</span> <span id="desktopHostingPort" class="hosting-port"></span></div>
+        </div>
+        <p id="desktopHostingDescription" class="setting-sub"></p>
+        <ol id="desktopHostingInstructions" class="hosting-instructions"></ol>
+        <div class="hosting-actions">
+          <button id="desktopOpenToolBtn" class="btn-outline" onclick="openDesktopNetworkTool()">Open / install</button>
+          <button id="desktopOpenHamachiBtn" class="btn-outline" onclick="openDesktopNetworkTool('hamachi')" data-i18n="desktop.openHamachi">Open Hamachi</button>
+          <button id="desktopRetryHostingBtn" class="btn-play" onclick="retryDesktopHosting()" data-i18n="desktop.retry">Retry</button>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:flex-end"><button class="btn-outline" onclick="closeHostingModal()" data-i18n="close">Close</button></div>
+    </div>
+  </div>
+
   <!-- MODAL: SETTINGS -->
   <div id="settingsModal" class="modal-overlay" style="display: none;">
     <div class="modal-card modal-large">
@@ -529,6 +579,16 @@
             <select id="settingsLanguage" class="text-input">
               <option value="en">English</option><option value="ru">Русский</option><option value="uk">Українська</option>
             </select>
+          </div>
+        </div>
+
+        <div class="setting-card desktop-only">
+          <div class="setting-card-row">
+            <div style="display:flex;align-items:center;gap:10px;">
+              <img src="/icon-64.png" alt="" style="width:38px;height:38px;border-radius:9px;">
+              <div><div class="setting-label" data-i18n="desktop.about.title">About Dubline</div><div id="desktopAboutVersion" class="setting-sub">Dubline</div><div class="setting-sub" data-i18n="desktop.about.author">Created by dmbai009 · MIT License</div></div>
+            </div>
+            <button class="btn-outline" onclick="openProjectPage()" data-i18n="desktop.about.github">GitHub repository</button>
           </div>
         </div>
       </div>
@@ -818,6 +878,15 @@
     <span data-i18n="browser.useChrome"></span>
     <button class="modal-close-icon" onclick="dismissBrowserBanner()" data-i18n-title="close" title="Close">✕</button>
   </div>
+  <aside id="appUpdateBanner" class="app-update-banner" aria-live="polite">
+    <div class="app-update-icon">&#11015;</div>
+    <div class="app-update-copy">
+      <strong data-i18n="desktop.update.title">A new Dubline version is ready</strong>
+      <span id="appUpdateVersion"></span>
+      <div class="app-update-actions"><button class="btn-play" onclick="openAppUpdate()" data-i18n="desktop.update.download">View on GitHub</button><button class="btn-outline" onclick="dismissAppUpdate()" data-i18n="desktop.update.later">Later</button></div>
+    </div>
+    <button class="modal-close-icon" onclick="dismissAppUpdate()" data-i18n-title="close" title="Close">&#10005;</button>
+  </aside>
 
   <!-- HEADER -->
   <header>
@@ -833,11 +902,13 @@
         <div class="desktop-invite-details">
           <div class="desktop-invite-row">
             <span id="desktopTunnelStatus" class="desktop-invite-status"></span>
+            <span id="desktopModePort" class="desktop-mode-port"></span>
             <label class="desktop-pin"><span data-i18n="desktop.pin">PIN</span> <span id="desktopPinCode" class="desktop-pin-code">••••</span><input id="desktopPinVisible" type="checkbox" onchange="toggleDesktopPin()"><span data-i18n="desktop.showPin">Show</span></label>
           </div>
           <div class="desktop-invite-row">
             <input id="desktopInviteUrl" class="desktop-link-input" type="text" readonly data-i18n-placeholder="desktop.linkPending" placeholder="The public link will appear here…">
             <button id="desktopCopyBtn" class="desktop-copy-btn" onclick="copyDesktopInvite()" disabled><span id="desktopCopyLabel" data-i18n="desktop.copy">Copy link</span></button>
+            <button class="btn-icon" onclick="openHostingModal()" data-i18n-title="desktop.hosting.title" title="Connection method">&#9881;</button>
           </div>
         </div>
       </div>
