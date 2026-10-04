@@ -86,6 +86,7 @@ function applyLocally(changesById) {
     const line = session.lines.find(item => item.id === lineId);
     if (!line) continue;
     saved.push({ line, fields: Object.fromEntries(OPTIMISTIC_FIELDS.map(field => [field, line[field]])) });
+    if (changes.character !== undefined && changes.character !== line.character && selectedLine && selectedLine.id === line.id) revealLineId = line.id;
     Object.assign(line, changes);
     if (changes.character !== undefined && changes.character !== saved[saved.length - 1].fields.character) line.claimedBy = null;
   }
@@ -262,7 +263,12 @@ function mergeEditorDraft(key, draft, line) {
     const mine = draft.values[field];
     const editedByMe = !sameEditorValue(field, mine, base);
     const changedThere = !sameEditorValue(field, latest, base);
-    if (changedThere && !editedByMe) draft.values[field] = latest;
+    if (changedThere && !editedByMe) {
+      draft.values[field] = latest;
+      // A conflict in another field must not turn this merged remote value into
+      // a local edit on the next update (and then overwrite later remote edits).
+      draft.base[field] = line[field];
+    }
     else if (changedThere && editedByMe && !sameEditorValue(field, mine, latest)) conflict = true;
   }
   if (conflict) return true;

@@ -541,6 +541,7 @@
     input[type="range"] { accent-color: var(--accent); }
     input[type="file"] { color: var(--muted); }
   </style>
+  <link rel="stylesheet" href="studio.css">
 </head>
 <body>
 
@@ -675,6 +676,22 @@
 
         <div class="setting-card">
           <div class="setting-card-row">
+            <div><div class="setting-label" data-i18n="studio.adr">ADR cues</div><div class="setting-sub" data-i18n="studio.adrHelp">Three beeps one second apart; start on the silent fourth beat. Preparation is at least 3 seconds. Use headphones to avoid microphone bleed.</div></div>
+            <select data-studio-setting="adr" class="text-input"><option value="off" data-i18n="studio.off">Off</option><option value="three" data-i18n="studio.three">3 beeps</option></select>
+          </div>
+        </div>
+        <div class="setting-card">
+          <div class="setting-label" data-i18n="latency.label">Microphone delay</div>
+          <div class="setting-sub" data-i18n="latency.help"></div>
+          <div class="setting-card-row">
+            <button class="btn-icon" data-studio-action="latency-minus">−10 ms</button>
+            <input type="number" min="-1000" max="1000" step="10" data-studio-setting="latency" class="text-input" aria-label="Microphone delay (ms)">
+            <button class="btn-icon" data-studio-action="latency-plus">+10 ms</button>
+            <button class="btn-icon" data-studio-action="latency-reset" data-i18n="reset">Reset</button>
+          </div>
+        </div>
+        <div class="setting-card">
+          <div class="setting-card-row">
             <div><div class="setting-label" data-i18n="language">Language</div><div class="setting-sub" data-i18n="language.help">Interface language on this device</div></div>
             <select id="settingsLanguage" class="text-input">
               <option value="en">English</option><option value="ru">Русский</option><option value="uk">Українська</option>
@@ -722,6 +739,23 @@
               <span id="settingsAutoDuckVal" style="font-weight: 700; color: var(--accent-2);">40%</span>
             </div>
             <input type="range" id="settingsAutoDuckAmount" min="0" max="80" step="5" value="40" style="width: 100%; cursor: pointer;">
+          </div>
+          <div class="setting-card-row" style="margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border);">
+            <div>
+              <div class="setting-label" data-i18n="autoDuck.local">My own auto-ducking</div>
+              <div class="setting-sub" data-i18n="autoDuck.local.help">Only for what you hear. Export always uses the project setting above.</div>
+            </div>
+            <label class="switch-ui"><input type="checkbox" id="settingsLocalDuck"><span class="switch-slider"></span></label>
+          </div>
+          <div id="localDuckSubRow" style="display: flex; flex-direction: column; gap: 6px; margin-top: 4px;">
+            <label style="display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--muted);">
+              <input type="checkbox" id="settingsLocalDuckOn" checked><span data-i18n="autoDuck.local.on">Lower background and original while takes play</span>
+            </label>
+            <div style="display: flex; justify-content: space-between; font-size: 11px;">
+              <span style="color: var(--muted);" data-i18n="duckAmount">Background reduction:</span>
+              <span id="settingsLocalDuckVal" style="font-weight: 700; color: var(--accent-2);">40%</span>
+            </div>
+            <input type="range" id="settingsLocalDuckAmount" min="0" max="80" step="5" value="40" style="width: 100%; cursor: pointer;">
           </div>
         </div>
 
@@ -842,14 +876,22 @@
           <div class="setting-label" data-i18n="customImport">3. Video + subtitles</div>
           <div class="setting-sub" data-i18n="customImport.help">Upload MP4/MKV and ASS/SSA/SRT/VTT. MKV may contain its own subtitle track.</div>
           <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 4px;">
-            <div>
-              <span style="font-size: 11px; color: var(--muted); font-weight: 700;" data-i18n="videoFile">Video (.mp4 / .mkv):</span>
-              <input type="file" id="customVideoInput" accept="video/mp4,video/x-matroska,.mp4,.mkv" style="width: 100%; font-size: 11px; margin-top: 2px;">
+            <div class="file-field">
+              <span class="file-field-label" data-i18n="videoFile">Video (.mp4 / .mkv):</span>
+              <label class="file-pick"><input type="file" id="customVideoInput" accept="video/mp4,video/x-matroska,.mp4,.mkv"><span class="file-pick-button" data-i18n="file.choose">Choose file</span><span class="file-pick-name">No file chosen</span></label>
             </div>
             <div id="mkvCompatibilityWarning" class="setting-warning" data-i18n="warning.mkvCodec"></div>
-            <div>
-              <span style="font-size: 11px; color: var(--muted); font-weight: 700;" data-i18n="subtitleFile">Subtitles (optional for MKV):</span>
-              <input type="file" id="customSubInput" accept=".ass,.ssa,.srt,.vtt" style="width: 100%; font-size: 11px; margin-top: 2px;">
+            <div class="file-field">
+              <span class="file-field-label" data-i18n="subtitleFile">Subtitles (optional):</span>
+              <label class="file-pick"><input type="file" id="customSubInput" accept=".ass,.ssa,.srt,.vtt"><span class="file-pick-button" data-i18n="file.choose">Choose file</span><span class="file-pick-name">No file chosen</span></label>
+            </div>
+            <div class="file-field">
+              <span class="file-field-label" data-i18n="studio.importOriginal">Original audio (optional)</span>
+              <label class="file-pick"><input type="file" id="customOriginalInput" accept=".wav,.mp3,.m4a,.aac,.ogg,.oga,.opus,.flac"><span class="file-pick-button" data-i18n="file.choose">Choose file</span><span class="file-pick-name">No file chosen</span></label>
+            </div>
+            <div class="file-field">
+              <span class="file-field-label" data-i18n="studio.importBacking">Intershum / M&amp;E (optional)</span>
+              <label class="file-pick"><input type="file" id="customIntershumInput" accept=".wav,.mp3,.m4a,.aac,.ogg,.oga,.opus,.flac"><span class="file-pick-button" data-i18n="file.choose">Choose file</span><span class="file-pick-name">No file chosen</span></label>
             </div>
             <div>
               <span style="font-size: 11px; color: var(--muted); font-weight: 700;" data-i18n="sceneTitle">Scene title (optional):</span>
@@ -892,9 +934,10 @@
               <div style="display:flex; justify-content:space-between; font-size:11px; font-weight:700;">
                 <span data-i18n="originalTrack">🗣️ Original video audio:</span><span id="renderOrigVal">0%</span>
               </div>
-              <input type="range" id="renderOrigVol" min="0" max="150" value="0" style="width:100%; accent-color: var(--warning);">
+              <input type="range" id="renderOrigVol" min="0" max="150" value="0" disabled style="width:100%; accent-color: var(--warning);">
             </div>
           </div>
+          <div class="setting-sub" data-i18n="studio.exportMix"></div>
           <div id="renderProgressBox" style="display: none; background: var(--bg); padding:10px; border-radius: var(--radius-sm); border:1px solid var(--border);">
             <span id="renderStatusText" data-i18n="rendering" style="font-size:12px; font-weight:700; color: var(--success);">⏳ Exporting video…</span>
             <div class="progress" style="margin-top:6px;"><div id="renderProgressBar" style="background: var(--success);"></div></div>
@@ -1084,7 +1127,7 @@
   <div class="workspace" id="workspace">
     <!-- LOBBY -->
     <aside class="panel lobby-panel" id="lobbyPanel">
-      <div class="panel-title"><span data-i18n="lobby.title">Players</span></div>
+      <div class="panel-title"><span data-i18n="lobby.title">Players</span><button class="btn-icon" data-studio-action="lobby" data-i18n-title="studio.collapseLobby" title="Collapse players">☰</button></div>
       <div class="lobby-summary">
         <div class="lobby-summary-row"><span data-i18n="progress.scene">Dubbed</span><span><b id="lobbyProgressCount">0</b> / <span id="lobbyProgressTotal">0</span></span></div>
         <div class="progress"><div id="lobbyProgressBar"></div></div>
@@ -1102,7 +1145,7 @@
       <div class="main-area">
         <div class="panel video-box">
           <div class="video-wrapper">
-            <video id="mainVideo" controls crossorigin="anonymous"></video>
+            <video id="mainVideo" crossorigin="anonymous"></video>
             <div class="video-actions">
               <button id="expandVideoBtn" class="video-action" type="button" onclick="toggleExpandedVideo()" data-i18n-title="video.expand" title="Expand video">⤢</button>
               <button class="video-action" type="button" onclick="toggleVideoFullscreen()" data-i18n-title="video.fullscreen" title="Fullscreen">⛶</button>
@@ -1128,26 +1171,17 @@
             </div>
           </div>
 
-          <div class="audio-mixer">
+          <div class="studio-transport">
+            <button class="btn-icon" data-studio-action="back" data-i18n-title="studio.back" title="Back 3 seconds (J)">−3</button>
+            <button class="btn-play" data-studio-action="play" data-i18n-title="studio.play" title="Play / pause (Space)">▶</button>
+            <button class="btn-icon" data-studio-action="forward" data-i18n-title="studio.forward" title="Forward 3 seconds (L)">+3</button>
+            <span data-studio-time>0:00 / 0:00</span>
             <label class="mute-toggle">
               <input type="checkbox" id="muteAllCheckbox">
               <span data-i18n="muteAll">🔇 Mute all</span>
             </label>
-            <div class="mixer-channel">
-              <span class="label" data-i18n="original">Original:</span>
-              <input type="range" id="volOriginal" min="0" max="100" value="0">
-              <span class="val" id="volOriginalVal">0%</span>
-            </div>
-            <div class="mixer-channel">
-              <span class="label" data-i18n="background">Background:</span>
-              <input type="range" id="volBacking" min="0" max="100" value="100">
-              <span class="val" id="volBackingVal">100%</span>
-            </div>
-            <div class="mixer-channel">
-              <span class="label" data-i18n="dubbing">Dubbing:</span>
-              <input type="range" id="volRecorded" min="0" max="100" value="100">
-              <span class="val" id="volRecordedVal">100%</span>
-            </div>
+            <button class="btn-icon" data-studio-action="expand" data-i18n-title="video.expand">⤢</button>
+            <button class="btn-icon" data-studio-action="fullscreen" data-i18n-title="studio.fullscreen" title="Fullscreen (F)">⛶</button>
           </div>
 
           <!-- Audio track picker when the video has several tracks -->
@@ -1218,14 +1252,17 @@
   <script src="/vendor/jszip/jszip.min.js"></script>
   <script src="i18n.js"></script>
   <script src="state.js"></script>
+  <script src="project-audio.js"></script>
   <script src="audio-fx.js"></script>
   <script src="audio.js"></script>
   <script src="player.js"></script>
+  <script src="adr-cues.js"></script>
   <script src="recording.js"></script>
   <script src="import.js"></script>
   <script src="export.js"></script>
   <script src="room.js"></script>
   <script src="editor.js"></script>
+  <script src="studio.js"></script>
   <script src="features.js"></script>
   <script src="p2p.js"></script>
   <script src="chat.js"></script>

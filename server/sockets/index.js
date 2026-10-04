@@ -7,6 +7,7 @@ const registerTrashHandlers = require('./trash');
 const registerP2pHandlers = require('./p2p');
 const registerEditorHandlers = require('./editor');
 const registerFeatureHandlers = require('./features');
+const registerProjectAudio = require('./project-audio');
 
 io.on('connection', socket => {
   // Changed on joining a room and on renaming; handlers read them at call time
@@ -18,4 +19,5 @@ io.on('connection', socket => {
   registerP2pHandlers(socket, conn);
   registerEditorHandlers(socket, conn);
   registerFeatureHandlers(socket, conn);
+  registerProjectAudio(socket, conn);
 });

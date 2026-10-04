@@ -68,6 +68,8 @@ async function main() {
     assert.equal(await launcher.$$eval('.mode', nodes => nodes.length), 3);
     await launcher.waitForFunction(() => document.getElementById('launcherVersion')?.textContent.startsWith('Dubline v'));
     assert.equal(await launcher.$eval('#launcherVersion', node => node.textContent), `Dubline v${require('../package.json').version}`);
+    assert.equal(await launcher.evaluate(() => document.documentElement.lang), 'en', 'first launch must be English');
+    await launcher.select('#language', 'uk');
     await launcher.$eval(`[data-mode="${hostingMode}"]`, button => button.click());
     await launcher.$eval('#startHost', button => button.click());
 
@@ -92,6 +94,9 @@ async function main() {
       bodyClass: document.body?.className || ''
     }));
     assert.equal(desktopReady, true, `Desktop UI did not initialize: ${JSON.stringify(bridgeState)} ${diagnostics.join(' | ')}`);
+    assert.equal(await host.evaluate(() => DublineI18n.getLanguage()), 'uk', 'launcher language must follow into the server origin');
+    await host.evaluate(async () => { DublineI18n.setLanguage('en'); await window.dublineDesktop.setLanguage('en'); });
+    assert.equal(JSON.parse(fs.readFileSync(path.join(userData, 'language.json'), 'utf8')), 'en');
     await host.waitForFunction(() => Number(document.getElementById('desktopHostingPort')?.textContent) >= 38473);
     const result = await host.evaluate(() => ({
       port: Number(document.getElementById('desktopHostingPort').textContent),
@@ -123,6 +128,10 @@ async function main() {
     guestBrowser = await launchBrowser(result.port);
     const guestUrl = hostingMode === 'cloudflare' ? result.inviteUrl : host.url();
     const guest = await openPlayer(guestBrowser, guestUrl, 'Smoke Guest');
+    // The guest's own warnings (e.g. a discarded or empty take) end up in a failure report
+    guest.on('console', message => {
+      if (['warning', 'warn'].includes(message.type()) && /\[Dubline\]/.test(message.text())) diagnostics.push(`guest: ${message.text()}`);
+    });
     await guest.waitForFunction(() => document.getElementById('passwordModal').style.display === 'flex');
     await guest.evaluate(code => {
       passwordNickInput.value = 'Smoke Guest';
@@ -130,6 +139,24 @@ async function main() {
       submitRoomPassword(new Event('submit', { cancelable: true }));
     }, pin);
     await guest.waitForFunction(() => session && session.loaded && session.lines.length === 4 && video.readyState >= 2, { timeout: 60000 });
+    // The Audio group starts collapsed: open it, as a user would
+    await host.evaluate(() => { localStorage.setItem('dubline_audio_collapsed', '0'); renderTimeline(); });
+    assert.equal(await host.evaluate(() => document.querySelectorAll('.studio-audio-row').length), 3);
+    await guest.waitForFunction(() => document.querySelector('[data-audio-channel=original] .studio-wave-source')?.textContent === t('studio.videoAudio'));
+    assert.equal(await host.$eval('[data-audio-channel=original] .studio-wave-source', el => el.textContent), 'Audio from video');
+    const waveform = await host.evaluate(async () => {
+      const response = await fetch(`/api/audio-waveform?${new URLSearchParams({ room: currentRoom, sessionId: session.activeSessionId, channel: 'backing' })}`);
+      if (!response.ok) throw new Error(await response.text()); return response.json();
+    });
+    assert.ok(waveform.duration > 11 && waveform.peaks.some(value => value > 0));
+    await host.evaluate(() => updateProjectAudio('backing', 'offset', -0.123));
+    await guest.waitForFunction(() => session.projectAudio.backing.offset === -0.123);
+    await guest.select('[data-studio-mix]', 'monitor');
+    await guest.evaluate(() => { const input = document.querySelector('#volBacking'); input.value = '25'; input.dispatchEvent(new Event('change', { bubbles: true })); });
+    assert.equal(await guest.evaluate(() => studioPlaybackVolumes().backing), 0.25);
+    assert.equal(await guest.evaluate(() => readRenderGains().backing), 1);
+    await host.evaluate(() => updateProjectAudio('backing', 'offset', 0));
+    await guest.waitForFunction(() => session.projectAudio.backing.offset === 0);
     assert.equal(await guest.evaluate(() => amHost()), false, 'PIN guest gained host rights');
     process.stdout.write('PIN guest joined and loaded packaged scene media.\n');
 
@@ -177,7 +204,11 @@ async function main() {
     assert.equal(preparation.state, 'preparing');
     await guest.waitForFunction(() => recordState === 'recording', { timeout: 12000 });
     assert.ok(await guest.evaluate(() => performance.now() - smokeRecordingBegan >= 4850), 'preparation was shorter than five seconds');
-    await host.waitForFunction(id => !!session.lines.find(line => line.id === id)?.audioUrl, { timeout: 30000 }, created.line.id);
+    await host.waitForFunction(id => !!session.lines.find(line => line.id === id)?.audioUrl, { timeout: 30000 }, created.line.id).catch(async error => {
+      const state = await guest.evaluate(() => ({ recording: recordState, videoTime: video.currentTime, videoPaused: video.paused, readyState: video.readyState,
+        recorder: mediaRecorder?.state, pendingUploads: pendingTakes.size, selected: selectedLine?.id }));
+      throw new Error(`${error.message}: ${JSON.stringify({ state, dialogs: guest.dialogs, errors: guest.errors, diagnostics: diagnostics.filter(message => message.startsWith('page:') || message.startsWith('guest:')) })}`);
+    });
     await host.evaluate(() => socket.emit('set_blind_mode', { enabled: true }));
     await host.waitForFunction(id => session.blindMode && !canHearLine(session.lines.find(line => line.id === id)), {}, created.line.id);
     await host.evaluate(() => revealAllTakes());

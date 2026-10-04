@@ -153,7 +153,7 @@ async function startServer(extraEnv = {}) {
 }
 
 // ---------- Players ----------
-async function openPlayer(browser, url, nick, { helpSeen = true, viewport = { width: 1600, height: 900 }, context = null } = {}) {
+async function openPlayer(browser, url, nick, { helpSeen = true, viewport = { width: 1600, height: 900 }, context = null, audioExpanded = true } = {}) {
   const ctx = context || await browser.createBrowserContext();
   const page = await ctx.newPage();
   await page.setViewport(viewport);
@@ -168,12 +168,15 @@ async function openPlayer(browser, url, nick, { helpSeen = true, viewport = { wi
     page.dialogs.push(dialog.message());
     dialog.accept(dialog.type() === 'prompt' ? (page.promptAnswer || '') : undefined);
   });
-  await page.evaluateOnNewDocument((name, seen) => {
+  await page.evaluateOnNewDocument((name, seen, expanded) => {
     // The UI language would otherwise follow the machine's locale; assertions expect English
     localStorage.setItem('dubline_language', 'en');
     if (name) localStorage.setItem('dubline_nick', name);
     if (seen) localStorage.setItem('dubline_help_seen', '1');
-  }, nick, helpSeen);
+    // The Audio group starts collapsed; most suites look at its rows, so open it once
+    // (a later collapse by the test itself survives reloads)
+    if (expanded && localStorage.getItem('dubline_audio_collapsed') === null) localStorage.setItem('dubline_audio_collapsed', '0');
+  }, nick, helpSeen, audioExpanded);
   await page.goto(url);
   await waitFor(page, () => typeof socket !== 'undefined' && socket.connected, 10000);
   return page;

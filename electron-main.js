@@ -23,7 +23,7 @@ function guestUrlFromArgs() {
 
 const guestTargetUrl = guestUrlFromArgs();
 const guestOrigin = guestTargetUrl ? new URL(guestTargetUrl).origin : '';
-// Chromium must receive this before app.ready. The guest window has no preload or Node access,
+// Chromium must receive this before app.ready. The guest has only a language preload, no Node access,
 // and media permission is still limited to this exact origin below.
 if (guestOrigin && guestOrigin.startsWith('http://')) {
   app.commandLine.appendSwitch('unsafely-treat-insecure-origin-as-secure', guestOrigin);
@@ -45,7 +45,35 @@ let serverFailure = '';
 let appUpdateStatus = { state: 'checking', currentVersion: app.getVersion(), version: '', url: '' };
 let appUpdateDismissed = false;
 
+// The portable EXE unpacks every launch into its own %TEMP%/nsXXXX.tmp/app and removes it on exit.
+// After a crash or a killed process the folder (hundreds of MB) stays. Remove such leftovers:
+// only folders older than 10 minutes that contain this app, and only if they can be renamed —
+// Windows refuses to rename a folder whose EXE is running, so another open Dubline is never touched.
+function cleanupPortableLeftovers() {
+  if (!app.isPackaged || !process.env.PORTABLE_EXECUTABLE_FILE) return;
+  const ownDir = path.resolve(path.dirname(process.execPath), '..');
+  const tempDir = path.dirname(ownDir);
+  const exeName = path.basename(process.execPath);
+  let entries = [];
+  try { entries = fs.readdirSync(tempDir, { withFileTypes: true }); } catch { return; }
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !/^ns[a-z0-9]+\.tmp$/i.test(entry.name)) continue;
+    const dir = path.join(tempDir, entry.name);
+    if (path.resolve(dir) === ownDir) continue;
+    try {
+      if (!fs.existsSync(path.join(dir, 'app', exeName)) || !fs.existsSync(path.join(dir, 'app', 'resources', 'app.asar'))) continue;
+      if (Date.now() - fs.statSync(dir).mtimeMs < 10 * 60 * 1000) continue;
+      const doomed = `${dir}.dubline-old`;
+      fs.renameSync(dir, doomed);
+      fs.rm(doomed, { recursive: true, force: true }, () => {});
+    } catch { /* in use by a running Dubline, or not ours to remove */ }
+  }
+}
+
 const desktopHostToken = crypto.randomBytes(32).toString('hex');
+const languageFile = path.join(app.getPath('userData'), 'language.json');
+let interfaceLanguage = null;
+try { const saved = JSON.parse(fs.readFileSync(languageFile, 'utf8')); if (['en', 'ru', 'uk'].includes(saved)) interfaceLanguage = saved; } catch { /* first launch */ }
 const roomPin = Array.from({ length: 4 }, () => PIN_ALPHABET[crypto.randomInt(PIN_ALPHABET.length)]).join('');
 const tunnelStatus = { state: 'idle', publicUrl: '', error: '' };
 
@@ -365,7 +393,7 @@ function createHostWindow(port) {
 function createGuestWindow(target) {
   const allowedOrigin = new URL(target).origin;
   mainWindow = new BrowserWindow({
-    ...windowOptions(), width: 1500, height: 900, minWidth: 1280, minHeight: 720
+    ...windowOptions(path.join(__dirname, 'electron-guest-preload.js')), width: 1500, height: 900, minWidth: 1280, minHeight: 720
   });
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   mainWindow.webContents.on('will-navigate', (event, url) => {
@@ -379,8 +407,7 @@ function createGuestWindow(target) {
     const guestWindow = mainWindow;
     guestWindow.center();
     guestWindow.show();
-    const locale = String(app.getLocale() || 'en').toLowerCase();
-    const language = locale.startsWith('ru') ? 'ru' : locale.startsWith('uk') ? 'uk' : 'en';
+    const language = interfaceLanguage || 'en';
     const messages = {
       en: {
         title: 'Could not connect to the room',
@@ -441,9 +468,27 @@ function isHostSender(event) {
   return mainWindow && !mainWindow.isDestroyed() && event.sender === mainWindow.webContents && !!serverChild;
 }
 
+function isGuestLanguageSender(event) {
+  if (!guestOrigin || !mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents ||
+      event.senderFrame !== mainWindow.webContents.mainFrame) return false;
+  try { return new URL(event.senderFrame.url).origin === guestOrigin; } catch { return false; }
+}
+
 ipcMain.handle('launcher:detect-tools', event => {
+  // Only the two trusted local windows can access the app preference.
   if (!isLauncherSender(event)) throw new Error('Untrusted launcher request.');
   return detectNetworkTools();
+});
+ipcMain.on('app:get-language', event => {
+  event.returnValue = isHostSender(event) || isLauncherSender(event) || isGuestLanguageSender(event) ? interfaceLanguage : null;
+});
+ipcMain.handle('app:set-language', (event, language) => {
+  if (!isHostSender(event) && !isLauncherSender(event) && !isGuestLanguageSender(event)) throw new Error('Untrusted language request.');
+  if (!['en', 'ru', 'uk'].includes(language)) return false;
+  fs.mkdirSync(path.dirname(languageFile), { recursive: true });
+  fs.writeFileSync(languageFile, JSON.stringify(language));
+  interfaceLanguage = language;
+  return true;
 });
 ipcMain.handle('app:get-update-status', event => {
   if (!isHostSender(event) && !isLauncherSender(event)) throw new Error('Untrusted update request.');
@@ -564,6 +609,8 @@ else {
   });
   app.whenReady().then(() => {
     app.setAppUserModelId('io.github.dmbai009.dubline');
+    // Not at once: it must not slow down the start
+    setTimeout(cleanupPortableLeftovers, 20000).unref?.();
     session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
       let allowed = false;
       try {

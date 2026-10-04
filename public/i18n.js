@@ -11,7 +11,7 @@
       'micGain': 'Microphone gain', 'micGain.help': 'Boost quiet headsets and microphones',
       'noiseSuppression': 'Browser noise & echo suppression', 'noiseSuppression.help': 'Built-in WebRTC microphone processing',
       'language': 'Language', 'language.help': 'Interface language on this device',
-      'autoDuck': 'Auto-ducking', 'autoDuck.help': 'Lowers background and original audio while takes are playing',
+      'autoDuck': 'Auto-ducking', 'autoDuck.help': 'Project setting: lowers background and original audio while takes play, for everyone and in export', 'autoDuck.local': 'My own auto-ducking', 'autoDuck.local.help': 'Only for what you hear. Export always uses the project setting above.', 'autoDuck.local.on': 'Lower background and original while takes play',
       'duckAmount': 'Background reduction:', 'prompter': 'Video prompter', 'prompter.help': 'Shows the current line and character over the video',
       'prompterSize': 'Subtitle font size:', 'files.title': '📁 Files & Export', 'importTab': '⬆ Import',
       'libraryTab': '📂 Server packs', 'exportTab': '🎬 Export', 'zipImport': '1. Import a Voxalike pack (.zip)',
@@ -55,7 +55,7 @@
       'nickname.help': 'Отображается на ваших репликах и в чате', 'save': 'Сохранить', 'micGain': 'Чувствительность микрофона (Gain)',
       'micGain.help': 'Усиление звука для тихих гарнитур и микрофонов', 'noiseSuppression': 'Шумоподавление и эхоподавление браузера',
       'noiseSuppression.help': 'Встроенная обработка микрофона WebRTC', 'language': 'Язык', 'language.help': 'Язык интерфейса на этом устройстве',
-      'autoDuck': 'Автодакинг', 'autoDuck.help': 'Приглушает фон и оригинал во время звучания дублей', 'duckAmount': 'Сила приглушения фона:',
+      'autoDuck': 'Автодакинг', 'autoDuck.help': 'Настройка проекта: приглушает фон и оригинал во время дублей — у всех и в экспорте', 'autoDuck.local': 'Мой автодакинг', 'autoDuck.local.help': 'Только для того, что слышите вы. Экспорт всегда использует настройку проекта выше.', 'autoDuck.local.on': 'Приглушать фон и оригинал во время дублей', 'duckAmount': 'Сила приглушения фона:',
       'prompter': 'Суфлёр на видео', 'prompter.help': 'Показывает текущую реплику и персонажа поверх видео', 'prompterSize': 'Размер шрифта субтитров:',
       'files.title': '📁 Файлы и Экспорт', 'importTab': '⬆ Импорт', 'libraryTab': '📂 Моды на сервере', 'exportTab': '🎬 Экспорт',
       'zipImport': '1. Загрузка пака Voxalike (.zip)', 'zipImport.help': 'Поддерживаются архивы сцен Voxalike и The Choicer Voicer',
@@ -96,7 +96,7 @@
       'nickname.help': 'Відображається на репліках і в чаті', 'save': 'Зберегти', 'micGain': 'Підсилення мікрофона',
       'micGain.help': 'Підсилення тихих гарнітур і мікрофонів', 'noiseSuppression': 'Шумозаглушення та ехоприглушення',
       'noiseSuppression.help': 'Вбудована обробка мікрофона WebRTC', 'language': 'Мова', 'language.help': 'Мова інтерфейсу на цьому пристрої',
-      'autoDuck': 'Автодакінг', 'autoDuck.help': 'Приглушує фон і оригінал під час звучання дублів', 'duckAmount': 'Сила приглушення фону:',
+      'autoDuck': 'Автодакінг', 'autoDuck.help': 'Налаштування проєкту: приглушує фон і оригінал під час дублів — у всіх і в експорті', 'autoDuck.local': 'Мій автодакінг', 'autoDuck.local.help': 'Лише для того, що чуєте ви. Експорт завжди використовує налаштування проєкту вище.', 'autoDuck.local.on': 'Приглушувати фон і оригінал під час дублів', 'duckAmount': 'Сила приглушення фону:',
       'prompter': 'Суфлер на відео', 'prompter.help': 'Показує поточну репліку та персонажа поверх відео', 'prompterSize': 'Розмір шрифту субтитрів:',
       'files.title': '📁 Файли та Експорт', 'importTab': '⬆ Імпорт', 'libraryTab': '📂 Моди на сервері', 'exportTab': '🎬 Експорт',
       'zipImport': '1. Завантаження паку Voxalike (.zip)', 'zipImport.help': 'Підтримуються архіви Voxalike і The Choicer Voicer',
@@ -1254,6 +1254,8 @@
     'import.skippedTimings': '{n} subtitle lines were skipped: their time is missing, reversed or zero-length.',
     'system.subtitlesSkipped': '⚠ {n} subtitle lines were skipped: their time is missing, reversed or zero-length.',
     'error.packExportCancelled': 'The pack export was cancelled because the host disconnected.',
+    'file.choose': 'Choose file', 'file.none': 'No file chosen',
+    'studio.switchedToMonitor': 'Switched to My monitoring: your volume changes are only for you and do not affect the export.',
     'editor.undone': 'Your last edit was undone.', 'editor.undoNothing': 'You have no edits to undo.',
     'editor.undoSkipped': '{n} lines were changed by someone else afterwards and were left as they are.',
     'editor.modeStoppedRecording': 'The host opened Edit Mode: recording stopped. The take will be sent when Dub Mode is back.',
@@ -1294,6 +1296,8 @@
     'import.skippedTimings': 'Пропущено строк субтитров: {n} — у них нет времени, оно перепутано или длительность нулевая.',
     'system.subtitlesSkipped': '⚠ Пропущено строк субтитров: {n} — у них нет времени, оно перепутано или длительность нулевая.',
     'error.packExportCancelled': 'Экспорт пака отменён: хост отключился.',
+    'file.choose': 'Выбрать файл', 'file.none': 'Файл не выбран',
+    'studio.switchedToMonitor': 'Включено «Моё прослушивание»: громкость меняется только для вас и не влияет на экспорт.',
     'editor.undone': 'Последняя правка отменена.', 'editor.undoNothing': 'Нечего отменять.',
     'editor.undoSkipped': 'Реплик, изменённых после вас другими: {n} — их оставили как есть.',
     'editor.modeStoppedRecording': 'Хост включил режим редактирования: запись остановлена. Дубль отправится, когда вернётся режим дубляжа.',
@@ -1334,6 +1338,8 @@
     'import.skippedTimings': 'Пропущено рядків субтитрів: {n} — у них немає часу, він переплутаний або тривалість нульова.',
     'system.subtitlesSkipped': '⚠ Пропущено рядків субтитрів: {n} — у них немає часу, він переплутаний або тривалість нульова.',
     'error.packExportCancelled': 'Експорт пака скасовано: хост відключився.',
+    'file.choose': 'Вибрати файл', 'file.none': 'Файл не вибрано',
+    'studio.switchedToMonitor': 'Увімкнено «Моє прослуховування»: гучність змінюється лише для вас і не впливає на експорт.',
     'editor.undone': 'Останню правку скасовано.', 'editor.undoNothing': 'Нічого скасовувати.',
     'editor.undoSkipped': 'Реплік, змінених після вас іншими: {n} — їх залишено як є.',
     'editor.modeStoppedRecording': 'Хост увімкнув режим редагування: запис зупинено. Дубль надішлеться, коли повернеться режим дубляжу.',
@@ -1399,10 +1405,59 @@
     'error.packExportBusy': 'На цьому хості вже триває експорт пака. Дочекайтеся його завершення.'
   });
 
-  let language = localStorage.getItem('dubline_language');
+  const studioCopy = {
+    'studio.audio': ['Audio', 'Аудио', 'Аудіо'],
+    'studio.mixMode': ['Mix controls', 'Управление миксом', 'Керування міксом'],
+    'studio.projectMix': ['Project mix', 'Микс проекта', 'Мікс проєкту'],
+    'studio.monitor': ['My monitoring', 'Моё прослушивание', 'Моє прослуховування'],
+    'studio.projectHelp': ['Shared mix · used for export', 'Общий микс · используется в экспорте', 'Спільний мікс · використовується в експорті'],
+    'studio.monitorHelp': ['Only on this device · export uses the project mix', 'Только на этом устройстве · экспорт использует микс проекта', 'Лише на цьому пристрої · експорт використовує мікс проєкту'],
+    'studio.monitorReset': ['Reset personal monitoring to the project mix', 'Сбросить личное прослушивание к миксу проекта', 'Скинути особисте прослуховування до міксу проєкту'],
+    'studio.mixLocked': ['Project mix: host or Edit Mode only. Select My monitoring for personal changes.', 'Микс проекта: хост или Edit Mode. Для личных настроек выберите «Моё прослушивание».', 'Мікс проєкту: хост або Edit Mode. Для особистих налаштувань оберіть «Моє прослуховування».'],
+    'studio.mixConflict': ['Mix changed or connection lost. Check the latest values before retrying.', 'Микс изменился или связь потеряна. Проверьте актуальные значения перед повтором.', 'Мікс змінився або зв’язок втрачено. Перевірте актуальні значення перед повтором.'],
+    'studio.mute': ['Mute channel', 'Выключить дорожку', 'Вимкнути доріжку'],
+    'studio.solo': ['Solo channel', 'Слушать только эту дорожку', 'Слухати лише цю доріжку'],
+    'studio.offset': ['Offset', 'Сдвиг', 'Зсув'],
+    'studio.noSource': ['No source', 'Нет источника', 'Немає джерела'],
+    'studio.videoAudio': ['Audio from video', 'Звук из видео', 'Звук із відео'],
+    'studio.separateAudio': ['Separate audio', 'Отдельное аудио', 'Окреме аудіо'],
+    'studio.noWave': ['No readable audio waveform', 'Нет доступного аудиосигнала', 'Немає доступного аудіосигналу'],
+    'studio.waveLoading': ['Building waveform…', 'Строю waveform…', 'Будую waveform…'],
+    'studio.play': ['Play / pause (Space)', 'Воспроизвести / пауза (Space)', 'Відтворити / пауза (Space)'],
+    'studio.back': ['Back 3 seconds (J)', 'Назад на 3 секунды (J)', 'Назад на 3 секунди (J)'],
+    'studio.forward': ['Forward 3 seconds (L)', 'Вперёд на 3 секунды (L)', 'Уперед на 3 секунди (L)'],
+    'studio.fullscreen': ['Fullscreen (F)', 'Полный экран (F)', 'Повний екран (F)'],
+    'studio.adr': ['ADR cues', 'ADR-сигналы', 'ADR-сигнали'],
+    'studio.off': ['Off', 'Выключены', 'Вимкнені'],
+    'studio.three': ['3 beeps', '3 сигнала', '3 сигнали'],
+    'studio.adrHelp': ['Three beeps one second apart; start on the silent fourth beat. Preparation is at least 3 seconds. Use headphones to avoid microphone bleed.', 'Три сигнала с интервалом 1 с; начало реплики — на четвёртый, беззвучный удар. Подготовка не менее 3 с. Используйте наушники, чтобы сигналы не попадали в микрофон.', 'Три сигнали з інтервалом 1 с; початок репліки — на четвертий, беззвучний удар. Підготовка не менше 3 с. Використовуйте навушники, щоб сигнали не потрапляли в мікрофон.'],
+    'studio.importOriginal': ['Original audio (optional)', 'Оригинальное аудио (необязательно)', 'Оригінальне аудіо (необов’язково)'],
+    'studio.importBacking': ['Intershum / M&E (optional)', 'Интершум / M&E (необязательно)', 'Інтершум / M&E (необов’язково)'],
+    'studio.collapseLobby': ['Collapse / expand players', 'Свернуть / развернуть игроков', 'Згорнути / розгорнути гравців'],
+    'studio.offline': ['Offline', 'Не в сети', 'Не в мережі'],
+    'studio.done': ['All assigned lines recorded', 'Все назначенные реплики записаны', 'Усі призначені репліки записано'],
+    'studio.exportMix': ['Export uses the shared project mix, not personal monitoring. Change the mix on the Audio tracks.', 'Экспорт использует общий микс проекта, а не личное прослушивание. Настройте микс на дорожках Audio.', 'Експорт використовує спільний мікс проєкту, а не особисте прослуховування. Налаштуйте мікс на доріжках Audio.'],
+    'customImport': ['3. Custom scene', '3. Своя сцена', '3. Власна сцена'],
+    'customImport.help': ['Upload MP4/MKV. Audio and subtitles are optional. Without subtitles, start with an empty Edit Mode scene. Embedded MKV subtitles are used when available.', 'Загрузите MP4/MKV. Аудио и субтитры необязательны. Без субтитров создаётся пустая сцена в Edit Mode. Встроенные субтитры MKV используются, если есть.', 'Завантажте MP4/MKV. Аудіо й субтитри необов’язкові. Без субтитрів створюється порожня сцена в Edit Mode. Вбудовані субтитри MKV використовуються, якщо є.'],
+    'subtitleFile': ['Subtitles (optional):', 'Субтитры (необязательно):', 'Субтитри (необов’язково):'],
+    'error.audioFormat': ['Use WAV, MP3, M4A, AAC, OGG, OPUS or FLAC audio.', 'Используйте аудио WAV, MP3, M4A, AAC, OGG, OPUS или FLAC.', 'Використовуйте аудіо WAV, MP3, M4A, AAC, OGG, OPUS або FLAC.'],
+    'error.audioInvalid': ['The audio file is empty or unreadable.', 'Аудиофайл пуст или повреждён.', 'Аудіофайл порожній або пошкоджений.'],
+    'error.importSceneChanged': ['The active scene changed during import. Import again.', 'Активная сцена изменилась во время импорта. Повторите импорт.', 'Активна сцена змінилася під час імпорту. Повторіть імпорт.']
+  };
+  Object.assign(studioCopy, {
+    'studio.mediaBusy': ['Finish the current recording or video export first.', 'Сначала завершите текущую запись или экспорт видео.', 'Спочатку завершіть поточний запис або експорт відео.'],
+    'render.playbackFailed': ['Video playback did not start or stopped progressing. Export stopped; try again.', 'Видео не запустилось или перестало воспроизводиться. Экспорт остановлен; попробуйте снова.', 'Відео не запустилося або припинило відтворення. Експорт зупинено; спробуйте ще раз.'],
+    'record.playbackFailed': ['Recording stopped: the video could not play. No take was saved. Try again.', 'Запись остановлена: видео не воспроизводится. Дубль не сохранён. Попробуйте снова.', 'Запис зупинено: відео не відтворюється. Дубль не збережено. Спробуйте ще раз.'],
+    'render.audioUnavailable': ['Could not load audio ({source}). Export stopped; check the connection and try again.', 'Не удалось загрузить аудио ({source}). Экспорт остановлен; проверьте соединение и повторите.', 'Не вдалося завантажити аудіо ({source}). Експорт зупинено; перевірте з’єднання та повторіть.'],
+    'render.sceneChanged': ['The scene changed during export. Export stopped; start again for the current scene.', 'Сцена изменилась во время экспорта. Экспорт остановлен; запустите его заново для текущей сцены.', 'Сцена змінилася під час експорту. Експорт зупинено; запустіть його знову для поточної сцени.']
+  });
+  for (const [key, translations] of Object.entries(studioCopy)) ['en', 'ru', 'uk'].forEach((code, i) => { messages[code][key] = translations[i]; });
+
+  const preferences = window.dublinePreferences || window.dublineDesktop;
+  let language = preferences && preferences.language || localStorage.getItem('dubline_language');
   if (!messages[language]) {
-    const browser = String(navigator.language || 'en').toLowerCase();
-    language = browser.startsWith('uk') ? 'uk' : browser.startsWith('ru') ? 'ru' : 'en';
+    language = 'en';
+    localStorage.setItem('dubline_language', language);
   }
 
   function t(key, params = {}) {
@@ -1432,9 +1487,11 @@
     if (!messages[next]) return;
     language = next;
     localStorage.setItem('dubline_language', language);
+    if (preferences && preferences.setLanguage) preferences.setLanguage(language).catch(() => {});
     apply();
     window.dispatchEvent(new CustomEvent('dubline-language-changed', { detail: language }));
   }
 
   window.DublineI18n = { t, apply, setLanguage, getLanguage: () => language, languageName, messages };
+  if (preferences && preferences.setLanguage) preferences.setLanguage(language).catch(() => {});
 })();

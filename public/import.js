@@ -105,15 +105,31 @@ window.loadSavedPack = async function(filename) {
   if (!res.ok) alert(await readError(res));
 };
 
+// Themed file pickers: show the chosen file name in the interface language
+function refreshFilePickers() {
+  document.querySelectorAll('.file-pick').forEach(pick => {
+    const input = pick.querySelector('input[type=file]');
+    const file = input.files && input.files[0];
+    const name = pick.querySelector('.file-pick-name');
+    pick.classList.toggle('has-file', !!file);
+    name.textContent = file ? file.name : t('file.none');
+    name.title = file ? file.name : '';
+  });
+}
+document.addEventListener('change', event => { if (event.target.closest && event.target.closest('.file-pick')) refreshFilePickers(); });
+window.addEventListener('dubline-language-changed', refreshFilePickers);
+refreshFilePickers();
+
 window.uploadCustomScene = async function() {
   if (!amHost()) return alert(t('onlyHost'));
   const videoFile = customVideoInput.files[0];
   const subtitleFile = document.getElementById('customSubInput').files[0];
+  const originalFile = document.getElementById('customOriginalInput').files[0];
+  const intershumFile = document.getElementById('customIntershumInput').files[0];
   const status = document.getElementById('customUploadStatus');
   const button = document.getElementById('customUploadBtn');
   if (!videoFile) return alert(t('error.generic', { message: t('videoFile') }));
-  if (!subtitleFile && !/\.mkv$/i.test(videoFile.name)) return alert(t('error.generic', { message: t('subtitleFile') }));
-  const tooBig = tunnelUploadError([videoFile, subtitleFile]);
+  const tooBig = tunnelUploadError([videoFile, subtitleFile, originalFile, intershumFile]);
   if (tooBig) return alert(tooBig);
 
   const form = new FormData();
@@ -121,6 +137,8 @@ window.uploadCustomScene = async function() {
   form.append('title', document.getElementById('customSceneTitle').value.trim());
   form.append('video', videoFile);
   if (subtitleFile) form.append('subtitles', subtitleFile);
+  if (originalFile) form.append('original', originalFile);
+  if (intershumFile) form.append('intershum', intershumFile);
   status.textContent = t('uploading');
   status.style.cssText = 'display:block;color:#a78bfa;font-size:11px;';
   button.disabled = true;
@@ -131,7 +149,8 @@ window.uploadCustomScene = async function() {
     const skipped = Number(result.skippedTimings) || 0;
     status.textContent = t('upload.done') + (skipped ? ' ' + t('import.skippedTimings', { n: skipped }) : '');
     // The next import starts with an empty form (old subtitles won't be attached to a new video)
-    ['customVideoInput', 'customSubInput', 'customSceneTitle'].forEach(id => { document.getElementById(id).value = ''; });
+    ['customVideoInput', 'customSubInput', 'customOriginalInput', 'customIntershumInput', 'customSceneTitle'].forEach(id => { document.getElementById(id).value = ''; });
+    refreshFilePickers();
     updateMkvCompatibilityWarning();
     status.style.color = skipped ? 'var(--warning)' : '#10b981';
     if (skipped) showToast(t('import.skippedTimings', { n: skipped }));

@@ -4,18 +4,9 @@
 // ==========================================
 // SAFE STUDIO RENDER
 // ==========================================
-const renderDubVol = document.getElementById('renderDubVol');
-const renderBackingVol = document.getElementById('renderBackingVol');
-const renderOrigVol = document.getElementById('renderOrigVol');
-const renderDubVal = document.getElementById('renderDubVal');
-const renderBackingVal = document.getElementById('renderBackingVal');
-const renderOrigVal = document.getElementById('renderOrigVal');
+// The export levels shown in this window come from the project mix (studio.js keeps them in sync)
 const longExportWarning = document.getElementById('longExportWarning');
 const LONG_EXPORT_WARNING_SECONDS = 20 * 60;
-
-renderDubVol.oninput = () => renderDubVal.innerText = `${renderDubVol.value}%`;
-renderBackingVol.oninput = () => renderBackingVal.innerText = `${renderBackingVol.value}%`;
-renderOrigVol.oninput = () => renderOrigVal.innerText = `${renderOrigVol.value}%`;
 
 window.updateExportDurationWarning = function() {
   const duration = Number(video.duration);
@@ -39,19 +30,16 @@ window.closeRenderModal = function() {
   closeFilesModal();
 };
 
-function readRenderGains() {
-  return {
-    dub: renderDubVol.value / 100,
-    backing: renderBackingVol.value / 100,
-    original: renderOrigVol.value / 100
-  };
+function readRenderGains(scene = session) {
+  const mix = window.DublineProjectAudio.normalize(scene);
+  return { ...window.DublineProjectAudio.gains(mix), mix };
 }
 
-function downloadBlob(blob, ext) {
+function downloadBlob(blob, ext, title = session.title) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `Dubline_${session.title}_export.${ext}`;
+  a.download = `Dubline_${title}_export.${ext}`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
@@ -70,7 +58,65 @@ function exportableTake(line) {
   return !!line.audioUrl && (includeHiddenTakes || canHearLine(line));
 }
 
-async function mixSoundtrack(duration, gains, onStep) {
+function createExportSnapshot() {
+  const scene = structuredClone(session);
+  const sources = window.DublineProjectAudio.sources(scene);
+  return { scene, takes: scene.lines.filter(exportableTake), gains: readRenderGains(scene),
+    originalUrl: mediaUrl(sources.original), backingUrl: mediaUrl(sources.backing),
+    videoUrl: scene.videoUrl, videoBlob: localMedia && localMedia.forVideoUrl === scene.videoUrl ? localMedia.videoBlob : null };
+}
+
+function exportTakeStart(line, scene) {
+  return (line.audioStart ?? line.start) - (Number((scene.latency || {})[line.recordedBy]) || 0) / 1000;
+}
+
+function exportAudioError(source) {
+  const error = new Error(t('render.audioUnavailable', { source }));
+  error.code = 'DUBLINE_EXPORT_AUDIO';
+  return error;
+}
+
+async function requireExportTake(line) {
+  const buffer = await getProcessedTake(line) || await getProcessedTake(line);
+  if (!buffer) throw exportAudioError(`#${line.id}`);
+  return buffer;
+}
+
+async function decodeExportSource(url, label) {
+  try { return await fetchAndDecode(url); }
+  catch { throw exportAudioError(label); }
+}
+
+function assertExportScene(snapshot) {
+  if (!session || session.activeSessionId !== snapshot.scene.activeSessionId || session.videoUrl !== snapshot.scene.videoUrl) {
+    const error = new Error(t('render.sceneChanged')); error.code = 'DUBLINE_EXPORT_SCENE'; throw error;
+  }
+}
+
+function waitForRenderPlayback(snapshot, timeoutMs = 8000) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const done = error => {
+      if (settled) return;
+      settled = true; clearTimeout(timer); clearInterval(watchdog);
+      if (error) { video.pause(); reject(error); } else resolve();
+    };
+    const failed = () => { const error = new Error(t('render.playbackFailed')); error.code = 'DUBLINE_EXPORT_PLAYBACK'; return error; };
+    const watchdog = setInterval(() => {
+      try { assertExportScene(snapshot); if (video.error) done(failed()); } catch (error) { done(error); }
+    }, 100);
+    const timer = setTimeout(() => done(failed()), timeoutMs);
+    Promise.resolve().then(() => video.play()).then(() => {
+      if (settled) return;
+      try { assertExportScene(snapshot); done(); } catch (error) { done(error); }
+    }, error => done(error));
+  });
+}
+
+async function mixSoundtrack(duration, gains, onStep, snapshot = createExportSnapshot()) {
+  const { scene, takes } = snapshot;
+  const mix = gains.mix || window.DublineProjectAudio.normalize(scene);
+  const startOf = line => exportTakeStart(line, scene);
   const rate = 48000;
   const ctx = new OfflineAudioContext(2, Math.max(1, Math.ceil(duration * rate)), rate);
 
@@ -87,9 +133,8 @@ async function mixSoundtrack(duration, gains, onStep) {
   const originalBus = ctx.createGain();
   backingBus.connect(limiter);
   originalBus.connect(limiter);
-  const hasSeparateBacking = !!session.backingUrl;
-  const backingBase = hasSeparateBacking ? gains.backing : 0;
-  const originalBase = hasSeparateBacking ? gains.original : gains.backing;
+  const backingBase = gains.backing;
+  const originalBase = gains.original;
   backingBus.gain.value = backingBase;
   originalBus.gain.value = originalBase;
 
@@ -108,31 +153,28 @@ async function mixSoundtrack(duration, gains, onStep) {
     src.start(Math.max(0, when), from + skip, to - from - skip);
   };
 
-  if (session.backingUrl && backingBase > 0) {
+  if (snapshot.backingUrl && backingBase > 0) {
     onStep(t('render.decodeBackground'));
-    place(await fetchAndDecode(mediaUrl(session.backingUrl)).catch(() => null), 1, 0, 0, Infinity, backingBus);
+    place(await decodeExportSource(snapshot.backingUrl, 'Intershum / M&E'), 1, mix.backing.offset, 0, Infinity, backingBus);
   }
   // Original is the chosen video audio track (if there are several) or the video's own sound
-  const originalTrack = selectedOriginalTrack();
-  const originalUrl = originalTrack === undefined ? session.videoUrl : originalTrack && originalTrack.url;
+  const originalUrl = snapshot.originalUrl;
   if (originalUrl && originalBase > 0) {
     onStep(t('render.decodeOriginal'));
-    place(await fetchAndDecode(mediaUrl(originalUrl)).catch(() => null), 1, 0, 0, Infinity, originalBus);
+    place(await decodeExportSource(originalUrl, 'Original'), 1, mix.original.offset, 0, Infinity, originalBus);
   }
 
-  const takes = session.lines.filter(exportableTake);
   const duckIntervals = [];
-  for (let i = 0; i < takes.length; i++) {
+  for (let i = 0; gains.dub > 0 && i < takes.length; i++) {
     onStep(t('render.takes', { current: i + 1, total: takes.length }));
     const line = takes[i];
-    const buffer = await getProcessedTake(line);
-    if (!buffer) continue;
+    const buffer = await requireExportTake(line);
     const { from, to } = takeBounds(line, buffer.duration);
-    place(buffer, gains.dub, takeStartTime(line) + from, from, to);
-    duckIntervals.push([Math.max(0, takeStartTime(line) + from), Math.min(duration, takeStartTime(line) + to)]);
+    place(buffer, gains.dub, startOf(line) + from, from, to);
+    if (gains.dub > 0) duckIntervals.push([Math.max(0, startOf(line) + from), Math.min(duration, startOf(line) + to)]);
   }
 
-  if (autoDuckEnabled && autoDuckAmount > 0 && duckIntervals.length) {
+  if (mix.autoDuckEnabled && mix.autoDuckAmount > 0 && duckIntervals.length) {
     duckIntervals.sort((a, b) => a[0] - b[0]);
     const merged = [];
     for (const interval of duckIntervals) {
@@ -142,7 +184,7 @@ async function mixSoundtrack(duration, gains, onStep) {
     }
     const automateDuck = (param, base) => {
       if (base <= 0) return;
-      const ducked = base * (1 - autoDuckAmount);
+      const ducked = base * (1 - mix.autoDuckAmount);
       param.setValueAtTime(base, 0);
       merged.forEach(([start, end]) => {
         param.setValueAtTime(base, Math.max(0, start));
@@ -185,23 +227,26 @@ function audioBufferToWav(buffer) {
   return out;
 }
 
-async function renderCharacterStem(lines, duration, sampleRate = 48000) {
+async function renderCharacterStem(lines, duration, sampleRate = 48000, snapshot = createExportSnapshot()) {
+  lines = structuredClone(lines);
+  const gain = snapshot.gains.dub;
   const ctx = new OfflineAudioContext(1, Math.max(1, Math.ceil(duration * sampleRate)), sampleRate);
   const limiter = ctx.createDynamicsCompressor();
   limiter.threshold.value = -1;
   limiter.knee.value = 0;
   limiter.ratio.value = 20;
   limiter.connect(ctx.destination);
-  for (const line of lines) {
-    const buffer = await getProcessedTake(line);
-    if (!buffer) continue;
+  for (const line of gain > 0 ? lines : []) {
+    const buffer = await requireExportTake(line);
     const { from, to } = takeBounds(line, buffer.duration);
-    const when = takeStartTime(line) + from;
+    const when = exportTakeStart(line, snapshot.scene) + from;
     const skip = Math.max(0, -when);
     if (from + skip >= to) continue;
     const source = ctx.createBufferSource();
     source.buffer = buffer;
-    source.connect(limiter);
+    const level = ctx.createGain();
+    level.gain.value = gain;
+    source.connect(level).connect(limiter);
     source.start(Math.max(0, when), from + skip, to - from - skip);
   }
   return ctx.startRendering();
@@ -210,7 +255,7 @@ async function renderCharacterStem(lines, duration, sampleRate = 48000) {
 window.downloadReaperStems = async function() {
   if (!session || !session.loaded) return alert(t('error.noScene'));
   confirmHiddenTakes();
-  const takes = session.lines.filter(exportableTake);
+  const snapshot = createExportSnapshot(), takes = snapshot.takes;
   if (!takes.length) return alert(t('error.noTakes'));
   const grouped = new Map();
   takes.forEach(line => {
@@ -231,22 +276,23 @@ window.downloadReaperStems = async function() {
         video.load();
       });
     }
-    const duration = Math.max(Number(video.duration) || 0, ...takes.map(line => takeStartTime(line) + Math.max(1, line.end - line.start) + 1));
+    assertExportScene(snapshot);
+    const duration = Math.max(Number(video.duration) || 0, ...takes.map(line => exportTakeStart(line, snapshot.scene) + Math.max(1, line.end - line.start) + 1));
     const zip = new JSZip();
     const manifest = [];
     let index = 0;
     for (const [character, lines] of grouped) {
       index++;
       status.textContent = t('stems.progress', { current: index, total: grouped.size, name: character });
-      const stem = await renderCharacterStem(lines, duration);
+      const stem = await renderCharacterStem(lines, duration, 48000, snapshot);
       const safeName = String(character || `Character_${index}`).replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').slice(0, 80);
       zip.file(`${String(index).padStart(2, '0')}_${safeName}.wav`, audioBufferToWav(stem));
-      lines.forEach(line => manifest.push(`${character}\t${takeStartTime(line).toFixed(3)}\t${line.id}\t${line.caption || ''}`));
+      lines.forEach(line => manifest.push(`${character}\t${exportTakeStart(line, snapshot.scene).toFixed(3)}\t${line.id}\t${line.caption || ''}`));
     }
     zip.file('timeline.tsv', `character\tstart_seconds\tline_id\tcaption\n${manifest.join('\n')}\n`);
     status.textContent = t('stems.mixing');
     const archive = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 3 } });
-    const safeProject = String(session.title || 'dubline').replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_');
+    const safeProject = String(snapshot.scene.title || 'dubline').replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_');
     const url = URL.createObjectURL(archive);
     const a = document.createElement('a');
     a.href = url;
@@ -321,14 +367,12 @@ function supportsWebCodecsRender() {
 
 // WebCodecs render: the video track is copied without re-encoding, the audio is encoded by AudioEncoder.
 // Many times faster than real time and works even when the tab is minimized.
-async function renderWithWebCodecs(progress) {
+async function renderWithWebCodecs(progress, snapshot = createExportSnapshot()) {
   const mb = await import('/vendor/mediabunny/mediabunny.min.mjs');
 
   progress(1, t('render.readVideo'));
   // If the video was picked from disk, read it locally instead of through the tunnel
-  const source = localMedia && localMedia.forVideoUrl === session.videoUrl
-    ? new mb.BlobSource(localMedia.videoBlob)
-    : new mb.UrlSource(session.videoUrl);
+  const source = snapshot.videoBlob ? new mb.BlobSource(snapshot.videoBlob) : new mb.UrlSource(snapshot.videoUrl);
   const input = new mb.Input({ source, formats: mb.ALL_FORMATS });
   const videoTrack = await input.getPrimaryVideoTrack();
   if (!videoTrack) throw new Error(t('render.noVideo'));
@@ -337,7 +381,8 @@ async function renderWithWebCodecs(progress) {
   const duration = await videoTrack.computeDuration();
   if (!videoCodec || !decoderConfig) throw new Error(t('render.unknownCodec'));
 
-  const soundtrack = await mixSoundtrack(duration, readRenderGains(), text => progress(5, text));
+  assertExportScene(snapshot);
+  const soundtrack = await mixSoundtrack(duration, snapshot.gains, text => progress(5, text), snapshot);
 
   const audioCodec = await mb.getFirstEncodableAudioCodec(['aac', 'opus'], {
     numberOfChannels: soundtrack.numberOfChannels,
@@ -392,9 +437,11 @@ async function renderWithWebCodecs(progress) {
 }
 
 // Fallback for browsers without WebCodecs: real-time capture
-async function renderRealtime(progress) {
+async function renderRealtime(progress, snapshot = createExportSnapshot()) {
+  assertExportScene(snapshot);
   const duration = video.duration;
-  const soundtrack = await mixSoundtrack(duration, readRenderGains(), text => progress(2, text));
+  const soundtrack = await mixSoundtrack(duration, snapshot.gains, text => progress(2, text), snapshot);
+  assertExportScene(snapshot);
 
   const renderCanvas = document.createElement('canvas');
   renderCanvas.width = video.videoWidth || 1280;
@@ -422,35 +469,57 @@ async function renderRealtime(progress) {
   const stopped = new Promise(resolve => { recorder.onstop = resolve; });
 
   const savedMuted = video.muted;
-  video.muted = true;
-  video.currentTime = 0;
-  await new Promise(resolve => video.addEventListener('seeked', resolve, { once: true }));
-
-  recorder.start();
-  await video.play();
-  mixSource.start();
-
-  await new Promise(resolve => {
-    function drawRenderFrame() {
-      ctx.drawImage(video, 0, 0, renderCanvas.width, renderCanvas.height);
-      const pct = (video.currentTime / duration) * 100;
-      progress(pct, t('render.realtimeProgress', { current: Math.round(video.currentTime), total: Math.round(duration) }));
-      if (video.ended || video.currentTime >= duration - 0.1) return resolve();
-      requestAnimationFrame(drawRenderFrame);
-    }
-    requestAnimationFrame(drawRenderFrame);
-  });
-
-  video.pause();
-  video.muted = savedMuted;
-  recorder.stop();
-  await stopped;
-  actx.close();
+  let frame, watchdog;
+  try {
+    video.muted = true;
+    if (video.currentTime !== 0 || video.seeking) await new Promise((resolve, reject) => {
+      const done = error => { clearTimeout(timer); video.removeEventListener('seeked', seeked); error ? reject(error) : resolve(); };
+      const seeked = () => done();
+      const timer = setTimeout(() => done(new Error(t('render.playbackFailed'))), 8000);
+      video.addEventListener('seeked', seeked, { once: true });
+      video.currentTime = 0;
+    });
+    assertExportScene(snapshot);
+    recorder.start();
+    await waitForRenderPlayback(snapshot);
+    mixSource.start();
+    await new Promise((resolve, reject) => {
+      let lastTime = video.currentTime, lastProgress = performance.now();
+      const check = () => {
+        try {
+          assertExportScene(snapshot);
+          if (video.error) throw new Error(t('render.playbackFailed'));
+          if (video.currentTime !== lastTime) { lastTime = video.currentTime; lastProgress = performance.now(); }
+          if (video.ended || video.currentTime >= duration - 0.1) return resolve();
+          if (performance.now() - lastProgress > 10000) throw new Error(t('render.playbackFailed'));
+        } catch (error) { reject(error); }
+      };
+      const drawRenderFrame = () => {
+        try {
+          ctx.drawImage(video, 0, 0, renderCanvas.width, renderCanvas.height);
+          progress((video.currentTime / duration) * 100, t('render.realtimeProgress', { current: Math.round(video.currentTime), total: Math.round(duration) }));
+          check();
+          frame = requestAnimationFrame(drawRenderFrame);
+        } catch (error) { reject(error); }
+      };
+      watchdog = setInterval(check, 250);
+      frame = requestAnimationFrame(drawRenderFrame);
+    });
+  } finally {
+    clearInterval(watchdog); cancelAnimationFrame(frame);
+    video.pause(); video.muted = savedMuted;
+    try { mixSource.stop(); } catch { /* not started */ }
+    if (recorder.state !== 'inactive') { recorder.stop(); await stopped; }
+    combinedStream.getTracks().forEach(track => track.stop());
+    await actx.close();
+  }
 
   return { blob: new Blob(recordedChunks, { type: mimeType }), ext: mimeType.includes('mp4') ? 'mp4' : 'webm' };
 }
 
 window.startVideoRender = async function() {
+  if (renderInProgress || recordState !== 'idle') return showToast(t('studio.mediaBusy'));
+  if (!session || !session.loaded) return showToast(t('error.noScene'));
   const startBtn = document.getElementById('startRenderBtn');
   const progressBox = document.getElementById('renderProgressBox');
   const progressBar = document.getElementById('renderProgressBar');
@@ -462,10 +531,12 @@ window.startVideoRender = async function() {
   };
 
   confirmHiddenTakes();
+  const snapshot = createExportSnapshot();
   startBtn.disabled = true;
   progressBox.style.display = 'block';
   video.pause();
   renderInProgress = true;
+  window.refreshStudioTransport?.();
   applyVolumes();
   const startedAt = performance.now();
 
@@ -473,15 +544,17 @@ window.startVideoRender = async function() {
     let result = null;
     if (supportsWebCodecsRender()) {
       try {
-        result = { blob: await renderWithWebCodecs(progress), ext: 'mp4' };
+        result = { blob: await renderWithWebCodecs(progress, snapshot), ext: 'mp4' };
       } catch (err) {
+        if (err.code === 'DUBLINE_EXPORT_AUDIO' || err.code === 'DUBLINE_EXPORT_SCENE') throw err;
         console.error('[Dubline] WebCodecs render failed, falling back to real-time capture:', err);
         progress(0, t('render.fallback'));
       }
     }
-    if (!result) result = await renderRealtime(progress);
+    if (!result) result = await renderRealtime(progress, snapshot);
 
-    downloadBlob(result.blob, result.ext);
+    assertExportScene(snapshot);
+    downloadBlob(result.blob, result.ext, snapshot.scene.title);
     const seconds = ((performance.now() - startedAt) / 1000).toFixed(1);
     progressBar.style.width = '100%';
     statusText.innerText = t('render.done', { seconds });
@@ -494,6 +567,7 @@ window.startVideoRender = async function() {
     statusText.innerText = t('render.error', { message: err.message });
   } finally {
     renderInProgress = false;
+    window.refreshStudioTransport?.();
     applyVolumes();
     startBtn.disabled = false;
   }

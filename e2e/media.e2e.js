@@ -86,7 +86,6 @@ describe('media', { skip: skipReason }, () => {
     await claimAndSelect(host, line.id);
     await recordTake(host, line.id);
     const result = await host.evaluate(async () => {
-      renderDubVol.value = 100; renderBackingVol.value = 100; renderOrigVol.value = 0;
       const blob = await renderWithWebCodecs(() => {});
       const mb = await import('/vendor/mediabunny/mediabunny.min.mjs');
       const input = new mb.Input({ source: new mb.BlobSource(blob), formats: mb.ALL_FORMATS });
@@ -304,7 +303,9 @@ describe('audio tracks', { skip: skipReason }, () => {
       && document.getElementById('originalTrackAudio').getAttribute('src').endsWith('track_1.m4a')
       && backing.getAttribute('src').endsWith('track_0.m4a') && video.muted, 8000);
     // Export uses the chosen track too
-    assert.ok((await host.evaluate(() => selectedOriginalTrack().url)).endsWith('track_1.m4a'));
+    assert.ok((await host.evaluate(() => DublineProjectAudio.sources(session).original)).endsWith('track_1.m4a'));
+    assert.match(await player.$eval('[data-audio-channel=original] .studio-wave-source', el => el.textContent), /Audio from video.*Russian/);
+    assert.match(await player.$eval('[data-audio-channel=backing] .studio-wave-source', el => el.textContent), /Audio from video.*Japanese/);
   });
 
   test('"none" turns the original off', async () => {
@@ -313,6 +314,7 @@ describe('audio tracks', { skip: skipReason }, () => {
       document.getElementById('originalTrackSelect').dispatchEvent(new Event('change'));
     });
     await waitFor(player, () => session.originalTrack === -1 && !document.getElementById('originalTrackAudio').getAttribute('src') && video.muted, 8000);
+    assert.equal(await player.$eval('[data-audio-channel=original] .studio-wave-source', el => el.textContent), '');
   });
 
   test('the choice survives a server restart', async () => {

@@ -77,9 +77,11 @@ const audio = window.DublineAudio.createController({
   video,
   backing,
   originalTrack: originalTrackAudio,
+  projectMix: true,
   getSession: () => visibleSessionForAudio(),
-  getVolumes: () => state.volumes,
-  getSettings: () => ({
+  getVolumes: () => window.studioPlaybackVolumes ? window.studioPlaybackVolumes() : state.volumes,
+  // The project's auto-ducking, or the player's own one when they turned it on
+  getSettings: () => window.studioPlaybackSettings ? window.studioPlaybackSettings() : ({
     autoDuckEnabled: state.autoDuckEnabled,
     autoDuckAmount: state.autoDuckAmount
   }),
@@ -198,17 +200,8 @@ async function readError(res) {
 
 // Volume mixer
 const muteAllCheckbox = document.getElementById('muteAllCheckbox');
-const volOriginal = document.getElementById('volOriginal');
-const volBacking = document.getElementById('volBacking');
-const volRecorded = document.getElementById('volRecorded');
-const volOriginalVal = document.getElementById('volOriginalVal');
-const volBackingVal = document.getElementById('volBackingVal');
-const volRecordedVal = document.getElementById('volRecordedVal');
 
 muteAllCheckbox.addEventListener('change', (e) => { volumes.isMuted = e.target.checked; applyVolumes(); });
-volOriginal.addEventListener('input', (e) => { volumes.original = e.target.value / 100; volOriginalVal.innerText = `${e.target.value}%`; applyVolumes(); });
-volBacking.addEventListener('input', (e) => { volumes.backing = e.target.value / 100; volBackingVal.innerText = `${e.target.value}%`; applyVolumes(); });
-volRecorded.addEventListener('input', (e) => { volumes.recorded = e.target.value / 100; volRecordedVal.innerText = `${e.target.value}%`; applyVolumes(); });
 
 const playhead = document.createElement('div');
 playhead.id = 'playhead';
@@ -274,6 +267,7 @@ function syncPlayheadLoop() {
     }
 
     if (session && session.lines && !renderInProgress) scheduleTakes(current);
+    if (window.syncProjectSources) window.syncProjectSources();
     updatePrompter();
     requestAnimationFrame(syncPlayheadLoop);
   }
@@ -286,12 +280,7 @@ video.addEventListener('play', () => {
   ensurePlayCtx();
   stopAllTakes();
   applyVolumes();
-  backing.currentTime = video.currentTime;
-  if (!renderInProgress) backing.play().catch(() => {});
-  if (originalTrackAudio.getAttribute('src')) {
-    originalTrackAudio.currentTime = video.currentTime;
-    originalTrackAudio.play().catch(() => {});
-  }
+  if (window.syncProjectSources) window.syncProjectSources(true);
   requestAnimationFrame(syncPlayheadLoop);
 });
 
@@ -304,8 +293,7 @@ video.addEventListener('pause', () => {
 });
 
 video.addEventListener('seeked', () => {
-  backing.currentTime = video.currentTime;
-  if (originalTrackAudio.getAttribute('src')) originalTrackAudio.currentTime = video.currentTime;
+  if (window.syncProjectSources) window.syncProjectSources(true);
   stopAllTakes();
   playhead.style.left = `${labelWidth + video.currentTime * pxPerSec}px`;
   updatePrompter();
@@ -350,7 +338,7 @@ const TIMELINE_TAIL = 5; // seconds of empty space after the end of the scene
 function timelineSeconds() {
   const lastLine = Math.max(0, ...((session && session.lines) || []).map(l => l.end));
   const videoLength = Number.isFinite(video.duration) ? video.duration : 0;
-  return Math.max(lastLine, videoLength, 30);
+  return Math.max(lastLine, videoLength, window.studioAudioEnd ? window.studioAudioEnd() : 0, 30);
 }
 
 function sessionCharacters() {
@@ -360,6 +348,8 @@ function sessionCharacters() {
 }
 
 function renderTimeline() {
+  const savedScrollLeft = timelineContainer.scrollLeft;
+  const savedScrollTop = timelineContainer.scrollTop;
   timeline.innerHTML = '';
   timeline.appendChild(playhead);
 
@@ -385,12 +375,13 @@ function renderTimeline() {
   rulerTicks.style.width = `${trackWidth}px`;
 
   rulerTicks.onclick = (e) => {
+    if (window.studioCanTransport && !window.studioCanTransport()) return;
     const rect = rulerTicks.getBoundingClientRect();
     const clickX = e.clientX - rect.left;
     video.currentTime = Math.max(0, clickX / pxPerSec);
   };
 
-  const tickStep = [1, 2, 5, 10, 15, 30, 60].find(step => step * pxPerSec >= 70) || 120;
+  const tickStep = Math.max([1, 2, 5, 10, 15, 30, 60].find(step => step * pxPerSec >= 70) || 120, Math.ceil(maxTime / 1500));
   for (let sec = 0; sec <= maxTime + TIMELINE_TAIL; sec += tickStep) {
     const tick = document.createElement('div');
     tick.className = 'ruler-tick';
@@ -404,6 +395,7 @@ function renderTimeline() {
   rulerRow.appendChild(rulerCorner);
   rulerRow.appendChild(rulerTicks);
   timeline.appendChild(rulerRow);
+  if (window.renderStudioAudio) window.renderStudioAudio(trackWidth);
 
   characters.forEach(char => {
     const row = document.createElement('div');
@@ -492,6 +484,8 @@ function renderTimeline() {
     timeline.appendChild(addRow);
   }
 
+  timelineContainer.scrollLeft = savedScrollLeft;
+  timelineContainer.scrollTop = savedScrollTop;
   if (revealLineId != null) {
     const tile = document.getElementById(`line-block-${revealLineId}`);
     revealLineId = null;
@@ -815,7 +809,7 @@ window.zoomTimeline = function(factor) {
 };
 
 window.fitTimeline = function() {
-  if (!session || !session.lines || !session.lines.length) return;
+  if (!session || !session.loaded) return;
   const available = timelineContainer.clientWidth - labelWidth - 16;
   setTimelineZoom(available / (timelineSeconds() + TIMELINE_TAIL), 0);
   requestAnimationFrame(() => { timelineContainer.scrollLeft = 0; });
@@ -841,13 +835,6 @@ const originalTrackSelect = document.getElementById('originalTrackSelect');
 const backingTrackSelect = document.getElementById('backingTrackSelect');
 const trackPickerNote = document.getElementById('trackPickerNote');
 
-// undefined: the video has one track (the video itself plays); null: original is off; otherwise the chosen track
-function selectedOriginalTrack() {
-  const tracks = state.session && state.session.audioTracks;
-  if (!tracks || tracks.length < 2) return undefined;
-  const index = state.session.originalTrack ?? 0;
-  return index >= 0 ? tracks[index] || null : null;
-}
 
 function setMediaSource(element, url) {
   const current = element.getAttribute('src') || '';
@@ -865,11 +852,12 @@ function setMediaSource(element, url) {
 
 function applyAudioTracks() {
   if (!state.session || !state.session.loaded) return;
-  const track = selectedOriginalTrack();
-  video.muted = track !== undefined;
-  setMediaSource(originalTrackAudio, track ? mediaUrl(track.url) : null);
+  const sources = window.DublineProjectAudio.sources(state.session);
+  video.muted = true;
+  setMediaSource(originalTrackAudio, mediaUrl(sources.original) || null);
   // The background may have switched to another video track
   setMediaSource(backing, mediaUrl(state.session.backingUrl) || null);
+  if (window.syncProjectSources) window.syncProjectSources();
   renderTrackPicker();
 }
 
@@ -890,7 +878,7 @@ function renderTrackPicker() {
   originalTrackSelect.innerHTML = options(state.session.originalTrack ?? 0);
   backingTrackSelect.innerHTML = options(state.session.backingTrack ?? -1);
   const host = amHost();
-  originalTrackSelect.disabled = !host;
+  originalTrackSelect.disabled = !host || !!state.session.externalOriginalUrl;
   backingTrackSelect.disabled = !host;
   trackPickerNote.textContent = host ? '' : t('tracks.onlyHost');
 }

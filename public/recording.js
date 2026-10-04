@@ -54,8 +54,10 @@ function stopVisualizer() {
 // long enough to give the player the full configured preparation time.
 let recordPlayTimeout = null;
 let recordSpeechInterval = null;
+let activeRecording = null;
 
 window.handleStudioRecord = async function(lineId) {
+  if (renderInProgress) return showToast(t('studio.mediaBusy'));
   let line = session.lines.find(l => l.id === lineId);
   if (!line) return;
   if (session.mode === 'edit') {
@@ -101,7 +103,7 @@ window.handleStudioRecord = async function(lineId) {
   }
   // The microphone permission prompt can outlive a mode/session/ownership change.
   const currentLine = session && session.lines.find(item => item.id === lineId);
-  if (recordState !== 'idle' || !session || session.mode === 'edit' || watchMode ||
+  if (recordState !== 'idle' || renderInProgress || !session || session.mode === 'edit' || watchMode ||
       (session.activeSessionId || '') !== recordingSessionId || currentRoom !== recordingRoom || myName !== recordingNick ||
       !currentLine || getLineOwner(currentLine) !== recordingNick) {
     recordingMic.getTracks().forEach(track => track.stop());
@@ -126,7 +128,8 @@ window.handleStudioRecord = async function(lineId) {
 
   startVisualizer(micStream);
 
-  const wantedPreRoll = Math.max(0, Math.min(5, Number(preRollSeconds) || 0));
+  const adrEnabled = localStorage.getItem('dubline_adr') === 'three';
+  const wantedPreRoll = window.DublineAdr.preparation(preRollSeconds, adrEnabled);
   const videoPreRoll = Math.min(wantedPreRoll, line.start);
   const holdSeconds = Math.max(0, wantedPreRoll - videoPreRoll);
   const startTime = Number((line.start - videoPreRoll).toFixed(3));
@@ -136,42 +139,51 @@ window.handleStudioRecord = async function(lineId) {
   video.currentTime = startTime;
 
   recordState = 'preparing';
-  audioChunks = [];
+  if (window.refreshStudioTransport) window.refreshStudioTransport();
+  const chunks = [];
+  audioChunks = chunks; // compatibility alias; asynchronous handlers own their local array
   discardTake = false;
   recordingLineId = lineId;
 
   const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : '';
-  mediaRecorder = mimeType ? new MediaRecorder(audioDest.stream, { mimeType }) : new MediaRecorder(audioDest.stream);
+  const recorder = mimeType ? new MediaRecorder(audioDest.stream, { mimeType }) : new MediaRecorder(audioDest.stream);
+  mediaRecorder = recorder;
+  const operation = { recorder, stream: recordingMic, discarded: false };
+  activeRecording = operation;
+  const mayUpdateUi = () => !activeRecording && mediaRecorder === recorder && recordState === 'idle' &&
+    session && session.activeSessionId === recordingSessionId && selectedLine?.id === lineId && document.getElementById('recBtn') === btn;
 
-  mediaRecorder.ondataavailable = e => {
-    if (e.data && e.data.size > 0) audioChunks.push(e.data);
+  recorder.ondataavailable = e => {
+    if (e.data && e.data.size > 0) chunks.push(e.data);
   };
 
-  mediaRecorder.onstop = async () => {
-    if (micStream) {
-      micStream.getTracks().forEach(t => t.stop());
-      micStream = null;
-    }
-
-    recordingLineId = null;
+  recorder.onstop = async () => {
+    if (activeRecording === operation) finishRecording({ discard: operation.discarded });
+    recordingMic.getTracks().forEach(track => track.stop());
+    micSource.disconnect(); gainNode.disconnect(); voiceMeter.disconnect();
 
     // Recording was interrupted by the host: don't save the take
-    if (discardTake) {
-      discardTake = false;
-      if (selectedLine) showInspector(selectedLine);
+    if (operation.discarded) {
+      console.warn(`[Dubline] Take for line #${lineId} discarded`);
+      if (mayUpdateUi()) showInspector(selectedLine);
       return;
     }
 
-    const audioBlob = new Blob(audioChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
+    const audioBlob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
     if (audioBlob.size === 0) {
-      alert(t('error.emptyAudio'));
-      btn.className = 'btn-record';
-      btn.innerText = t('record.retry');
+      // Never drop a take silently: the player must know it has to record again,
+      // even if the inspector has been redrawn (or another line selected) meanwhile
+      console.warn(`[Dubline] Take for line #${lineId} is empty (${chunks.length} chunks, audio context ${audioCtx && audioCtx.state})`);
+      if (mayUpdateUi()) {
+        alert(t('error.emptyAudio')); btn.className = 'btn-record'; btn.innerText = t('record.retry');
+      } else {
+        showToast(t('error.emptyAudio'));
+      }
       return;
     }
 
     // Silence detection: find where speech starts and ends in the recording
-    btn.innerText = t('record.trim');
+    if (mayUpdateUi()) btn.innerText = t('record.trim');
     let speech = null;
     try {
       speech = detectSpeechBounds(await decodeAudio(await audioBlob.arrayBuffer()));
@@ -179,7 +191,7 @@ window.handleStudioRecord = async function(lineId) {
       console.warn('[Dubline] Could not analyse the take:', err);
     }
 
-    btn.innerText = t('record.saving');
+    if (mayUpdateUi()) btn.innerText = t('record.saving');
     await submitTake({
       uploadId: newUploadId(),
       room: recordingRoom,
@@ -194,21 +206,41 @@ window.handleStudioRecord = async function(lineId) {
     });
   };
 
-  mediaRecorder.start(100);
+  recorder.start(100);
   const playbackAt = performance.now() + holdSeconds * 1000;
+  let lastProgressAt = playbackAt, lastVideoTime = startTime;
+  const playbackFailed = () => {
+    if (mediaRecorder !== recorder || recordState === 'idle') return;
+    finishRecording({ discard: true });
+    showToast(t('record.playbackFailed'));
+  };
+  const playForRecording = () => {
+    if (mediaRecorder !== recorder || recordState === 'idle') return;
+    try { video.play().catch(playbackFailed); } catch { playbackFailed(); }
+  };
   socket.emit('recording_status', { lineId, recording: true });
   btn.className = 'btn-prep';
   btn.innerText = t('record.preparing');
+  startRecordCue(line, wantedPreRoll, holdSeconds, adrEnabled);
+  if (adrEnabled) {
+    // The beeps are first timed from the press of Record; once the video really starts
+    // (after the seek, buffering or the held first frame) they are re-timed to its clock
+    const retimeAdr = () => {
+      if (mediaRecorder !== recorder || recordState !== 'preparing') return;
+      adrCues.arm(Math.max(0, line.start - video.currentTime));
+    };
+    video.addEventListener('playing', retimeAdr, { once: true });
+  }
   clearTimeout(recordPlayTimeout);
   if (holdSeconds > 0) {
     video.pause();
     recordPlayTimeout = setTimeout(() => {
-      if (recordState !== 'idle') video.play().catch(() => {});
+      playForRecording();
     }, holdSeconds * 1000);
   } else {
-    video.play().catch(() => {}); // recording may have been stopped right away: not an error
+    playForRecording();
   }
-  startRecordCue(line, wantedPreRoll, holdSeconds);
+  if (recordState === 'idle') return;
 
   clearInterval(recordSpeechInterval);
   recordSpeechInterval = setInterval(() => {
@@ -236,6 +268,10 @@ window.handleStudioRecord = async function(lineId) {
 
   recordStopTimeout = setInterval(() => {
     if (recordState === 'idle') return clearInterval(recordStopTimeout);
+    if (performance.now() >= playbackAt) {
+      if (Math.abs(video.currentTime - lastVideoTime) > 0.005) { lastVideoTime = video.currentTime; lastProgressAt = performance.now(); }
+      if (video.error || (!video.ended && performance.now() - lastProgressAt > 8000)) return playbackFailed();
+    }
     // An ended frame from the previous playback can linger during the seek.
     if (video.seeking) return;
     voiceMeter.getFloatTimeDomainData(samples);
@@ -270,6 +306,8 @@ const SILENCE_TO_STOP = 0.8;     // seconds of silence after the line ends: the 
 const MIN_OVERRUN_LIMIT = 4;     // minimum time allowed to speak past the line
 
 function finishRecording({ discard = false } = {}) {
+  const operation = activeRecording;
+  if (!operation) return;
   clearInterval(recordStopTimeout);
   clearTimeout(recordPlayTimeout);
   clearInterval(recordSpeechInterval);
@@ -277,7 +315,13 @@ function finishRecording({ discard = false } = {}) {
   recordSpeechInterval = null;
   if (recordingLineId != null) socket.emit('recording_status', { lineId: recordingLineId, recording: false });
   recordState = 'idle';
-  if (discard) discardTake = true;
+  if (window.refreshStudioTransport) window.refreshStudioTransport();
+  operation.discarded = operation.discarded || discard;
+  discardTake = operation.discarded; // compatibility alias, never used by another operation's handler
+  activeRecording = null;
+  recordingLineId = null;
+  operation.stream.getTracks().forEach(track => track.stop());
+  if (micStream === operation.stream) micStream = null;
 
   video.pause();
   stopVisualizer();
@@ -289,8 +333,8 @@ function finishRecording({ discard = false } = {}) {
     btn.innerText = t('record.processing');
   }
 
-  if (mediaRecorder && mediaRecorder.state === 'recording') {
-    mediaRecorder.stop();
+  if (operation.recorder.state !== 'inactive') {
+    operation.recorder.stop();
   }
 }
 
@@ -323,11 +367,13 @@ const recordCueBar = document.getElementById('recordCueBar');
 const recordCueLabel = document.getElementById('recordCueLabel');
 const recordCueDots = [...recordCue.querySelectorAll('.cue-dot')];
 let cueFrame = null;
+const adrCues = window.DublineAdr.create(window.AudioContext || window.webkitAudioContext);
 
-function startRecordCue(line, preRoll, holdSeconds = 0) {
+function startRecordCue(line, preRoll, holdSeconds = 0, adrEnabled = false) {
   stopRecordCue();
-  if (!cueEnabled) return;
-  recordCue.style.display = 'block';
+  if (!cueEnabled && !adrEnabled) return;
+  if (adrEnabled) adrCues.arm(preRoll);
+  recordCue.style.display = cueEnabled ? 'block' : 'none';
   const holdUntil = performance.now() + holdSeconds * 1000;
 
   const tick = () => {
@@ -355,6 +401,7 @@ function startRecordCue(line, preRoll, holdSeconds = 0) {
 
 function stopRecordCue() {
   cancelAnimationFrame(cueFrame);
+  adrCues.stop();
   recordCue.style.display = 'none';
   recordCue.className = 'record-cue';
 }

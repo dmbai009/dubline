@@ -14,6 +14,7 @@ const { diskPathForUrl } = require('./files');
 
 function probeAudioStreams(file) {
   const result = spawnSync(ffmpegPath, ['-hide_banner', '-i', file], { encoding: 'utf8', timeout: 20000 });
+  if (result.error || !/^Input #/m.test(result.stderr || '')) throw new Error('Could not inspect video audio');
   const lines = (result.stderr || '').split(/\r?\n/);
   const streams = [];
   let current = null;
@@ -36,9 +37,13 @@ function extractAudioTracks(videoUrl) {
   if (audioTrackJobs.has(videoUrl)) return audioTrackJobs.get(videoUrl);
   const job = (async () => {
     const videoPath = diskPathForUrl(videoUrl);
-    if (!videoPath || !fs.existsSync(videoPath)) return [];
+    if (!videoPath || !fs.existsSync(videoPath)) throw new Error('Video file is unavailable');
     const streams = probeAudioStreams(videoPath);
-    if (streams.length < 2) return [];
+    // Keep the common single-AAC path local/P2P-friendly. Other single-track codecs
+    // need the same browser-compatible conversion as multilingual videos.
+    if (streams.length === 1 && streams[0].codec === 'aac') {
+      return [{ index: 0, url: videoUrl, language: streams[0].language, label: streams[0].title, codec: 'aac' }];
+    }
     const dir = path.dirname(videoPath);
     const dirUrl = videoUrl.slice(0, videoUrl.lastIndexOf('/'));
     const tracks = [];
@@ -61,7 +66,8 @@ function extractAudioTracks(videoUrl) {
     return tracks;
   })().catch(err => {
     logEvent(null, `⚠ Audio tracks were not extracted: ${err.message}`, 'warn');
-    return [];
+    audioTrackJobs.delete(videoUrl);
+    throw err;
   });
   audioTrackJobs.set(videoUrl, job);
   return job;
@@ -161,6 +167,7 @@ function findEmbeddedSubtitleMap(filePath) {
 }
 
 module.exports = {
+  ffmpegPath,
   extractAudioTracks,
   probeAudioDuration,
   getWavDuration,

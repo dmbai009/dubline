@@ -27,7 +27,7 @@ function sandboxUploads(req, res, next) {
 // Pack media and takes never change at the same URL: let the browser cache them
 // instead of downloading them through the tunnel again on every re-render.
 // In the desktop app only the host and players who entered the PIN can fetch them.
-app.use(['/uploads', '/packs', '/api/server-packs'], mediaAccessGate);
+app.use(['/uploads', '/packs', '/api/server-packs', '/api/audio-waveform'], mediaAccessGate);
 app.use('/uploads', sandboxUploads, express.static(UPLOAD_DIR, { maxAge: '1h' }));
 app.use('/packs', sandboxUploads, express.static(PACKS_DIR));
 app.use(express.static(PUBLIC_DIR));

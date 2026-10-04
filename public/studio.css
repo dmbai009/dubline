@@ -1,0 +1,55 @@
+.studio-transport { display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:8px 12px; background:var(--panel); border-top:1px solid var(--border); font-size:11px; }
+.studio-transport [data-studio-time] { font-variant-numeric:tabular-nums; margin-right:auto; }
+.studio-transport .mute-toggle { font-size:10px; }
+.video-wrapper:fullscreen .studio-transport { position:absolute; bottom:0; left:0; right:0; z-index:30; background:rgba(10,10,14,.85); }
+.video-wrapper:fullscreen .watch-bar { bottom:52px; }
+.studio-audio-header { display:flex; align-items:center; gap:8px; position:sticky; left:0; width:calc(100vw - 28px); max-width:100%; min-height:34px; padding:4px 8px; background:var(--panel-2); z-index:21; font-size:11px; }
+.studio-audio-header .studio-select { width:auto; max-width:170px; padding:4px 8px; font-size:12px; background:var(--panel-3); color:var(--text); border:1px solid var(--border-strong); border-radius:var(--radius-sm); }
+.studio-audio-header .studio-select option { background:var(--panel-2); color:var(--text); }
+.studio-audio-header .studio-mix-note { color:var(--muted); white-space:normal; font-size:11px; }
+.studio-audio-row { display:flex; height:88px; border-bottom:1px solid var(--border); }
+.studio-audio-row .track-label { gap:5px; padding:6px 8px; justify-content:center; font-size:11px; }
+.studio-channel-head, .studio-channel-volume, .studio-channel-offset { display:flex; align-items:center; gap:4px; }
+.studio-channel-head b { margin-right:auto; font-size:12px; }
+.studio-channel-head button { padding:3px 0; min-width:28px; font-size:12px; font-weight:700; }
+.studio-channel-head button.active { background:var(--accent); color:white; }
+.studio-channel-volume input { width:100%; min-width:0; accent-color:var(--accent); }
+.studio-channel-volume output { min-width:36px; text-align:right; font-size:11px; }
+.studio-channel-offset input { width:88px; padding:3px 6px; font-size:11px; }
+.studio-wave-area { position:relative; flex:none; overflow:hidden; background:var(--panel); }
+.studio-wave-area canvas { position:absolute; top:0; height:88px; pointer-events:none; }
+.studio-wave-status { position:sticky; left:190px; display:inline-block; padding:25px 10px; color:var(--muted); font-size:11px; }
+.studio-wave-source { position:sticky; left:190px; font-size:11px; color:var(--muted); padding:2px 8px; pointer-events:none; }
+.ruler-ticks { overflow:hidden; flex:none; }
+#trackPicker[hidden] { display:none !important; }
+.player-card { padding:8px; }
+.player-latency { font-size:10px; }
+.player-status-icons { display:flex; gap:5px; flex-wrap:wrap; font-size:11px; margin:3px 0; }
+.player-head .avatar { flex:none; }
+.player-card .player-stats { font-size:10px; }
+body.lobby-compact .workspace { grid-template-columns:68px var(--gap) minmax(0,1fr); }
+body.lobby-compact #lobbyPanel .panel-title { justify-content:center; padding:6px; }
+body.lobby-compact #lobbyPanel .panel-title > span,
+body.lobby-compact .lobby-summary,
+body.lobby-compact .lobby-section,
+body.lobby-compact .player-name,
+body.lobby-compact .player-tags,
+body.lobby-compact .player-stats,
+body.lobby-compact .player-latency,
+body.lobby-compact .player-status-text,
+body.lobby-compact .lobby-footer { display:none !important; }
+body.lobby-compact .lobby-list { padding:4px; }
+body.lobby-compact .player-card { padding:5px; }
+body.lobby-compact .player-head { justify-content:center; }
+body.lobby-compact .player-status-icons { justify-content:center; gap:2px; font-size:10px; }
+body.lobby-compact .workspace > [data-resize=lobby] { pointer-events:none; }
+body.video-expanded .workspace { grid-template-columns:1fr; }
+/* File pickers in the import form: themed and translated (the native ones follow the OS language) */
+.file-field { display:flex; flex-direction:column; gap:3px; }
+.file-field-label { font-size:11px; color:var(--muted); font-weight:700; }
+.file-pick { position:relative; display:flex; align-items:center; gap:8px; min-width:0; cursor:pointer; }
+.file-pick input[type=file] { position:absolute; inset:0; width:100%; height:100%; opacity:0; cursor:pointer; }
+.file-pick-button { flex:none; padding:5px 10px; font-size:11px; border-radius:var(--radius-sm); border:1px solid var(--border-strong); background:var(--panel-3); color:var(--text); }
+.file-pick:hover .file-pick-button, .file-pick:focus-within .file-pick-button { border-color:var(--accent); }
+.file-pick-name { min-width:0; font-size:11px; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.file-pick.has-file .file-pick-name { color:var(--text); }

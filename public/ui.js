@@ -262,6 +262,7 @@ function syncSettingsUi() {
   document.getElementById('prompterSubRow').style.opacity = prompterEnabled ? '1' : '0.45';
   settingsLanguage.value = i18n.getLanguage();
   settingsTheme.value = document.documentElement.dataset.theme || 'midnight';
+  if (window.syncStudioSettings) window.syncStudioSettings();
   updatePrompter();
 }
 
@@ -294,14 +295,10 @@ settingsNoiseSuppression.addEventListener('change', () => {
   localStorage.setItem('dubline_noise_suppression', noiseSuppression ? '1' : '0');
 });
 settingsAutoDuck.addEventListener('change', () => {
-  autoDuckEnabled = settingsAutoDuck.checked;
-  localStorage.setItem('dubline_auto_duck', autoDuckEnabled ? '1' : '0');
-  syncSettingsUi();
-  setDucking(false, true);
+  window.updateProjectAudio('settings', 'autoDuckEnabled', settingsAutoDuck.checked);
 });
-settingsAutoDuckAmount.addEventListener('input', () => {
-  autoDuckAmount = settingsAutoDuckAmount.value / 100;
-  localStorage.setItem('dubline_auto_duck_amount', autoDuckAmount);
+settingsAutoDuckAmount.addEventListener('change', () => {
+  window.updateProjectAudio('settings', 'autoDuckAmount', settingsAutoDuckAmount.value / 100);
   settingsAutoDuckVal.textContent = `${settingsAutoDuckAmount.value}%`;
 });
 settingsPrompter.addEventListener('change', () => {
@@ -357,7 +354,7 @@ window.addEventListener('dubline-language-changed', () => {
 // HOTKEYS
 // ==========================================
 window.addEventListener('keydown', (e) => {
-  if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
+  if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName) || e.target.isContentEditable || e.ctrlKey && e.code !== 'KeyZ' || e.metaKey && e.code !== 'KeyZ' || e.altKey) return;
 
   // Edit Mode has its own keys for the selected lines (move, change role, delete, undo)
   if (window.handleEditorKey && handleEditorKey(e)) return;
@@ -365,9 +362,10 @@ window.addEventListener('keydown', (e) => {
   // Space: play/pause
   if (e.code === 'Space') {
     e.preventDefault();
-    if (video.paused) video.play().catch(() => {});
-    else video.pause();
+    window.studioTransport('play');
   }
+  const transportKeys = { KeyJ: 'back', KeyK: 'pause', KeyL: 'forward', KeyF: 'fullscreen' };
+  if (transportKeys[e.code]) { e.preventDefault(); window.studioTransport(transportKeys[e.code]); }
 
   // R (same physical key on any layout): record the selected line
   if (e.code === 'KeyR') {
@@ -380,11 +378,11 @@ window.addEventListener('keydown', (e) => {
   // Arrows: seek 3 seconds
   if (e.code === 'ArrowLeft') {
     e.preventDefault();
-    video.currentTime = Math.max(0, video.currentTime - 3);
+    window.studioTransport('back');
   }
   if (e.code === 'ArrowRight') {
     e.preventDefault();
-    video.currentTime = Math.min(video.duration || 0, video.currentTime + 3);
+    window.studioTransport('forward');
   }
 
   // Ctrl+Z: the host undoes the last line deletion
@@ -439,10 +437,10 @@ function showInspector(line) {
   if (isOwnedByMe) {
     primary = line.audioUrl
       ? `<button class="btn-play" onclick="previewTake(${line.id})">${t('playTake')}</button>
-         <button class="btn-record grow" id="recBtn" onclick="handleStudioRecord(${line.id})">${t('rerecord')}</button>
+         <button class="btn-record grow" id="recBtn" ${renderInProgress ? 'disabled' : ''} onclick="handleStudioRecord(${line.id})">${t('rerecord')}</button>
          ${originalBtn}
          <button class="btn-delete" onclick="deleteLineAudio(${line.id})" title="${esc(t('confirm.delete'))}">🗑</button>`
-      : `<button class="btn-record grow" id="recBtn" onclick="handleStudioRecord(${line.id})">${t('record')}</button>${originalBtn}`;
+      : `<button class="btn-record grow" id="recBtn" ${renderInProgress ? 'disabled' : ''} onclick="handleStudioRecord(${line.id})">${t('record')}</button>${originalBtn}`;
   } else {
     // A finished take can always be played, even if the line was released or roles were reset
     const listen = line.audioUrl && canHearLine(line)
@@ -689,6 +687,13 @@ settingsPreRoll.addEventListener('input', () => {
 });
 
 const videoWrapper = document.querySelector('.video-wrapper');
+const transportBar = document.querySelector('.studio-transport');
+const transportAnchor = document.createComment('transport');
+transportBar.before(transportAnchor);
+document.addEventListener('fullscreenchange', () => {
+  if (document.fullscreenElement === videoWrapper) videoWrapper.appendChild(transportBar);
+  else transportAnchor.after(transportBar);
+});
 
 window.toggleExpandedVideo = function() {
   const expanded = document.body.classList.toggle('video-expanded');

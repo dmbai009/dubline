@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { UPLOAD_DIR, PACKS_DIR, MAX_PACK_MB, MAX_PACK_EXPORT_MB, MAX_EXPORT_LINE_SECONDS, MAX_TAKE_MB, MAX_SUBTITLE_MB, HttpError } = require('./config');
-const { recordingNow, p2pSeeders, roomSockets } = require('./state');
+const { rooms, recordingNow, p2pSeeders, roomSockets } = require('./state');
 const { app, io } = require('./app');
 const { sanitizeNick, sanitizePackName } = require('./sanitize');
 const { resolveRoomId } = require('./desktop');
@@ -22,6 +22,24 @@ const workshopDownloads = new Map();
 // every export builds its ZIP in memory (the browser server can host several rooms).
 const packExports = new Set();
 const MAX_PARALLEL_PACK_EXPORTS = 2;
+
+app.get('/api/audio-waveform', async (req, res) => {
+  // Look the room up without creating it: a GET with a made-up name must not add rooms
+  const roomId = resolveRoomId(req.query.room);
+  if (!rooms[roomId]) return res.status(404).json({ error: 'No such room' });
+  const room = getRoom(roomId);
+  if (!room.loaded || req.query.sessionId !== room.activeSessionId) return res.status(409).json({ error: 'Scene changed' });
+  const sources = require('../public/project-audio').sources(room);
+  const url = ['original', 'backing'].includes(req.query.channel) && sources[req.query.channel];
+  if (!url) return res.status(404).json({ error: 'No audio source' });
+  try {
+    const result = await require('./waveform').waveform(url);
+    res.json({ ...result, sessionId: req.query.sessionId, source: url });
+  } catch (error) {
+    // A silent video is a valid scene; it simply has no original waveform.
+    res.status(422).json({ error: 'No readable audio', sessionId: req.query.sessionId, source: url });
+  }
+});
 
 // ==========================================
 // HTTP API
@@ -109,14 +127,33 @@ function acceptFile(field, maxMb, authorize) {
 function acceptCustomFiles(maxMb, authorize) {
   const handler = multer({
     storage: multer.memoryStorage(),
-    limits: { fileSize: maxMb * 1024 * 1024 },
+    limits: { fileSize: maxMb * 1024 * 1024, files: 4, fields: 4 },
     fileFilter: checkedBefore(authorize)
   }).fields([
     { name: 'video', maxCount: 1 },
-    { name: 'subtitles', maxCount: 1 }
+    { name: 'subtitles', maxCount: 1 },
+    { name: 'original', maxCount: 1 },
+    { name: 'intershum', maxCount: 1 }
   ]);
-  return uploadErrorHandler(handler, maxMb);
+  const accept = uploadErrorHandler(handler, maxMb);
+  // Up to four files are kept in memory: refuse an import that is too large as a whole from its
+  // Content-Length, before any of it is read (multer alone would buffer 4 × maxMb first)
+  return (req, res, next) => {
+    const length = Number(req.headers['content-length']);
+    if (!Number.isFinite(length) || length <= 0) {
+      return sendJsonError(res, 411, 'The upload size is unknown', 'error.uploadFailed', { message: 'Content-Length required' });
+    }
+    if (length > maxMb * 1024 * 1024 + MULTIPART_OVERHEAD) {
+      logEvent(null, `⚠ Upload rejected: the import is larger than ${maxMb} MB`, 'warn');
+      res.set('Connection', 'close');
+      return sendJsonError(res, 413, `Scene files exceed the total import limit (max ${maxMb} MB)`, 'error.fileTooBig', { max: maxMb });
+    }
+    accept(req, res, next);
+  };
 }
+
+// Multipart boundaries, headers and the text fields around the files
+const MULTIPART_OVERHEAD = 1024 * 1024;
 
 // The client shows `key` translated into the player's language and falls back to the English `error`
 function sendJsonError(res, status, message, key = null, params = {}) {
@@ -297,9 +334,9 @@ app.post('/api/export-voxalike-pack', async (req, res) => {
 
     // Lines without their own voice file are cut from the chosen "Original" track
     // (a separate video audio track if the host picked one), otherwise from the video itself.
-    const tracks = Array.isArray(room.audioTracks) ? room.audioTracks : [];
-    const originalTrack = tracks.length >= 2 && room.originalTrack >= 0 ? tracks[room.originalTrack] : null;
-    const originalTrackPath = originalTrack ? diskPathForUrl(originalTrack.url) : null;
+    const projectMix = require('../public/project-audio').normalize(room);
+    const originalSource = require('../public/project-audio').sources(room).original;
+    const originalTrackPath = originalSource ? diskPathForUrl(originalSource) : null;
     const sceneAudioPath = originalTrackPath && fs.existsSync(originalTrackPath) ? originalTrackPath : videoPath;
 
     for (let index = 0; index < ordered.length; index++) {
@@ -315,7 +352,10 @@ app.post('/api/export-voxalike-pack', async (req, res) => {
           // The pack's clean voice line is better than a cut from the mixed soundtrack
           await runFfmpeg(['-i', voicePath, '-t', String(duration), '-vn', '-ac', '2', '-ar', '44100', '-c:a', 'pcm_s16le', audioPath], 'Could not convert line audio');
         } else {
-          await runFfmpeg(['-ss', String(line.start), '-i', sceneAudioPath, '-t', String(duration), '-vn', '-ac', '2', '-ar', '44100', '-c:a', 'pcm_s16le', audioPath], 'Could not extract line audio');
+          const sourceStart = line.start - projectMix.original.offset;
+          const leadMs = Math.round(Math.max(0, -sourceStart) * 1000);
+          if (leadMs >= duration * 1000) throw new Error('The reference starts after this line');
+          await runFfmpeg(['-ss', String(Math.max(0, sourceStart)), '-i', sceneAudioPath, '-af', `adelay=${leadMs}:all=1,apad`, '-t', String(duration), '-vn', '-ac', '2', '-ar', '44100', '-c:a', 'pcm_s16le', audioPath], 'Could not extract line audio');
         }
       } catch (err) {
         await runFfmpeg(['-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo', '-t', String(duration), '-c:a', 'pcm_s16le', audioPath], 'Could not create line audio');
@@ -386,6 +426,15 @@ app.post('/api/upload-custom', acceptCustomFiles(MAX_PACK_MB, requireHost('Only 
 
     const videoFile = req.files && req.files['video'] ? req.files['video'][0] : null;
     const subFile = req.files && req.files['subtitles'] ? req.files['subtitles'][0] : null;
+    const originalFile = req.files && req.files.original ? req.files.original[0] : null;
+    const intershumFile = req.files && req.files.intershum ? req.files.intershum[0] : null;
+    const importSessionId = room.activeSessionId;
+    if (Object.values(req.files || {}).flat().reduce((sum, file) => sum + file.size, 0) > MAX_PACK_MB * 1024 * 1024) {
+      throw new HttpError(413, 'Scene files exceed the total import limit', 'error.fileTooBig', { max: MAX_PACK_MB });
+    }
+    for (const audio of [originalFile, intershumFile].filter(Boolean)) {
+      if (!/\.(wav|mp3|m4a|aac|ogg|oga|opus|flac)$/i.test(audio.originalname)) throw new HttpError(400, 'Unsupported audio file', 'error.audioFormat');
+    }
 
     if (!videoFile) throw new HttpError(400, 'No video file was sent (.mp4 / .mkv)', 'error.noVideo');
     if (!isMp4File(videoFile) && !isMkvFile(videoFile)) throw new HttpError(400, 'Only .mp4 and .mkv videos are supported', 'error.videoFormat');
@@ -413,8 +462,7 @@ app.post('/api/upload-custom', acceptCustomFiles(MAX_PACK_MB, requireHost('Only 
       if (!subtitleBuffer) {
         const extractedPath = path.join(targetDir, 'embedded.ass');
         const subtitleMap = findEmbeddedSubtitleMap(mkvPath);
-        if (!subtitleMap) throw new HttpError(400, 'The MKV has no embedded ASS/SSA/SRT subtitles', 'error.noEmbeddedSubtitles');
-        try {
+        if (subtitleMap) try {
           await runFfmpeg(['-i', mkvPath, '-map', subtitleMap, '-c:s', 'ass', extractedPath], 'Could not extract embedded subtitles');
           subtitleBuffer = fs.readFileSync(extractedPath);
           subtitleName = 'embedded.ass';
@@ -435,25 +483,42 @@ app.post('/api/upload-custom', acceptCustomFiles(MAX_PACK_MB, requireHost('Only 
       }
     } else {
       fs.writeFileSync(videoPath, videoFile.buffer);
+      await runFfmpeg(['-i', videoPath, '-map', '0:v:0', '-frames:v', '1', '-an', '-f', 'null', '-'], 'Could not read scene video');
     }
 
-    if (!subtitleBuffer) {
-      fs.rmSync(targetDir, { recursive: true, force: true });
-      throw new HttpError(400, 'Send a subtitle file or an MKV with an embedded subtitle track', 'error.needSubtitles');
-    }
-
-    const lines = parseSubtitles(subtitleBuffer, subtitleName);
-    if (!lines.length) {
-      fs.rmSync(targetDir, { recursive: true, force: true });
+    const lines = subtitleBuffer ? parseSubtitles(subtitleBuffer, subtitleName) : [];
+    if (subtitleBuffer && !lines.length) {
       throw new HttpError(400, 'No lines found in the subtitle file', 'error.noSubtitleLines');
     }
+
+    const audioMetadata = {};
+    const externalUrls = {};
+    for (const [channel, file] of [['original', originalFile], ['backing', intershumFile]]) {
+      if (!file) continue;
+      const sourcePath = path.join(targetDir, `${channel}_source${path.extname(file.originalname).toLowerCase()}`);
+      const outputName = `${channel}.m4a`;
+      const outputPath = path.join(targetDir, outputName);
+      fs.writeFileSync(sourcePath, file.buffer);
+      await runFfmpeg(['-i', sourcePath, '-map', '0:a:0', '-vn', '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', outputPath], 'Could not read external audio');
+      fs.rmSync(sourcePath, { force: true });
+      const { probeAudioDuration } = require('./media');
+      const duration = probeAudioDuration(outputPath);
+      if (!duration) throw new HttpError(400, 'Audio has no readable samples', 'error.audioInvalid');
+      externalUrls[channel] = `/uploads/${encodeURIComponent(dirName)}/${outputName}`;
+      audioMetadata[channel] = { name: path.basename(file.originalname).slice(0, 200), duration, size: fs.statSync(outputPath).size };
+    }
+    // A long remux/convert may have outlived a session switch or a host change.
+    if (room.activeSessionId !== importSessionId || !isHost(room, req.body.clientId)) throw new HttpError(409, 'The scene changed during import', 'error.importSceneChanged');
 
     startNewSession(room, {
       title: customTitle,
       kind: 'custom',
       zipUrl: '',
       videoUrl: `/uploads/${encodeURIComponent(dirName)}/${encodeURIComponent(videoName)}`,
-      backingUrl: '',
+      backingUrl: externalUrls.backing || '',
+      externalOriginalUrl: externalUrls.original || '',
+      audioMetadata,
+      mode: subtitleBuffer ? 'dub' : 'edit',
       lines,
       characterClaims: {}
     });

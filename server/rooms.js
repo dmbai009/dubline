@@ -7,13 +7,15 @@ const { logEvent } = require('./log');
 const { sceneDirOf, diskPathForUrl, fileSizeForUrl, fileHashForUrl, deleteTakeFile } = require('./files');
 const { extractAudioTracks, probeAudioDuration, getWavDuration } = require('./media');
 const { isAssDrawing, cleanAssText } = require('./parsers');
+const projectAudio = require('../public/project-audio');
 
 // ==========================================
 // ROOMS (persisted to disk)
 // ==========================================
 // Scene fields that belong to a session (see "Sessions" below)
 const SESSION_FIELDS = ['loaded', 'title', 'kind', 'zipUrl', 'videoUrl', 'backingUrl', 'lines', 'characterClaims', 'createdAt', 'updatedAt',
-  'audioTracks', 'originalTrack', 'backingTrack', 'baseBackingUrl', 'deletedLines', 'mode', 'trackOrder', 'nextLineId', 'blindMode'];
+  'audioTracks', 'originalTrack', 'backingTrack', 'baseBackingUrl', 'deletedLines', 'mode', 'trackOrder', 'nextLineId', 'blindMode',
+  'externalOriginalUrl', 'audioMetadata', 'projectAudio', 'videoHasAudio'];
 let repairedOnLoad = false;
 
 function loadRooms() {
@@ -74,6 +76,7 @@ function cleanImportedCaptions(session) {
 
 function normalizeEditorState(session) {
   if (!session || !Array.isArray(session.lines)) return;
+  session.projectAudio = projectAudio.normalize(session);
   if (!['edit', 'dub'].includes(session.mode)) {
     session.mode = 'dub';
     repairedOnLoad = true;
@@ -177,6 +180,8 @@ function emptySession() {
   return {
     loaded: false, title: '', kind: null, zipUrl: '', videoUrl: '', backingUrl: '', lines: [], characterClaims: {}, createdAt: null, updatedAt: null,
     mode: 'dub', trackOrder: [], nextLineId: 1, blindMode: false,
+    externalOriginalUrl: '', audioMetadata: {}, projectAudio: undefined,
+    videoHasAudio: undefined, // unknown until probing succeeds; false only for genuinely silent video
     audioTracks: undefined,   // video audio tracks as separate files (if there are several); undefined = not checked yet
     originalTrack: 0,         // which track plays as "Original" (-1 = none)
     backingTrack: -1,         // which track plays as "Background" (-1 = the pack's own backing track or none)
@@ -234,7 +239,7 @@ function sessionSummaries(room) {
 // Whether any other session in any room still uses the scene folder
 function isSceneDirUsed(dir) {
   return Object.values(rooms).some(room => [room, ...Object.values(room.sessions || {})]
-    .some(session => sceneDirOf(session.videoUrl) === dir || sceneDirOf(session.backingUrl) === dir));
+    .some(session => [session.videoUrl, session.backingUrl, session.externalOriginalUrl, session.baseBackingUrl].some(url => sceneDirOf(url) === dir)));
 }
 
 // Lines in a session are always sorted by id (the import creates them that way and the list is never re-sorted),
@@ -255,7 +260,7 @@ function deleteSessionFiles(session) {
       takes++;
     }
   });
-  const dirs = new Set([sceneDirOf(session.videoUrl), sceneDirOf(session.backingUrl)].filter(Boolean));
+  const dirs = new Set([session.videoUrl, session.backingUrl, session.externalOriginalUrl, session.baseBackingUrl].map(sceneDirOf).filter(Boolean));
   dirs.forEach(dir => {
     if (isSceneDirUsed(dir)) return;
     const full = path.join(UPLOAD_DIR, dir);
@@ -286,18 +291,25 @@ function emitSession(roomId) {
   io.to(roomId).emit('session_updated', publicRoom(getRoom(roomId)));
 }
 
+// A video whose tracks could not be read is tried again later, not on every room event
+const audioTrackFailures = new Map(); // videoUrl -> { count, retryAt }
+
 // If the open session's tracks were not checked yet, check them in the background and tell everyone when done
 function ensureAudioTracks(roomId) {
   const room = getRoom(roomId);
-  if (!room.loaded || room.audioTracks !== undefined || !sceneDirOf(room.videoUrl) || room.audioTracksPending) return;
+  if (!room.loaded || (room.audioTracks !== undefined && typeof room.videoHasAudio === 'boolean') || !sceneDirOf(room.videoUrl) || room.audioTracksPending) return;
+  const failure = audioTrackFailures.get(room.videoUrl);
+  if (failure && Date.now() < failure.retryAt) return;
   const sessionId = room.activeSessionId;
   const videoUrl = room.videoUrl;
   room.audioTracksPending = true;
   extractAudioTracks(videoUrl).then(tracks => {
+    audioTrackFailures.delete(videoUrl);
     const target = room.activeSessionId === sessionId ? room : room.sessions[sessionId];
-    delete room.audioTracksPending;
+    if (room.videoUrl === videoUrl) delete room.audioTracksPending;
     if (!target || target.videoUrl !== videoUrl) return;
     target.audioTracks = tracks;
+    target.videoHasAudio = tracks.length > 0;
     if (target.originalTrack === undefined) target.originalTrack = 0;
     if (target.backingTrack === undefined) target.backingTrack = -1;
     if (target.baseBackingUrl === undefined) target.baseBackingUrl = target.backingUrl || '';
@@ -305,6 +317,11 @@ function ensureAudioTracks(roomId) {
     saveRooms();
     if (target === room) emitSession(roomId);
     if (tracks.length) logEvent(roomId, `🎧 Audio tracks found: ${tracks.length} (${tracks.map(t => t.label || t.language).join(', ')})`);
+  }).catch(() => {
+    if (room.videoUrl === videoUrl) delete room.audioTracksPending;
+    // 15 s, 30 s, 1 min … up to 10 min between attempts
+    const count = (audioTrackFailures.get(videoUrl)?.count || 0) + 1;
+    audioTrackFailures.set(videoUrl, { count, retryAt: Date.now() + Math.min(10 * 60 * 1000, 15000 * 2 ** (count - 1)) });
   });
 }
 

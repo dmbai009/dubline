@@ -386,6 +386,9 @@ describe('studio', { skip: skipReason }, () => {
     assert.equal(await alice.evaluate(() => getComputedStyle(document.getElementById('helpModal')).display), 'flex');
     await alice.keyboard.press('Escape');
     await loadFixture(alice);
+    // Character editing scenarios use the compact Audio group; expanded audio
+    // layout, scrolling and controls are exercised in workflow.e2e.js.
+    await alice.evaluate(() => { localStorage.setItem('dubline_audio_collapsed', '1'); renderTimeline(); });
     assert.ok(await alice.evaluate(() => amHost()), 'first player becomes host');
   });
 
@@ -850,6 +853,7 @@ describe('studio', { skip: skipReason }, () => {
     await waitFor(bob, () => session.mode === 'edit');
     // A tall timeline: every track fits on screen and no tile hides under the sticky ruler
     await bob.evaluate(() => document.documentElement.style.setProperty('--top-h', '120px'));
+    await bob.evaluate(() => { localStorage.setItem('dubline_audio_collapsed', '1'); renderTimeline(); });
     // Drag a tile vertically with the real mouse: it lands on the track under the pointer
     const dragTo = async (page, lineId, character) => {
         await page.evaluate(id => {

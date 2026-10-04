@@ -35,8 +35,10 @@ const copy = {
 };
 
 const modes = ['cloudflare', 'porthole', 'vpn'];
-let language = (localStorage.getItem('dubline_language') || navigator.language || 'en').slice(0, 2);
+let language = (window.dublineLauncher.language || localStorage.getItem('dubline_language') || 'en').slice(0, 2);
 if (!copy[language]) language = 'en';
+localStorage.setItem('dubline_language', language);
+window.dublineLauncher.setLanguage?.(language).catch(() => {});
 let selectedMode = 'cloudflare';
 let tools = null;
 let updateStatus = null;
@@ -108,7 +110,7 @@ document.querySelectorAll('[data-view]').forEach(button => button.addEventListen
   document.getElementById('hostScreen').classList.toggle('active', button.dataset.view === 'host');
   document.getElementById('guestScreen').classList.toggle('active', button.dataset.view === 'guest');
 }));
-document.getElementById('language').addEventListener('change', event => { language=event.target.value; localStorage.setItem('dubline_language',language); render(); });
+document.getElementById('language').addEventListener('change', event => { language=event.target.value; localStorage.setItem('dubline_language',language); window.dublineLauncher.setLanguage?.(language).catch(() => {}); render(); });
 document.getElementById('startHost').addEventListener('click', async event => {
   event.currentTarget.disabled=true; event.currentTarget.textContent=tr('starting'); document.getElementById('hostError').textContent='';
   try { const result=await window.dublineLauncher.startHost(selectedMode); if (!result.ok) throw new Error(result.error); }

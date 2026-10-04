@@ -37,20 +37,27 @@
     function effectiveOriginalVolume() {
       const session = getSession();
       const volumes = getVolumes();
-      return session && !session.backingUrl ? volumes.backing : volumes.original;
+      return options.projectMix || !(session && !session.backingUrl) ? volumes.original : volumes.backing;
     }
 
     function ensurePlayCtx() {
       if (!playCtx) {
         playCtx = new (global.AudioContext || global.webkitAudioContext)();
         takesBus = playCtx.createGain();
-        takesBus.connect(playCtx.destination);
+        const limiter = playCtx.createDynamicsCompressor();
+        limiter.threshold.value = -2;
+        limiter.knee.value = 0;
+        limiter.ratio.value = 20;
+        limiter.attack.value = 0.003;
+        limiter.release.value = 0.1;
+        limiter.connect(playCtx.destination);
+        takesBus.connect(limiter);
         videoSourceNode = playCtx.createMediaElementSource(video);
         backingSourceNode = playCtx.createMediaElementSource(backing);
         videoGain = playCtx.createGain();
         backingGain = playCtx.createGain();
-        videoSourceNode.connect(videoGain).connect(playCtx.destination);
-        backingSourceNode.connect(backingGain).connect(playCtx.destination);
+        videoSourceNode.connect(videoGain).connect(limiter);
+        backingSourceNode.connect(backingGain).connect(limiter);
         // The chosen video track goes to the same "Original" channel as the video's own sound
         if (originalTrack) {
           playCtx.createMediaElementSource(originalTrack).connect(videoGain);
@@ -79,7 +86,7 @@
     function setDucking(active, immediate = false) {
       const settings = getSettings();
       const volumes = getVolumes();
-      duckingActive = !!active && settings.autoDuckEnabled;
+      duckingActive = !!active && settings.autoDuckEnabled && volumes.recorded > 0;
       if (!playCtx || !videoGain || !backingGain) return;
       const factor = duckingActive ? 1 - settings.autoDuckAmount : 1;
       const seconds = duckingActive ? 0.08 : 0.25;
@@ -99,12 +106,13 @@
     function applyVolumes() {
       const volumes = getVolumes();
       if (videoGain && backingGain && playCtx) {
-        setDucking(duckingActive, true);
+        setDucking(duckingTakes.size > 0, true);
         takesBus.gain.setValueAtTime(volumes.isMuted ? 0 : volumes.recorded, playCtx.currentTime);
       } else {
-        video.volume = volumes.isMuted ? 0 : effectiveOriginalVolume();
+        // Media elements accept only 0..1; louder levels need the Web Audio graph above
+        video.volume = volumes.isMuted ? 0 : Math.min(1, effectiveOriginalVolume());
         if (originalTrack) originalTrack.volume = video.volume;
-        backing.volume = volumes.isMuted || isRenderInProgress() ? 0 : volumes.backing;
+        backing.volume = volumes.isMuted || isRenderInProgress() ? 0 : Math.min(1, volumes.backing);
       }
     }
 
@@ -136,7 +144,13 @@
     }
 
     function getRawTake(url) {
-      if (!rawTakeCache.has(url)) rawTakeCache.set(url, fx.fetchAndDecode(url).catch(() => null));
+      if (!rawTakeCache.has(url)) {
+        const job = Promise.resolve().then(() => fx.fetchAndDecode(url)).catch(() => null).then(buffer => {
+          if (!buffer && rawTakeCache.get(url) === job) rawTakeCache.delete(url);
+          return buffer;
+        });
+        rawTakeCache.set(url, job);
+      }
       return rawTakeCache.get(url);
     }
 
@@ -154,6 +168,9 @@
           .catch(error => {
             console.error('[Dubline] Failed to process take:', error);
             return null;
+          }).then(buffer => {
+            if (!buffer && processedTakeCache.get(key) === job) processedTakeCache.delete(key);
+            return buffer;
           });
         processedTakeCache.set(key, job);
       }
@@ -263,7 +280,7 @@
       stopPreview();
       previewAudio = new Audio(url);
       const volumes = getVolumes();
-      previewAudio.volume = volumes.isMuted ? 0 : volumes.recorded;
+      previewAudio.volume = volumes.isMuted ? 0 : Math.min(1, volumes.recorded);
       return previewAudio.play();
     }
 

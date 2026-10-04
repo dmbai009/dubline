@@ -231,16 +231,13 @@ function playerCardHtml(nick, stats, online) {
       <div class="player-latency" title="${esc(t('latency.help'))}">
         <span>${t('latency.label')}</span>
         <b>${formatMs(latencyMs)}</b>
-        <button class="btn-icon" onclick="nudgeLatency(-10)">−10</button>
-        <button class="btn-icon" onclick="nudgeLatency(10)">+10</button>
-        <button class="btn-icon" onclick="setMyLatency(0)" ${latencyMs ? '' : 'disabled'} title="${esc(t('reset'))}">⟲</button>
       </div>`;
   } else if (latencyMs) {
     latencyHtml = `<div class="player-latency"><span>${t('latency.label')}</span><b>${formatMs(latencyMs)}</b></div>`;
   }
 
   return `
-    <div class="${classes}">
+    <div class="${classes}" title="${esc(nick)} · ${esc(t(online ? 'online' : 'studio.offline'))}">
       <div class="player-head">
         <div class="avatar" style="background:${playerColor(nick)}">${esc(initials(nick))}<span class="dot"></span></div>
         <div class="player-name" title="${esc(nick)}">${esc(nick)}</div>
@@ -248,8 +245,17 @@ function playerCardHtml(nick, stats, online) {
       </div>
       <div class="player-stats"><span>${t('lobby.recorded', { n: stats.recorded })}</span><span>${t('lobby.claimed', { n: stats.claimed })}</span></div>
       <div class="progress"><div style="width:${pct}%"></div></div>
-      ${extra ? `<div>${extra}</div>` : ''}
+      <div class="player-status-icons">
+        ${nick === roomHost ? `<span title="${esc(t('lobby.host'))}">👑</span>` : ''}
+        ${isMe ? `<span title="${esc(t('lobby.you'))}">●</span>` : ''}
+        ${recordingLine ? `<span title="${esc(t('lobby.recording', { id: recordingLine[0] }))}">🎙</span>` : ''}
+        ${seedingNicks.has(nick) ? `<span title="${esc(t('lobby.seeding'))}">↑</span>` : ''}
+        ${activity && activity.state === 'downloading' ? `<span title="${esc(t('lobby.downloading', { pct: activity.pct }))}">↓${activity.pct}%</span>` : ''}
+        ${!online ? `<span title="${esc(t('studio.offline'))}">○</span>` : ''}
+        ${stats.claimed && stats.recorded >= stats.claimed ? `<span title="${esc(t('studio.done'))}">✓</span>` : ''}
+      </div>
       ${activityProgress}
+      ${extra ? `<div class="player-status-text">${extra}</div>` : ''}
       ${latencyHtml}
     </div>`;
 }
@@ -567,6 +573,7 @@ socket.on('force_pause', () => {
 function applySessionUpdate(data) {
   const sessionChanged = !session || session.activeSessionId !== data.activeSessionId;
   if (sessionChanged) {
+    if (recordState !== 'idle') finishRecording({ discard: true });
     multiSelection.clear();
     selectedLine = null;
   }
@@ -640,6 +647,7 @@ socket.on('line_updated', (updatedLine) => {
     }
     session.lines[idx] = updatedLine;
     updateLineBlock(updatedLine);
+    if (window.refreshStudioWaves) window.refreshStudioWaves();
     renderLobby();
     if (updatedLine.audioUrl) getProcessedTake(updatedLine);
     if (selectedLine && selectedLine.id === updatedLine.id) {
@@ -685,6 +693,7 @@ function enterWatchMode() {
 
 function exitWatchMode() {
   watchMode = false;
+  if (window.refreshStudioTransport) window.refreshStudioTransport();
   clearTimeout(watchStartTimer);
   clearInterval(watchCountdownTimer);
   clearInterval(hostSyncTimer);

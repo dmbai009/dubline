@@ -1,6 +1,8 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('dublineLauncher', Object.freeze({
+  language: ipcRenderer.sendSync('app:get-language'),
+  setLanguage: language => ipcRenderer.invoke('app:set-language', language),
   detectTools: () => ipcRenderer.invoke('launcher:detect-tools'),
   startHost: mode => ipcRenderer.invoke('launcher:start-host', mode),
   joinGuest: address => ipcRenderer.invoke('launcher:join-guest', address),
