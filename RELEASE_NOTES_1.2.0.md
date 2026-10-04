@@ -1,31 +1,19 @@
-# Dubline 1.2.0
+## What's new
 
-## Что нового
+- Collaborative Edit Mode: create, resize and move source lines, edit captions, arrange role tracks, and undo your own changes with Ctrl+Z.
+- Separate Edit and Dub Modes, switched by the host for the whole room; recorded takes can still be aligned while dubbing.
+- Voxalike-compatible ZIP export with scene video, backing audio and INI/WAV files for each line.
+- Voxalike Workshop import by pack link, with validated archives cached on the host for reuse.
+- Random Cast distributes speaking roles among online players and skips empty tracks.
+- Blind Mode hides other players' takes, or just your own, until the host reveals them.
+- One-second recording preparation by default, adjustable from 0 to 5 seconds, including lines at the start of the video.
+- Six visual themes, video download progress in the lobby, and a refreshed inspector.
+- Expanded video view and video-only fullscreen, including during watch-together; low-resolution video fills the available area without changing its aspect ratio.
+- More reliable collaborative editing: revision-checked changes and deletion, consecutive Undo, lost-reply recovery, and session-bound queued actions.
+- Edited line lengths survive reloads and server restarts; pack export uses a consistent scene snapshot, and completed takes retain their original session and timing.
 
-- **Совместный Edit Mode.** Создание реплик, редактирование текста и таймингов, изменение длины за края, перенос между ролями, новые дорожки и переименование/объединение ролей. Каждый участник отменяет свои правки через Ctrl+Z. Режим для всей комнаты переключает хост.
-- **Отдельный Dub Mode.** Во время озвучки исходные реплики защищены от редактирования; двигать записанные дубли для попадания в губы можно как раньше. Хост может добавлять дорожки ролей.
-- **Экспорт Voxalike-паков.** Хост может скачать отредактированную сцену как ZIP с видео, интершумом при наличии и INI/WAV-файлами реплик. Записанную озвучку по-прежнему можно экспортировать в видео или дорожки для DAW.
-- **Импорт из Voxalike Workshop по ссылке.** Пак проверяется и сохраняется у хоста; повторное открытие той же ссылки использует сохранённую копию.
-- **Рандом каст.** Случайное распределение ролей с репликами между игроками онлайн; пустые дорожки не учитываются.
-- **Blind Mode.** Можно скрывать чужие дубли для всей сцены или только свои до нажатия хостом «Показать всем».
-- **Подготовка перед записью.** По умолчанию — 1 секунда, в настройках — от 0 до 5 секунд. Полный буфер работает и для реплики в начале видео.
-- **Шесть визуальных тем**, статусы скачивания с прогрессом, обновлённый инспектор, увеличенный просмотр и полноэкранное видео без рабочего поля.
+## Verification
 
-## Исправления надёжности
-
-- Повторное сохранение без изменений больше не ломает Undo; несколько последовательных откатов работают корректно.
-- Устаревшие правки и удаления проверяются по ревизиям и не перезаписывают более свежие изменения других участников.
-- После потерянного ответа редактор запрашивает актуальную сцену и отменяет зависимые действия, не повторяя возможное удаление или Undo вслепую.
-- Ожидающие операции привязаны к своей сессии и не попадают в другое видео после переключения.
-- Ручная длина реплики больше не заменяется длиной исходного аудио — в том числе после перезапуска сервера.
-- Экспорт пака использует согласованный снимок сцены, даже если участники продолжают редактирование.
-- Undo не возвращает освобождённую после переименования роль, а личный Blind Mode сохраняется при смене ника.
-- Запись повторно проверяет режим и сессию после разрешения микрофона; готовый дубль сохраняет исходную сессию и время начала во время обработки.
-
-## Установка и ограничения
-
-Скачайте **Dubline.exe** и запустите. Node.js, FFmpeg и cloudflared отдельно устанавливать не требуется. Данные остаются в прежней папке приложения; перед обновлением закройте старую версию. Сборка Windows x64 переносимая и не подписана сертификатом, поэтому возможен запрос SmartScreen.
-
-Blind Mode предотвращает случайные спойлеры в интерфейсе, но не является серверной защитой аудио. История Undo хранится в памяти и сбрасывается при перезапуске сервера. Для длинных сцен экспорт может требовать много памяти; экспорт Voxalike-пака ограничен 2 000 репликами, 10 минутами на реплику и оценкой 384 МБ несжатых данных.
-
-ИИ-редактор и локальная вырезка голосов в 1.2.0 не входят.
+- 34/34 unit tests passed.
+- 69/69 end-to-end tests passed.
+- Packaged Windows smoke tests passed on the release EXE, both locally and through a live Cloudflare tunnel, including a PIN guest, editing, Undo, recording, Blind Mode and ZIP export.
