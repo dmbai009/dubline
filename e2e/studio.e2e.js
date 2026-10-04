@@ -122,9 +122,10 @@ describe('millisecond timing', { skip: skipReason }, () => {
   test('a draft merges changes to other fields; the same field offers "keep my version"', async () => {
     const bob = await openPlayer(browser, server.url('timing'), 'Bob');
     try {
+      // Clear the field through an input event (a re-render may drop a plain selection), then type
       const typeCaption = async text => {
         await page.focus('#editorCaption');
-        await page.$eval('#editorCaption', input => input.select());
+        await page.$eval('#editorCaption', input => { input.value = ''; input.dispatchEvent(new Event('input', { bubbles: true })); });
         await page.type('#editorCaption', text);
       };
       await page.evaluate(() => selectLine(session.lines.find(line => line.id === 1)));
@@ -143,6 +144,8 @@ describe('millisecond timing', { skip: skipReason }, () => {
       assert.deepEqual(merged, { caption: 'My caption', start: Number((start + 0.25).toFixed(3)), conflict: false, saveDisabled: false });
       await page.click('#editorLineForm button[type="submit"]');
       await waitFor(bob, s => { const l = session.lines.find(line => line.id === 1); return l.caption === 'My caption' && Math.abs(l.start - (s + 0.25)) < 0.001; }, 5000, start);
+      // The save has come back and the form shows the saved line before the next edit starts
+      await waitFor(page, () => editorDrafts.size === 0 && !document.querySelector('#editorLineForm button[type="submit"]').disabled);
 
       // Both change the caption: a real conflict; "keep my version" saves mine over Bob's
       await typeCaption('Mine wins');
