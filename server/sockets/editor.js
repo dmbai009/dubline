@@ -1,8 +1,8 @@
 // Collaborative scene editor. Editing is deliberately unavailable in dub mode.
-const { MAX_UNDO_BATCHES } = require('../config');
+const { MAX_UNDO_BATCHES, MAX_CAPTION_LENGTH } = require('../config');
 const { recordingNow } = require('../state');
 const { io } = require('../app');
-const { sanitizeChatText } = require('../sanitize');
+const { sanitizeChatText, sanitizeCaption } = require('../sanitize');
 const { emptyTake, parseSeconds } = require('../parsers');
 const { deleteTakeFile } = require('../files');
 const { logEvent } = require('../log');
@@ -19,7 +19,8 @@ function cleanTrackName(raw) {
 }
 
 function cleanCaption(raw) {
-  return sanitizeChatText(raw).slice(0, 2000);
+  const caption = sanitizeCaption(raw);
+  return caption.length <= MAX_CAPTION_LENGTH ? caption : null;
 }
 
 function editorAllowed(conn, room) {
@@ -158,13 +159,15 @@ module.exports = function registerEditorHandlers(socket, conn) {
     if (data.sessionId !== undefined && data.sessionId !== room.activeSessionId) return reply({ ok: false, reason: 'session' });
     const bounds = validBounds(data.start, data.end);
     const character = cleanTrackName(data.character);
+    const caption = cleanCaption(data.caption);
+    if (caption === null) return reply({ ok: false, reason: 'caption' });
     if (!bounds || !character) return reply({ ok: false, reason: 'invalid' });
     normalizeEditorState(room);
     const line = {
       id: room.nextLineId++,
       revision: 0,
       character,
-      caption: cleanCaption(data.caption),
+      caption,
       start: bounds.start,
       end: bounds.end,
       originalAudioUrl: null,
@@ -207,7 +210,9 @@ module.exports = function registerEditorHandlers(socket, conn) {
       const bounds = validBounds(data.start ?? line.start, data.end ?? line.end, Math.min(MIN_LINE_SECONDS, line.end - line.start));
       const character = data.character === undefined ? line.character : cleanTrackName(data.character);
       if (!bounds || !character) return reply({ ok: false, reason: 'invalid' });
-      planned.push({ line, bounds, character, caption: data.caption === undefined ? line.caption : cleanCaption(data.caption) });
+      const caption = data.caption === undefined ? line.caption : cleanCaption(data.caption);
+      if (caption === null) return reply({ ok: false, reason: 'caption' });
+      planned.push({ line, bounds, character, caption });
     }
     if (conflicts.length) return reply({ ok: false, reason: 'conflict', line: conflicts[0], lines: room.lines.filter(line => ids.has(line.id)) });
 

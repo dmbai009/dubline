@@ -20,6 +20,7 @@ const MAX_TAKE_MB = 20;        // size of one take
 const MAX_SUBTITLE_MB = 20;
 const MAX_NICK_LENGTH = 16;
 const MAX_CHAT_LENGTH = 500;
+const MAX_CAPTION_LENGTH = 2000;
 const MAX_CHAT_HISTORY = 100;
 const CHAT_RATE_LIMIT = { count: 5, windowMs: 5000 };
 // Wrong room passwords from all devices together: a new socket per guess must not reset the count
@@ -60,6 +61,7 @@ module.exports = {
   MAX_SUBTITLE_MB,
   MAX_NICK_LENGTH,
   MAX_CHAT_LENGTH,
+  MAX_CAPTION_LENGTH,
   MAX_CHAT_HISTORY,
   CHAT_RATE_LIMIT,
   PASSWORD_FAILURE_LIMIT,

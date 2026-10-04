@@ -171,7 +171,7 @@ async function openPlayer(browser, url, nick, { helpSeen = true, viewport = { wi
   await page.evaluateOnNewDocument((name, seen, expanded) => {
     // The UI language would otherwise follow the machine's locale; assertions expect English
     localStorage.setItem('dubline_language', 'en');
-    if (name) localStorage.setItem('dubline_nick', name);
+    if (name && !localStorage.getItem('dubline_nick')) localStorage.setItem('dubline_nick', name);
     if (seen) localStorage.setItem('dubline_help_seen', '1');
     // The Audio group starts collapsed; most suites look at its rows, so open it once
     // (a later collapse by the test itself survives reloads)
@@ -248,7 +248,17 @@ function uploadFileCount(server) {
 }
 
 module.exports = {
+  answerTextPrompt,
   FIXTURE_LINES, FIXTURE_PACK, SCENE_SECONDS,
   skipReason, wait, launchBrowser, startServer, openPlayer, waitFor, waitUntil,
   loadFixture, claimAndSelect, recordTake, uploadFileCount, buildFixturePack, buildVoiceFile, fixtureVideoPath, buildMultiTrackVideo
 };
+
+async function answerTextPrompt(page, value) {
+  await waitFor(page, () => document.querySelector('dialog.text-prompt[open]'));
+  await page.focus('#textPromptInput');
+  await page.keyboard.down('Control'); await page.keyboard.press('KeyA'); await page.keyboard.up('Control');
+  await page.keyboard.type(value);
+  await page.keyboard.press('Enter');
+  await waitFor(page, () => !document.querySelector('dialog.text-prompt[open]'));
+}

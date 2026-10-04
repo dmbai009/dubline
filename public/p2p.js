@@ -39,7 +39,7 @@ function heldFiles() {
   const files = new Map();
   if (!session || !localMedia || localMedia.forVideoUrl !== session.videoUrl) return files;
   if (localMedia.videoBlob) files.set(session.videoUrl, localMedia.videoBlob);
-  if (localMedia.backingBlob && session.backingUrl) files.set(session.backingUrl, localMedia.backingBlob);
+  if (localMedia.backingBlob && localMedia.backingSourceUrl === session.backingUrl && session.backingUrl) files.set(session.backingUrl, localMedia.backingBlob);
   return files;
 }
 
@@ -386,7 +386,7 @@ async function loadSceneMedia() {
     }
     if (mediaDownload !== download || session.videoUrl !== download.videoUrl) return;
     mediaDownload = null;
-    setLocalMedia({ video: results.video, backing: results.backing || null, source: 'p2p' });
+    setLocalMedia({ video: results.video, backing: results.backing || null, source: 'p2p', videoSourceUrl: current.videoUrl, backingSourceUrl: current.backingUrl });
     p2pStatus = { state: 'done', p2p: totals.p2p, http: totals.http, size: totalSize };
   } catch (err) {
     if (mediaDownload !== download) return; // cancelled: already loading something else

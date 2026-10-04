@@ -198,11 +198,13 @@ function updateLocalMediaStatus() {
 }
 
 // The video (and background) now play from browser memory: from the player's disk or received over P2P
-function setLocalMedia({ video: videoBlob, backing: backingBlob, source }) {
+function setLocalMedia({ video: videoBlob, backing: backingBlob, source, videoSourceUrl = session.videoUrl, backingSourceUrl = session.backingUrl }) {
+  if (videoSourceUrl !== session.videoUrl) return;
   cancelMediaDownload();
   revokeLocalMedia();
   localMedia = {
-    forVideoUrl: session.videoUrl,
+    forVideoUrl: videoSourceUrl,
+    backingSourceUrl,
     videoBlob,
     videoUrl: URL.createObjectURL(videoBlob),
     backingBlob,
@@ -219,15 +221,17 @@ function baseName(url) {
 }
 
 async function extractMediaFromZip(file) {
+  const videoSourceUrl = session.videoUrl, backingSourceUrl = session.backingUrl;
   const zip = await JSZip.loadAsync(file);
   const entries = Object.values(zip.files).filter(entry => !entry.dir);
   const name = entry => entry.name.split('/').pop().toLowerCase();
-  const wantedVideo = baseName(session.videoUrl);
+  const wantedVideo = baseName(videoSourceUrl);
   const videoEntry = entries.find(entry => name(entry) === wantedVideo) || entries.find(entry => name(entry) === 'dub_video.mp4');
   if (!videoEntry) return null;
-  const wantedBacking = baseName(session.backingUrl);
+  const wantedBacking = baseName(backingSourceUrl);
   const backingEntry = wantedBacking ? entries.find(entry => name(entry) === wantedBacking) : null;
   return {
+    videoSourceUrl, backingSourceUrl,
     video: new Blob([await videoEntry.async('arraybuffer')], { type: 'video/mp4' }),
     backing: backingEntry ? new Blob([await backingEntry.async('arraybuffer')], { type: 'audio/mpeg' }) : null
   };
@@ -250,11 +254,13 @@ localMediaInput.addEventListener('change', async () => {
   const file = localMediaInput.files[0];
   localMediaInput.value = '';
   if (!file || !session || !session.loaded) return;
+  const sessionId = session.activeSessionId;
 
   localMediaStatus.textContent = t('localMedia.reading');
   localMediaStatus.style.color = '#a78bfa';
   try {
     const media = /\.zip$/i.test(file.name) ? await extractMediaFromZip(file) : { video: file, backing: null };
+    if (session.activeSessionId !== sessionId) return updateLocalMediaStatus();
     if (!media) throw new Error(t('localMedia.notFound'));
 
     const expected = session.videoSize;
@@ -264,7 +270,7 @@ localMediaInput.addEventListener('change', async () => {
       return;
     }
 
-    setLocalMedia({ video: media.video, backing: media.backing, source: 'disk' });
+    setLocalMedia({ ...media, source: 'disk' });
   } catch (err) {
     localMediaStatus.textContent = t('error.generic', { message: err.message });
     localMediaStatus.style.color = '#ef4444';
@@ -343,10 +349,12 @@ window.switchSession = function(id) {
   closeSessionsModal();
 };
 
-window.renameSession = function(id) {
+window.renameSession = async function(id) {
   const item = sessionItems().find(entry => entry.id === id);
-  if (!item) return;
-  const next = prompt(t('sessions.renamePrompt'), item.title || '');
+  if (!item || !amHost()) return;
+  const sessionId = session.activeSessionId;
+  const next = await askText(t('sessions.renamePrompt'), item.title || '', 80);
+  if (session.activeSessionId !== sessionId || !amHost() || !sessionItems().some(entry => entry.id === id)) return;
   if (next && next.trim() && next.trim() !== item.title) socket.emit('host_rename_session', { id, title: next.trim() });
 };
 

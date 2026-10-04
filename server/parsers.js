@@ -4,6 +4,7 @@
 const AdmZip = require('adm-zip');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { UPLOAD_DIR, MAX_UNPACKED_MB, HttpError } = require('./config');
 const { probeAudioDuration, getWavDuration } = require('./media');
 
@@ -14,18 +15,32 @@ const DEFAULT_CHARACTER = 'Character';
 // served from the app's own origin under /uploads, where a page could read players' device ids.
 const PACK_FILE_EXTENSIONS = new Set(['.mp4', '.webm', '.m4a', '.aac', '.mp3', '.wav', '.ogg', '.oga', '.opus', '.flac', '.ini', '.txt']);
 
+function iniString(raw) {
+  const value = raw.trim();
+  try {
+    const parsed = JSON.parse(value);
+    if (typeof parsed === 'string') return parsed;
+  } catch { /* Older packs also use unquoted and single-quoted strings. */ }
+  return value.replace(/^["']|["']$/g, '');
+}
+
 function parseLineContent(content, fileName, fallbackId, originalAudioUrl, audioDuration) {
   if (content.charCodeAt(0) === 0xFEFF) content = content.slice(1);
 
   let caption = '';
   const capMatch = content.match(/caption\s*=\s*(.*?)(\r?\n|$)/i);
-  if (capMatch) caption = capMatch[1].trim().replace(/^["']|["']$/g, '');
+  if (capMatch) caption = iniString(capMatch[1]);
 
   let character = DEFAULT_CHARACTER;
   const charMatch = content.match(/dub_characters\s*=\s*(.*?)(\r?\n|$)/i);
   if (charMatch) {
-    let raw = charMatch[1].trim().replace(/[\[\]"']/g, '');
-    if (raw) character = raw.split(',')[0].trim() || DEFAULT_CHARACTER;
+    try {
+      const names = JSON.parse(charMatch[1].trim());
+      if (Array.isArray(names) && typeof names[0] === 'string') character = names[0] || DEFAULT_CHARACTER;
+    } catch {
+      const raw = charMatch[1].trim().replace(/^\[|\]$/g, '');
+      if (raw) character = iniString(raw.split(',')[0]) || DEFAULT_CHARACTER;
+    }
   }
 
   let start = 0;
@@ -85,8 +100,8 @@ function parseSeconds(raw) {
   return Number.isFinite(num) ? Number(num.toFixed(3)) : null;
 }
 
-// A pack is extracted once into uploads/pack_<name>; later launches reuse that folder
-function readPack(buffer, packName, forceExtract) {
+// Content-addressed media: uploading a new version can never change an existing scene.
+function readPack(buffer, packName) {
   let zip;
   try {
     zip = new AdmZip(buffer);
@@ -100,113 +115,125 @@ function readPack(buffer, packName, forceExtract) {
     throw new HttpError(413, `The unpacked pack is larger than ${MAX_UNPACKED_MB} MB`, 'error.packTooBig', { max: MAX_UNPACKED_MB });
   }
 
-  const dirName = 'pack_' + packName.replace(/\.zip$/i, '');
+  const dirName = 'pack_' + crypto.createHash('sha256').update(buffer).digest('hex');
   const targetDir = path.join(UPLOAD_DIR, dirName);
   const readyMarker = path.join(targetDir, '.ready');
-
-  if (forceExtract) fs.rmSync(targetDir, { recursive: true, force: true });
   const needExtract = !fs.existsSync(readyMarker);
-  if (needExtract) fs.mkdirSync(targetDir, { recursive: true });
+  const extractionDir = needExtract ? fs.mkdtempSync(path.join(UPLOAD_DIR, '.pack-')) : targetDir;
 
-  let videoFile = null;
-  let backingFile = null;
-  let packTitle = '';
-  const rawLineFiles = [];
-  const audioFilesMap = {};
-  const audioByNumber = {};
-  const audioDurations = {};
+  try {
 
-  entries.forEach(entry => {
-    // Flat extraction: keep only the file name (protects against "../" in archive paths)
-    const name = entry.entryName.split(/[\\/]/).pop();
-    if (!name || name.startsWith('.')) return;
+    let videoFile = null;
+    let backingFile = null;
+    let packTitle = '';
+    const rawLineFiles = [];
+    const audioFilesMap = Object.create(null);
+    const audioByNumber = Object.create(null);
+    const audioDurations = Object.create(null);
 
-    const lower = name.toLowerCase();
-    const ext = path.extname(lower);
-    if (!PACK_FILE_EXTENSIONS.has(ext)) return;
-    const stem = path.basename(lower, ext);
-    const isVoice = ['.wav', '.mp3', '.ogg'].includes(ext) && !lower.startsWith('_');
-    const isPackInfo = lower === '_pack_info.ini';
-    const isText = (ext === '.ini' || ext === '.txt') && (!lower.startsWith('_') || isPackInfo) && !lower.includes('readme');
+    entries.forEach(entry => {
+      // Flat extraction: keep only the file name (protects against "../" in archive paths)
+      const name = entry.entryName.split(/[\\/]/).pop();
+      if (!name || name.startsWith('.')) return;
 
-    if (lower === 'dub_video.mp4' || lower === 'dub_video.webm') videoFile = name;
-    if (lower.includes('backing_track')) backingFile = name;
+      const lower = name.toLowerCase();
+      const ext = path.extname(lower);
+      if (!PACK_FILE_EXTENSIONS.has(ext)) return;
+      const stem = path.basename(lower, ext);
+      const isVoice = ['.wav', '.mp3', '.ogg'].includes(ext) && !lower.startsWith('_');
+      const isPackInfo = lower === '_pack_info.ini';
+      const isText = (ext === '.ini' || ext === '.txt') && (!lower.startsWith('_') || isPackInfo) && !lower.includes('readme');
 
-    if (!needExtract && !isText && ext !== '.wav') {
+      if (lower === 'dub_video.mp4' || lower === 'dub_video.webm') videoFile = name;
+      if (lower.includes('backing_track')) backingFile = name;
+
+      if (!needExtract && !isText && ext !== '.wav') {
+        if (isVoice) {
+          audioFilesMap[stem] = name;
+          const num = (name.match(/\d+/) || [null])[0];
+          if (num !== null) audioByNumber[parseInt(num, 10)] = name;
+        }
+        return;
+      }
+
+      let data;
+      try {
+        // adm-zip allocates exactly the size the archive declares and throws if the data is larger,
+        // so the unpacked-size check above cannot be bypassed with falsified headers
+        data = entry.getData();
+      } catch (err) {
+        throw new HttpError(400, `The archive is damaged: ${name}`, 'error.notZip');
+      }
+      if (needExtract) fs.writeFileSync(path.join(extractionDir, name), data);
+
       if (isVoice) {
         audioFilesMap[stem] = name;
         const num = (name.match(/\d+/) || [null])[0];
         if (num !== null) audioByNumber[parseInt(num, 10)] = name;
+
+        if (ext === '.wav') {
+          const dur = getWavDuration(data);
+          if (dur) audioDurations[name] = dur;
+        }
       }
-      return;
-    }
 
-    let data;
-    try {
-      // adm-zip allocates exactly the size the archive declares and throws if the data is larger,
-      // so the unpacked-size check above cannot be bypassed with falsified headers
-      data = entry.getData();
-    } catch (err) {
-      throw new HttpError(400, `The archive is damaged: ${name}`, 'error.notZip');
-    }
-    if (needExtract) fs.writeFileSync(path.join(targetDir, name), data);
-
-    if (isVoice) {
-      audioFilesMap[stem] = name;
-      const num = (name.match(/\d+/) || [null])[0];
-      if (num !== null) audioByNumber[parseInt(num, 10)] = name;
-
-      if (ext === '.wav') {
-        const dur = getWavDuration(data);
-        if (dur) audioDurations[name] = dur;
+      if (isText) {
+        const textContent = data.toString('utf8');
+        if (isPackInfo) {
+          const titleMatch = textContent.match(/^\s*title\s*=\s*(.*?)\s*$/im);
+          if (titleMatch) packTitle = iniString(titleMatch[1]);
+        } else if (/caption|dub_timestamps|dub_characters/i.test(textContent)) {
+          rawLineFiles.push({ name, stem, content: textContent });
+        }
       }
+    });
+
+    if (!videoFile || !fs.statSync(path.join(extractionDir, videoFile)).size) {
+      throw new HttpError(400, 'The pack has no video', 'error.noVideo');
     }
 
-    if (isText) {
-      const textContent = data.toString('utf8');
-      if (isPackInfo) {
-        const titleMatch = textContent.match(/^\s*title\s*=\s*(.*?)\s*$/im);
-        if (titleMatch) packTitle = titleMatch[1].trim().replace(/^["']|["']$/g, '');
-      } else if (/caption|dub_timestamps|dub_characters/i.test(textContent)) {
-        rawLineFiles.push({ name, stem, content: textContent });
+    // Durations of original MP3/OGG voices (WAV durations are already read from the header)
+    Object.values(audioFilesMap).forEach(name => {
+      if (audioDurations[name] === undefined) {
+        const duration = probeAudioDuration(path.join(extractionDir, name));
+        if (duration) audioDurations[name] = duration;
       }
+    });
+
+    const urlFor = file => `/uploads/${encodeURIComponent(dirName)}/${encodeURIComponent(file)}`;
+
+    rawLineFiles.sort((a, b) => {
+      const numA = (a.name.match(/\d+/) || [0])[0];
+      const numB = (b.name.match(/\d+/) || [0])[0];
+      return parseInt(numA, 10) - parseInt(numB, 10);
+    });
+
+    const lines = rawLineFiles.map((item, idx) => {
+      const num = (item.name.match(/\d+/) || [idx + 1])[0];
+      const lineId = parseInt(num, 10);
+      const matchedAudio = audioFilesMap[item.stem] || audioByNumber[lineId];
+      const origUrl = matchedAudio ? urlFor(matchedAudio) : null;
+      const dur = matchedAudio ? audioDurations[matchedAudio] : null;
+
+      return parseLineContent(item.content, item.name, lineId, origUrl, dur);
+    });
+
+    if (needExtract) {
+      fs.writeFileSync(path.join(extractionDir, 'source.zip'), buffer);
+      fs.writeFileSync(path.join(extractionDir, '.ready'), '');
+      fs.renameSync(extractionDir, targetDir);
     }
-  });
-
-  if (needExtract) fs.writeFileSync(readyMarker, '');
-
-  // Durations of original MP3/OGG voices (WAV durations are already read from the header)
-  Object.values(audioFilesMap).forEach(name => {
-    if (audioDurations[name] === undefined) {
-      const duration = probeAudioDuration(path.join(targetDir, name));
-      if (duration) audioDurations[name] = duration;
-    }
-  });
-
-  const urlFor = file => `/uploads/${encodeURIComponent(dirName)}/${encodeURIComponent(file)}`;
-
-  rawLineFiles.sort((a, b) => {
-    const numA = (a.name.match(/\d+/) || [0])[0];
-    const numB = (b.name.match(/\d+/) || [0])[0];
-    return parseInt(numA, 10) - parseInt(numB, 10);
-  });
-
-  const lines = rawLineFiles.map((item, idx) => {
-    const num = (item.name.match(/\d+/) || [idx + 1])[0];
-    const lineId = parseInt(num, 10);
-    const matchedAudio = audioFilesMap[item.stem] || audioByNumber[lineId];
-    const origUrl = matchedAudio ? urlFor(matchedAudio) : null;
-    const dur = matchedAudio ? audioDurations[matchedAudio] : null;
-
-    return parseLineContent(item.content, item.name, lineId, origUrl, dur);
-  });
-
-  return {
-    title: packTitle || packName.replace(/\.zip$/i, ''),
-    videoUrl: videoFile ? urlFor(videoFile) : '',
-    backingUrl: backingFile ? urlFor(backingFile) : '',
-    lines
-  };
+    return {
+      title: packTitle || packName.replace(/\.zip$/i, ''),
+      zipUrl: urlFor('source.zip'),
+      videoUrl: videoFile ? urlFor(videoFile) : '',
+      backingUrl: backingFile ? urlFor(backingFile) : '',
+      lines
+    };
+  } catch (err) {
+    if (needExtract) fs.rmSync(extractionDir, { recursive: true, force: true });
+    throw err;
+  }
 }
 
 function isMkvFile(file) {

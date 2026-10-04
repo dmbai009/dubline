@@ -42,9 +42,9 @@ function recordLines(roomId, room, by, before, claimsBefore, trackOrderBefore) {
       lines.push({ id, revBefore: revAfter - 1, revAfter, changes });
     }
   }
-  const claims = {};
+  const claims = Object.create(null);
   for (const character of new Set([...Object.keys(claimsBefore || {}), ...Object.keys(room.characterClaims)])) {
-    const previous = (claimsBefore || {})[character] || null;
+    const previous = claimsBefore && Object.hasOwn(claimsBefore, character) ? claimsBefore[character] : null;
     const current = room.characterClaims[character] || null;
     if (previous !== current) claims[character] = [previous, current];
   }
@@ -82,4 +82,18 @@ function clear(roomId, sessionId) {
   histories.delete(`${roomId}:${sessionId || ''}`);
 }
 
-module.exports = { lineBefore, record, recordLines, popFor, hasFor, rebase, clear, LINE_FIELDS };
+function renameNick(roomId, oldName, newName) {
+  for (const [key, list] of histories) {
+    if (!key.startsWith(`${roomId}:`)) continue;
+    for (const entry of list) {
+      for (const line of entry.lines || []) {
+        if (line.changes && line.changes.claimedBy) line.changes.claimedBy = line.changes.claimedBy.map(nick => nick === oldName ? newName : nick);
+      }
+      for (const char of Object.keys(entry.claims || {})) {
+        entry.claims[char] = entry.claims[char].map(nick => nick === oldName ? newName : nick);
+      }
+    }
+  }
+}
+
+module.exports = { lineBefore, record, recordLines, popFor, hasFor, rebase, clear, renameNick, LINE_FIELDS };

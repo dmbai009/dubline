@@ -7,5 +7,6 @@ public/packs/
 Thumbs.db
 data/
 dist/
+/audit/
 resources/cloudflared.exe
 resources/cloudflared.exe.download

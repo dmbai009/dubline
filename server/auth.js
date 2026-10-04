@@ -85,7 +85,7 @@ function isHost(room, clientId) {
 }
 
 function getLineOwner(room, line) {
-  return room.characterClaims[line.character] || line.claimedBy || null;
+  return (Object.hasOwn(room.characterClaims, line.character) && room.characterClaims[line.character]) || line.claimedBy || null;
 }
 
 module.exports = {

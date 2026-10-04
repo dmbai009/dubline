@@ -584,6 +584,7 @@ function updateDownloadButtons() {
   const loaded = !!(session && session.loaded);
   if (loaded && session.zipUrl) {
     downloadPackBtn.href = session.zipUrl;
+    downloadPackBtn.download = `${String(session.title || 'scene').replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_')}.zip`;
     downloadPackBtn.querySelector('span').textContent = session.zipSize
       ? t('downloadSourceSized', { size: formatSize(session.zipSize) })
       : t('downloadSource');

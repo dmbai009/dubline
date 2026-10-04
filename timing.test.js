@@ -33,6 +33,7 @@ test('subtitle import preserves millisecond timestamps', () => {
 
 test('Voxalike import keeps explicit milliseconds and audio-derived end times', () => {
   const zip = new AdmZip();
+  zip.addFile('dub_video.mp4', Buffer.from('fixture video'));
   zip.addFile('001.ini', Buffer.from('caption=Precise line\ndub_timestamps=[1.234, 2.345]\n'));
   zip.addFile('002.ini', Buffer.from('caption=Start-only line\ndub_timestamps=[9.876]\n'));
   // 1.234 seconds of valid mono 16-bit PCM at 1 kHz.

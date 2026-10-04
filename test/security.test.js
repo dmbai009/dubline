@@ -208,8 +208,9 @@ describe('desktop app room (PIN)', () => {
     assert.equal(res.status, 200, JSON.stringify(res.body));
     assert.equal(res.body.session.title, 'scene');
     assert.equal(res.body.session.lines.length, 1);
-    const extracted = fs.readdirSync(path.join(server.dirs.uploads, 'pack_scene')).sort();
-    assert.deepEqual(extracted, ['.ready', 'dub_video.mp4', 'line_1.ini']);
+    const folder = decodeURIComponent(res.body.session.videoUrl.split('/')[2]);
+    const extracted = fs.readdirSync(path.join(server.dirs.uploads, folder)).sort();
+    assert.deepEqual(extracted, ['.ready', 'dub_video.mp4', 'line_1.ini', 'source.zip']);
   });
 
   test('an archive with falsified sizes is refused as damaged, not with an internal error', async () => {

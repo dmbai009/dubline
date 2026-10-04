@@ -76,6 +76,7 @@ function cleanImportedCaptions(session) {
 
 function normalizeEditorState(session) {
   if (!session || !Array.isArray(session.lines)) return;
+  session.characterClaims = Object.assign(Object.create(null), session.characterClaims);
   session.projectAudio = projectAudio.normalize(session);
   if (!['edit', 'dub'].includes(session.mode)) {
     session.mode = 'dub';
@@ -119,12 +120,14 @@ function writeRoomsNow() {
 
 let saveTimer = null;
 function saveRooms() {
-  clearTimeout(saveTimer);
-  saveTimer = setTimeout(writeRoomsNow, 1000);
+  // Continuous room/audio activity must not postpone persistence indefinitely.
+  if (saveTimer) return;
+  saveTimer = setTimeout(() => { saveTimer = null; writeRoomsNow(); }, 1000);
 }
 
 function flushRooms() {
   clearTimeout(saveTimer);
+  saveTimer = null;
   writeRoomsNow();
 }
 
@@ -142,12 +145,12 @@ function getRoom(roomId) {
     videoUrl: '',
     backingUrl: '',
     lines: [],
-    characterClaims: {},
+    characterClaims: Object.create(null),
     host: null,
     hostClientId: null,
-    nickOwners: {},
+    nickOwners: Object.create(null),
     chat: [],
-    latency: {},          // players' microphone delay correction: nick -> ms
+    latency: Object.create(null), // players' microphone delay correction: nick -> ms
     passwordHash: null,   // room password (scrypt); the password itself is not stored
     passwordSalt: null,
     admitted: [],         // devices that already entered the password (not asked again)
@@ -157,8 +160,10 @@ function getRoom(roomId) {
     if (rooms[roomId][key] === undefined) rooms[roomId][key] = defaults[key];
   }
   const room = rooms[roomId];
+  for (const field of ['nickOwners', 'latency', 'sessions', 'characterClaims']) {
+    if (!room[field] || Object.getPrototypeOf(room[field]) !== null) room[field] = Object.assign(Object.create(null), room[field]);
+  }
   if (!Array.isArray(room.blindPlayers)) room.blindPlayers = [];
-  if (!room.sessions) room.sessions = {};
   if (room.activeSessionId === undefined) room.activeSessionId = null;
   // Rooms from older versions: the current scene becomes the first session
   if (room.loaded && !room.activeSessionId) {
@@ -266,6 +271,10 @@ function deleteSessionFiles(session) {
     const full = path.join(UPLOAD_DIR, dir);
     if (full.startsWith(UPLOAD_DIR + path.sep)) fs.rm(full, { recursive: true, force: true }, () => {});
   });
+  if (/^\/uploads\/pack_source_[a-f0-9]{64}\.zip$/.test(session.zipUrl || '') &&
+      !Object.values(rooms).some(room => [room, ...Object.values(room.sessions || {})].some(other => other.zipUrl === session.zipUrl))) {
+    fs.rm(diskPathForUrl(session.zipUrl), { force: true }, () => {});
+  }
   return takes;
 }
 

@@ -186,7 +186,7 @@
       const ids = { original: 'volOriginal', backing: 'volBacking', dub: 'volRecorded' };
       row.innerHTML = `<div class="track-label"><div class="studio-channel-head"><b>${names[channel]}</b>
         <button class="btn-icon" data-audio-field="muted" title="${esc(t('studio.mute'))}">M</button><button class="btn-icon" data-audio-field="solo" title="${esc(t('studio.solo'))}">S</button></div>
-        <label class="studio-channel-volume"><input type="range" id="${ids[channel]}" min="0" max="100" data-audio-field="volume" aria-label="${names[channel]} volume"><output></output></label>
+        <label class="studio-channel-volume"><input type="range" id="${ids[channel]}" min="0" max="${model.MAX_VOLUME * 100}" data-audio-field="volume" aria-label="${names[channel]} volume"><output></output></label>
         ${channel !== 'dub' ? `<label class="studio-channel-offset"><span>${esc(t('studio.offset'))}</span><input class="text-input" type="number" min="-43200" max="43200" step="0.001" data-audio-field="offset" aria-label="${names[channel]} offset"><span>s</span></label>` : ''}
         </div><div class="studio-wave-area" style="width:${trackWidth}px"><canvas></canvas><span class="studio-wave-status"></span><div class="studio-wave-source"></div></div>`;
       timeline.appendChild(row);

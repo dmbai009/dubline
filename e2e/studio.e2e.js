@@ -3,7 +3,7 @@ const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const {
   skipReason, wait, launchBrowser, startServer, openPlayer, waitFor, waitUntil,
-  loadFixture, claimAndSelect, recordTake, FIXTURE_LINES, buildVoiceFile, fixtureVideoPath, buildFixturePack
+  loadFixture, claimAndSelect, recordTake, FIXTURE_LINES, buildVoiceFile, fixtureVideoPath, buildFixturePack, answerTextPrompt
 } = require('./helpers');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -738,14 +738,14 @@ describe('studio', { skip: skipReason }, () => {
     assert.equal(await bob.evaluate(() => document.querySelectorAll('.line-block.multi-selected').length), 0, 'Esc clears the selection');
 
     // Any collaborator can rename a whole source track in Edit Mode.
-    bob.promptAnswer = 'Keichi';
-    await bob.evaluate(() => renameCharacterTrack('Rena'));
+    await bob.evaluate(() => { renameCharacterTrack('Rena'); });
+    await answerTextPrompt(bob, 'Keichi');
     await waitFor(alice, n => session.lines.length === n && session.lines.every(l => l.character === 'Keichi'), 5000, byStart.length);
     const bobCanRenameTrack = await waitFor(bob, () => [...document.querySelectorAll('.track-row')]
       .find(r => r.querySelector('.char-name')?.textContent === 'Keichi')?.querySelector('.track-rename') != null);
     assert.equal(bobCanRenameTrack, true, 'Edit Mode exposes track editing to every collaborator');
-    alice.promptAnswer = 'Renna';
-    await alice.evaluate(() => renameCharacterTrack('Keichi'));
+    await alice.evaluate(() => { renameCharacterTrack('Keichi'); });
+    await answerTextPrompt(alice, 'Renna');
     await waitFor(bob, () => session.characterClaims['Renna'] === 'Alice' && !session.characterClaims['Keichi'], 5000);
     await alice.evaluate(() => unclaimCharacter('Renna'));
     await waitFor(bob, () => !session.characterClaims['Renna'], 5000);
@@ -878,8 +878,8 @@ describe('studio', { skip: skipReason }, () => {
 
     // A new role, added from the button on the left of the timeline
     assert.equal(await bob.evaluate(() => !!document.querySelector('.track-add-row .track-add-btn')), true, 'everyone can add a role in Edit Mode');
-    bob.promptAnswer = 'Shion';
     await bob.evaluate(() => document.querySelector('.track-add-btn').click());
+    await answerTextPrompt(bob, 'Shion');
     await waitFor(alice, () => [...document.querySelectorAll('.track-row')].some(r => r.dataset.character === 'Shion'));
     await waitFor(bob, () => [...document.querySelectorAll('.track-row')].some(r => r.dataset.character === 'Shion'));
 
@@ -911,8 +911,8 @@ describe('studio', { skip: skipReason }, () => {
     assert.equal(await bob.evaluate(() => !!document.querySelector('.track-add-btn')), false);
     const refused = await bob.evaluate(() => new Promise(resolve => socket.emit('editor_add_track', { character: 'Guest role' }, resolve)));
     assert.equal(refused.reason, 'mode');
-    alice.promptAnswer = 'Satoko';
     await alice.evaluate(() => document.querySelector('.track-add-btn').click());
+    await answerTextPrompt(alice, 'Satoko');
     await waitFor(bob, () => sessionCharacters().includes('Satoko'));
     await alice.evaluate(() => setStudioMode('edit'));
     await waitFor(bob, () => session.mode === 'edit');
@@ -1023,8 +1023,8 @@ describe('studio', { skip: skipReason }, () => {
     // A track with lines: the lines go back and the new name does not stay behind as an empty role
     const lineIds = await bob.evaluate(() => session.lines.filter(l => l.character === 'Shion').map(l => l.id));
     assert.ok(lineIds.length);
-    bob.promptAnswer = 'Shion renamed';
-    await bob.evaluate(() => renameCharacterTrack('Shion'));
+    await bob.evaluate(() => { renameCharacterTrack('Shion'); });
+    await answerTextPrompt(bob, 'Shion renamed');
     await waitFor(alice, () => session.trackOrder.includes('Shion renamed'));
     await alice.evaluate(() => new Promise(resolve => socket.emit('editor_add_track', { character: 'Another role' }, resolve)));
     await waitFor(bob, () => session.trackOrder.includes('Another role'));

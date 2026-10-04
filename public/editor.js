@@ -46,6 +46,7 @@ function applyEditorLines(lines) {
   });
   session.lines.sort((a, b) => a.start - b.start || a.id - b.id);
   renderTimeline();
+  updatePrompter();
   if (selectedLine && lines.some(line => line.id === selectedLine.id)) showInspector(selectedLine);
 }
 
@@ -66,6 +67,8 @@ function editorResult(result) {
     showToast(t('editor.cancelled'));
   } else if (result.reason === 'exists') {
     showToast(t('editor.trackExists'));
+  } else if (result.reason === 'caption') {
+    showToast(t('editor.captionTooLong'));
   } else {
     showToast(t('editor.rejected'));
   }
@@ -187,11 +190,13 @@ function canAddTrack() {
   return !!session && session.loaded && (session.mode === 'edit' || amHost());
 }
 
-window.addEditorTrack = function() {
+window.addEditorTrack = async function() {
   if (!canAddTrack()) return;
-  const name = prompt(t('editor.trackPrompt'), '');
+  const sessionId = session.activeSessionId;
+  const name = await askText(t('editor.trackPrompt'));
+  if (session.activeSessionId !== sessionId || !canAddTrack()) return;
   if (!name || !name.trim()) return;
-  queueEditorRequest(() => ['editor_add_track', { character: name.trim() }]).then(editorResult);
+  return queueEditorRequest(() => ['editor_add_track', { character: name.trim() }]).then(editorResult);
 };
 
 window.createLineAtPlayhead = function(character = '') {
@@ -199,12 +204,25 @@ window.createLineAtPlayhead = function(character = '') {
   const tracks = sessionCharacters();
   const selectedTrack = character || (selectedLine && selectedLine.character) || tracks[0];
   if (!selectedTrack) return addEditorTrack();
-  const start = Math.max(0, Number((video.currentTime || 0).toFixed(3)));
-  const end = Number((Math.min(video.duration || start + 2, start + 2)).toFixed(3));
-  queueEditorRequest(() => ['editor_create_line', { character: selectedTrack, caption: '', start, end: Math.max(start + 0.1, end) }]).then(result => {
+  return createEditorLineAt(selectedTrack, video.currentTime || 0);
+};
+
+window.createEditorLineAt = function(character, time) {
+  if (!session || session.mode !== 'edit' || !session.loaded || !sessionCharacters().includes(character)) return;
+  if (!Number.isFinite(time) || time < 0 || time > 43200) return;
+  const duration = Number.isFinite(video.duration) ? video.duration : 43200;
+  if (time >= duration || duration < 0.1) return;
+  const start = Number(Math.min(time, duration - 0.1).toFixed(3));
+  const end = Number(Math.min(duration, start + 2).toFixed(3));
+  const sessionId = session.activeSessionId;
+  return queueEditorRequest(() => ['editor_create_line', { character, caption: '', start, end }]).then(result => {
+    if (session.activeSessionId !== sessionId) return;
     if (!editorResult(result) || !result.line) return;
     revealLineId = result.line.id;
-    selectedLine = result.line;
+    clearMultiSelection();
+    selectLine(result.line);
+    renderTimeline();
+    return result;
   });
 };
 

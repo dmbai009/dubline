@@ -3,6 +3,7 @@ const AdmZip = require('adm-zip');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const crypto = require('crypto');
 const { UPLOAD_DIR, PACKS_DIR, MAX_PACK_MB, MAX_PACK_EXPORT_MB, MAX_EXPORT_LINE_SECONDS, MAX_TAKE_MB, MAX_SUBTITLE_MB, HttpError } = require('./config');
 const { rooms, recordingNow, p2pSeeders, roomSockets } = require('./state');
 const { app, io } = require('./app');
@@ -12,7 +13,7 @@ const { logEvent } = require('./log');
 const { forgetFileSizes, deleteTakeFile, diskPathForUrl } = require('./files');
 const { runFfmpeg, findEmbeddedSubtitleMap } = require('./media');
 const { emptyTake, parseSeconds, readPack, isMkvFile, isMp4File, isSubtitleFile, parseSubtitles } = require('./parsers');
-const { saveRooms, getRoom, snapshotActive, startNewSession, publicRoom, emitSession, ensureAudioTracks } = require('./rooms');
+const { saveRooms, flushRooms, getRoom, snapshotActive, startNewSession, publicRoom, emitSession, ensureAudioTracks } = require('./rooms');
 const { endWatch, broadcastRecording, addSystemMessage } = require('./presence');
 const { isAuthorized, isHost, getLineOwner } = require('./auth');
 const { parseWorkshopUrl, downloadVoxalikePack } = require('./workshop');
@@ -45,15 +46,15 @@ app.get('/api/audio-waveform', async (req, res) => {
 // HTTP API
 // ==========================================
 
-function loadPackIntoRoom(roomId, packName, buffer, forceExtract) {
+function loadPackIntoRoom(roomId, packName, buffer, preparedPack) {
   const room = getRoom(roomId);
-  const pack = readPack(buffer, packName, forceExtract);
+  const pack = preparedPack || readPack(buffer, packName);
 
   // A new pack starts a new session: earlier sessions and their takes are kept
   startNewSession(room, {
     title: pack.title,
     kind: 'pack',
-    zipUrl: `/packs/${encodeURIComponent(packName)}`,
+    zipUrl: pack.zipUrl,
     videoUrl: pack.videoUrl,
     backingUrl: pack.backingUrl,
     lines: pack.lines,
@@ -71,6 +72,27 @@ function loadPackIntoRoom(roomId, packName, buffer, forceExtract) {
   logEvent(roomId, `🎬 Pack "${pack.title}" started (${pack.lines.length} lines)`);
   addSystemMessage(roomId, 'system.packLoaded', { title: pack.title }, `🎬 The host started the pack "${pack.title}"`);
   return room;
+}
+
+// Pre-upgrade scenes may still point at a mutable library filename.
+// Preserve that archive before replacing the library entry, including other rooms.
+function preserveLegacyPackSources(packName) {
+  const legacyUrl = `/packs/${encodeURIComponent(packName)}`;
+  const affected = Object.entries(rooms).filter(([, room]) =>
+    [room, ...Object.values(room.sessions || {})].some(scene => scene.zipUrl === legacyUrl));
+  const libraryPath = path.join(PACKS_DIR, packName);
+  if (!affected.length || !fs.existsSync(libraryPath)) return;
+  const buffer = fs.readFileSync(libraryPath);
+  const fileName = `pack_source_${crypto.createHash('sha256').update(buffer).digest('hex')}.zip`;
+  const archivePath = path.join(UPLOAD_DIR, fileName);
+  if (!fs.existsSync(archivePath)) fs.writeFileSync(archivePath, buffer, { flag: 'wx' });
+  for (const [roomId, room] of affected) {
+    for (const scene of [room, ...Object.values(room.sessions || {})]) {
+      if (scene.zipUrl === legacyUrl) scene.zipUrl = `/uploads/${fileName}`;
+    }
+    emitSession(roomId);
+  }
+  saveRooms();
 }
 
 function uploadErrorHandler(handler, maxMb) {
@@ -182,8 +204,17 @@ app.post('/api/upload-pack', acceptFile('pack', MAX_PACK_MB, requireHost('Only t
     if (!packName) throw new HttpError(400, 'A .zip archive is required', 'error.needZip');
 
     // Make sure the archive can be read before saving it to the library
-    const updatedRoom = loadPackIntoRoom(roomId, packName, req.file.buffer, true);
-    fs.writeFileSync(path.join(PACKS_DIR, packName), req.file.buffer);
+    const pack = readPack(req.file.buffer, packName);
+    preserveLegacyPackSources(packName);
+    const libraryPath = path.join(PACKS_DIR, packName);
+    const tmpPath = libraryPath + '.tmp';
+    try {
+      fs.writeFileSync(tmpPath, req.file.buffer);
+      fs.renameSync(tmpPath, libraryPath);
+    } finally {
+      fs.rmSync(tmpPath, { force: true });
+    }
+    const updatedRoom = loadPackIntoRoom(roomId, packName, req.file.buffer, pack);
     // The archive has just been written: send the session again, now with its size
     forgetFileSizes(updatedRoom.zipUrl);
     emitSession(roomId);
@@ -220,6 +251,7 @@ app.post('/api/import-workshop-pack', async (req, res) => {
     const roomId = resolveRoomId(req.body.room);
     const room = getRoom(roomId);
     if (!isHost(room, req.body.clientId)) throw new HttpError(403, 'Only the room host can change the pack', 'error.hostOnlyPack');
+    const importSessionId = room.activeSessionId;
 
     const source = parseWorkshopUrl(req.body.url);
     const filePath = path.join(PACKS_DIR, source.filename);
@@ -240,25 +272,17 @@ app.post('/api/import-workshop-pack', async (req, res) => {
       if (cached) buffer = fs.readFileSync(filePath);
     }
 
-    // The archive is on disk before the room points at it; readPack then validates it
-    // (including the unpacked size) and an invalid download leaves the library again.
-    let written = false;
+    if (room.activeSessionId !== importSessionId || !isHost(room, req.body.clientId)) throw new HttpError(409, 'The scene changed during import', 'error.importSceneChanged');
+    const pack = readPack(buffer, source.filename);
     if (!cached) {
       try {
         fs.writeFileSync(filePath, buffer, { flag: 'wx' });
-        written = true;
       } catch (err) {
         if (err.code !== 'EEXIST') throw err;
         cached = true;
       }
     }
-    let updatedRoom;
-    try {
-      updatedRoom = loadPackIntoRoom(roomId, source.filename, buffer, written);
-    } catch (err) {
-      if (written) fs.rm(filePath, { force: true }, () => {});
-      throw err;
-    }
+    const updatedRoom = loadPackIntoRoom(roomId, source.filename, buffer, pack);
     logEvent(roomId, `📦 Voxalike workshop pack "${source.slug}" ${cached ? 'loaded from cache' : 'downloaded'}`);
     res.json({ success: true, cached, session: publicRoom(updatedRoom) });
   } catch (err) {
@@ -322,7 +346,7 @@ app.post('/api/export-voxalike-pack', async (req, res) => {
     progress(0);
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dubline-pack-'));
     const zip = new AdmZip();
-    const title = packSafeName(room.title, 'Dubline scene');
+    const title = String(room.title || 'Dubline scene');
     const videoExt = path.extname(videoPath).toLowerCase() === '.webm' ? '.webm' : '.mp4';
     zip.addLocalFile(videoPath, '', `dub_video${videoExt}`);
     zip.addFile('_pack_info.ini', Buffer.from(`[data]\ntitle=${iniQuoted(title)}\nauthors=${JSON.stringify([room.host || 'Dubline'])}\nlanguage=""\ntags="dubline"\n`, 'utf8'));
@@ -409,7 +433,7 @@ app.post('/api/load-server-pack', (req, res) => {
     const filePath = path.join(PACKS_DIR, packName);
     if (!fs.existsSync(filePath)) throw new HttpError(404, 'Mod not found on the server', 'error.packNotFound');
 
-    const updatedRoom = loadPackIntoRoom(roomId, packName, fs.readFileSync(filePath), false);
+    const updatedRoom = loadPackIntoRoom(roomId, packName, fs.readFileSync(filePath));
     res.json({ success: true, session: publicRoom(updatedRoom) });
   } catch (err) {
     sendError(res, err);
@@ -557,6 +581,7 @@ app.post('/api/upload-line-audio', acceptFile('audio', MAX_TAKE_MB, requireConfi
 
     const uploadId = String(req.body.uploadId || '').slice(0, 64);
     const sessionId = String(req.body.sessionId || '');
+    const takeSequence = Number(req.body.takeSequence);
 
     if (!req.file || !lineId) throw new HttpError(400, 'Invalid request', 'error.badRequest');
     if (!isAuthorized(room, userName, req.body.clientId)) throw new HttpError(403, 'Nickname not confirmed: rejoin the room', 'error.nickNotConfirmed');
@@ -564,7 +589,8 @@ app.post('/api/upload-line-audio', acceptFile('audio', MAX_TAKE_MB, requireConfi
     // A take may arrive late (re-sent after a dropped connection): put it into the session
     // it was recorded in, even if the host has switched to another one
     snapshotActive(room);
-    const isActiveSession = !sessionId || sessionId === room.activeSessionId;
+    if (!sessionId) throw new HttpError(400, 'Missing recording session', 'error.badRequest');
+    const isActiveSession = sessionId === room.activeSessionId;
     const target = isActiveSession ? room : room.sessions[sessionId];
     if (!target) throw new HttpError(410, 'The session this take was recorded in has been deleted', 'error.sessionDeleted');
     if (target.mode === 'edit') throw new HttpError(409, 'Recording is disabled in edit mode', 'error.editMode');
@@ -572,15 +598,18 @@ app.post('/api/upload-line-audio', acceptFile('audio', MAX_TAKE_MB, requireConfi
     const line = target.lines.find(l => l.id === lineId);
     if (!line) throw new HttpError(404, 'Line not found', 'error.lineNotFound');
 
-    // A repeat of the same upload (the server's reply was lost): don't store it twice
-    if (uploadId && line.uploadId === uploadId && line.audioUrl) {
-      return res.json({ success: true, audioUrl: line.audioUrl, audioStart: line.audioStart, duplicate: true });
-    }
-
     const owner = target.characterClaims[line.character] || line.claimedBy || null;
     if (owner !== userName) throw new HttpError(403, 'The line is claimed by another player', 'error.lineTaken');
+    if (!uploadId || !Number.isSafeInteger(takeSequence) || takeSequence < 1 || takeSequence > (line.takeCounter || 0)) {
+      throw new HttpError(400, 'Invalid take reservation', 'error.badRequest');
+    }
+    // Retrying an old upload, including after deletion, must never resurrect it.
+    if (takeSequence <= (line.takeSequence || 0)) {
+      const duplicate = takeSequence === line.takeSequence && line.uploadId === uploadId && !!line.audioUrl;
+      return res.json({ success: true, audioUrl: line.audioUrl, audioStart: line.audioStart, duplicate, superseded: !duplicate });
+    }
 
-    const fileName = `line_${roomId}_${lineId}_${Date.now()}.webm`;
+    const fileName = `line_${roomId}_${lineId}_${crypto.randomUUID()}.webm`;
     fs.writeFileSync(path.join(UPLOAD_DIR, fileName), req.file.buffer);
 
     deleteTakeFile(line.audioUrl);
@@ -590,6 +619,7 @@ app.post('/api/upload-line-audio', acceptFile('audio', MAX_TAKE_MB, requireConfi
     line.recordedStart = line.audioStart;
     line.recordedBy = userName;
     line.uploadId = uploadId || null;
+    line.takeSequence = takeSequence;
     line.blindRevealed = false;
     target.updatedAt = Date.now();
     // The chosen voice (effect/pitch) survives re-recording the take
@@ -600,7 +630,7 @@ app.post('/api/upload-line-audio', acceptFile('audio', MAX_TAKE_MB, requireConfi
     if (!line.effect) line.effect = 'none';
     if (!line.pitch) line.pitch = 0;
 
-    saveRooms();
+    flushRooms();
     if (isActiveSession) io.to(roomId).emit('line_updated', line);
     else emitSession(roomId); // the take went to an inactive session: only refresh its progress in the list
     logEvent(roomId, `💾 ${userName} saved a take for line #${lineId} (${Math.round(req.file.size / 1024)} KB)${isActiveSession ? '' : ` to session "${target.title}"`}`);
@@ -617,20 +647,22 @@ app.post('/api/delete-line-audio', (req, res) => {
     const roomId = resolveRoomId(req.body.room);
     const room = getRoom(roomId);
 
+    if (req.body.sessionId !== room.activeSessionId) throw new HttpError(409, 'The scene changed', 'error.takeChanged');
     const line = room.lines.find(l => l.id === parseInt(lineId, 10));
     if (!line) throw new HttpError(404, 'Line not found', 'error.lineNotFound');
 
     const nick = sanitizeNick(userName);
     const owner = getLineOwner(room, line);
-    if (!isAuthorized(room, nick, clientId) || (owner && owner !== nick)) {
+    if (!isAuthorized(room, nick, clientId) || !(isHost(room, clientId) || owner === nick || (!owner && line.recordedBy === nick))) {
       throw new HttpError(403, "You cannot delete someone else's take", 'error.notYourTake');
     }
+    if (!Object.hasOwn(req.body, 'audioUrl') || req.body.audioUrl !== line.audioUrl) throw new HttpError(409, 'The take changed', 'error.takeChanged');
 
     deleteTakeFile(line.audioUrl);
     const { effect, pitch, trimEnabled } = line;
     Object.assign(line, emptyTake(), { effect: effect || 'none', pitch: pitch || 0, trimEnabled: trimEnabled !== false });
 
-    saveRooms();
+    flushRooms();
     io.to(roomId).emit('line_updated', line);
     logEvent(roomId, `🗑 ${nick} deleted the take for line #${line.id}`);
     res.json({ success: true });

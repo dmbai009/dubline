@@ -21,7 +21,7 @@ module.exports = function registerFeatureHandlers(socket, conn) {
       const j = Math.floor(Math.random() * (i + 1));
       [players[i], players[j]] = [players[j], players[i]];
     }
-    room.characterClaims = {};
+    room.characterClaims = Object.create(null);
     room.lines.forEach(line => { line.claimedBy = null; });
     roles.forEach((role, index) => { room.characterClaims[role] = players[index % players.length]; });
     room.lines.forEach(line => { line.claimedBy = room.characterClaims[line.character] || null; });

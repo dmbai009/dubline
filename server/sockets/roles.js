@@ -5,12 +5,27 @@ const { io } = require('../app');
 const { sanitizeChatText } = require('../sanitize');
 const { logEvent } = require('../log');
 const { parseSeconds } = require('../parsers');
-const { saveRooms, getRoom, emitSession, dropEmptyRoleClaims } = require('../rooms');
+const { saveRooms, flushRooms, getRoom, emitSession, dropEmptyRoleClaims, snapshotActive } = require('../rooms');
 const { broadcastRecording, addSystemMessage } = require('../presence');
 const { isHost, getLineOwner } = require('../auth');
 const history = require('../editHistory');
 
 module.exports = function registerRoleHandlers(socket, conn) {
+  // Allocate order before recording starts, not when its asynchronous processing finishes.
+  socket.on('reserve_take', ({ lineId, sessionId } = {}, ack) => {
+    if (typeof ack !== 'function') return;
+    if (!conn.roomId || !conn.nick) return ack({ ok: false, reason: 'nick' });
+    const room = getRoom(conn.roomId);
+    snapshotActive(room);
+    const target = sessionId === room.activeSessionId ? room : room.sessions[sessionId];
+    const line = target && target.lines.find(item => item.id === lineId);
+    if (!line || getLineOwner(target, line) !== conn.nick) return ack({ ok: false, reason: 'owner' });
+    if (target.mode === 'edit') return ack({ ok: false, reason: 'mode' });
+    line.takeCounter = Math.max(Number(line.takeCounter) || 0, Number(line.takeSequence) || 0) + 1;
+    flushRooms();
+    ack({ ok: true, takeSequence: line.takeCounter });
+  });
+
   socket.on('claim_character', ({ character } = {}) => {
     if (!conn.roomId || !conn.nick) return;
     const room = getRoom(conn.roomId);
@@ -77,6 +92,7 @@ module.exports = function registerRoleHandlers(socket, conn) {
     const room = getRoom(conn.roomId);
     const line = room.lines.find(l => l.id === data.lineId);
     if (!line || getLineOwner(room, line) !== conn.nick) return;
+    if (data.sessionId !== room.activeSessionId || data.audioUrl !== line.audioUrl) return;
 
     if (VOICE_EFFECTS.includes(data.effect)) line.effect = data.effect;
     if (data.pitch !== undefined) {
@@ -87,7 +103,7 @@ module.exports = function registerRoleHandlers(socket, conn) {
     if (data.audioStart !== undefined && line.audioUrl) {
       const start = parseSeconds(data.audioStart);
       if (start !== null) {
-        const min = Math.max(0, line.start - MAX_TAKE_SHIFT);
+        const min = Math.max(-5, line.start - MAX_TAKE_SHIFT);
         line.audioStart = Number(Math.max(min, Math.min(line.start + MAX_TAKE_SHIFT, start)).toFixed(3));
       }
     }
@@ -101,7 +117,7 @@ module.exports = function registerRoleHandlers(socket, conn) {
     const room = getRoom(conn.roomId);
     if (!isHost(room, conn.clientId)) return;
 
-    room.characterClaims = {};
+    room.characterClaims = Object.create(null);
     room.lines.forEach(l => { l.claimedBy = null; });
     saveRooms();
     emitSession(conn.roomId);

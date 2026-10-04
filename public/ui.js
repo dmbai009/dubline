@@ -354,10 +354,18 @@ window.addEventListener('dubline-language-changed', () => {
 // HOTKEYS
 // ==========================================
 window.addEventListener('keydown', (e) => {
-  if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName) || e.target.isContentEditable || e.ctrlKey && e.code !== 'KeyZ' || e.metaKey && e.code !== 'KeyZ' || e.altKey) return;
+  if (e.code === 'Escape') {
+    if (closeTextPrompt()) return;
+    if (document.body.classList.contains('video-expanded')) toggleExpandedVideo();
+    closeHostingModal(); closeSettingsModal(); closeFilesModal(); closeSessionsModal();
+    closeHelpModal(); closeTrashModal(); clearMultiSelection();
+    return;
+  }
+  if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName) || e.target.isContentEditable || e.ctrlKey && e.code !== 'KeyZ' || e.metaKey && e.code !== 'KeyZ') return;
 
   // Edit Mode has its own keys for the selected lines (move, change role, delete, undo)
   if (window.handleEditorKey && handleEditorKey(e)) return;
+  if (e.altKey) return;
 
   // Space: play/pause
   if (e.code === 'Space') {
@@ -394,17 +402,6 @@ window.addEventListener('keydown', (e) => {
     return;
   }
 
-  // Esc: close modals
-  if (e.code === 'Escape') {
-    if (document.body.classList.contains('video-expanded')) toggleExpandedVideo();
-    closeHostingModal();
-    closeSettingsModal();
-    closeFilesModal();
-    closeSessionsModal();
-    closeHelpModal();
-    closeTrashModal();
-    clearMultiSelection();
-  }
 });
 
 function showInspector(line) {

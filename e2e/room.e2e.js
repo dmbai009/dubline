@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const {
   skipReason, wait, launchBrowser, startServer, openPlayer, waitFor, waitUntil,
-  loadFixture, claimAndSelect, recordTake, uploadFileCount, FIXTURE_LINES, FIXTURE_PACK
+  loadFixture, claimAndSelect, recordTake, uploadFileCount, FIXTURE_LINES, FIXTURE_PACK, answerTextPrompt
 } = require('./helpers');
 
 describe('room', { skip: skipReason }, () => {
@@ -101,8 +101,8 @@ describe('room', { skip: skipReason }, () => {
     await host.evaluate(id => switchSession(id), withTake);
     await waitFor(bob, (id, lineId) => session.activeSessionId === id && !!session.lines.find(l => l.id === lineId).audioUrl, 5000, withTake, line.id);
 
-    host.promptAnswer = 'Renamed';
-    await host.evaluate(id => renameSession(id), withTake);
+    await host.evaluate(id => { renameSession(id); }, withTake);
+    await answerTextPrompt(host, 'Renamed');
     await waitFor(bob, () => session.title === 'Renamed', 5000);
 
     await server.restart();
@@ -166,10 +166,12 @@ describe('room', { skip: skipReason }, () => {
 
   test('reliable upload: resending the same upload does not save twice; late takes go to their own session', async () => {
     const result = await host.evaluate(async (lineId) => {
+      window.__dupTakeSequence = await reserveTake(lineId, session.activeSessionId);
       const send = async (uploadId) => {
         const form = new FormData();
         form.append('lineId', lineId); form.append('userName', myName); form.append('clientId', clientId);
         form.append('uploadId', uploadId); form.append('sessionId', session.activeSessionId); form.append('audioStart', '1');
+        form.append('takeSequence', window.__dupTakeSequence);
         form.append('audio', new Blob([new Uint8Array(200)]), 'take.webm');
         const res = await fetch(`/api/upload-line-audio?room=${encodeURIComponent(currentRoom)}`, { method: 'POST', body: form });
         return res.json();
@@ -183,6 +185,7 @@ describe('room', { skip: skipReason }, () => {
       const form = new FormData();
       form.append('lineId', lineId); form.append('userName', myName); form.append('clientId', clientId);
       form.append('uploadId', 'dup-test-id'); form.append('sessionId', session.activeSessionId); form.append('audioStart', '1');
+      form.append('takeSequence', window.__dupTakeSequence);
       form.append('audio', new Blob([new Uint8Array(200)]), 'take.webm');
       const res = await fetch(`/api/upload-line-audio?room=${encodeURIComponent(currentRoom)}`, { method: 'POST', body: form });
       return res.json();

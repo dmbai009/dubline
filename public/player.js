@@ -57,7 +57,7 @@ function mediaUrl(serverUrl) {
   if (!serverUrl) return serverUrl;
   if (localMedia && localMedia.forVideoUrl === (state.session && state.session.videoUrl)) {
     if (serverUrl === state.session.videoUrl) return localMedia.videoUrl;
-    if (serverUrl === state.session.backingUrl && localMedia.backingUrl) return localMedia.backingUrl;
+    if (serverUrl === localMedia.backingSourceUrl && localMedia.backingUrl) return localMedia.backingUrl;
   }
   return serverUrl;
 }
@@ -237,7 +237,8 @@ function updatePrompter() {
   }
 
   // Rebuild rows only when the set of lines changes; move the progress bars every frame
-  const key = `${recording ? recording.id : ''}|${shown.map(line => line.id).join(',')}|${hidden}`;
+  const key = JSON.stringify([session.activeSessionId, recording && recording.id,
+    shown.map(line => [line.id, line.character, line.caption]), hidden]);
   if (key !== prompterKey) {
     prompterKey = key;
     videoPrompter.innerHTML = shown.map(line => `
@@ -303,7 +304,7 @@ video.addEventListener('loadedmetadata', () => { if (session && session.loaded) 
 
 function getLineOwner(line) {
   if (!session) return null;
-  const charOwner = session.characterClaims && session.characterClaims[line.character];
+  const charOwner = session.characterClaims && Object.hasOwn(session.characterClaims, line.character) && session.characterClaims[line.character];
   return charOwner || line.claimedBy || null;
 }
 
@@ -435,6 +436,12 @@ function renderTimeline() {
     const trackArea = document.createElement('div');
     trackArea.className = 'track-timeline';
     trackArea.style.width = `${trackWidth}px`;
+    trackArea.ondblclick = event => {
+      if (session.mode !== 'edit' || event.button !== 0 || event.target !== trackArea) return;
+      event.preventDefault();
+      event.stopPropagation();
+      createEditorLineAt(char, (event.clientX - trackArea.getBoundingClientRect().left) / pxPerSec);
+    };
 
     const charLines = session.lines.filter(l => l.character === char);
     // Lines overlapping in time are placed into sub-lanes (like clips on neighboring tracks),
@@ -577,7 +584,7 @@ function enableTakeDrag(el, lineId) {
         el.classList.add('dragging');
         el.appendChild(hint);
       }
-      newRaw = Math.max(0, origRaw + dx / pxPerSec);
+      newRaw = Math.max(-5, origRaw + dx / pxPerSec);
       if (canvas) canvas.style.left = `${(newRaw - latency - line.start) * pxPerSec}px`;
       const shift = newRaw - (line.recordedStart ?? origRaw);
       hint.innerText = `${shift >= 0 ? '+' : ''}${shift.toFixed(2)}s`;
@@ -649,12 +656,13 @@ window.nudgeLatency = function(deltaMs) {
 };
 
 window.setTakeProps = function(lineId, props) {
-  socket.emit('set_take_props', { lineId, ...props });
+  const line = session.lines.find(item => item.id === lineId);
+  if (line) socket.emit('set_take_props', { lineId, ...props, sessionId: session.activeSessionId, audioUrl: line.audioUrl });
 };
 
 window.nudgeTake = function(lineId, delta) {
   const line = session.lines.find(l => l.id === lineId);
-  if (line) setTakeProps(lineId, { audioStart: Number(Math.max(0, rawTakeStart(line) + delta).toFixed(3)) });
+  if (line) setTakeProps(lineId, { audioStart: Number(Math.max(-5, rawTakeStart(line) + delta).toFixed(3)) });
 };
 
 window.resetTakeShift = function(lineId) {
@@ -929,11 +937,13 @@ window.clearMultiSelection = function() {
   else inspector.innerHTML = `<h3>${t('inspector.title')}</h3><p>${t('inspector.empty')}</p>`;
 };
 
-window.renameCharacterTrack = function(name) {
-  const next = (prompt(t('char.renameTrack', { name }), name) || '').trim();
+window.renameCharacterTrack = async function(name) {
+  const sessionId = session.activeSessionId;
+  const next = await askText(t('char.renameTrack', { name }), name);
+  if (session.activeSessionId !== sessionId) return;
   if (!next || next === name) return;
   // The track's lines and their revisions are read when the request leaves the edit queue
-  queueEditorRequest(() => ['rename_character', {
+  return queueEditorRequest(() => ['rename_character', {
     from: name,
     to: next,
     lines: session.lines.filter(line => line.character === name).map(line => ({ lineId: line.id, revision: line.revision || 0 }))

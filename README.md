@@ -17,6 +17,14 @@ Dubline is a collaborative desktop and browser-based dubbing studio and party ga
 
 The project is inspired by Voxalike and The Choicer Voicer, while removing the need for players to record one after another.
 
+## What's new in 1.3.1
+
+- **Editor fixes:** Alt + Up/Down moves selected lines between role tracks. Adding roles and renaming roles or scenes use working in-app dialogs in the desktop app. Escape closes panels even while a text field has focus.
+- **Create lines on the timeline:** in Edit Mode, double-click an empty area of a role track to create a line at that position, select it in the inspector, and edit its caption. Creation supports Undo and respects video bounds, zoom and scrolling.
+- **Reliable takes and sessions:** delayed uploads cannot replace newer takes or resurrect deleted audio. Scene changes, nickname changes and restarts preserve the correct take, owner and media; local playback and export use the selected scene's sources. Starting a new recording requires a server connection; recordings already in progress and queued takes survive a disconnect.
+- **Safer packs and editing:** replacing a library pack preserves existing scenes, and invalid imports leave the library intact. Captions up to 2,000 characters, quoted or multiline pack metadata, negative take offsets, 150 % mixer levels, live prompter edits and unusual role/nickname names are handled consistently.
+- **More regression coverage:** server, browser and native Electron tests exercise these fixes, including concurrent uploads, persistence, permissions and real audio exports.
+
 ## What's new in 1.3.0
 
 - **Studio audio tracks:** Original, Intershum / M&E and Dub live above character tracks, on the same timeline. Source waveforms are built in the background and cached. The Audio group starts collapsed so the role tracks stay in view; it and the player lobby can collapse independently. Source captions distinguish audio from video (including the selected embedded track) from separate audio files.
@@ -110,7 +118,7 @@ Dubline understands standard Voxalike and The Choicer Voicer scene archives. It 
 | `*.ini` / `*.txt` | Captions, characters, and timestamps |
 | `*.wav` / `*.mp3` / `*.ogg` | Original line audio |
 
-Uploaded archives are stored in `public/packs/` and extracted into a path-safe, flattened folder below `public/uploads/`.
+The library cache lives in `public/packs/`. Each imported scene uses its own content-addressed archive and path-safe, flattened media folder below `public/uploads/`, so replacing a library entry cannot overwrite media used by existing scenes.
 
 ### Voxalike Workshop links
 
@@ -187,7 +195,7 @@ npm run dist
 
 `npm run dist` downloads the pinned official Windows `cloudflared` binary, verifies its SHA-256, and creates `dist/Dubline.exe`. The portable file includes Electron, `ffmpeg-static`, and `cloudflared`; the build does not include local `data/`, uploaded scenes, takes, or server packs.
 
-To publish an update, increment `version` in `package.json` and `package-lock.json`, build and smoke-test `Dubline.exe`, then create a stable GitHub Release in `dmbai009/dubline` with a matching tag such as `v1.2.2` and attach the EXE. A tag without a GitHub Release, a draft, or a prerelease does not trigger the in-app notice.
+To publish an update, increment `version` in `package.json` and `package-lock.json`, build and smoke-test `Dubline.exe`, then create a stable GitHub Release in `dmbai009/dubline` with a matching tag such as `v1.3.1` and attach the EXE. A tag without a GitHub Release, a draft, or a prerelease does not trigger the in-app notice.
 
 ### Legacy browser server (one click)
 
@@ -307,9 +315,13 @@ Use headphones while recording to prevent video audio from leaking into the micr
 ```bash
 npm test
 npm run check
+npm run test:e2e
+npm run test:electron:editor
 ```
 
 The test suite covers subtitle parsing, identifier sanitization, HTML/client integration, translation completeness, a real FFmpeg MKV round trip with an embedded ASS stream, and access control against a real server (`test/security.test.js`): the desktop PIN for rooms and media, upload rights, refused uploads not being buffered in memory, pack file filtering, kicking, and the password lockout.
+
+The 1.3.1 regression tests also cover immutable pack media and source archives, delayed deletion, out-of-order take uploads, nickname changes, persisted queues, long captions, INI export/import, prototype-like names and mixer levels up to 150%. Browser tests use actual keyboard and pointer events, including Alt+arrows and double-clicking an empty role track to create a line. The Electron editor smoke test uses an isolated profile and a hidden window to verify role and scene dialogs and keyboard shortcuts in the desktop runtime.
 
 ## Stack
 

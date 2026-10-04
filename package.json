@@ -1,6 +1,6 @@
 {
   "name": "dubline",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "description": "Collaborative voice dubbing on a timeline",
   "main": "electron-main.js",
   "author": "dmbai009",
@@ -15,10 +15,11 @@
     "prepare:cloudflared": "node tools/download-cloudflared.js",
     "dist": "npm run prepare:icons && npm run prepare:cloudflared && electron-builder --win portable --x64",
     "test:electron": "node tools/electron-smoke.js",
+    "test:electron:editor": "node tools/electron-editor-smoke.js",
     "test:electron:guest": "node tools/electron-guest-smoke.js",
     "test:electron:cloudflare": "node tools/electron-smoke.js cloudflare",
     "test": "node --test",
-    "test:e2e": "node --test --test-concurrency=1 e2e/launcher.e2e.js e2e/desktop.e2e.js e2e/studio.e2e.js e2e/room.e2e.js e2e/media.e2e.js e2e/security.e2e.js e2e/workflow.e2e.js e2e/reliability.e2e.js",
+    "test:e2e": "node --test --test-concurrency=1 e2e/launcher.e2e.js e2e/desktop.e2e.js e2e/studio.e2e.js e2e/room.e2e.js e2e/media.e2e.js e2e/security.e2e.js e2e/workflow.e2e.js e2e/reliability.e2e.js e2e/audit-fixes.e2e.js",
     "check": "node tools/check.js"
   },
   "dependencies": {

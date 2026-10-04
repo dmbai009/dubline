@@ -26,9 +26,14 @@ function sanitizeChatText(raw) {
   return String(raw || '').replace(/[\u0000-\u0009\u000b-\u001f\u007f]/g, '').trim().slice(0, MAX_CHAT_LENGTH);
 }
 
+function sanitizeCaption(raw) {
+  return String(raw || '').replace(/[\u0000-\u0009\u000b-\u001f\u007f]/g, '').trim();
+}
+
 module.exports = {
   sanitizeRoomId,
   sanitizeNick,
   sanitizePackName,
-  sanitizeChatText
+  sanitizeChatText,
+  sanitizeCaption
 };

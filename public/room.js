@@ -169,6 +169,7 @@ socket.on('nick_state', ({ nick, error, errorKey, errorParams }) => {
   pendingRoomPassword = '';
   if (errorKey) error = t(errorKey, errorParams || {});
   myName = nick || '';
+  if (myName && window.onRecordingNickConfirmed) window.onRecordingNickConfirmed(myName);
   const settingsNick = document.getElementById('settingsNickInput');
   if (settingsNick) settingsNick.value = myName;
   if (myName) localStorage.setItem('dubline_nick', myName);
@@ -450,7 +451,7 @@ window.unbanAll = function() {
 // A player's delay correction changed: their takes shift for everyone
 socket.on('latency_updated', (latency) => {
   if (!session) return;
-  session.latency = latency || {};
+  session.latency = Object.assign(Object.create(null), latency);
   if (!video.paused) stopAllTakes();
   if (session.loaded) renderTimeline();
   if (selectedLine) showInspector(selectedLine);
@@ -571,6 +572,8 @@ socket.on('force_pause', () => {
 });
 
 function applySessionUpdate(data) {
+  data.characterClaims = Object.assign(Object.create(null), data.characterClaims);
+  data.latency = Object.assign(Object.create(null), data.latency);
   const sessionChanged = !session || session.activeSessionId !== data.activeSessionId;
   if (sessionChanged) {
     if (recordState !== 'idle') finishRecording({ discard: true });

@@ -55,9 +55,20 @@ function stopVisualizer() {
 let recordPlayTimeout = null;
 let recordSpeechInterval = null;
 let activeRecording = null;
+const processingRecordings = new Set();
+
+function reserveTake(lineId, sessionId) {
+  if (!socket.connected) return Promise.resolve(null);
+  return new Promise(resolve => {
+    socket.volatile.timeout(5000).emit('reserve_take', { lineId, sessionId }, (err, result) => {
+      resolve(!err && result && result.ok ? result.takeSequence : null);
+    });
+  });
+}
 
 window.handleStudioRecord = async function(lineId) {
   if (renderInProgress) return showToast(t('studio.mediaBusy'));
+  if (!socket.connected && recordState === 'idle') return showToast(t('record.connectionRequired'));
   let line = session.lines.find(l => l.id === lineId);
   if (!line) return;
   if (session.mode === 'edit') {
@@ -102,11 +113,13 @@ window.handleStudioRecord = async function(lineId) {
     return;
   }
   // The microphone permission prompt can outlive a mode/session/ownership change.
+  const takeSequence = await reserveTake(lineId, recordingSessionId);
   const currentLine = session && session.lines.find(item => item.id === lineId);
   if (recordState !== 'idle' || renderInProgress || !session || session.mode === 'edit' || watchMode ||
       (session.activeSessionId || '') !== recordingSessionId || currentRoom !== recordingRoom || myName !== recordingNick ||
-      !currentLine || getLineOwner(currentLine) !== recordingNick) {
+      !takeSequence || !currentLine || getLineOwner(currentLine) !== recordingNick) {
     recordingMic.getTracks().forEach(track => track.stop());
+    if (!takeSequence && !socket.connected) showToast(t('record.connectionRequired'));
     return;
   }
   line = currentLine;
@@ -148,7 +161,8 @@ window.handleStudioRecord = async function(lineId) {
   const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : '';
   const recorder = mimeType ? new MediaRecorder(audioDest.stream, { mimeType }) : new MediaRecorder(audioDest.stream);
   mediaRecorder = recorder;
-  const operation = { recorder, stream: recordingMic, discarded: false };
+  const operation = { recorder, stream: recordingMic, discarded: false, nick: recordingNick, room: recordingRoom };
+  processingRecordings.add(operation);
   activeRecording = operation;
   const mayUpdateUi = () => !activeRecording && mediaRecorder === recorder && recordState === 'idle' &&
     session && session.activeSessionId === recordingSessionId && selectedLine?.id === lineId && document.getElementById('recBtn') === btn;
@@ -164,6 +178,7 @@ window.handleStudioRecord = async function(lineId) {
 
     // Recording was interrupted by the host: don't save the take
     if (operation.discarded) {
+      processingRecordings.delete(operation);
       console.warn(`[Dubline] Take for line #${lineId} discarded`);
       if (mayUpdateUi()) showInspector(selectedLine);
       return;
@@ -171,6 +186,7 @@ window.handleStudioRecord = async function(lineId) {
 
     const audioBlob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
     if (audioBlob.size === 0) {
+      processingRecordings.delete(operation);
       // Never drop a take silently: the player must know it has to record again,
       // even if the inspector has been redrawn (or another line selected) meanwhile
       console.warn(`[Dubline] Take for line #${lineId} is empty (${chunks.length} chunks, audio context ${audioCtx && audioCtx.state})`);
@@ -197,13 +213,15 @@ window.handleStudioRecord = async function(lineId) {
       room: recordingRoom,
       sessionId: recordingSessionId,
       lineId,
-      nick: recordingNick,
+      nick: operation.nick,
+      takeSequence,
       audioStart: recordingStartTime,
       trimStart: speech ? speech.start : null,
       trimEnd: speech ? speech.end : null,
       blob: audioBlob,
       createdAt: Date.now()
     });
+    processingRecordings.delete(operation);
   };
 
   recorder.start(100);
@@ -341,11 +359,14 @@ function finishRecording({ discard = false } = {}) {
 // ==========================================
 
 window.deleteLineAudio = async function(lineId) {
+  const line = session.lines.find(item => item.id === lineId);
+  if (!line) return;
+  const target = { sessionId: session.activeSessionId, audioUrl: line.audioUrl };
   if (!confirm(t('confirm.delete'))) return;
   const res = await fetch('/api/delete-line-audio', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ lineId, userName: myName, clientId, room: currentRoom })
+    body: JSON.stringify({ lineId, ...target, userName: myName, clientId, room: currentRoom })
   });
   if (!res.ok) alert(await readError(res));
 };
@@ -477,9 +498,11 @@ function isPermanentFailure(status) {
 }
 
 async function submitTake(entry) {
+  if (!entry.takeSequence) entry.takeSequence = await reserveTake(entry.lineId, entry.sessionId);
   // A new take of the same line replaces the old unsent one
   for (const [id, old] of pendingTakes) {
     if (old.lineId === entry.lineId && old.sessionId === entry.sessionId && id !== entry.uploadId) {
+      if (old.takeSequence && (!entry.takeSequence || old.takeSequence > entry.takeSequence)) return false;
       pendingTakes.delete(id);
       takeStore.remove(id);
     }
@@ -506,12 +529,19 @@ async function sendTake(entry) {
     return false;
   }
 
+  if (!entry.takeSequence) {
+    entry.takeSequence = await reserveTake(entry.lineId, entry.sessionId);
+    if (!entry.takeSequence) { scheduleRetry(); return false; }
+    await takeStore.put(entry);
+  }
+
   const form = new FormData();
   form.append('lineId', entry.lineId);
   form.append('userName', entry.nick);
   form.append('clientId', clientId);
   form.append('uploadId', entry.uploadId);
   form.append('sessionId', entry.sessionId);
+  form.append('takeSequence', entry.takeSequence);
   form.append('audioStart', entry.audioStart);
   if (entry.trimStart != null && entry.trimEnd != null) {
     form.append('trimStart', entry.trimStart);
@@ -546,6 +576,14 @@ async function sendTake(entry) {
       showToast(t('toast.takeQueued'));
       queuedToastShown = true;
     }
+    return false;
+  }
+
+  if (res && res.status === 403 && (await res.clone().json().catch(() => ({}))).key === 'error.nickNotConfirmed') {
+    // A rename/reconnect can be confirmed while this old request is in flight.
+    // Keep the blob until nick_state provides the server-confirmed identity.
+    entry.attempts = (entry.attempts || 0) + 1;
+    scheduleRetry();
     return false;
   }
 
@@ -595,6 +633,18 @@ window.onRecordingModeChanged = function(mode) {
   setTimeout(flushPendingTakes, 0);
 };
 
+let confirmedRecordingNick = null;
+window.onRecordingNickConfirmed = function(nick) {
+  confirmedRecordingNick = nick;
+  for (const operation of processingRecordings) if (operation.room === currentRoom) operation.nick = nick;
+  for (const entry of pendingTakes.values()) {
+    if (entry.room !== currentRoom) continue;
+    entry.nick = nick;
+    takeStore.put(entry);
+  }
+  onConnectionRestored();
+};
+
 // The connection is back: send whatever has queued up (called from room.js when the socket connects)
 function onConnectionRestored() {
   if (!pendingTakes.size) return;
@@ -604,7 +654,10 @@ function onConnectionRestored() {
 
 // Takes not sent before the page was reloaded
 takeStore.all().then(entries => {
-  (entries || []).filter(entry => entry.room === currentRoom).forEach(entry => pendingTakes.set(entry.uploadId, entry));
+  (entries || []).filter(entry => entry.room === currentRoom).forEach(entry => {
+    if (confirmedRecordingNick) { entry.nick = confirmedRecordingNick; takeStore.put(entry); }
+    if (!pendingTakes.has(entry.uploadId)) pendingTakes.set(entry.uploadId, entry);
+  });
   if (pendingTakes.size) {
     pendingTakes.forEach(entry => pendingTakeLines.add(entry.lineId));
     setTimeout(flushPendingTakes, 1500);

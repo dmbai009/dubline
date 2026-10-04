@@ -1191,7 +1191,7 @@
 
   Object.assign(messages.en, {
     'mode.dub': '🎙 Dub', 'mode.edit': '✎ Edit',
-    'timeline.editHint': 'Drag a line to move it in time or onto another role · drag its edges to resize',
+    'timeline.editHint': 'Double-click empty track space to add a line · Alt+↑/↓ changes role · drag lines and edges to edit timing',
     'editor.addLine': '＋ Line', 'editor.addTrack': '＋ Track', 'editor.line': 'Edit line',
     'editor.caption': 'Subtitle text', 'editor.track': 'Character track', 'editor.start': 'Start, s', 'editor.end': 'End, s',
     'editor.seek': 'Go to line', 'editor.delete': 'Delete', 'editor.saved': 'Line saved.',
@@ -1208,7 +1208,7 @@
   });
   Object.assign(messages.ru, {
     'mode.dub': '🎙 Озвучка', 'mode.edit': '✎ Редактор',
-    'timeline.editHint': 'Тяните реплику по времени или на дорожку другой роли · тяните края для изменения длины',
+    'timeline.editHint': 'Двойной клик по пустому месту дорожки — новая реплика · Alt+↑/↓ — смена роли · тяните реплики и края для изменения тайминга',
     'editor.addLine': '＋ Реплика', 'editor.addTrack': '＋ Дорожка', 'editor.line': 'Редактирование реплики',
     'editor.caption': 'Текст субтитра', 'editor.track': 'Дорожка персонажа', 'editor.start': 'Начало, с', 'editor.end': 'Конец, с',
     'editor.seek': 'К реплике', 'editor.delete': 'Удалить', 'editor.saved': 'Реплика сохранена.',
@@ -1225,7 +1225,7 @@
   });
   Object.assign(messages.uk, {
     'mode.dub': '🎙 Озвучення', 'mode.edit': '✎ Редактор',
-    'timeline.editHint': 'Тягніть репліку в часі або на доріжку іншої ролі · тягніть краї для зміни довжини',
+    'timeline.editHint': 'Подвійний клік по порожньому місцю доріжки — нова репліка · Alt+↑/↓ — зміна ролі · тягніть репліки й краї для зміни таймінгу',
     'editor.addLine': '＋ Репліка', 'editor.addTrack': '＋ Доріжка', 'editor.line': 'Редагування репліки',
     'editor.caption': 'Текст субтитра', 'editor.track': 'Доріжка персонажа', 'editor.start': 'Початок, с', 'editor.end': 'Кінець, с',
     'editor.seek': 'До репліки', 'editor.delete': 'Видалити', 'editor.saved': 'Репліку збережено.',
@@ -1492,6 +1492,21 @@
     window.dispatchEvent(new CustomEvent('dubline-language-changed', { detail: language }));
   }
 
+  Object.assign(messages.en, {
+    'editor.captionTooLong': 'A line can contain at most 2000 characters.',
+    'record.connectionRequired': 'Reconnect to the room before starting a recording.',
+    'error.takeChanged': 'The scene or take changed. Select the line again and retry.'
+  });
+  Object.assign(messages.ru, {
+    'editor.captionTooLong': 'Текст реплики не может превышать 2000 символов.',
+    'record.connectionRequired': 'Для начала записи восстановите соединение с комнатой.',
+    'error.takeChanged': 'Сцена или дубль изменились. Выберите реплику заново и повторите действие.'
+  });
+  Object.assign(messages.uk, {
+    'editor.captionTooLong': 'Текст репліки не може перевищувати 2000 символів.',
+    'record.connectionRequired': 'Щоб почати запис, відновіть з’єднання з кімнатою.',
+    'error.takeChanged': 'Сцена або дубль змінилися. Виберіть репліку знову й повторіть дію.'
+  });
   window.DublineI18n = { t, apply, setLanguage, getLanguage: () => language, languageName, messages };
   if (preferences && preferences.setLanguage) preferences.setLanguage(language).catch(() => {});
 })();

@@ -53,3 +53,7 @@ body.video-expanded .workspace { grid-template-columns:1fr; }
 .file-pick:hover .file-pick-button, .file-pick:focus-within .file-pick-button { border-color:var(--accent); }
 .file-pick-name { min-width:0; font-size:11px; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .file-pick.has-file .file-pick-name { color:var(--text); }
+dialog.text-prompt { color: var(--text, #fafafa); background: #18181b; border: 1px solid #3f3f46; border-radius: 12px; padding: 24px; width: min(420px, 90vw); }
+dialog.text-prompt::backdrop { background: #0009; }
+.text-prompt form { display: grid; gap: 16px; }
+.text-prompt .text-input { width: 100%; box-sizing: border-box; }

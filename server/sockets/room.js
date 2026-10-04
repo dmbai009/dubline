@@ -4,7 +4,8 @@ const { roomSockets, watchState } = require('../state');
 const { io } = require('../app');
 const { sanitizeNick, sanitizeChatText } = require('../sanitize');
 const { DISCONNECT_REASONS, logEvent } = require('../log');
-const { saveRooms, getRoom, publicRoom, emitSession, ensureAudioTracks } = require('../rooms');
+const { saveRooms, flushRooms, getRoom, publicRoom, emitSession, ensureAudioTracks, snapshotActive } = require('../rooms');
+const history = require('../editHistory');
 const { onlineCount, endWatch, recordingList, broadcastRecording, clearSocketSeeds, seedersSummary, broadcastSeeders, clearSocketRecordings, isHostOnline, broadcastRoomUsers, addChatMessage, addSystemMessage } = require('../presence');
 const { isNickFree, takeOverNick, MAX_PASSWORD_ATTEMPTS, checkRoomPassword, isPasswordLocked, notePasswordFailure, isHost } = require('../auth');
 const { isDesktopRoom, hasDesktopHostProof, resolveRoomId } = require('../desktop');
@@ -35,13 +36,25 @@ module.exports = function registerRoomHandlers(socket, conn) {
     if (Array.isArray(room.blindPlayers)) {
       room.blindPlayers = [...new Set(room.blindPlayers.map(nick => nick === oldName ? newName : nick))];
     }
-    for (const char in room.characterClaims) {
-      if (room.characterClaims[char] === oldName) room.characterClaims[char] = newName;
+    snapshotActive(room);
+    for (const scene of Object.values(room.sessions)) {
+      for (const char of Object.keys(scene.characterClaims || {})) {
+        if (scene.characterClaims[char] === oldName) scene.characterClaims[char] = newName;
+      }
+      const renameLine = line => {
+        if (line.claimedBy === oldName) line.claimedBy = newName;
+        if (line.recordedBy === oldName) line.recordedBy = newName;
+      };
+      scene.lines.forEach(renameLine);
+      for (const batch of scene.deletedLines || []) {
+        if (batch.by === oldName) batch.by = newName;
+        batch.lines.forEach(entry => renameLine(entry.line));
+        for (const char of Object.keys(batch.claims || {})) {
+          if (batch.claims[char] === oldName) batch.claims[char] = newName;
+        }
+      }
     }
-    room.lines.forEach(l => {
-      if (l.claimedBy === oldName) l.claimedBy = newName;
-      if (l.recordedBy === oldName) l.recordedBy = newName;
-    });
+    history.renameNick(conn.roomId, oldName, newName);
     if (room.latency[oldName] !== undefined && room.latency[newName] === undefined) {
       room.latency[newName] = room.latency[oldName];
       delete room.latency[oldName];
@@ -107,7 +120,7 @@ module.exports = function registerRoomHandlers(socket, conn) {
     if (room.hostClientId === conn.clientId && conn.nick) room.host = conn.nick;
 
     socket.join(conn.roomId);
-    if (!roomSockets[conn.roomId]) roomSockets[conn.roomId] = {};
+    if (!roomSockets[conn.roomId]) roomSockets[conn.roomId] = Object.create(null);
     roomSockets[conn.roomId][socket.id] = { nick: conn.nick, clientId: conn.clientId };
 
     // The Electron host uses this only as a positive readiness signal for VPN/Porthole modes.
@@ -159,7 +172,7 @@ module.exports = function registerRoomHandlers(socket, conn) {
     if (room.hostClientId === conn.clientId) room.host = newName;
     logEvent(conn.roomId, `✎ ${oldName || 'player without a nickname'} is now ${newName}`);
 
-    saveRooms();
+    flushRooms();
     socket.emit('nick_state', { nick: conn.nick });
     emitSession(conn.roomId);
     broadcastRoomUsers(conn.roomId);
