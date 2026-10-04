@@ -119,6 +119,44 @@ describe('millisecond timing', { skip: skipReason }, () => {
     } finally { await bob.close(); }
   });
 
+  test('a draft merges changes to other fields; the same field offers "keep my version"', async () => {
+    const bob = await openPlayer(browser, server.url('timing'), 'Bob');
+    try {
+      const typeCaption = async text => {
+        await page.focus('#editorCaption');
+        await page.$eval('#editorCaption', input => input.select());
+        await page.type('#editorCaption', text);
+      };
+      await page.evaluate(() => selectLine(session.lines.find(line => line.id === 1)));
+      await typeCaption('My caption');
+
+      // Bob moves the same line: a different field, so the draft simply takes the new timing
+      const start = await bob.evaluate(() => session.lines.find(line => line.id === 1).start);
+      await bob.evaluate(s => updateEditorLine(session.lines.find(line => line.id === 1), { start: Number((s + 0.25).toFixed(3)), end: Number((session.lines.find(line => line.id === 1).end + 0.25).toFixed(3)) }), start);
+      await waitFor(page, s => Math.abs(session.lines.find(line => line.id === 1).start - (s + 0.25)) < 0.001, 5000, start);
+      const merged = await page.evaluate(() => ({
+        caption: document.getElementById('editorCaption').value,
+        start: Number(document.getElementById('editorStart').value),
+        conflict: document.getElementById('editorLineForm').textContent.includes(t('editor.draftConflict')),
+        saveDisabled: document.querySelector('#editorLineForm button[type="submit"]').disabled
+      }));
+      assert.deepEqual(merged, { caption: 'My caption', start: Number((start + 0.25).toFixed(3)), conflict: false, saveDisabled: false });
+      await page.click('#editorLineForm button[type="submit"]');
+      await waitFor(bob, s => { const l = session.lines.find(line => line.id === 1); return l.caption === 'My caption' && Math.abs(l.start - (s + 0.25)) < 0.001; }, 5000, start);
+
+      // Both change the caption: a real conflict; "keep my version" saves mine over Bob's
+      await typeCaption('Mine wins');
+      await bob.evaluate(() => updateEditorLine(session.lines.find(line => line.id === 1), { caption: 'Bob was first' }));
+      await waitFor(page, () => document.getElementById('editorLineForm').textContent.includes(t('editor.draftConflict')));
+      assert.equal(await page.$eval('#editorCaption', input => input.value), 'Mine wins');
+      await page.evaluate(() => keepEditorDraft(1));
+      assert.equal(await page.$eval('#editorLineForm button[type="submit"]', button => button.disabled), false);
+      await page.click('#editorLineForm button[type="submit"]');
+      await waitFor(bob, () => session.lines.find(line => line.id === 1).caption === 'Mine wins');
+      await waitFor(page, () => editorDrafts.size === 0);
+    } finally { await bob.close(); }
+  });
+
   test('typing while Save awaits its acknowledgement keeps the newer draft', async () => {
     await page.evaluate(() => {
       selectLine(session.lines.find(line => line.id === 1));

@@ -3,7 +3,7 @@ const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const {
   skipReason, launchBrowser, startServer, openPlayer, waitFor,
-  loadFixture, claimAndSelect, recordTake, buildFixturePack, FIXTURE_LINES, buildMultiTrackVideo
+  loadFixture, claimAndSelect, recordTake, buildFixturePack, FIXTURE_LINES, buildMultiTrackVideo, waitUntil
 } = require('./helpers');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -192,6 +192,49 @@ describe('media', { skip: skipReason }, () => {
       }, resolve));
     }, lineId, originalEnd);
     assert.equal(restored.ok, true);
+    await host.evaluate(() => setStudioMode('dub'));
+    await waitFor(host, () => session.mode === 'dub');
+  });
+
+  test('a pack export stops when the host disconnects and frees its slot', async () => {
+    // Enough lines that the export is still running when the request is dropped
+    await host.evaluate(() => setStudioMode('edit'));
+    await waitFor(host, () => session.mode === 'edit');
+    const created = await host.evaluate(async () => {
+      const ids = [];
+      for (let i = 0; i < 120; i++) {
+        const start = Number((i * 0.09).toFixed(3));
+        const result = await queueEditorRequest(() => ['editor_create_line', { character: 'Extra', caption: `Extra ${i}`, start, end: Number((start + 0.5).toFixed(3)) }]);
+        ids.push(result.line.id);
+      }
+      return ids;
+    });
+    const logBefore = server.log.length;
+    const progress = await host.evaluate(() => new Promise(resolve => {
+      const requestId = `cancel-${Date.now()}`;
+      const abort = new AbortController();
+      const seen = [];
+      socket.on('pack_export_progress', p => {
+        if (p.requestId !== requestId) return;
+        seen.push(p.current);
+        if (p.current === 3) abort.abort();
+      });
+      fetch('/api/export-voxalike-pack', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: abort.signal,
+        body: JSON.stringify({ room: currentRoom, clientId, requestId })
+      }).catch(() => {});
+      setTimeout(() => resolve({ last: Math.max(...seen), total: 0 }), 4000);
+    }));
+    assert.ok(progress.last < 120, `the export stopped early (last line ${progress.last})`);
+    await waitUntil(() => server.log.slice(logBefore).includes('export cancelled'), 10000);
+
+    // The room's export slot is free again
+    const status = await host.evaluate(async () => (await fetch('/api/export-voxalike-pack', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ room: currentRoom, clientId })
+    })).status);
+    assert.equal(status, 200);
+
+    await host.evaluate(ids => queueEditorRequest(() => ['editor_delete_lines', { lineIds: ids }]), created);
     await host.evaluate(() => setStudioMode('dub'));
     await waitFor(host, () => session.mode === 'dub');
   });

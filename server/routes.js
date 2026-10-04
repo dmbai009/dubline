@@ -18,7 +18,10 @@ const { isAuthorized, isHost, getLineOwner } = require('./auth');
 const { parseWorkshopUrl, downloadVoxalikePack } = require('./workshop');
 
 const workshopDownloads = new Map();
-let packExportActive = false;
+// Pack exports in progress, by room. One per room; at most two on the whole server because
+// every export builds its ZIP in memory (the browser server can host several rooms).
+const packExports = new Set();
+const MAX_PARALLEL_PACK_EXPORTS = 2;
 
 // ==========================================
 // HTTP API
@@ -239,12 +242,13 @@ function iniQuoted(value) {
 // happens on the host machine and can be expensive for a long scene.
 app.post('/api/export-voxalike-pack', async (req, res) => {
   let tempDir = null;
-  let ownsExportSlot = false;
+  let ownsExportSlot = null;
+  let clientGone = false;
   try {
     const roomId = resolveRoomId(req.body.room);
     const room = getRoom(roomId);
     if (!isHost(room, req.body.clientId)) throw new HttpError(403, 'Only the room host can export a pack', 'error.hostOnlyPack');
-    if (packExportActive) throw new HttpError(409, 'Another pack export is in progress on this host', 'error.packExportBusy');
+    if (packExports.has(roomId) || packExports.size >= MAX_PARALLEL_PACK_EXPORTS) throw new HttpError(409, 'Another pack export is in progress on this host', 'error.packExportBusy');
     if (!room.loaded || !room.videoUrl || !room.lines.length) throw new HttpError(400, 'The scene has no video or lines', 'error.noScene');
     if (room.lines.length > 2000) throw new HttpError(400, 'The scene has too many lines', 'error.tooManyLines');
     const videoPath = diskPathForUrl(room.videoUrl);
@@ -268,8 +272,10 @@ app.post('/api/export-voxalike-pack', async (req, res) => {
       throw new HttpError(413, `The exported pack would exceed ${MAX_PACK_EXPORT_MB} MB`, 'error.packExportTooLarge', { max: MAX_PACK_EXPORT_MB });
     }
 
-    packExportActive = true;
-    ownsExportSlot = true;
+    packExports.add(roomId);
+    ownsExportSlot = roomId;
+    // The host closed the tab or the tunnel dropped: stop instead of building a ZIP nobody gets
+    res.on('close', () => { if (!res.writableFinished) clientGone = true; });
     const requestId = typeof req.body.requestId === 'string' ? req.body.requestId.slice(0, 80) : '';
     // Notify only the requesting host's windows, with a per-export identifier.
     const recipients = Object.entries(roomSockets[roomId] || {}).filter(([, member]) => member.clientId === req.body.clientId).map(([id]) => id);
@@ -297,6 +303,7 @@ app.post('/api/export-voxalike-pack', async (req, res) => {
     const sceneAudioPath = originalTrackPath && fs.existsSync(originalTrackPath) ? originalTrackPath : videoPath;
 
     for (let index = 0; index < ordered.length; index++) {
+      if (clientGone) throw new HttpError(499, 'The pack export was cancelled: the host disconnected', 'error.packExportCancelled');
       const line = ordered[index];
       const prefix = String(index + 1).padStart(Math.max(3, String(ordered.length).length), '0');
       const stem = `${prefix}_${packSafeName(line.character, 'Character')}`;
@@ -319,6 +326,7 @@ app.post('/api/export-voxalike-pack', async (req, res) => {
       progress(index + 1);
     }
 
+    if (clientGone) throw new HttpError(499, 'The pack export was cancelled: the host disconnected', 'error.packExportCancelled');
     const archiveName = `${packSafeName(title, 'Dubline_pack')}.zip`;
     const archive = zip.toBuffer();
     res.setHeader('Content-Type', 'application/zip');
@@ -337,9 +345,13 @@ app.post('/api/export-voxalike-pack', async (req, res) => {
     });
     logEvent(roomId, `📦 ${room.host || 'Host'} exported Voxalike pack "${title}" (${ordered.length} lines)`);
   } catch (err) {
+    if (clientGone) {
+      logEvent(resolveRoomId(req.body.room), '📦 Voxalike pack export cancelled: the host disconnected');
+      return;
+    }
     sendError(res, err);
   } finally {
-    if (ownsExportSlot) packExportActive = false;
+    if (ownsExportSlot) packExports.delete(ownsExportSlot);
     if (tempDir && tempDir.startsWith(os.tmpdir() + path.sep)) fs.rm(tempDir, { recursive: true, force: true }, () => {});
   }
 });
@@ -455,8 +467,11 @@ app.post('/api/upload-custom', acceptCustomFiles(MAX_PACK_MB, requireHost('Only 
     broadcastRecording(roomId);
     ensureAudioTracks(roomId);
     addSystemMessage(roomId, 'system.customScene', { title: customTitle, count: lines.length }, `🎬 The host created a new scene "${customTitle}" (${lines.length} lines)`);
+    if (lines.skippedTimings) {
+      addSystemMessage(roomId, 'system.subtitlesSkipped', { n: lines.skippedTimings }, `⚠ ${lines.skippedTimings} subtitle lines were skipped: their time is missing, reversed or zero-length`);
+    }
     console.log(`[Dubline] Custom scene [${customTitle}] (${lines.length} lines) created in room [${roomId}]`);
-    res.json({ success: true, session: publicRoom(room) });
+    res.json({ success: true, skippedTimings: lines.skippedTimings || 0, session: publicRoom(room) });
   } catch (err) {
     if (targetDir) fs.rmSync(targetDir, { recursive: true, force: true });
     sendError(res, err);

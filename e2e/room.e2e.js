@@ -230,9 +230,13 @@ describe('room', { skip: skipReason }, () => {
     allPages.push(carol);
 
     const mallory = await openPlayer(browser, server.url(room), 'Mallory');
+    // Wait for the password form and for the answer to each guess: a guess sent before the
+    // first answer has no nickname yet and never reaches the server
+    await waitFor(mallory, () => document.getElementById('passwordModal').style.display === 'flex', 5000);
     for (let i = 0; i < 5; i++) {
+      await mallory.evaluate(() => { document.getElementById('passwordError').textContent = ''; });
       await mallory.evaluate(n => { document.getElementById('passwordInput').value = `guess${n}`; submitRoomPassword(new Event('submit')); }, i);
-      await wait(250);
+      await waitFor(mallory, () => document.getElementById('passwordError').textContent !== '', 5000);
     }
     await waitFor(mallory, () => /many/i.test(document.getElementById('passwordError').textContent), 5000);
     await mallory.evaluate(() => { document.getElementById('passwordInput').value = 'secret123'; submitRoomPassword(new Event('submit')); });

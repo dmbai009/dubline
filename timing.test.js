@@ -55,6 +55,19 @@ test('short subtitle cues keep their duration; reversed and zero-length cues are
   ]) assert.deepEqual(parseSubtitles(Buffer.from(text), filename).map(line => [line.start, line.end]), [[1.234, 1.434], [2, 2.05]], filename);
 });
 
+test('the import counts cues skipped for their timing, but not empty ones', () => {
+  const srt = [
+    '1', '00:00:01,000 --> 00:00:02,000', 'Kept', '',
+    '2', '00:00:03,000 --> 00:00:02,000', 'Reversed', '',
+    '3', '00:00:04,000 --> 00:00:04,000', 'Zero', '',
+    '4', '00:00:05,000 --> 00:00:06,000', '<i></i>', ''
+  ].join('\n');
+  const lines = parseSubtitles(Buffer.from(srt), 'skipped.srt');
+  assert.equal(lines.length, 1);
+  assert.equal(lines.skippedTimings, 2);
+  assert.deepEqual(Object.keys(lines), ['0'], 'the count is not part of the line list');
+});
+
 test('preparation time restores tenth-second settings consistently', () => {
   const script = fs.readFileSync('public/state.js', 'utf8');
   for (const [stored, expected] of [[null, 1], ['1.3', 1.3], ['1.26', 1.3], ['-1', 0], ['8', 5], ['invalid', 1]]) {

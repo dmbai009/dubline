@@ -1251,6 +1251,9 @@
     'editor.undo': '↶ Undo', 'editor.undoTitle': 'Undo your last edit (Ctrl+Z)',
     'editor.timeout': 'The server did not answer in time. Check whether your edit was saved after reconnecting.',
     'editor.cancelled': 'The scene changed or the connection was interrupted. This edit was cancelled; try again.',
+    'import.skippedTimings': '{n} subtitle lines were skipped: their time is missing, reversed or zero-length.',
+    'system.subtitlesSkipped': '⚠ {n} subtitle lines were skipped: their time is missing, reversed or zero-length.',
+    'error.packExportCancelled': 'The pack export was cancelled because the host disconnected.',
     'editor.undone': 'Your last edit was undone.', 'editor.undoNothing': 'You have no edits to undo.',
     'editor.undoSkipped': '{n} lines were changed by someone else afterwards and were left as they are.',
     'editor.modeStoppedRecording': 'The host opened Edit Mode: recording stopped. The take will be sent when Dub Mode is back.',
@@ -1288,6 +1291,9 @@
     'editor.undo': '↶ Отменить', 'editor.undoTitle': 'Отменить свою последнюю правку (Ctrl+Z)',
     'editor.timeout': 'Сервер не ответил вовремя. После восстановления связи проверьте, сохранилась ли правка.',
     'editor.cancelled': 'Сцена изменилась или связь прервалась. Эта правка отменена; повторите её.',
+    'import.skippedTimings': 'Пропущено строк субтитров: {n} — у них нет времени, оно перепутано или длительность нулевая.',
+    'system.subtitlesSkipped': '⚠ Пропущено строк субтитров: {n} — у них нет времени, оно перепутано или длительность нулевая.',
+    'error.packExportCancelled': 'Экспорт пака отменён: хост отключился.',
     'editor.undone': 'Последняя правка отменена.', 'editor.undoNothing': 'Нечего отменять.',
     'editor.undoSkipped': 'Реплик, изменённых после вас другими: {n} — их оставили как есть.',
     'editor.modeStoppedRecording': 'Хост включил режим редактирования: запись остановлена. Дубль отправится, когда вернётся режим дубляжа.',
@@ -1325,6 +1331,9 @@
     'editor.undo': '↶ Скасувати', 'editor.undoTitle': 'Скасувати свою останню правку (Ctrl+Z)',
     'editor.timeout': 'Сервер не відповів вчасно. Після відновлення зв’язку перевірте, чи збережено зміну.',
     'editor.cancelled': 'Сцена змінилася або зв’язок перервався. Цю зміну скасовано; повторіть її.',
+    'import.skippedTimings': 'Пропущено рядків субтитрів: {n} — у них немає часу, він переплутаний або тривалість нульова.',
+    'system.subtitlesSkipped': '⚠ Пропущено рядків субтитрів: {n} — у них немає часу, він переплутаний або тривалість нульова.',
+    'error.packExportCancelled': 'Експорт пака скасовано: хост відключився.',
     'editor.undone': 'Останню правку скасовано.', 'editor.undoNothing': 'Нічого скасовувати.',
     'editor.undoSkipped': 'Реплік, змінених після вас іншими: {n} — їх залишено як є.',
     'editor.modeStoppedRecording': 'Хост увімкнув режим редагування: запис зупинено. Дубль надішлеться, коли повернеться режим дубляжу.',
@@ -1354,8 +1363,9 @@
   });
 
   Object.assign(messages.en, {
-    'editor.draftConflict': 'This line changed while you were editing. Your draft is kept. Copy any text you need, then load the latest version before saving.',
+    'editor.draftConflict': 'Someone changed the same field while you were editing. Your draft is kept: keep your version to overwrite theirs, or load the latest one.',
     'editor.loadLatest': 'Discard draft / load latest',
+    'editor.keepMine': 'Keep my version',
     'editor.timingRequired': 'Enter both start and end times.',
     'editor.timingRange': 'Times must be between 0 and 43200 seconds.',
     'editor.timingOrder': 'The end must be later than the start.',
@@ -1365,8 +1375,9 @@
     'error.packExportBusy': 'Another pack export is running on this host. Wait for it to finish.'
   });
   Object.assign(messages.ru, {
-    'editor.draftConflict': 'Реплика изменилась, пока вы её редактировали. Черновик сохранён. Скопируйте нужный текст и загрузите последнюю версию перед сохранением.',
+    'editor.draftConflict': 'Кто-то изменил то же поле, пока вы редактировали. Черновик сохранён: оставьте свою версию поверх чужой или загрузите актуальную.',
     'editor.loadLatest': 'Сбросить черновик / загрузить актуальное',
+    'editor.keepMine': 'Оставить мою версию',
     'editor.timingRequired': 'Укажите время начала и конца.',
     'editor.timingRange': 'Время должно быть от 0 до 43200 секунд.',
     'editor.timingOrder': 'Конец должен быть позже начала.',
@@ -1376,8 +1387,9 @@
     'error.packExportBusy': 'На этом хосте уже идёт экспорт пака. Дождитесь его завершения.'
   });
   Object.assign(messages.uk, {
-    'editor.draftConflict': 'Репліка змінилася, поки ви її редагували. Чернетку збережено. Скопіюйте потрібний текст і завантажте останню версію перед збереженням.',
+    'editor.draftConflict': 'Хтось змінив те саме поле, поки ви редагували. Чернетку збережено: залиште свою версію поверх чужої або завантажте актуальну.',
     'editor.loadLatest': 'Скинути чернетку / завантажити актуальне',
+    'editor.keepMine': 'Залишити мою версію',
     'editor.timingRequired': 'Укажіть час початку та кінця.',
     'editor.timingRange': 'Час має бути від 0 до 43200 секунд.',
     'editor.timingOrder': 'Кінець має бути пізніше початку.',

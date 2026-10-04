@@ -245,6 +245,42 @@ function validateEditorForm(form, line) {
   form.querySelector('[data-editor-error]').textContent = message;
   return !message && form.checkValidity();
 }
+// Text fields compare as typed; times compare as numbers ("1.50" is the same as 1.5)
+function sameEditorValue(field, a, b) {
+  if (field === 'start' || field === 'end') return Number(a) === Number(b) && String(a).trim() !== '' && String(b).trim() !== '';
+  return String(a ?? '') === String(b ?? '');
+}
+
+// The line changed on the server while a draft was open. Fields only the server changed are
+// taken from it, fields only the user changed stay in the draft. Returns true when the same
+// field was changed on both sides to different values: a real conflict for the user to decide.
+function mergeEditorDraft(key, draft, line) {
+  let conflict = false;
+  for (const field of EDITOR_FORM_FIELDS) {
+    const base = String(draft.base[field] ?? '');
+    const latest = String(line[field] ?? '');
+    const mine = draft.values[field];
+    const editedByMe = !sameEditorValue(field, mine, base);
+    const changedThere = !sameEditorValue(field, latest, base);
+    if (changedThere && !editedByMe) draft.values[field] = latest;
+    else if (changedThere && editedByMe && !sameEditorValue(field, mine, latest)) conflict = true;
+  }
+  if (conflict) return true;
+  draft.base = { ...line };
+  if (EDITOR_FORM_FIELDS.every(field => sameEditorValue(field, draft.values[field], line[field] ?? ''))) editorDrafts.delete(key);
+  return false;
+}
+
+// "Keep my version": the draft now edits the latest revision and overwrites the changed fields
+window.keepEditorDraft = function(lineId) {
+  const key = editorDraftKey(lineId);
+  const draft = editorDrafts.get(key);
+  const line = session.lines.find(item => item.id === lineId);
+  if (!draft || !line || draft.pending) return;
+  draft.base = { ...line };
+  showEditorInspector(line, false);
+};
+
 window.reloadEditorDraft = function(lineId) {
   editorDrafts.delete(editorDraftKey(lineId));
   const line = session.lines.find(item => item.id === lineId);
@@ -255,9 +291,13 @@ window.showEditorInspector = function(line, capture = true) {
   const oldForm = inspector.querySelector('#editorLineForm');
   if (oldForm && capture) rememberEditorDraft(oldForm);
   const key = editorDraftKey(line.id);
-  const draft = editorDrafts.get(key);
+  let draft = editorDrafts.get(key);
   const tracks = sessionCharacters();
-  const conflict = draft && !draft.pending && Number(draft.base.revision || 0) !== Number(line.revision || 0);
+  // A newer revision arrived (someone else's edit, or my own drag / keys / undo): merge it into
+  // the draft field by field; only the same field changed on both sides is a conflict
+  const conflict = !!draft && !draft.pending && Number(draft.base.revision || 0) !== Number(line.revision || 0) &&
+    mergeEditorDraft(key, draft, line);
+  draft = editorDrafts.get(key);
   // Unrelated room snapshots must not reset focus, selection or partially typed numbers.
   if (capture && oldForm && oldForm.dataset.draftKey === key &&
       oldForm.dataset.revision === String(line.revision || 0) && oldForm.dataset.tracks === JSON.stringify(tracks)) return;
@@ -283,6 +323,7 @@ window.showEditorInspector = function(line, capture = true) {
       </div>
       <p data-editor-error role="alert" style="color:var(--danger)"></p>
       ${conflict ? `<div role="alert"><p>${t('editor.draftConflict')}</p><p>${esc(line.caption || '')} (${line.start}–${line.end})</p></div>` : ''}
+      ${conflict ? `<button class="btn-play" type="button" onclick="keepEditorDraft(${line.id})">${t('editor.keepMine')}</button>` : ''}
       ${draft ? `<button class="btn-outline" type="button" ${draft.pending ? 'disabled' : ''} onclick="reloadEditorDraft(${line.id})">${t('editor.loadLatest')}</button>` : ''}
       <div class="insp-actions">
         <button class="btn-play grow" type="submit" ${conflict || (draft && draft.pending) ? 'disabled' : ''}>${t('save')}</button>

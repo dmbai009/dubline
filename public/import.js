@@ -127,12 +127,16 @@ window.uploadCustomScene = async function() {
   try {
     const res = await fetch(`/api/upload-custom?room=${encodeURIComponent(currentRoom)}`, { method: 'POST', body: form });
     if (!res.ok) throw new Error(await readError(res));
-    status.textContent = t('upload.done');
+    const result = await res.json().catch(() => ({}));
+    const skipped = Number(result.skippedTimings) || 0;
+    status.textContent = t('upload.done') + (skipped ? ' ' + t('import.skippedTimings', { n: skipped }) : '');
     // The next import starts with an empty form (old subtitles won't be attached to a new video)
     ['customVideoInput', 'customSubInput', 'customSceneTitle'].forEach(id => { document.getElementById(id).value = ''; });
     updateMkvCompatibilityWarning();
-    status.style.color = '#10b981';
-    setTimeout(closeFilesModal, 700);
+    status.style.color = skipped ? 'var(--warning)' : '#10b981';
+    if (skipped) showToast(t('import.skippedTimings', { n: skipped }));
+    // Leave a warning on screen long enough to read
+    setTimeout(closeFilesModal, skipped ? 4000 : 700);
   } catch (err) {
     // fetch throws a TypeError when the tunnel drops the connection mid-upload
     status.textContent = err instanceof TypeError ? t('upload.networkFailed') : t('error.generic', { message: err.message });

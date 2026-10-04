@@ -249,11 +249,16 @@ function cleanAssText(rawText) {
   return rawText.replace(/\{[^}]*\}/g, '').replace(/\\[Nnh]/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
+function validCueTiming(start, end) {
+  return Number.isFinite(start) && Number.isFinite(end) && start >= 0 && Math.round(end * 1000) > Math.round(start * 1000);
+}
+
 function parseSubtitles(buffer, fileName) {
   let text = buffer.toString('utf8');
   if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
   const ext = path.extname(fileName || '').toLowerCase();
   const lines = [];
+  let skippedTimings = 0; // cues with text but a missing, reversed or zero-length time
 
   if (ext === '.ass' || ext === '.ssa') {
     const rawLines = text.split(/\r?\n/);
@@ -297,7 +302,8 @@ function parseSubtitles(buffer, fileName) {
         // Typesetters' vector drawings (\p1…) are not lines: skip them
         if (isAssDrawing(caption)) continue;
         caption = cleanAssText(caption);
-        if (caption && Number.isFinite(start) && Number.isFinite(end) && start >= 0 && Math.round(end * 1000) > Math.round(start * 1000)) {
+        if (caption && !validCueTiming(start, end)) skippedTimings++;
+        if (caption && validCueTiming(start, end)) {
           lines.push({
             id: idCounter++,
             character: character || DEFAULT_CHARACTER,
@@ -343,7 +349,8 @@ function parseSubtitles(buffer, fileName) {
         caption = prefixed[2].trim();
       }
 
-      if (caption && Number.isFinite(start) && Number.isFinite(end) && start >= 0 && Math.round(end * 1000) > Math.round(start * 1000)) {
+      if (caption && !validCueTiming(start, end)) skippedTimings++;
+      if (caption && validCueTiming(start, end)) {
         lines.push({
           id: idCounter++,
           character,
@@ -358,6 +365,8 @@ function parseSubtitles(buffer, fileName) {
     }
   }
 
+  // The import tells the host how many cues were left out (not part of the array's contents)
+  Object.defineProperty(lines, 'skippedTimings', { value: skippedTimings, enumerable: false });
   return lines;
 }
 
