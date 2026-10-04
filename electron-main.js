@@ -6,6 +6,7 @@ const os = require('os');
 const path = require('path');
 const { ROOM_ID, PORT_MIN, PORT_MAX, normalizeGuestUrl, findFreePort } = require('./electron-network');
 const { checkLatestRelease } = require('./electron-update');
+const { createWorkshopLinkHandler } = require('./electron-external-links');
 
 const PIN_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const HOSTING_MODES = new Set(['cloudflare', 'porthole', 'vpn']);
@@ -379,7 +380,7 @@ function createHostWindow(port) {
     ...windowOptions(path.join(__dirname, 'electron-preload.js')),
     width: 1500, height: 900, minWidth: 1280, minHeight: 720
   });
-  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  mainWindow.webContents.setWindowOpenHandler(createWorkshopLinkHandler(url => shell.openExternal(url)));
   mainWindow.webContents.on('will-navigate', (event, url) => { if (!url.startsWith(localOrigin)) event.preventDefault(); });
   mainWindow.once('ready-to-show', () => {
     mainWindow.center();
@@ -395,7 +396,7 @@ function createGuestWindow(target) {
   mainWindow = new BrowserWindow({
     ...windowOptions(path.join(__dirname, 'electron-guest-preload.js')), width: 1500, height: 900, minWidth: 1280, minHeight: 720
   });
-  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  mainWindow.webContents.setWindowOpenHandler(createWorkshopLinkHandler(url => shell.openExternal(url)));
   mainWindow.webContents.on('will-navigate', (event, url) => {
     try { if (new URL(url).origin !== allowedOrigin) event.preventDefault(); }
     catch (err) { event.preventDefault(); }

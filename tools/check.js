@@ -10,7 +10,7 @@ const clientFiles = fs.readdirSync(path.join(root, 'public'))
   .filter(name => name.endsWith('.js')).map(name => path.join('public', name));
 
 let failed = 0;
-const extraChecks = ['tools/electron-editor-smoke.js', 'audit-fixes.test.js', 'e2e/audit-fixes.e2e.js'];
+const extraChecks = ['electron-external-links.js', 'test/electron-external-links.test.js', 'tools/electron-editor-smoke.js', 'audit-fixes.test.js', 'e2e/audit-fixes.e2e.js'];
 for (const file of ['server.js', 'electron-main.js', 'electron-network.js', 'electron-update.js', 'electron-preload.js', 'electron-guest-preload.js', 'electron-launcher-preload.js', 'electron-launcher.js', 'tools/build-icons.js', 'tools/download-cloudflared.js', 'tools/electron-smoke.js', 'tools/electron-guest-smoke.js', 'tools/electron-portable-smoke.js', ...serverFiles, ...clientFiles, ...extraChecks]) {
   const result = spawnSync(process.execPath, ['--check', file], { cwd: root, encoding: 'utf8' });
   if (result.status !== 0) {

@@ -1,6 +1,7 @@
 // Test the source renderer in real Electron; no packaged build or user profile needed.
 const path = require('node:path');
 const assert = require('node:assert/strict');
+const { WORKSHOP_URL, createWorkshopLinkHandler } = require('../electron-external-links');
 
 if (!process.versions.electron) {
   const { spawn } = require('node:child_process');
@@ -27,6 +28,9 @@ if (!process.versions.electron) {
   app.whenReady().then(async () => {
     const win = new BrowserWindow({ show: false, width: 1600, height: 1000,
       webPreferences: { contextIsolation: true, nodeIntegration: false } });
+    const openedLinks = [];
+    // Intercept only the OS browser launch; exercise Electron's actual popup policy.
+    win.webContents.setWindowOpenHandler(createWorkshopLinkHandler(async url => { openedLinks.push(url); }));
     const evaluate = source => win.webContents.executeJavaScript(source, true);
     const waitFor = async source => {
       const deadline = Date.now() + 10000;
@@ -79,7 +83,26 @@ if (!process.versions.electron) {
       await waitFor("session.lines.find(line => line.id === 1).character === 'Hero'");
       await evaluate("document.querySelector('.track-add-btn').click();"); await key('Escape');
       await waitFor("!document.querySelector('dialog[open]')");
-      console.log(JSON.stringify({ electron: process.versions.electron, checks: ['add role', 'rename role', 'rename session', 'Alt+arrows', 'Escape'], passed: true }));
+      const roomUrl = win.webContents.getURL();
+      const point = await evaluate(`(() => {
+        openFilesModal();
+        const link = document.querySelector('[data-i18n="workshopImport.browse"]');
+        link.scrollIntoView({ block: 'center' });
+        const box = link.getBoundingClientRect();
+        return { x: box.left + box.width / 2, y: box.top + box.height / 2 };
+      })()`);
+      for (const type of ['mousePressed', 'mouseReleased']) {
+        await win.webContents.debugger.sendCommand('Input.dispatchMouseEvent', { ...point, type, button: 'left', clickCount: 1 });
+      }
+      for (let attempt = 0; attempt < 100 && !openedLinks.length; attempt++) await new Promise(resolve => setTimeout(resolve, 50));
+      assert.deepEqual(openedLinks, [WORKSHOP_URL], 'Workshop click did not reach the external browser');
+      assert.equal(win.webContents.getURL(), roomUrl, 'Workshop navigated away from the room');
+      assert.equal(BrowserWindow.getAllWindows().length, 1, 'Workshop opened an Electron popup');
+      await evaluate("window.open('https://voxalike.com.evil.test/workshop', '_blank'); void 0;");
+      await new Promise(resolve => setTimeout(resolve, 100));
+      assert.deepEqual(openedLinks, [WORKSHOP_URL], 'An unrelated URL reached the external browser');
+      assert.equal(BrowserWindow.getAllWindows().length, 1, 'An unrelated popup was allowed');
+      console.log(JSON.stringify({ electron: process.versions.electron, checks: ['add role', 'rename role', 'rename session', 'Alt+arrows', 'Escape', 'Workshop external link'], passed: true }));
       win.destroy(); app.exit(0);
     } catch (error) { console.error(error); win.destroy(); app.exit(1); }
   }).catch(error => { console.error(error); app.exit(1); });

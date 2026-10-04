@@ -55,6 +55,7 @@
       "electron-main.js",
       "electron-network.js",
       "electron-update.js",
+      "electron-external-links.js",
       "electron-preload.js",
       "electron-guest-preload.js",
       "electron-launcher-preload.js",
