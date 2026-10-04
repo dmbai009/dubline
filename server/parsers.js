@@ -30,6 +30,7 @@ function parseLineContent(content, fileName, fallbackId, originalAudioUrl, audio
 
   let start = 0;
   let end = 0;
+  let durationChecked = false;
   const timeMatch = content.match(/dub_timestamps\s*=\s*(.*?)(\r?\n|$)/i);
   if (timeMatch) {
     const nums = timeMatch[1].match(/[-+]?[0-9]*\.?[0-9]+/g);
@@ -37,8 +38,10 @@ function parseLineContent(content, fileName, fallbackId, originalAudioUrl, audio
       start = parseFloat(nums[0]) || 0;
       if (nums.length > 1) {
         end = parseFloat(nums[1]) || start + 3.0;
+        durationChecked = true;
       } else if (audioDuration) {
         end = start + audioDuration;
+        durationChecked = true;
       } else {
         end = start + 3.0;
       }
@@ -54,6 +57,7 @@ function parseLineContent(content, fileName, fallbackId, originalAudioUrl, audio
     caption,
     start: Number(start.toFixed(2)),
     end: Number(end.toFixed(2)),
+    durationChecked,
     originalAudioUrl: originalAudioUrl || null,
     claimedBy: null,
     ...emptyTake()
@@ -106,6 +110,7 @@ function readPack(buffer, packName, forceExtract) {
 
   let videoFile = null;
   let backingFile = null;
+  let packTitle = '';
   const rawLineFiles = [];
   const audioFilesMap = {};
   const audioByNumber = {};
@@ -121,9 +126,10 @@ function readPack(buffer, packName, forceExtract) {
     if (!PACK_FILE_EXTENSIONS.has(ext)) return;
     const stem = path.basename(lower, ext);
     const isVoice = ['.wav', '.mp3', '.ogg'].includes(ext) && !lower.startsWith('_');
-    const isText = (ext === '.ini' || ext === '.txt') && !lower.startsWith('_') && !lower.includes('readme');
+    const isPackInfo = lower === '_pack_info.ini';
+    const isText = (ext === '.ini' || ext === '.txt') && (!lower.startsWith('_') || isPackInfo) && !lower.includes('readme');
 
-    if (lower === 'dub_video.mp4') videoFile = name;
+    if (lower === 'dub_video.mp4' || lower === 'dub_video.webm') videoFile = name;
     if (lower.includes('backing_track')) backingFile = name;
 
     if (!needExtract && !isText && ext !== '.wav') {
@@ -158,7 +164,10 @@ function readPack(buffer, packName, forceExtract) {
 
     if (isText) {
       const textContent = data.toString('utf8');
-      if (/caption|dub_timestamps|dub_characters/i.test(textContent)) {
+      if (isPackInfo) {
+        const titleMatch = textContent.match(/^\s*title\s*=\s*(.*?)\s*$/im);
+        if (titleMatch) packTitle = titleMatch[1].trim().replace(/^["']|["']$/g, '');
+      } else if (/caption|dub_timestamps|dub_characters/i.test(textContent)) {
         rawLineFiles.push({ name, stem, content: textContent });
       }
     }
@@ -193,7 +202,7 @@ function readPack(buffer, packName, forceExtract) {
   });
 
   return {
-    title: packName.replace(/\.zip$/i, ''),
+    title: packTitle || packName.replace(/\.zip$/i, ''),
     videoUrl: videoFile ? urlFor(videoFile) : '',
     backingUrl: backingFile ? urlFor(backingFile) : '',
     lines

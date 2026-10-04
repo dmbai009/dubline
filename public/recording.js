@@ -50,12 +50,17 @@ function stopVisualizer() {
   if (canvas) canvas.style.display = 'none';
 }
 
-// Pre-roll before the line: the video rewinds so the player can get ready
-const PRE_ROLL = 2.0;
+// Pre-roll before the line: the video rewinds and, near 0:00, holds the first frame
+// long enough to give the player the full configured preparation time.
+let recordPlayTimeout = null;
 
 window.handleStudioRecord = async function(lineId) {
   const line = session.lines.find(l => l.id === lineId);
   if (!line) return;
+  if (session.mode === 'edit') {
+    showToast(t('editor.recordDisabled'));
+    return;
+  }
 
   const owner = getLineOwner(line);
   if (owner !== myName) {
@@ -76,8 +81,12 @@ window.handleStudioRecord = async function(lineId) {
     return;
   }
 
+  const recordingSessionId = session.activeSessionId || '';
+  const recordingRoom = currentRoom;
+  const recordingNick = myName;
+  let recordingMic;
   try {
-    micStream = await navigator.mediaDevices.getUserMedia({
+    recordingMic = await navigator.mediaDevices.getUserMedia({
       audio: {
         echoCancellation: noiseSuppression,
         noiseSuppression,
@@ -89,8 +98,15 @@ window.handleStudioRecord = async function(lineId) {
     alert(t('error.mic'));
     return;
   }
-  // Recording may have been restarted while the microphone prompt was open: check
-  if (recordState !== 'idle') return;
+  // The microphone permission prompt can outlive a mode/session/ownership change.
+  const currentLine = session && session.lines.find(item => item.id === lineId);
+  if (recordState !== 'idle' || !session || session.mode === 'edit' || watchMode ||
+      (session.activeSessionId || '') !== recordingSessionId || myName !== recordingNick ||
+      !currentLine || getLineOwner(currentLine) !== recordingNick) {
+    recordingMic.getTracks().forEach(track => track.stop());
+    return;
+  }
+  micStream = recordingMic;
 
   if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   if (audioCtx.state === 'suspended') audioCtx.resume();
@@ -108,9 +124,13 @@ window.handleStudioRecord = async function(lineId) {
 
   startVisualizer(micStream);
 
-  const preRoll = Math.min(PRE_ROLL, line.start);
-  const startTime = Number((line.start - preRoll).toFixed(2));
-  currentRecordingStartTime = startTime;
+  const wantedPreRoll = Math.max(0, Math.min(5, Number(preRollSeconds) || 0));
+  const videoPreRoll = Math.min(wantedPreRoll, line.start);
+  const holdSeconds = Math.max(0, wantedPreRoll - videoPreRoll);
+  const playbackAt = performance.now() + holdSeconds * 1000;
+  const startTime = Number((line.start - videoPreRoll).toFixed(3));
+  const recordingStartTime = Number((startTime - holdSeconds).toFixed(3));
+  currentRecordingStartTime = recordingStartTime;
   video.currentTime = startTime;
 
   recordState = 'preparing';
@@ -160,11 +180,11 @@ window.handleStudioRecord = async function(lineId) {
     btn.innerText = t('record.saving');
     await submitTake({
       uploadId: newUploadId(),
-      room: currentRoom,
-      sessionId: session.activeSessionId || '',
+      room: recordingRoom,
+      sessionId: recordingSessionId,
       lineId,
-      nick: myName,
-      audioStart: currentRecordingStartTime,
+      nick: recordingNick,
+      audioStart: recordingStartTime,
       trimStart: speech ? speech.start : null,
       trimEnd: speech ? speech.end : null,
       blob: audioBlob,
@@ -176,10 +196,19 @@ window.handleStudioRecord = async function(lineId) {
   socket.emit('recording_status', { lineId, recording: true });
   btn.className = 'btn-prep';
   btn.innerText = t('record.preparing');
-  video.play().catch(() => {}); // recording may have been stopped right away (pause for everyone): not an error
-  startRecordCue(line, preRoll);
+  clearTimeout(recordPlayTimeout);
+  if (holdSeconds > 0) {
+    video.pause();
+    recordPlayTimeout = setTimeout(() => {
+      if (recordState !== 'idle') video.play().catch(() => {});
+    }, holdSeconds * 1000);
+  } else {
+    video.play().catch(() => {}); // recording may have been stopped right away: not an error
+  }
+  startRecordCue(line, wantedPreRoll, holdSeconds);
 
   const checkSpeechInterval = setInterval(() => {
+    if (performance.now() < playbackAt) return;
     if (video.currentTime >= line.start - 0.05) {
       clearInterval(checkSpeechInterval);
       if (recordState === 'preparing') {
@@ -230,6 +259,7 @@ const MIN_OVERRUN_LIMIT = 4;     // minimum time allowed to speak past the line
 
 function finishRecording({ discard = false } = {}) {
   clearInterval(recordStopTimeout);
+  clearTimeout(recordPlayTimeout);
   if (recordingLineId != null) socket.emit('recording_status', { lineId: recordingLineId, recording: false });
   recordState = 'idle';
   if (discard) discardTake = true;
@@ -279,14 +309,16 @@ const recordCueLabel = document.getElementById('recordCueLabel');
 const recordCueDots = [...recordCue.querySelectorAll('.cue-dot')];
 let cueFrame = null;
 
-function startRecordCue(line, preRoll) {
+function startRecordCue(line, preRoll, holdSeconds = 0) {
   stopRecordCue();
   if (!cueEnabled) return;
   recordCue.style.display = 'block';
+  const holdUntil = performance.now() + holdSeconds * 1000;
 
   const tick = () => {
     const now = video.currentTime;
-    const untilSpeech = line.start - now;
+    const holdLeft = Math.max(0, (holdUntil - performance.now()) / 1000);
+    const untilSpeech = holdLeft + Math.max(0, line.start - now);
     let mode = 'ready';
     if (untilSpeech <= 0.02) mode = now <= line.end ? 'speak' : 'finish';
 
@@ -396,7 +428,22 @@ async function submitTake(entry) {
   return sendTake(entry);
 }
 
+function takePausedByEditMode(entry) {
+  return !!session && session.mode === 'edit' &&
+    (!entry.sessionId || entry.sessionId === session.activeSessionId);
+}
+
 async function sendTake(entry) {
+  // Keep the finished blob locally while its session is being edited. A 409 here
+  // would otherwise resend the entire recording on every backoff interval.
+  if (takePausedByEditMode(entry)) {
+    if (!queuedToastShown) {
+      showToast(t('toast.takeQueued'));
+      queuedToastShown = true;
+    }
+    return false;
+  }
+
   const form = new FormData();
   form.append('lineId', entry.lineId);
   form.append('userName', entry.nick);
@@ -430,6 +477,16 @@ async function sendTake(entry) {
     return true;
   }
 
+  // The server may switch modes a moment before this client receives session_updated.
+  // Keep the take, but do not resend its full blob until a later mode/connection event.
+  if (res && res.status === 409) {
+    if (!queuedToastShown) {
+      showToast(t('toast.takeQueued'));
+      queuedToastShown = true;
+    }
+    return false;
+  }
+
   if (res && isPermanentFailure(res.status)) {
     const reason = await readError(res);
     pendingTakes.delete(entry.uploadId);
@@ -459,6 +516,7 @@ async function flushPendingTakes() {
   clearTimeout(retryTimer);
   for (const entry of [...pendingTakes.values()]) {
     if (!pendingTakes.has(entry.uploadId)) continue;
+    if (takePausedByEditMode(entry)) continue;
     if (!await sendTake(entry)) break; // the server is still down: stop trying for now
   }
 }
@@ -466,6 +524,13 @@ async function flushPendingTakes() {
 window.retryPendingTakes = function() {
   retryDelay = 2000;
   flushPendingTakes();
+};
+
+window.onRecordingModeChanged = function(mode) {
+  clearTimeout(retryTimer);
+  if (mode !== 'dub' || !pendingTakes.size) return;
+  retryDelay = 2000;
+  setTimeout(flushPendingTakes, 0);
 };
 
 // The connection is back: send whatever has queued up (called from room.js when the socket connects)

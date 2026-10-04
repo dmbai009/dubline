@@ -23,6 +23,35 @@ zipInput.addEventListener('change', async (e) => {
   }
 });
 
+window.importWorkshopPack = async function() {
+  if (!amHost()) return alert(t('onlyHost'));
+  const input = document.getElementById('workshopUrlInput');
+  const button = document.getElementById('workshopImportBtn');
+  const status = document.getElementById('workshopImportStatus');
+  const url = input.value.trim();
+  if (!url) return input.focus();
+  button.disabled = true;
+  status.style.cssText = 'display:block;color:var(--accent-2);';
+  status.textContent = t('workshopImport.loading');
+  try {
+    const res = await fetch('/api/import-workshop-pack', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ room: currentRoom, clientId, url })
+    });
+    if (!res.ok) throw new Error(await readError(res));
+    const result = await res.json();
+    status.style.color = 'var(--success)';
+    status.textContent = t(result.cached ? 'workshopImport.cached' : 'workshopImport.done');
+    setTimeout(closeFilesModal, 900);
+  } catch (err) {
+    status.style.color = 'var(--danger)';
+    status.textContent = err instanceof TypeError ? t('upload.networkFailed') : t('error.generic', { message: err.message });
+  } finally {
+    button.disabled = false;
+  }
+};
+
 // IMPORT AND MOD LIBRARY
 // ==========================================
 const libraryList = document.getElementById('filesLibraryList');

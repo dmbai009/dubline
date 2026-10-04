@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 
 const html = fs.readFileSync('public/index.html', 'utf8');
-const CLIENT_MODULES = ['player.js', 'recording.js', 'import.js', 'export.js', 'room.js', 'p2p.js', 'chat.js', 'ui.js'];
+const CLIENT_MODULES = ['player.js', 'recording.js', 'import.js', 'export.js', 'room.js', 'editor.js', 'features.js', 'p2p.js', 'chat.js', 'ui.js'];
 const app = CLIENT_MODULES.map(name => fs.readFileSync(`public/${name}`, 'utf8')).join('\n');
 // Server code is split into modules under server/: check all of them together with the entry point
 const serverFiles = ['server.js', ...fs.readdirSync('server', { recursive: true })
@@ -20,7 +20,8 @@ test('every inline HTML handler has a client implementation', () => {
 });
 
 test('static DOM references exist and legacy modal IDs are gone', () => {
-  const dynamicIds = new Set(['gainDisplay', 'pitchVal', 'recBtn', 'visualizerCanvas', 'charInput', 'multiCharInput']);
+  const dynamicIds = new Set(['gainDisplay', 'pitchVal', 'recBtn', 'visualizerCanvas', 'charInput', 'multiCharInput',
+    'editorLineForm', 'editorCaption', 'editorCharacter', 'editorStart', 'editorEnd']);
   const ids = [...app.matchAll(/getElementById\(['"]([^'"]+)['"]\)/g)].map(match => match[1]);
   for (const id of new Set(ids)) {
     if (dynamicIds.has(id)) continue;

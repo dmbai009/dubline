@@ -328,7 +328,10 @@ function setHostSources() {
 }
 
 function cancelMediaDownload() {
-  if (mediaDownload) mediaDownload.abort.abort();
+  if (mediaDownload) {
+    mediaDownload.abort.abort();
+    window.reportPlayerActivity?.('idle', 100, true);
+  }
   mediaDownload = null;
 }
 
@@ -344,6 +347,7 @@ async function loadSceneMedia() {
     setHostSources();
     updateP2pStatus();
     announceHave();
+    window.reportPlayerActivity?.('idle', 100, true);
     return;
   }
 
@@ -351,6 +355,7 @@ async function loadSceneMedia() {
   const abort = new AbortController();
   const download = { abort, videoUrl: current.videoUrl };
   mediaDownload = download;
+  window.reportPlayerActivity?.('downloading', 0, true);
   const files = [{ url: current.videoUrl, size: current.videoSize, hash: current.videoHash, type: 'video/mp4', role: 'video' }];
   if (current.backingUrl && current.backingSize) {
     files.push({ url: current.backingUrl, size: current.backingSize, hash: current.backingHash, type: 'audio/mpeg', role: 'backing' });
@@ -371,6 +376,7 @@ async function loadSceneMedia() {
           http: totals.http + job.httpBytes
         };
         updateP2pStatus();
+        window.reportPlayerActivity?.('downloading', p2pStatus.pct);
       }, abort);
       results[file.role] = result.blob;
       doneBytes += file.size;
@@ -390,6 +396,7 @@ async function loadSceneMedia() {
     setHostSources();
   }
   updateP2pStatus();
+  window.reportPlayerActivity?.('idle', 100, true);
 }
 
 window.watchFromHostNow = function() {

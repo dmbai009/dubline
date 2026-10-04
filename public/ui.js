@@ -239,6 +239,9 @@ const settingsPrompter = document.getElementById('settingsPrompter');
 const settingsPrompterSize = document.getElementById('settingsPrompterSize');
 const settingsPrompterSizeVal = document.getElementById('settingsPrompterSizeVal');
 const settingsLanguage = document.getElementById('settingsLanguage');
+const settingsTheme = document.getElementById('settingsTheme');
+const settingsPreRoll = document.getElementById('settingsPreRoll');
+const settingsPreRollVal = document.getElementById('settingsPreRollVal');
 
 function syncSettingsUi() {
   settingsNickInput.value = myName;
@@ -251,10 +254,14 @@ function syncSettingsUi() {
   document.getElementById('autoDuckSubRow').style.opacity = autoDuckEnabled ? '1' : '0.45';
   settingsPrompter.checked = prompterEnabled;
   settingsCue.checked = cueEnabled;
+  settingsPreRoll.value = preRollSeconds;
+  settingsPreRollVal.textContent = t('seconds.short', { value: Number(preRollSeconds).toFixed(1) });
+  document.getElementById('preRollSubRow').style.opacity = cueEnabled ? '1' : '0.75';
   settingsPrompterSize.value = prompterSize;
   settingsPrompterSizeVal.textContent = `${prompterSize}px`;
   document.getElementById('prompterSubRow').style.opacity = prompterEnabled ? '1' : '0.45';
   settingsLanguage.value = i18n.getLanguage();
+  settingsTheme.value = document.documentElement.dataset.theme || 'midnight';
   updatePrompter();
 }
 
@@ -309,6 +316,10 @@ settingsPrompterSize.addEventListener('input', () => {
   updatePrompter();
 });
 settingsLanguage.addEventListener('change', () => i18n.setLanguage(settingsLanguage.value));
+settingsTheme.addEventListener('change', () => {
+  document.documentElement.dataset.theme = settingsTheme.value;
+  localStorage.setItem('dubline_theme', settingsTheme.value);
+});
 
 window.openFilesModal = function() {
   document.getElementById('customUploadStatus').style.display = 'none'; filesModal.style.display = 'flex'; switchFilesTab('import'); };
@@ -346,7 +357,10 @@ window.addEventListener('dubline-language-changed', () => {
 // HOTKEYS
 // ==========================================
 window.addEventListener('keydown', (e) => {
-  if (['INPUT', 'TEXTAREA'].includes(e.target.tagName)) return;
+  if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
+
+  // Edit Mode has its own keys for the selected lines (move, change role, delete, undo)
+  if (window.handleEditorKey && handleEditorKey(e)) return;
 
   // Space: play/pause
   if (e.code === 'Space') {
@@ -358,6 +372,7 @@ window.addEventListener('keydown', (e) => {
   // R (same physical key on any layout): record the selected line
   if (e.code === 'KeyR') {
     e.preventDefault();
+    if (session && session.mode === 'edit') return showToast(t('editor.recordDisabled'));
     if (selectedLine) handleStudioRecord(selectedLine.id);
     else showToast(t('toast.selectLine'));
   }
@@ -383,6 +398,7 @@ window.addEventListener('keydown', (e) => {
 
   // Esc: close modals
   if (e.code === 'Escape') {
+    if (document.body.classList.contains('video-expanded')) toggleExpandedVideo();
     closeHostingModal();
     closeSettingsModal();
     closeFilesModal();
@@ -395,8 +411,9 @@ window.addEventListener('keydown', (e) => {
 
 function showInspector(line) {
   if (multiSelection.size >= 2) return showMultiInspector();
+  if (session.mode === 'edit') return window.showEditorInspector(line);
   const duration = Number((line.end - line.start).toFixed(2));
-  const characters = [...new Set(session.lines.map(l => l.character))];
+  const characters = sessionCharacters();
   const allowCharacterClaims = characters.length > 1;
 
   const charOwner = session.characterClaims ? session.characterClaims[line.character] : null;
@@ -428,7 +445,7 @@ function showInspector(line) {
       : `<button class="btn-record grow" id="recBtn" onclick="handleStudioRecord(${line.id})">${t('record')}</button>${originalBtn}`;
   } else {
     // A finished take can always be played, even if the line was released or roles were reset
-    const listen = line.audioUrl
+    const listen = line.audioUrl && canHearLine(line)
       ? `<button class="btn-play grow" onclick="previewTake(${line.id})">${author ? t('listenTake', { owner: esc(author) }) : t('listenTakeAnon')}</button>`
       : '';
     const claim = isFree ? `<button class="btn-claim grow" onclick="claimSingleLine(${line.id})">${t('claim.line')}</button>` : '';
@@ -466,8 +483,8 @@ function showInspector(line) {
     </div>` : '';
 
   // The character can be changed by the host, the line's owner, or anyone if the line is free
-  const canRename = amHost() || !owner || owner === myName;
-  const characterNames = [...new Set(session.lines.map(l => l.character))].sort((a, b) => a.localeCompare(b));
+  const canRename = false;
+  const characterNames = sessionCharacters().sort((a, b) => a.localeCompare(b));
   const characterRow = canRename ? `
     <form class="insp-row insp-char-form" onsubmit="saveLineCharacter(event, ${line.id})" title="${esc(t('char.rename'))}">
       <span class="insp-label">🎭</span>
@@ -475,7 +492,7 @@ function showInspector(line) {
       <datalist id="charList">${characterNames.map(name => `<option value="${esc(name)}"></option>`).join('')}</datalist>
       <button type="submit" class="btn-outline">${t('char.apply')}</button>
     </form>` : '';
-  const deleteLineBtn = amHost() ? `<button class="btn-outline" onclick="deleteLines([${line.id}])">${t('line.delete')}</button>` : '';
+  const deleteLineBtn = '';
 
   inspector.innerHTML = `
     <div class="insp-head">
@@ -498,19 +515,21 @@ function showInspector(line) {
 // Inspector for several selected lines: assign a character in bulk
 function showMultiInspector() {
   const lines = session.lines.filter(l => multiSelection.has(l.id)).sort((a, b) => a.start - b.start);
-  const characters = [...new Set(session.lines.map(l => l.character))].sort((a, b) => a.localeCompare(b));
+  const characters = sessionCharacters().sort((a, b) => a.localeCompare(b));
   const preview = lines.slice(0, 6).map(l => `<div class="multi-item"><b>#${l.id}</b> <span class="multi-char">${esc(l.character)}</span> ${esc(l.caption || '')}</div>`).join('');
-  inspector.innerHTML = `
-    <div class="insp-head"><div class="insp-title"><b>${t('multi.title', { n: lines.length })}</b></div></div>
-    <div class="multi-list">${preview}${lines.length > 6 ? `<div class="insp-meta">${t('multi.more', { n: lines.length - 6 })}</div>` : ''}</div>
+  const editorForm = session.mode === 'edit' ? `
     <form class="insp-char-form" onsubmit="assignSelectedCharacter(event)">
       <input id="multiCharInput" class="text-input" list="multiCharList" maxlength="40" placeholder="${esc(t('char.placeholder'))}">
       <datalist id="multiCharList">${characters.map(name => `<option value="${esc(name)}"></option>`).join('')}</datalist>
       <button type="submit" class="btn-play">${t('multi.assign')}</button>
-    </form>
+    </form>` : '';
+  inspector.innerHTML = `
+    <div class="insp-head"><div class="insp-title"><b>${t('multi.title', { n: lines.length })}</b></div></div>
+    <div class="multi-list">${preview}${lines.length > 6 ? `<div class="insp-meta">${t('multi.more', { n: lines.length - 6 })}</div>` : ''}</div>
+    ${editorForm}
     <div class="insp-actions secondary">
       ${amHost() ? `<button class="btn-host" onclick="releaseSelectedLines()">${t('multi.release')}</button>` : ''}
-      ${amHost() ? `<button class="btn-outline" onclick="deleteLines([...multiSelection])">${t('multi.delete')}</button>` : ''}
+      ${session.mode === 'edit' ? `<button class="btn-outline" onclick="deleteEditorLines([...multiSelection])">${t('multi.delete')}</button>` : ''}
       <button class="btn-outline" onclick="clearMultiSelection()">${t('multi.clear')}</button>
     </div>
     <p class="take-hint">${t('multi.hint')}</p>
@@ -522,8 +541,12 @@ window.assignSelectedCharacter = function(e) {
   const name = document.getElementById('multiCharInput').value.trim();
   if (!name) return;
   revealLineId = [...multiSelection][0];
-  socket.emit('set_lines_character', { lineIds: [...multiSelection], character: name }, result => {
-    if (!result) return;
+  const ids = [...multiSelection].filter(lineId => session.lines.some(line => line.id === lineId));
+  queueEditorRequest(() => ['set_lines_character', {
+    lines: ids.map(lineId => ({ lineId, revision: lineRevision(lineId) })),
+    character: name
+  }]).then(result => {
+    if (!editorResult(result)) return;
     showToast(t('multi.done', { moved: result.moved, name }) + (result.skipped ? ' ' + t('multi.skipped', { n: result.skipped }) : ''));
   });
 };
@@ -555,11 +578,12 @@ window.saveLineCharacter = function(e, lineId) {
     return;
   }
   revealLineId = lineId; // after the redraw, scroll to the line on its new track
-  socket.emit('set_line_character', { lineId, character: name });
+  queueEditorRequest(() => ['set_line_character', { lineId, revision: lineRevision(lineId), character: name }]).then(editorResult);
 };
 
 // The host deletes lines (e.g. on-screen signs that shouldn't be dubbed)
 window.deleteLines = function(lineIds) {
+  if (session && session.mode === 'edit') return deleteEditorLines(lineIds);
   if (!lineIds.length || !confirm(t('line.deleteConfirm', { n: lineIds.length }))) return;
   socket.emit('host_delete_lines', { lineIds });
   if (lineIds.length > 1) clearMultiSelection();
@@ -655,7 +679,32 @@ const settingsCue = document.getElementById('settingsCue');
 settingsCue.addEventListener('change', () => {
   cueEnabled = settingsCue.checked;
   localStorage.setItem('dubline_cue', cueEnabled ? '1' : '0');
+  syncSettingsUi();
 });
+
+settingsPreRoll.addEventListener('input', () => {
+  preRollSeconds = Math.max(0, Math.min(5, Number(settingsPreRoll.value) || 0));
+  localStorage.setItem('dubline_pre_roll', String(preRollSeconds));
+  settingsPreRollVal.textContent = t('seconds.short', { value: preRollSeconds.toFixed(1) });
+});
+
+const videoWrapper = document.querySelector('.video-wrapper');
+
+window.toggleExpandedVideo = function() {
+  const expanded = document.body.classList.toggle('video-expanded');
+  const button = document.getElementById('expandVideoBtn');
+  button.classList.toggle('active', expanded);
+  button.title = t(expanded ? 'video.collapse' : 'video.expand');
+};
+
+window.toggleVideoFullscreen = async function() {
+  try {
+    if (document.fullscreenElement) await document.exitFullscreen();
+    else await videoWrapper.requestFullscreen();
+  } catch (err) {
+    showToast(t('video.fullscreenFailed'));
+  }
+};
 
 // ==========================================
 // PANEL SIZES (dividers like in Vegas / Photoshop)

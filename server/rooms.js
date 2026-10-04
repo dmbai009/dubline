@@ -13,7 +13,7 @@ const { isAssDrawing, cleanAssText } = require('./parsers');
 // ==========================================
 // Scene fields that belong to a session (see "Sessions" below)
 const SESSION_FIELDS = ['loaded', 'title', 'kind', 'zipUrl', 'videoUrl', 'backingUrl', 'lines', 'characterClaims', 'createdAt', 'updatedAt',
-  'audioTracks', 'originalTrack', 'backingTrack', 'baseBackingUrl', 'deletedLines'];
+  'audioTracks', 'originalTrack', 'backingTrack', 'baseBackingUrl', 'deletedLines', 'mode', 'trackOrder', 'nextLineId', 'blindMode'];
 let repairedOnLoad = false;
 
 function loadRooms() {
@@ -26,6 +26,7 @@ function loadRooms() {
         if (active) SESSION_FIELDS.forEach(field => { room[field] = active[field]; });
         [room, ...Object.values(room.sessions || {})].forEach(repairLineDurations);
         [room, ...Object.values(room.sessions || {})].forEach(cleanImportedCaptions);
+        [room, ...Object.values(room.sessions || {})].forEach(normalizeEditorState);
         delete room.audioTracksPending; // track extraction did not survive the restart: start over
       }
       return loaded;
@@ -68,6 +69,37 @@ function cleanImportedCaptions(session) {
   if (kept.length !== before) {
     session.lines.splice(0, session.lines.length, ...kept); // same array, so the link to the active session stays intact
     console.log(`[Dubline] Removed subtitle drawing lines from "${session.title}": ${before - kept.length}`);
+  }
+}
+
+function normalizeEditorState(session) {
+  if (!session || !Array.isArray(session.lines)) return;
+  if (!['edit', 'dub'].includes(session.mode)) {
+    session.mode = 'dub';
+    repairedOnLoad = true;
+  }
+  const names = [...new Set(session.lines.map(line => String(line.character || 'Character')).filter(Boolean))];
+  if (!Array.isArray(session.trackOrder)) {
+    session.trackOrder = names;
+    repairedOnLoad = true;
+  } else {
+    session.trackOrder = [...new Set([...session.trackOrder.map(String).filter(Boolean), ...names])];
+  }
+  let maxId = 0;
+  session.lines.forEach(line => {
+    maxId = Math.max(maxId, Number(line.id) || 0);
+    if (!Number.isInteger(line.revision) || line.revision < 0) {
+      line.revision = 0;
+      repairedOnLoad = true;
+    }
+  });
+  // Lines in the trash keep their ids: a new line must not reuse one, or restoring would drop it
+  (session.deletedLines || []).forEach(batch => (batch.lines || []).forEach(entry => {
+    maxId = Math.max(maxId, Number(entry.line && entry.line.id) || 0);
+  }));
+  if (!Number.isInteger(session.nextLineId) || session.nextLineId <= maxId) {
+    session.nextLineId = maxId + 1;
+    repairedOnLoad = true;
   }
 }
 
@@ -122,6 +154,7 @@ function getRoom(roomId) {
     if (rooms[roomId][key] === undefined) rooms[roomId][key] = defaults[key];
   }
   const room = rooms[roomId];
+  if (!Array.isArray(room.blindPlayers)) room.blindPlayers = [];
   if (!room.sessions) room.sessions = {};
   if (room.activeSessionId === undefined) room.activeSessionId = null;
   // Rooms from older versions: the current scene becomes the first session
@@ -143,6 +176,7 @@ function getRoom(roomId) {
 function emptySession() {
   return {
     loaded: false, title: '', kind: null, zipUrl: '', videoUrl: '', backingUrl: '', lines: [], characterClaims: {}, createdAt: null, updatedAt: null,
+    mode: 'dub', trackOrder: [], nextLineId: 1, blindMode: false,
     audioTracks: undefined,   // video audio tracks as separate files (if there are several); undefined = not checked yet
     originalTrack: 0,         // which track plays as "Original" (-1 = none)
     backingTrack: -1,         // which track plays as "Background" (-1 = the pack's own backing track or none)
@@ -168,6 +202,7 @@ function activateSession(room, id) {
   Object.assign(room, emptySession());
   if (target) SESSION_FIELDS.forEach(field => { room[field] = target[field]; });
   room.activeSessionId = target ? id : null;
+  normalizeEditorState(room);
 }
 
 // Every import is a new session; earlier ones are kept with their takes
@@ -176,6 +211,7 @@ function startNewSession(room, fields) {
   const now = Date.now();
   room.activeSessionId = newSessionId();
   Object.assign(room, emptySession(), fields, { loaded: true, createdAt: now, updatedAt: now });
+  normalizeEditorState(room);
   snapshotActive(room);
 }
 
@@ -296,5 +332,6 @@ module.exports = {
   publicRoom,
   emitSession,
   ensureAudioTracks,
-  dropEmptyRoleClaims
+  dropEmptyRoleClaims,
+  normalizeEditorState
 };

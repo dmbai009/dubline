@@ -40,6 +40,8 @@ const downloadPackNone = document.getElementById('downloadOriginalPackNone');
 const liveRecordings = new Map();
 // Players sharing the scene video over P2P (nicks)
 const seedingNicks = new Set();
+// Ephemeral statuses such as a P2P video download: nick -> { state, pct }.
+const playerActivities = new Map();
 // Lines whose takes are recorded but haven't reached the server yet
 const pendingTakeLines = new Set();
 // Several selected lines (Ctrl/Shift+click) for assigning a character in bulk
@@ -75,7 +77,7 @@ const audio = window.DublineAudio.createController({
   video,
   backing,
   originalTrack: originalTrackAudio,
-  getSession: () => state.session,
+  getSession: () => visibleSessionForAudio(),
   getVolumes: () => state.volumes,
   getSettings: () => ({
     autoDuckEnabled: state.autoDuckEnabled,
@@ -83,13 +85,27 @@ const audio = window.DublineAudio.createController({
   }),
   isRenderInProgress: () => state.renderInProgress,
   getRecordingLineId: () => state.recordingLineId,
-  getLatency: nick => latencyFor(nick)
+  getLatency: nick => latencyFor(nick),
+  canPlayLine: line => canHearLine(line)
 });
 
 // The player's microphone delay correction in seconds (stored on the server in ms)
 function latencyFor(nick) {
   const ms = nick && state.session && state.session.latency ? state.session.latency[nick] : 0;
   return (Number(ms) || 0) / 1000;
+}
+
+function canHearLine(line) {
+  if (!line || !line.audioUrl || !state.session) return false;
+  const author = line.recordedBy || getLineOwner(line);
+  if (!author || author === state.myName || line.blindRevealed) return true;
+  return !state.session.blindMode && !(state.session.blindPlayers || []).includes(author);
+}
+
+function visibleSessionForAudio() {
+  const current = state.session;
+  if (!current || !Array.isArray(current.lines)) return current;
+  return { ...current, lines: current.lines.filter(line => !line.audioUrl || canHearLine(line)) };
 }
 
 // Player color: the same for everyone, derived from the nick
@@ -303,26 +319,6 @@ function getLineOwner(line) {
   return charOwner || line.claimedBy || null;
 }
 
-// Learn the original line duration once per URL: previously every timeline redraw
-// created a new <audio> per line and flooded the tunnel with requests
-const durationCache = new Map(); // url -> Promise<number | null>
-
-function probeDuration(url) {
-  if (!durationCache.has(url)) {
-    durationCache.set(url, new Promise(resolve => {
-      const probe = new Audio();
-      probe.preload = 'metadata';
-      probe.onloadedmetadata = () => {
-        resolve(Number.isFinite(probe.duration) && probe.duration > 0.1 ? probe.duration : null);
-        probe.removeAttribute('src');
-      };
-      probe.onerror = () => resolve(null);
-      probe.src = url;
-    }));
-  }
-  return durationCache.get(url);
-}
-
 const MIN_TILE_PX = 22;
 const LANE_HEIGHT = 54;  // tile height 48 + gap 6
 const ROW_PADDING = 6;
@@ -357,18 +353,25 @@ function timelineSeconds() {
   return Math.max(lastLine, videoLength, 30);
 }
 
+function sessionCharacters() {
+  const ordered = Array.isArray(session && session.trackOrder) ? session.trackOrder : [];
+  const fromLines = ((session && session.lines) || []).map(line => line.character);
+  return [...new Set([...ordered, ...fromLines].filter(Boolean))];
+}
+
 function renderTimeline() {
   timeline.innerHTML = '';
   timeline.appendChild(playhead);
 
-  if (!session.lines || session.lines.length === 0) return;
+  if (!session.lines) return;
 
   playhead.style.display = 'block';
 
   const maxTime = timelineSeconds();
   const trackWidth = (maxTime + TIMELINE_TAIL) * pxPerSec;
-  const characters = [...new Set(session.lines.map(l => l.character))];
+  const characters = sessionCharacters();
   const allowCharacterClaims = characters.length > 1;
+  const editing = session.mode === 'edit';
 
   const rulerRow = document.createElement('div');
   rulerRow.className = 'ruler-row';
@@ -405,6 +408,7 @@ function renderTimeline() {
   characters.forEach(char => {
     const row = document.createElement('div');
     row.className = 'track-row';
+    row.dataset.character = char; // drop target when dragging lines between roles
 
     const label = document.createElement('div');
     label.className = 'track-label';
@@ -412,7 +416,8 @@ function renderTimeline() {
     const charClaimedBy = session.characterClaims ? session.characterClaims[char] : null;
 
     let roleHtml = '';
-    if (allowCharacterClaims) {
+    const hasLines = session.lines.some(l => l.character === char);
+    if (allowCharacterClaims && !editing && hasLines) {
       if (!charClaimedBy) {
         roleHtml = `<button class="role-btn" onclick="claimCharacter(${jsArg(char)})">${t('claimRoleShort')}</button>`;
       } else if (charClaimedBy === myName) {
@@ -425,8 +430,8 @@ function renderTimeline() {
       }
     }
 
-    // Rename a whole track: the host always, others only if all its lines are free or their own
-    const canRenameTrack = amHost() || session.lines.filter(l => l.character === char).every(l => { const owner = getLineOwner(l); return !owner || owner === myName; });
+    // Track structure belongs to the shared editor, so every collaborator may rename it.
+    const canRenameTrack = editing;
     const renameTrackBtn = canRenameTrack ? `<button class="track-rename" title="${esc(t('char.renameTrack', { name: char }))}" onclick="renameCharacterTrack(${jsArg(char)})">✎</button>` : '';
     label.innerHTML = `
       <div class="track-label-inner">
@@ -470,24 +475,22 @@ function renderTimeline() {
       };
       trackArea.appendChild(block);
 
-      if (line.originalAudioUrl) {
-        probeDuration(line.originalAudioUrl).then(seconds => {
-          if (!seconds) return;
-          const end = Number((line.start + seconds).toFixed(2));
-          if (Math.abs(end - line.end) < 0.05) return;
-          line.end = end;
-          if (block.isConnected) block.style.width = `${Math.max((line.end - line.start) * pxPerSec, MIN_TILE_PX)}px`;
-          if (selectedLine && selectedLine.id === line.id) showInspector(line);
-          // The length changed: lines may now overlap, so redo the lanes
-          scheduleTimelineRender();
-        });
-      }
+      // Bounds come from the server (pack import or an editor update). The voice
+      // file's duration must not overwrite an explicitly edited line length.
     });
 
     row.appendChild(label);
     row.appendChild(trackArea);
     timeline.appendChild(row);
   });
+
+  // "Add role" under the last track: anyone in Edit Mode, only the host while dubbing
+  if (typeof canAddTrack === 'function' && canAddTrack()) {
+    const addRow = document.createElement('div');
+    addRow.className = 'track-add-row';
+    addRow.innerHTML = `<div class="track-label"><button class="track-add-btn" type="button" onclick="addEditorTrack()">${t('editor.addRole')}</button></div>`;
+    timeline.appendChild(addRow);
+  }
 
   if (revealLineId != null) {
     const tile = document.getElementById(`line-block-${revealLineId}`);
@@ -507,6 +510,8 @@ function updateLineBlockVisual(el, line) {
   if (selectedLine && selectedLine.id === line.id) el.classList.add('selected');
   if (multiSelection.has(line.id)) el.classList.add('multi-selected');
   if (line.audioUrl) el.classList.add('recorded');
+  // In Edit Mode every line is editable by everyone: no "someone else's line" colouring
+  else if (session.mode === 'edit') el.classList.add('editable');
   else if (owner === myName) el.classList.add('claimed-me');
   else if (owner) el.classList.add('claimed-other');
 
@@ -537,8 +542,13 @@ function updateLineBlockVisual(el, line) {
     </span>
   `;
 
-  attachWaveform(el, line);
-  if (line.audioUrl && owner === myName) enableTakeDrag(el, line.id);
+  if (!line.audioUrl || canHearLine(line)) attachWaveform(el, line);
+  else {
+    el.classList.add('blind-hidden');
+    el.title = t('blind.hidden');
+  }
+  if (session.mode === 'edit') window.enableLineEditDrag?.(el, line.id);
+  else if (line.audioUrl && owner === myName) enableTakeDrag(el, line.id);
 }
 
 // ==========================================
@@ -934,8 +944,14 @@ window.clearMultiSelection = function() {
 window.renameCharacterTrack = function(name) {
   const next = (prompt(t('char.renameTrack', { name }), name) || '').trim();
   if (!next || next === name) return;
-  socket.emit('rename_character', { from: name, to: next }, result => {
+  // The track's lines and their revisions are read when the request leaves the edit queue
+  queueEditorRequest(() => ['rename_character', {
+    from: name,
+    to: next,
+    lines: session.lines.filter(line => line.character === name).map(line => ({ lineId: line.id, revision: line.revision || 0 }))
+  }]).then(result => {
     if (result && result.ok) showToast(t('char.trackRenamed', { from: name, to: next, n: result.moved }));
     else if (result && result.reason === 'denied') showToast(t('char.trackDenied'));
+    else editorResult(result);
   });
 };

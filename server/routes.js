@@ -1,18 +1,23 @@
 const multer = require('multer');
+const AdmZip = require('adm-zip');
 const fs = require('fs');
 const path = require('path');
-const { UPLOAD_DIR, PACKS_DIR, MAX_PACK_MB, MAX_TAKE_MB, MAX_SUBTITLE_MB, HttpError } = require('./config');
+const os = require('os');
+const { UPLOAD_DIR, PACKS_DIR, MAX_PACK_MB, MAX_PACK_EXPORT_MB, MAX_EXPORT_LINE_SECONDS, MAX_TAKE_MB, MAX_SUBTITLE_MB, HttpError } = require('./config');
 const { recordingNow, p2pSeeders } = require('./state');
 const { app, io } = require('./app');
 const { sanitizeNick, sanitizePackName } = require('./sanitize');
 const { resolveRoomId } = require('./desktop');
 const { logEvent } = require('./log');
-const { forgetFileSizes, deleteTakeFile } = require('./files');
+const { forgetFileSizes, deleteTakeFile, diskPathForUrl } = require('./files');
 const { runFfmpeg, findEmbeddedSubtitleMap } = require('./media');
 const { emptyTake, parseSeconds, readPack, isMkvFile, isMp4File, isSubtitleFile, parseSubtitles } = require('./parsers');
 const { saveRooms, getRoom, snapshotActive, startNewSession, publicRoom, emitSession, ensureAudioTracks } = require('./rooms');
 const { endWatch, broadcastRecording, addSystemMessage } = require('./presence');
 const { isAuthorized, isHost, getLineOwner } = require('./auth');
+const { parseWorkshopUrl, downloadVoxalikePack } = require('./workshop');
+
+const workshopDownloads = new Map();
 
 // ==========================================
 // HTTP API
@@ -168,6 +173,152 @@ app.get('/api/server-packs', (req, res) => {
   }
 });
 
+// Download a public Voxalike Workshop pack once and reuse the validated archive afterwards.
+app.post('/api/import-workshop-pack', async (req, res) => {
+  try {
+    const roomId = resolveRoomId(req.body.room);
+    const room = getRoom(roomId);
+    if (!isHost(room, req.body.clientId)) throw new HttpError(403, 'Only the room host can change the pack', 'error.hostOnlyPack');
+
+    const source = parseWorkshopUrl(req.body.url);
+    const filePath = path.join(PACKS_DIR, source.filename);
+    let cached = fs.existsSync(filePath);
+    let buffer;
+    if (cached) {
+      buffer = fs.readFileSync(filePath);
+    } else {
+      let pending = workshopDownloads.get(source.filename);
+      if (!pending) {
+        pending = downloadVoxalikePack(source.downloadUrl, MAX_PACK_MB * 1024 * 1024)
+          .finally(() => workshopDownloads.delete(source.filename));
+        workshopDownloads.set(source.filename, pending);
+      }
+      buffer = await pending;
+      // Another request awaiting the same download may have populated the cache first.
+      cached = fs.existsSync(filePath);
+      if (cached) buffer = fs.readFileSync(filePath);
+    }
+
+    // The archive is on disk before the room points at it; readPack then validates it
+    // (including the unpacked size) and an invalid download leaves the library again.
+    let written = false;
+    if (!cached) {
+      try {
+        fs.writeFileSync(filePath, buffer, { flag: 'wx' });
+        written = true;
+      } catch (err) {
+        if (err.code !== 'EEXIST') throw err;
+        cached = true;
+      }
+    }
+    let updatedRoom;
+    try {
+      updatedRoom = loadPackIntoRoom(roomId, source.filename, buffer, written);
+    } catch (err) {
+      if (written) fs.rm(filePath, { force: true }, () => {});
+      throw err;
+    }
+    logEvent(roomId, `📦 Voxalike workshop pack "${source.slug}" ${cached ? 'loaded from cache' : 'downloaded'}`);
+    res.json({ success: true, cached, session: publicRoom(updatedRoom) });
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+function packSafeName(value, fallback) {
+  const clean = String(value || '').replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').trim().slice(0, 70);
+  return clean || fallback;
+}
+
+function iniQuoted(value) {
+  return JSON.stringify(String(value || ''));
+}
+
+// Build a standard Voxalike pack from the edited timeline. Host only because FFmpeg work
+// happens on the host machine and can be expensive for a long scene.
+app.post('/api/export-voxalike-pack', async (req, res) => {
+  let tempDir = null;
+  try {
+    const roomId = resolveRoomId(req.body.room);
+    const room = getRoom(roomId);
+    if (!isHost(room, req.body.clientId)) throw new HttpError(403, 'Only the room host can export a pack', 'error.hostOnlyPack');
+    if (!room.loaded || !room.videoUrl || !room.lines.length) throw new HttpError(400, 'The scene has no video or lines', 'error.noScene');
+    if (room.lines.length > 2000) throw new HttpError(400, 'The scene has too many lines', 'error.tooManyLines');
+    const videoPath = diskPathForUrl(room.videoUrl);
+    if (!videoPath || !fs.existsSync(videoPath)) throw new HttpError(404, 'Scene video not found', 'error.noScene');
+
+    const backingPath = diskPathForUrl(room.backingUrl);
+    // Export one snapshot: collaborative edits during FFmpeg awaits must not
+    // mix old audio cuts with new captions, roles or timestamps in the archive.
+    const ordered = room.lines.map(line => ({ ...line })).sort((a, b) => a.start - b.start || a.id - b.id);
+    let estimatedBytes = fs.statSync(videoPath).size;
+    if (backingPath && fs.existsSync(backingPath)) estimatedBytes += fs.statSync(backingPath).size;
+    for (const line of ordered) {
+      const duration = Number(line.end) - Number(line.start);
+      if (!Number.isFinite(duration) || duration <= 0 || duration > MAX_EXPORT_LINE_SECONDS) {
+        throw new HttpError(413, `A line is longer than ${MAX_EXPORT_LINE_SECONDS} seconds`, 'error.exportLineTooLong', { max: MAX_EXPORT_LINE_SECONDS });
+      }
+      // PCM stereo, 44.1 kHz, 16-bit, plus a conservative allowance for metadata.
+      estimatedBytes += Math.ceil(duration * 44100 * 2 * 2) + 4096;
+    }
+    if (estimatedBytes > MAX_PACK_EXPORT_MB * 1024 * 1024) {
+      throw new HttpError(413, `The exported pack would exceed ${MAX_PACK_EXPORT_MB} MB`, 'error.packExportTooLarge', { max: MAX_PACK_EXPORT_MB });
+    }
+
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dubline-pack-'));
+    const zip = new AdmZip();
+    const title = packSafeName(room.title, 'Dubline scene');
+    const videoExt = path.extname(videoPath).toLowerCase() === '.webm' ? '.webm' : '.mp4';
+    zip.addLocalFile(videoPath, '', `dub_video${videoExt}`);
+    zip.addFile('_pack_info.ini', Buffer.from(`[data]\ntitle=${iniQuoted(title)}\nauthors=${JSON.stringify([room.host || 'Dubline'])}\nlanguage=""\ntags="dubline"\n`, 'utf8'));
+
+    if (backingPath && fs.existsSync(backingPath)) {
+      const ext = path.extname(backingPath).toLowerCase() || '.mp3';
+      zip.addLocalFile(backingPath, '', `_backing_track${ext}`);
+    }
+
+    // Lines without their own voice file are cut from the chosen "Original" track
+    // (a separate video audio track if the host picked one), otherwise from the video itself.
+    const tracks = Array.isArray(room.audioTracks) ? room.audioTracks : [];
+    const originalTrack = tracks.length >= 2 && room.originalTrack >= 0 ? tracks[room.originalTrack] : null;
+    const originalTrackPath = originalTrack ? diskPathForUrl(originalTrack.url) : null;
+    const sceneAudioPath = originalTrackPath && fs.existsSync(originalTrackPath) ? originalTrackPath : videoPath;
+
+    for (let index = 0; index < ordered.length; index++) {
+      const line = ordered[index];
+      const prefix = String(index + 1).padStart(Math.max(3, String(ordered.length).length), '0');
+      const stem = `${prefix}_${packSafeName(line.character, 'Character')}`;
+      const duration = Math.max(0.1, line.end - line.start);
+      const audioPath = path.join(tempDir, `${stem}.wav`);
+      const voicePath = line.originalAudioUrl ? diskPathForUrl(line.originalAudioUrl) : null;
+      try {
+        if (voicePath && fs.existsSync(voicePath)) {
+          // The pack's clean voice line is better than a cut from the mixed soundtrack
+          await runFfmpeg(['-i', voicePath, '-t', String(duration), '-vn', '-ac', '2', '-ar', '44100', '-c:a', 'pcm_s16le', audioPath], 'Could not convert line audio');
+        } else {
+          await runFfmpeg(['-ss', String(line.start), '-i', sceneAudioPath, '-t', String(duration), '-vn', '-ac', '2', '-ar', '44100', '-c:a', 'pcm_s16le', audioPath], 'Could not extract line audio');
+        }
+      } catch (err) {
+        await runFfmpeg(['-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo', '-t', String(duration), '-c:a', 'pcm_s16le', audioPath], 'Could not create line audio');
+      }
+      zip.addLocalFile(audioPath, '', `${stem}.wav`);
+      const ini = `[data]\ntitle=${iniQuoted(`${line.character} ${index + 1}`)}\ncaption=${iniQuoted(line.caption)}\ndub_timestamps=[${line.start.toFixed(3)}, ${line.end.toFixed(3)}]\ndub_characters=${JSON.stringify([line.character])}\n`;
+      zip.addFile(`${stem}.ini`, Buffer.from(ini, 'utf8'));
+    }
+
+    const archiveName = `${packSafeName(title, 'Dubline_pack')}.zip`;
+    const archive = zip.toBuffer();
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(archiveName)}`);
+    res.send(archive);
+    logEvent(roomId, `📦 ${room.host || 'Host'} exported Voxalike pack "${title}" (${ordered.length} lines)`);
+  } catch (err) {
+    sendError(res, err);
+  } finally {
+    if (tempDir && tempDir.startsWith(os.tmpdir() + path.sep)) fs.rm(tempDir, { recursive: true, force: true }, () => {});
+  }
+});
+
 // Load a mod already saved on the server into the room. Host only.
 app.post('/api/load-server-pack', (req, res) => {
   try {
@@ -311,6 +462,7 @@ app.post('/api/upload-line-audio', acceptFile('audio', MAX_TAKE_MB, requireConfi
     const isActiveSession = !sessionId || sessionId === room.activeSessionId;
     const target = isActiveSession ? room : room.sessions[sessionId];
     if (!target) throw new HttpError(410, 'The session this take was recorded in has been deleted', 'error.sessionDeleted');
+    if (target.mode === 'edit') throw new HttpError(409, 'Recording is disabled in edit mode', 'error.editMode');
 
     const line = target.lines.find(l => l.id === lineId);
     if (!line) throw new HttpError(404, 'Line not found', 'error.lineNotFound');
@@ -328,10 +480,12 @@ app.post('/api/upload-line-audio', acceptFile('audio', MAX_TAKE_MB, requireConfi
 
     deleteTakeFile(line.audioUrl);
     line.audioUrl = `/uploads/${encodeURIComponent(fileName)}`;
-    line.audioStart = audioStart !== null ? Math.max(0, audioStart) : line.start;
+    // A line at 0:00 may include a short preparation recording before the first frame.
+    line.audioStart = audioStart !== null ? Math.max(-5, audioStart) : line.start;
     line.recordedStart = line.audioStart;
     line.recordedBy = userName;
     line.uploadId = uploadId || null;
+    line.blindRevealed = false;
     target.updatedAt = Date.now();
     // The chosen voice (effect/pitch) survives re-recording the take
     const hasTrim = trimStart !== null && trimEnd !== null && trimStart >= 0 && trimEnd > trimStart;

@@ -10,7 +10,7 @@ module.exports = function registerTrashHandlers(socket, conn) {
   socket.on('host_delete_lines', ({ lineIds } = {}) => {
     if (!conn.roomId || !Array.isArray(lineIds)) return;
     const room = getRoom(conn.roomId);
-    if (!isHost(room, conn.clientId)) return;
+    if (!isHost(room, conn.clientId) || room.mode !== 'edit') return;
     const doomed = new Set(lineIds);
     // Remember where the lines were so undo puts them back
     const removed = room.lines.map((line, index) => ({ line, index })).filter(entry => doomed.has(entry.line.id));
@@ -37,7 +37,7 @@ module.exports = function registerTrashHandlers(socket, conn) {
   socket.on('host_undo_delete', () => {
     if (!conn.roomId) return;
     const room = getRoom(conn.roomId);
-    if (!isHost(room, conn.clientId) || !Array.isArray(room.deletedLines) || !room.deletedLines.length) return;
+    if (!isHost(room, conn.clientId) || room.mode !== 'edit' || !Array.isArray(room.deletedLines) || !room.deletedLines.length) return;
     const batch = room.deletedLines.pop();
     const existing = new Set(room.lines.map(line => line.id));
     const restored = batch.lines.filter(entry => !existing.has(entry.line.id)).sort((a, b) => a.index - b.index);
@@ -95,7 +95,7 @@ module.exports = function registerTrashHandlers(socket, conn) {
   socket.on('host_trash_restore', ({ lineIds } = {}) => {
     if (!conn.roomId || !Array.isArray(lineIds)) return;
     const room = getRoom(conn.roomId);
-    if (!isHost(room, conn.clientId)) return;
+    if (!isHost(room, conn.clientId) || room.mode !== 'edit') return;
     const existing = new Set(room.lines.map(line => line.id));
     const taken = takeFromTrash(room, lineIds).filter(item => !existing.has(item.entry.line.id));
     if (!taken.length) return;
@@ -117,7 +117,7 @@ module.exports = function registerTrashHandlers(socket, conn) {
   socket.on('host_trash_purge', ({ lineIds } = {}) => {
     if (!conn.roomId || !Array.isArray(lineIds)) return;
     const room = getRoom(conn.roomId);
-    if (!isHost(room, conn.clientId)) return;
+    if (!isHost(room, conn.clientId) || room.mode !== 'edit') return;
     const taken = takeFromTrash(room, lineIds);
     if (!taken.length) return;
     taken.forEach(item => deleteTakeFile(item.entry.line.audioUrl));

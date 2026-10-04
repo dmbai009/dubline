@@ -57,6 +57,19 @@ function downloadBlob(blob, ext) {
 }
 
 // Offline mixdown of the whole soundtrack: background + original + takes with effects and trimming
+// Blind Mode hides takes while dubbing; an export asks whether to include them
+// instead of silently leaving them out of the result.
+let includeHiddenTakes = false;
+
+function confirmHiddenTakes() {
+  const hidden = session.lines.filter(line => line.audioUrl && !canHearLine(line)).length;
+  includeHiddenTakes = hidden > 0 && confirm(t('blind.exportConfirm', { n: hidden }));
+}
+
+function exportableTake(line) {
+  return !!line.audioUrl && (includeHiddenTakes || canHearLine(line));
+}
+
 async function mixSoundtrack(duration, gains, onStep) {
   const rate = 48000;
   const ctx = new OfflineAudioContext(2, Math.max(1, Math.ceil(duration * rate)), rate);
@@ -107,7 +120,7 @@ async function mixSoundtrack(duration, gains, onStep) {
     place(await fetchAndDecode(mediaUrl(originalUrl)).catch(() => null), 1, 0, 0, Infinity, originalBus);
   }
 
-  const takes = session.lines.filter(l => l.audioUrl);
+  const takes = session.lines.filter(exportableTake);
   const duckIntervals = [];
   for (let i = 0; i < takes.length; i++) {
     onStep(t('render.takes', { current: i + 1, total: takes.length }));
@@ -196,7 +209,8 @@ async function renderCharacterStem(lines, duration, sampleRate = 48000) {
 
 window.downloadReaperStems = async function() {
   if (!session || !session.loaded) return alert(t('error.noScene'));
-  const takes = session.lines.filter(line => line.audioUrl);
+  confirmHiddenTakes();
+  const takes = session.lines.filter(exportableTake);
   if (!takes.length) return alert(t('error.noTakes'));
   const grouped = new Map();
   takes.forEach(line => {
@@ -244,6 +258,39 @@ window.downloadReaperStems = async function() {
   } catch (err) {
     status.textContent = t('error.generic', { message: err.message });
     status.style.color = '#ef4444';
+  } finally {
+    button.disabled = false;
+  }
+};
+
+window.exportVoxalikePack = async function() {
+  if (!session || !session.loaded) return alert(t('error.noScene'));
+  if (!amHost()) return alert(t('onlyHost'));
+  const button = document.getElementById('packExportBtn');
+  const status = document.getElementById('packExportStatus');
+  button.disabled = true;
+  status.style.display = 'block';
+  status.style.color = 'var(--accent-2)';
+  status.textContent = t('packExport.progress');
+  try {
+    const response = await fetch('/api/export-voxalike-pack', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ room: currentRoom, clientId })
+    });
+    if (!response.ok) throw new Error(await readError(response));
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${String(session.title || 'Dubline_pack').replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_')}.zip`;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    status.style.color = 'var(--success)';
+    status.textContent = t('packExport.done');
+  } catch (err) {
+    status.style.color = 'var(--danger)';
+    status.textContent = t('error.generic', { message: err.message });
   } finally {
     button.disabled = false;
   }
@@ -404,6 +451,7 @@ window.startVideoRender = async function() {
     statusText.innerText = `⏳ ${text}`;
   };
 
+  confirmHiddenTakes();
   startBtn.disabled = true;
   progressBox.style.display = 'block';
   video.pause();

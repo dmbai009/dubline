@@ -8,6 +8,7 @@ const { parseSeconds } = require('../parsers');
 const { saveRooms, getRoom, emitSession, dropEmptyRoleClaims } = require('../rooms');
 const { broadcastRecording, addSystemMessage } = require('../presence');
 const { isHost, getLineOwner } = require('../auth');
+const history = require('../editHistory');
 
 module.exports = function registerRoleHandlers(socket, conn) {
   socket.on('claim_character', ({ character } = {}) => {
@@ -108,21 +109,15 @@ module.exports = function registerRoleHandlers(socket, conn) {
   });
 
   // ---------- Line characters: moving lines to another track ----------
-  // Everyone can move their own and free lines; the host can move any, including into others' roles
-  function canMoveLine(room, line, name, host) {
-    if (host) return true;
-    const owner = getLineOwner(room, line);
-    if (owner && owner !== conn.nick) return false;
-    const roleOwner = room.characterClaims[name];
-    return !roleOwner || roleOwner === conn.nick;
-  }
-
-  function moveLine(room, line, name) {
+  // `before` collects the lines' previous state for undo (Ctrl+Z in Edit Mode)
+  function moveLine(room, line, name, before) {
     const oldName = line.character;
     if (oldName === name) return false;
-    // If the line belonged to a player through a role, keep the owner explicitly
-    if (!line.claimedBy && room.characterClaims[oldName]) line.claimedBy = room.characterClaims[oldName];
+    before.set(line.id, history.lineBefore(line));
+    // The line now belongs to the new role (and whoever claimed it), not to the old owner
+    line.claimedBy = null;
     line.character = name;
+    line.revision = Number(line.revision || 0) + 1;
     return true;
   }
 
@@ -130,67 +125,121 @@ module.exports = function registerRoleHandlers(socket, conn) {
     return sanitizeChatText(raw).slice(0, 40);
   }
 
-  socket.on('set_line_character', ({ lineId, character } = {}) => {
-    if (!conn.roomId || !conn.nick) return;
+  socket.on('set_line_character', ({ lineId, revision, character, sessionId } = {}, ack) => {
+    const reply = typeof ack === 'function' ? ack : () => {};
+    if (!conn.roomId || !conn.nick) return reply({ ok: false, reason: 'room' });
     const room = getRoom(conn.roomId);
+    if (room.mode !== 'edit') return reply({ ok: false, reason: 'mode' });
+    if (sessionId !== undefined && sessionId !== room.activeSessionId) return reply({ ok: false, reason: 'session' });
     const line = room.lines.find(l => l.id === lineId);
     const name = cleanCharacterName(character);
-    if (!line || !name || !canMoveLine(room, line, name, isHost(room, conn.clientId))) return;
+    if (!line) return reply({ ok: false, reason: 'missing' });
+    if (Number(revision) !== Number(line.revision || 0)) return reply({ ok: false, reason: 'conflict', line });
+    if (!name) return reply({ ok: false, reason: 'invalid' });
     const oldName = line.character;
-    if (!moveLine(room, line, name)) return;
+    const before = new Map();
+    const claimsBefore = { ...room.characterClaims };
+    if (!Array.isArray(room.trackOrder)) room.trackOrder = [];
+    const trackOrderBefore = [...room.trackOrder];
+    if (!moveLine(room, line, name, before)) return reply({ ok: true, moved: 0, line });
+    if (!room.trackOrder.includes(name)) room.trackOrder.push(name);
     dropEmptyRoleClaims(room);
+    history.recordLines(conn.roomId, room, conn.clientId, before, claimsBefore, trackOrderBefore);
     saveRooms();
     emitSession(conn.roomId);
     logEvent(conn.roomId, `✎ ${conn.nick}: line #${line.id}: "${oldName}" → "${name}"`);
+    reply({ ok: true, moved: 1, line });
   });
 
-  // Several selected lines at once; unavailable ones are skipped and counted
-  socket.on('set_lines_character', ({ lineIds, character } = {}, ack) => {
+  // Several selected lines at once. Revisions make the operation atomic.
+  socket.on('set_lines_character', ({ lines, character, sessionId } = {}, ack) => {
     const reply = typeof ack === 'function' ? ack : () => {};
-    if (!conn.roomId || !conn.nick || !Array.isArray(lineIds)) return reply({ moved: 0, skipped: 0 });
-    const room = getRoom(conn.roomId);
-    const name = cleanCharacterName(character);
-    if (!name) return reply({ moved: 0, skipped: lineIds.length });
-    const host = isHost(room, conn.clientId);
-    let moved = 0;
-    let skipped = 0;
-    for (const id of lineIds.slice(0, 2000)) {
-      const line = room.lines.find(l => l.id === id);
-      if (!line) continue;
-      if (!canMoveLine(room, line, name, host)) { skipped++; continue; }
-      if (moveLine(room, line, name)) moved++;
+    if (!conn.roomId || !conn.nick || !Array.isArray(lines) || !lines.length || lines.length > 2000) {
+      return reply({ ok: false, reason: 'invalid', moved: 0, skipped: 0 });
     }
+    const room = getRoom(conn.roomId);
+    if (room.mode !== 'edit') return reply({ ok: false, reason: 'mode', moved: 0, skipped: lines.length });
+    if (sessionId !== undefined && sessionId !== room.activeSessionId) return reply({ ok: false, reason: 'session' });
+    const name = cleanCharacterName(character);
+    if (!name) return reply({ ok: false, reason: 'invalid', moved: 0, skipped: lines.length });
+    const expected = new Map();
+    for (const item of lines) {
+      const id = Number(item && item.lineId);
+      if (!Number.isFinite(id) || expected.has(id) || !Number.isFinite(Number(item.revision))) {
+        return reply({ ok: false, reason: 'invalid', moved: 0, skipped: lines.length });
+      }
+      expected.set(id, Number(item.revision));
+    }
+    const selected = [];
+    for (const [id, revision] of expected) {
+      const line = room.lines.find(item => item.id === id);
+      if (!line) return reply({ ok: false, reason: 'missing', moved: 0, skipped: lines.length });
+      selected.push(line);
+    }
+    const conflicts = selected.filter(line => expected.get(line.id) !== Number(line.revision || 0));
+    if (conflicts.length) return reply({ ok: false, reason: 'conflict', moved: 0, skipped: lines.length, lines: conflicts });
+
+    let moved = 0;
+    const before = new Map();
+    const claimsBefore = { ...room.characterClaims };
+    if (!Array.isArray(room.trackOrder)) room.trackOrder = [];
+    const trackOrderBefore = [...room.trackOrder];
+    selected.forEach(line => { if (moveLine(room, line, name, before)) moved++; });
     if (moved) {
+      if (!room.trackOrder.includes(name)) room.trackOrder.push(name);
       dropEmptyRoleClaims(room);
+      history.recordLines(conn.roomId, room, conn.clientId, before, claimsBefore, trackOrderBefore);
       saveRooms();
       emitSession(conn.roomId);
-      logEvent(conn.roomId, `✎ ${conn.nick}: ${moved} lines → "${name}"${skipped ? ` (skipped ${skipped})` : ''}`);
+      logEvent(conn.roomId, `✎ ${conn.nick}: ${moved} lines → "${name}"`);
     }
-    reply({ moved, skipped });
+    reply({ ok: true, moved, skipped: 0, lines: selected });
   });
 
   // Rename a whole track (all of a character's lines); an existing name means a merge
-  socket.on('rename_character', ({ from, to } = {}, ack) => {
+  socket.on('rename_character', ({ from, to, lines: expectedLines, sessionId } = {}, ack) => {
     const reply = typeof ack === 'function' ? ack : () => {};
     if (!conn.roomId || !conn.nick) return reply({ ok: false });
     const room = getRoom(conn.roomId);
+    if (room.mode !== 'edit') return reply({ ok: false, reason: 'mode' });
+    if (sessionId !== undefined && sessionId !== room.activeSessionId) return reply({ ok: false, reason: 'session' });
+    if (!Array.isArray(room.trackOrder)) room.trackOrder = [];
+    const hasTrack = room.trackOrder.includes(from);
     const name = cleanCharacterName(to);
     const lines = room.lines.filter(l => l.character === from);
-    if (!name || !lines.length || name === from) return reply({ ok: false });
-    const host = isHost(room, conn.clientId);
-    if (!host && !lines.every(line => canMoveLine(room, line, name, false))) return reply({ ok: false, reason: 'denied' });
-
+    if (!name || (!lines.length && !hasTrack) || name === from || !Array.isArray(expectedLines)) {
+      return reply({ ok: false, reason: 'invalid' });
+    }
+    const expected = new Map();
+    for (const item of expectedLines) {
+      const id = Number(item && item.lineId);
+      if (!Number.isFinite(id) || expected.has(id) || !Number.isFinite(Number(item.revision))) {
+        return reply({ ok: false, reason: 'invalid' });
+      }
+      expected.set(id, Number(item.revision));
+    }
+    const staleSet = expected.size !== lines.length || lines.some(line => !expected.has(line.id));
+    const conflicts = lines.filter(line => expected.get(line.id) !== Number(line.revision || 0));
+    if (staleSet || conflicts.length) return reply({ ok: false, reason: 'conflict', lines });
     const roleOwner = room.characterClaims[from];
-    lines.forEach(line => { line.character = name; });
+    const before = new Map(lines.map(line => [line.id, history.lineBefore(line)]));
+    const claimsBefore = { ...room.characterClaims };
+    const trackOrderBefore = [...room.trackOrder];
+    lines.forEach(line => {
+      line.character = name;
+      line.revision = Number(line.revision || 0) + 1;
+    });
+    room.trackOrder = [...new Set(room.trackOrder.map(track => track === from ? name : track))];
     // A claimed role moves with the track if the new name is free
     if (roleOwner && !room.characterClaims[name]) room.characterClaims[name] = roleOwner;
     delete room.characterClaims[from];
     if (roleOwner && room.characterClaims[name] !== roleOwner) lines.forEach(line => { if (!line.claimedBy) line.claimedBy = roleOwner; });
     dropEmptyRoleClaims(room);
+    history.recordLines(conn.roomId, room, conn.clientId, before, claimsBefore, trackOrderBefore);
     saveRooms();
     emitSession(conn.roomId);
     logEvent(conn.roomId, `✎ ${conn.nick}: track "${from}" → "${name}" (${lines.length} lines)`);
-    reply({ ok: true, moved: lines.length });
+    reply({ ok: true, moved: lines.length, lines });
   });
 
   // The host releases selected lines someone claimed by mistake
@@ -216,6 +265,7 @@ module.exports = function registerRoleHandlers(socket, conn) {
   socket.on('recording_status', ({ lineId, recording } = {}) => {
     if (!conn.roomId || !conn.nick) return;
     const room = getRoom(conn.roomId);
+    if (room.mode === 'edit') return;
     const line = room.lines.find(l => l.id === lineId);
     if (!line) return;
     const map = recordingNow[conn.roomId] || (recordingNow[conn.roomId] = {});

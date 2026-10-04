@@ -107,6 +107,95 @@ describe('media', { skip: skipReason }, () => {
     assert.ok(result.peak > 0.01, 'the take is audible in the export');
   });
 
+  test('Voxalike pack export keeps the lines and uses the clean voice files', async () => {
+    const AdmZip = require('adm-zip');
+    const base64 = await host.evaluate(async () => {
+      const res = await fetch('/api/export-voxalike-pack', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ room: currentRoom, clientId })
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const bytes = new Uint8Array(await res.arrayBuffer());
+      let text = '';
+      for (let i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+      return btoa(text);
+    });
+    const zip = new AdmZip(Buffer.from(base64, 'base64'));
+    const names = zip.getEntries().map(entry => entry.entryName).sort();
+    assert.ok(names.includes('dub_video.mp4') && names.includes('_pack_info.ini'), names.join(', '));
+    assert.equal(names.filter(name => /^\d+_.+\.ini$/.test(name)).length, FIXTURE_LINES.length);
+    const ini = zip.readAsText(names.find(name => /^001_.+\.ini$/.test(name)));
+    assert.match(ini, /caption="Hello there"/);
+    assert.match(ini, /dub_characters=\["Hero"\]/);
+
+    // Line 1's voice is a 360 Hz sine; the video's own sound is 440 Hz
+    const wav = zip.readFile(names.find(name => /^001_.+\.wav$/.test(name)));
+    const samples = new Int16Array(wav.buffer.slice(wav.byteOffset + 44, wav.byteOffset + wav.length - (wav.length - 44) % 4));
+    let crossings = 0;
+    for (let i = 2; i < samples.length; i += 2) if ((samples[i - 2] < 0) !== (samples[i] < 0)) crossings++;
+    const hz = crossings / 2 / (samples.length / 2 / 44100);
+    assert.ok(Math.abs(hz - 360) < 15, `exported voice is ${Math.round(hz)} Hz`);
+  });
+
+  test('editor regressions: resizing a pack line survives redraw, reload and server restart', async () => {
+    await host.evaluate(() => setStudioMode('edit'));
+    await waitFor(host, () => session.mode === 'edit');
+    const state = await host.evaluate(async () => {
+      const line = session.lines.find(item => item.originalAudioUrl);
+      const before = { id: line.id, start: line.start, end: line.end };
+      const result = await updateEditorLine(line, { end: line.start + 3 });
+      if (!result.ok) throw new Error(JSON.stringify(result));
+      renderTimeline();
+      return before;
+    });
+    await waitFor(pages[1], data => session.lines.find(line => line.id === data.id).end === data.start + 3, 5000, state);
+    await host.reload();
+    await waitFor(host, data => socket.connected && session && session.lines.some(line => line.id === data.id), 10000, state);
+    const restored = await host.evaluate(id => session.lines.find(line => line.id === id), state.id);
+    assert.equal(restored.end, state.start + 3);
+    assert.equal(restored.durationChecked, true, 'legacy repair must not override edited three-second lines');
+    await server.restart();
+    await waitFor(host, data => socket.connected && session && session.lines.find(line => line.id === data.id).end === data.start + 3, 10000, state);
+    await host.evaluate(async data => {
+      const result = await updateEditorLine(session.lines.find(line => line.id === data.id), { end: data.end });
+      if (!result.ok) throw new Error(JSON.stringify(result));
+    }, state);
+    await host.evaluate(() => setStudioMode('dub'));
+    await waitFor(host, () => session.mode === 'dub');
+  });
+
+  test('Voxalike pack export rejects an excessive line before allocating its PCM audio', async () => {
+    await host.evaluate(() => setStudioMode('edit'));
+    await waitFor(host, () => session.mode === 'edit');
+    const lineId = await host.evaluate(() => session.lines[0].id);
+    const originalEnd = await host.evaluate(id => session.lines.find(line => line.id === id).end, lineId);
+    const changed = await host.evaluate(id => {
+      const line = session.lines.find(item => item.id === id);
+      return new Promise(resolve => socket.emit('editor_update_line', {
+        lineId: id, revision: line.revision || 0, end: line.start + 601
+      }, resolve));
+    }, lineId);
+    assert.equal(changed.ok, true);
+
+    const rejected = await host.evaluate(async () => {
+      const res = await fetch('/api/export-voxalike-pack', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ room: currentRoom, clientId })
+      });
+      return { status: res.status, body: await res.json() };
+    });
+    assert.equal(rejected.status, 413);
+    assert.equal(rejected.body.key, 'error.exportLineTooLong');
+
+    const restored = await host.evaluate((id, end) => {
+      const line = session.lines.find(item => item.id === id);
+      return new Promise(resolve => socket.emit('editor_update_line', {
+        lineId: id, revision: line.revision || 0, end
+      }, resolve));
+    }, lineId, originalEnd);
+    assert.equal(restored.ok, true);
+    await host.evaluate(() => setStudioMode('dub'));
+    await waitFor(host, () => session.mode === 'dub');
+  });
+
   test('no page errors', () => {
     for (const page of pages) assert.deepEqual(page.errors, [], JSON.stringify(page.errors));
   });

@@ -43,7 +43,7 @@ describe('studio', { skip: skipReason }, () => {
 
   test('line length comes from the original voice when the pack gives only a start (MP3)', async () => {
     const line = FIXTURE_LINES[3];
-    // Take the length from the server (the page can adjust it itself, but recording and takes rely on the server's)
+    // Import determines the length on the server; clients only display its bounds.
     const fromServer = await alice.evaluate(id => new Promise(resolve => {
       socket.once('session_updated', data => resolve(data.lines.find(l => l.id === id).end));
       socket.emit('join_room', { room: currentRoom, nick: myName, clientId });
@@ -67,7 +67,7 @@ describe('studio', { skip: skipReason }, () => {
     await waitFor(alice, () => document.getElementById('toast').textContent.includes(t('toast.claimFirst')));
   });
 
-  test('recording: 2 s countdown, "Speak!" on the line start, auto-trim', async () => {
+  test('recording: configurable 1 s preparation, "Speak!" on the line start, auto-trim', async () => {
     const line = FIXTURE_LINES[0];
     await claimAndSelect(alice, line.id);
     assert.ok(await alice.evaluate(() => { const el = document.getElementById('inspector'); return el.scrollHeight <= el.clientHeight + 1; }), 'inspector fits');
@@ -76,7 +76,7 @@ describe('studio', { skip: skipReason }, () => {
     const ready = await waitFor(alice, () => document.getElementById('recordCue').style.display === 'block' && {
       t: video.currentTime, label: document.getElementById('recordCueLabel').textContent
     });
-    assert.ok(ready.t <= line.start - 1.5, `recording starts ~2 s early (t=${ready.t})`);
+    assert.ok(ready.t <= line.start - 0.5, `recording starts ~1 s early (t=${ready.t})`);
     assert.equal(ready.label, await alice.evaluate(() => t('cue.ready')));
     await waitFor(alice, () => document.getElementById('recordCue').classList.contains('speak'), 6000);
     assert.ok(await alice.evaluate(() => document.querySelectorAll('#recordCue .cue-dot.on').length === 3 || true));
@@ -87,6 +87,66 @@ describe('studio', { skip: skipReason }, () => {
     const saved = await alice.evaluate(id => session.lines.find(l => l.id === id), line.id);
     assert.ok(saved.trimStart !== null && saved.trimEnd > saved.trimStart, 'speech bounds detected');
     assert.equal(saved.recordedBy, 'Alice');
+  });
+
+  test('recording regressions: a mode change while waiting for microphone permission cancels startup', async () => {
+    const result = await alice.evaluate(async id => {
+      const devices = navigator.mediaDevices;
+      const originalGet = devices.getUserMedia;
+      const originalMode = session.mode;
+      const stream = await originalGet.call(devices, { audio: true });
+      let allow;
+      devices.getUserMedia = () => new Promise(resolve => { allow = () => resolve(stream); });
+      try {
+        const starting = handleStudioRecord(id);
+        session.mode = 'edit'; // Same state change as a host broadcast while the prompt is open.
+        allow();
+        await starting;
+        return { state: recordState, stopped: stream.getTracks().every(track => track.readyState === 'ended') };
+      } finally {
+        devices.getUserMedia = originalGet;
+        session.mode = originalMode;
+        if (recordState !== 'idle') finishRecording({ discard: true });
+        stream.getTracks().forEach(track => track.stop());
+      }
+    }, FIXTURE_LINES[0].id);
+    assert.deepEqual(result, { state: 'idle', stopped: true });
+  });
+
+  test('recording regressions: completed take keeps its session and start during asynchronous decoding', async () => {
+    const result = await alice.evaluate(async id => {
+      const originalDecode = decodeAudio;
+      const originalSubmit = submitTake;
+      const originalSessionId = session.activeSessionId;
+      let releaseDecode;
+      let enteredDecode;
+      let receive;
+      const gate = new Promise(resolve => { releaseDecode = resolve; });
+      const decoding = new Promise(resolve => { enteredDecode = resolve; });
+      const uploaded = new Promise(resolve => { receive = resolve; });
+      decodeAudio = async bytes => { enteredDecode(); await gate; return originalDecode(bytes); };
+      submitTake = async entry => { receive(entry); return true; };
+      try {
+        await handleStudioRecord(id);
+        const start = currentRecordingStartTime;
+        await new Promise(resolve => setTimeout(resolve, 250));
+        finishRecording();
+        await decoding;
+        session.activeSessionId = 'another-session-during-decoding';
+        currentRecordingStartTime = 999;
+        releaseDecode();
+        const entry = await uploaded;
+        return { sessionId: entry.sessionId, expectedSession: originalSessionId, start: entry.audioStart, expectedStart: start };
+      } finally {
+        releaseDecode();
+        session.activeSessionId = originalSessionId;
+        decodeAudio = originalDecode;
+        submitTake = originalSubmit;
+        if (selectedLine) showInspector(selectedLine);
+      }
+    }, FIXTURE_LINES[0].id);
+    assert.equal(result.sessionId, result.expectedSession);
+    assert.equal(result.start, result.expectedStart);
   });
 
   test('voice effect and pitch sync to other players; processing keeps timing', async () => {
@@ -266,14 +326,20 @@ describe('studio', { skip: skipReason }, () => {
   });
 
   test('changing the character of a line moves it to that character track', async () => {
+    const rejected = await bob.evaluate(() => {
+      const line = session.lines[0];
+      return new Promise(resolve => socket.emit('editor_update_line', {
+        lineId: line.id, revision: line.revision || 0, caption: 'must not change in dub mode'
+      }, resolve));
+    });
+    assert.equal(rejected.reason, 'mode');
+    await alice.evaluate(() => setStudioMode('edit'));
+    await waitFor(bob, () => session.mode === 'edit' && document.body.classList.contains('edit-mode'));
     // The SRT scene is open now: all 4 lines belong to one character
-    const renameTo = async (page, id, name) => {
-      await page.evaluate(lineId => { selectLine(session.lines.find(l => l.id === lineId)); startCharacterEdit(lineId); }, id);
-      await page.evaluate(value => {
-        document.getElementById('charInput').value = value;
-        document.querySelector('.insp-char-form').dispatchEvent(new Event('submit', { cancelable: true }));
-      }, name);
-    };
+    const renameTo = (page, id, name) => page.evaluate(async (lineId, character) => {
+      const line = session.lines.find(item => item.id === lineId);
+      return updateEditorLine(line, { character });
+    }, id, name);
     const ids = await alice.evaluate(() => session.lines.map(l => l.id));
     await renameTo(alice, ids[0], 'Rena');
     await waitFor(bob, id => {
@@ -283,23 +349,21 @@ describe('studio', { skip: skipReason }, () => {
     assert.equal(await bob.evaluate(() => document.querySelectorAll('.track-row').length), 2, 'a new track appeared');
 
     // Alice claimed the role "Rena": Bob cannot move a line there, but can move a free line to a new role
-    await alice.evaluate(() => claimCharacter('Rena'));
-    await waitFor(bob, () => session.characterClaims['Rena'] === 'Alice', 5000);
-    const before = await bob.evaluate(id => session.lines.find(l => l.id === id).character, ids[1]);
-    await renameTo(bob, ids[1], 'Rena');
-    await waitFor(bob, () => /Alice/.test(document.getElementById('toast').textContent), 3000);
-    assert.equal(await bob.evaluate(id => session.lines.find(l => l.id === id).character, ids[1]), before, 'line stayed with its character');
-    await renameTo(bob, ids[2], 'Mion');
-    await waitFor(alice, id => session.lines.find(l => l.id === id).character === 'Mion', 5000, ids[2]);
+    await renameTo(bob, ids[1], 'Mion');
+    await waitFor(alice, id => session.lines.find(l => l.id === id).character === 'Mion', 5000, ids[1]);
 
     // Bob cannot rename Alice's line: he has no ✎ button
-    assert.equal(await bob.evaluate(id => { selectLine(session.lines.find(l => l.id === id)); return !!document.getElementById('charInput'); }, ids[0]), false);
+    assert.equal(await bob.evaluate(id => { selectLine(session.lines.find(l => l.id === id)); return !!document.getElementById('editorLineForm') && !document.getElementById('recBtn'); }, ids[0]), true);
   });
 
-  test('select several lines and assign a character; rename whole tracks; host releases lines', async () => {
+  test('multi-selection and track tools remain available inside Edit Mode', async () => {
+    await alice.evaluate(() => claimCharacter('Rena'));
+    await waitFor(bob, () => session.characterClaims['Rena'] === 'Alice', 5000);
     const byStart = await bob.evaluate(() => [...session.lines].sort((a, b) => a.start - b.start).map(l => l.id));
     const freeIds = await bob.evaluate(() => session.lines.filter(l => !getLineOwner(l)).map(l => l.id));
     const click = async (page, id, modifier) => {
+      // The timeline scrolls inside its panel: bring the tile into its visible part first
+      await page.$eval(`#line-block-${id}`, el => el.scrollIntoView({ block: 'center', inline: 'center' }));
       if (modifier) await page.keyboard.down(modifier);
       await page.click(`#line-block-${id}`);
       if (modifier) await page.keyboard.up(modifier);
@@ -312,25 +376,28 @@ describe('studio', { skip: skipReason }, () => {
     await bob.evaluate(() => { document.getElementById('multiCharInput').value = 'Keiichi'; document.querySelector('.insp-char-form').dispatchEvent(new Event('submit', { cancelable: true })); });
     await waitFor(alice, ids => ids.every(id => session.lines.find(l => l.id === id).character === 'Keiichi'), 5000, freeIds.slice(0, 2));
 
-    // Shift+click: the whole range; Bob cannot move lines into a role someone else claimed
+    // Shift+click: the whole range; Edit Mode ignores dubbing ownership for source edits.
     await bob.keyboard.press('Escape');
     await click(bob, byStart[0]);
     await click(bob, byStart[byStart.length - 1], 'Shift');
     await waitFor(bob, n => document.getElementById('inspector').innerText.includes(t('multi.title', { n })), 3000, byStart.length);
     await bob.evaluate(() => { document.getElementById('multiCharInput').value = 'Rena'; document.querySelector('.insp-char-form').dispatchEvent(new Event('submit', { cancelable: true })); });
-    await waitFor(bob, () => document.getElementById('toast').textContent.includes(t('multi.skipped').split('{n}')[0]), 3000);
+    await waitFor(alice, ids => ids.every(id => session.lines.find(line => line.id === id).character === 'Rena'), 5000, byStart);
     await bob.keyboard.press('Escape');
     assert.equal(await bob.evaluate(() => document.querySelectorAll('.line-block.multi-selected').length), 0, 'Esc clears the selection');
 
-    // Anyone can rename a track of free lines; a track with someone else's role only the host can
+    // Any collaborator can rename a whole source track in Edit Mode.
     bob.promptAnswer = 'Keichi';
-    await bob.evaluate(() => renameCharacterTrack('Keiichi'));
-    await waitFor(alice, () => session.lines.filter(l => l.character === 'Keichi').length === 2 && !session.lines.some(l => l.character === 'Keiichi'), 5000);
-    const bobCanRenameRena = await bob.evaluate(() => [...document.querySelectorAll('.track-row')].find(r => r.querySelector('.char-name')?.textContent === 'Rena')?.querySelector('.track-rename') != null);
-    assert.equal(bobCanRenameRena, false, 'no ✎ on a track with lines of another player');
+    await bob.evaluate(() => renameCharacterTrack('Rena'));
+    await waitFor(alice, n => session.lines.length === n && session.lines.every(l => l.character === 'Keichi'), 5000, byStart.length);
+    const bobCanRenameTrack = await waitFor(bob, () => [...document.querySelectorAll('.track-row')]
+      .find(r => r.querySelector('.char-name')?.textContent === 'Keichi')?.querySelector('.track-rename') != null);
+    assert.equal(bobCanRenameTrack, true, 'Edit Mode exposes track editing to every collaborator');
     alice.promptAnswer = 'Renna';
-    await alice.evaluate(() => renameCharacterTrack('Rena'));
-    await waitFor(bob, () => session.characterClaims['Renna'] === 'Alice' && !session.characterClaims['Rena'], 5000);
+    await alice.evaluate(() => renameCharacterTrack('Keichi'));
+    await waitFor(bob, () => session.characterClaims['Renna'] === 'Alice' && !session.characterClaims['Keichi'], 5000);
+    await alice.evaluate(() => unclaimCharacter('Renna'));
+    await waitFor(bob, () => !session.characterClaims['Renna'], 5000);
 
     // Bob claimed a line by mistake: the host releases it through a selection
     const mistaken = freeIds[0];
@@ -364,6 +431,453 @@ describe('studio', { skip: skipReason }, () => {
     await alice.keyboard.press('Escape');
   });
 
+  test('collaborative editor creates, updates and conflict-checks source lines', async () => {
+    const created = await bob.evaluate(() => new Promise(resolve => socket.emit('editor_create_line', {
+      character: 'Keiichi', caption: 'New shared line', start: 1.25, end: 2.75
+    }, resolve)));
+    assert.equal(created.ok, true);
+    await waitFor(alice, id => !!session.lines.find(line => line.id === id), 5000, created.line.id);
+
+    await bob.evaluate(async id => {
+      const line = session.lines.find(item => item.id === id);
+      await updateEditorLine(line, { caption: 'Edited together', start: 1.5, end: 3 });
+    }, created.line.id);
+    await waitFor(alice, id => {
+      const line = session.lines.find(item => item.id === id);
+      return line && line.caption === 'Edited together' && line.start === 1.5 && line.end === 3;
+    }, 5000, created.line.id);
+
+    const stale = await alice.evaluate(id => new Promise(resolve => socket.emit('editor_update_line', {
+      lineId: id, revision: 0, caption: 'Stale overwrite'
+    }, resolve)), created.line.id);
+    assert.equal(stale.reason, 'conflict');
+    assert.equal(stale.line.caption, 'Edited together');
+
+    const staleBulk = await alice.evaluate(id => {
+      const line = session.lines.find(item => item.id === id);
+      return new Promise(resolve => socket.emit('set_lines_character', {
+        character: 'Stale bulk overwrite',
+        lines: [{ lineId: id, revision: line.revision - 1 }]
+      }, resolve));
+    }, created.line.id);
+    assert.equal(staleBulk.reason, 'conflict', 'bulk track assignment checks every line revision');
+    assert.notEqual(await bob.evaluate(id => session.lines.find(line => line.id === id).character, created.line.id), 'Stale bulk overwrite');
+
+    const emptyTrack = await bob.evaluate(() => new Promise(resolve => socket.emit('editor_add_track', { character: 'Empty role' }, resolve)));
+    assert.equal(emptyTrack.ok, true);
+    const emptyRenamed = await bob.evaluate(() => new Promise(resolve => socket.emit('rename_character', {
+      from: 'Empty role', to: 'Empty role renamed', lines: []
+    }, resolve)));
+    assert.equal(emptyRenamed.ok, true, 'an empty track can be renamed');
+    await waitFor(alice, () => sessionCharacters().includes('Empty role renamed'));
+    const emptyUndo = await bob.evaluate(() => new Promise(resolve => socket.emit('editor_undo', resolve)));
+    assert.equal(emptyUndo.undone, 1);
+    await waitFor(alice, () => sessionCharacters().includes('Empty role') && !sessionCharacters().includes('Empty role renamed'));
+
+    const trackBefore = await bob.evaluate(() => {
+      const from = session.lines[0].character;
+      return {
+        from,
+        order: [...session.trackOrder],
+        lines: session.lines.filter(line => line.character === from).map(line => ({ lineId: line.id, revision: line.revision || 0 }))
+      };
+    });
+    const trackRenamed = await bob.evaluate(state => new Promise(resolve => socket.emit('rename_character', {
+      from: state.from, to: 'Track undo probe', lines: state.lines
+    }, resolve)), trackBefore);
+    assert.equal(trackRenamed.ok, true);
+    const trackUndo = await bob.evaluate(() => new Promise(resolve => socket.emit('editor_undo', resolve)));
+    assert.equal(trackUndo.skipped, 0);
+    await waitFor(alice, state => JSON.stringify(session.trackOrder) === JSON.stringify(state.order)
+      && session.lines.filter(line => state.lines.some(item => item.lineId === line.id)).every(line => line.character === state.from), 5000, trackBefore);
+
+    const removed = await bob.evaluate(id => new Promise(resolve => socket.emit('editor_delete_lines', {
+      lines: [{ lineId: id, revision: lineRevision(id) }]
+    }, resolve)), created.line.id);
+    assert.equal(removed.ok, true);
+    await waitFor(alice, id => !session.lines.some(line => line.id === id), 5000, created.line.id);
+  });
+
+  test('Edit Mode: drag lines onto another role track; "Add role" under the tracks', async () => {
+    await waitFor(bob, () => session.mode === 'edit');
+    // A tall timeline: every track fits on screen and no tile hides under the sticky ruler
+    await bob.evaluate(() => document.documentElement.style.setProperty('--top-h', '120px'));
+    // Drag a tile vertically with the real mouse: it lands on the track under the pointer
+    const dragTo = async (page, lineId, character) => {
+        await page.evaluate(id => {
+        document.getElementById('timelineContainer').scrollTop = 0;
+        document.getElementById(`line-block-${id}`).scrollIntoView({ block: 'nearest', inline: 'center' });
+      }, lineId);
+      const from = await page.$eval(`#line-block-${lineId}`, el => { const r = el.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
+      const toY = await page.evaluate(name => {
+        const row = [...document.querySelectorAll('.track-row')].find(r => r.dataset.character === name);
+        const r = row.querySelector('.track-timeline').getBoundingClientRect();
+        return r.y + 14; // the upper part: the bottom edge of the timeline would start auto-scrolling
+      }, character);
+      await page.mouse.move(from.x, from.y);
+      await page.mouse.down();
+      await page.mouse.move(from.x, (from.y + toY) / 2, { steps: 4 });
+      await page.mouse.move(from.x, toY, { steps: 4 });
+      const highlighted = await page.evaluate(() => document.querySelector('.track-row.drop-target')?.dataset.character);
+      await page.mouse.up();
+      await page.evaluate(() => editorQueue);
+      return highlighted;
+    };
+
+    // A new role, added from the button on the left of the timeline
+    assert.equal(await bob.evaluate(() => !!document.querySelector('.track-add-row .track-add-btn')), true, 'everyone can add a role in Edit Mode');
+    bob.promptAnswer = 'Shion';
+    await bob.evaluate(() => document.querySelector('.track-add-btn').click());
+    await waitFor(alice, () => [...document.querySelectorAll('.track-row')].some(r => r.dataset.character === 'Shion'));
+    await waitFor(bob, () => [...document.querySelectorAll('.track-row')].some(r => r.dataset.character === 'Shion'));
+
+    // Alice owns the role: a line dropped onto it becomes hers
+    const [first, second, third] = await bob.evaluate(() => [...session.lines].sort((a, b) => a.start - b.start).map(l => l.id));
+    await alice.evaluate(() => socket.emit('claim_character', { character: 'Shion' }));
+    await waitFor(bob, () => session.characterClaims['Shion'] === 'Alice');
+    assert.equal(await dragTo(bob, first, 'Shion'), 'Shion', 'the target track is highlighted while dragging');
+    await waitFor(alice, id => session.lines.find(l => l.id === id).character === 'Shion', 5000, first);
+    await waitFor(bob, id => getLineOwner(session.lines.find(l => l.id === id)) === 'Alice' && !session.lines.find(l => l.id === id).claimedBy, 5000, first);
+
+    // Several selected lines move together
+    await bob.keyboard.press('Escape');
+    await bob.evaluate((a, b) => {
+      document.getElementById(`line-block-${a}`).dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      document.getElementById(`line-block-${b}`).dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: true }));
+    }, second, third);
+    await waitFor(bob, (a, b) => multiSelection.has(a) && multiSelection.has(b), 3000, second, third);
+    const before = await bob.evaluate((a, b) => [a, b].map(id => session.lines.find(l => l.id === id).start), second, third);
+    await dragTo(bob, second, 'Shion');
+    await waitFor(alice, ids => ids.every(id => session.lines.find(l => l.id === id).character === 'Shion'), 5000, [second, third]);
+    assert.deepEqual(await alice.evaluate((a, b) => [a, b].map(id => session.lines.find(l => l.id === id).start), second, third), before, 'a vertical drag keeps the timing');
+    await bob.keyboard.press('Escape');
+
+    // While dubbing only the host gets the button
+    await alice.evaluate(() => setStudioMode('dub'));
+    await waitFor(bob, () => session.mode === 'dub');
+    await waitFor(alice, () => !!document.querySelector('.track-add-btn'));
+    assert.equal(await bob.evaluate(() => !!document.querySelector('.track-add-btn')), false);
+    const refused = await bob.evaluate(() => new Promise(resolve => socket.emit('editor_add_track', { character: 'Guest role' }, resolve)));
+    assert.equal(refused.reason, 'mode');
+    alice.promptAnswer = 'Satoko';
+    await alice.evaluate(() => document.querySelector('.track-add-btn').click());
+    await waitFor(bob, () => sessionCharacters().includes('Satoko'));
+    await alice.evaluate(() => setStudioMode('edit'));
+    await waitFor(bob, () => session.mode === 'edit');
+    await bob.evaluate(() => document.documentElement.style.removeProperty('--top-h'));
+  });
+
+  test('Edit Mode: undo own edits, keyboard moves, mode notice in chat', async () => {
+    await waitFor(bob, () => session.mode === 'edit');
+    assert.equal(await bob.evaluate(() => getComputedStyle(document.querySelector('.edit-banner')).display), 'flex', 'Edit Mode is clearly marked');
+    const id = await bob.evaluate(() => [...session.lines].sort((a, b) => a.start - b.start)[0].id);
+    const original = await bob.evaluate(lineId => { const l = session.lines.find(x => x.id === lineId); return { start: l.start, end: l.end, caption: l.caption }; }, id);
+
+    // ←/→ move the selected line; Shift — by a second
+    await bob.evaluate(lineId => { clearMultiSelection(); selectLine(session.lines.find(l => l.id === lineId)); document.activeElement && document.activeElement.blur(); }, id);
+    await bob.keyboard.press('ArrowRight');
+    await waitFor(alice, (lineId, start) => Math.abs(session.lines.find(l => l.id === lineId).start - (start + 0.1)) < 0.001, 5000, id, original.start);
+    await bob.keyboard.down('Shift');
+    await bob.keyboard.press('ArrowRight');
+    await bob.keyboard.up('Shift');
+    await waitFor(alice, (lineId, start) => Math.abs(session.lines.find(l => l.id === lineId).start - (start + 1.1)) < 0.001, 5000, id, original.start);
+
+    // A caption edit by Bob, then Ctrl+Z twice: the caption, then the last move come back
+    await bob.evaluate(lineId => updateEditorLine(session.lines.find(l => l.id === lineId), { caption: 'Oops' }), id);
+    await waitFor(alice, lineId => session.lines.find(l => l.id === lineId).caption === 'Oops', 5000, id);
+    await bob.keyboard.down('Control');
+    await bob.keyboard.press('KeyZ');
+    await bob.keyboard.up('Control');
+    await waitFor(alice, (lineId, caption) => session.lines.find(l => l.id === lineId).caption === caption, 5000, id, original.caption);
+    await bob.evaluate(() => editorUndo());
+    await waitFor(alice, (lineId, start) => Math.abs(session.lines.find(l => l.id === lineId).start - (start + 0.1)) < 0.001, 5000, id, original.start);
+
+    // Alice's Ctrl+Z undoes only her own edits, never Bob's
+    const bobsLine = await alice.evaluate(lineId => JSON.stringify(session.lines.find(l => l.id === lineId)), id);
+    await alice.evaluate(() => new Promise(resolve => socket.emit('editor_undo', resolve)));
+    await new Promise(resolve => setTimeout(resolve, 300));
+    assert.equal(await alice.evaluate(lineId => JSON.stringify(session.lines.find(l => l.id === lineId)), id), bobsLine);
+
+    // Undo does not overwrite a later change by someone else
+    await bob.evaluate(lineId => updateEditorLine(session.lines.find(l => l.id === lineId), { caption: 'Bob was here' }), id);
+    await waitFor(alice, lineId => session.lines.find(l => l.id === lineId).caption === 'Bob was here', 5000, id);
+    await alice.evaluate(lineId => updateEditorLine(session.lines.find(l => l.id === lineId), { caption: 'Alice fixed it' }), id);
+    await waitFor(bob, lineId => session.lines.find(l => l.id === lineId).caption === 'Alice fixed it', 5000, id);
+    const skipped = await bob.evaluate(() => new Promise(resolve => socket.emit('editor_undo', resolve)));
+    assert.equal(skipped.undone, 0);
+    assert.equal(skipped.skipped, 1);
+    await alice.evaluate((lineId, caption) => updateEditorLine(session.lines.find(l => l.id === lineId), { caption }), id, original.caption);
+
+    // Undo ownership follows the stable browser client id, not the editable nickname.
+    await waitFor(bob, (lineId, caption) => session.lines.find(l => l.id === lineId).caption === caption, 5000, id, original.caption);
+    await bob.evaluate(lineId => updateEditorLine(session.lines.find(l => l.id === lineId), { caption: 'Undo after rename' }), id);
+    await waitFor(alice, lineId => session.lines.find(l => l.id === lineId).caption === 'Undo after rename', 5000, id);
+    await bob.evaluate(() => socket.emit('rename_user', { newName: 'Bobby' }));
+    await waitFor(bob, () => myName === 'Bobby');
+    const renamedUndo = await bob.evaluate(() => new Promise(resolve => socket.emit('editor_undo', resolve)));
+    assert.equal(renamedUndo.undone, 1);
+    await waitFor(alice, (lineId, caption) => session.lines.find(l => l.id === lineId).caption === caption, 5000, id, original.caption);
+    await bob.evaluate(() => socket.emit('rename_user', { newName: 'Bob' }));
+    await waitFor(bob, () => myName === 'Bob');
+
+    // A queued take is not posted repeatedly while its active session is in Edit Mode.
+    const pausedUpload = await bob.evaluate(async lineId => {
+      const originalFetch = window.fetch;
+      let calls = 0;
+      window.fetch = async () => { calls++; return { ok: false, status: 409 }; };
+      try {
+        const sent = await sendTake({
+          uploadId: 'edit-mode-test', room: currentRoom, sessionId: session.activeSessionId,
+          lineId, nick: myName, audioStart: 0, blob: new Blob(['test'], { type: 'audio/webm' })
+        });
+        return { sent, calls };
+      } finally {
+        window.fetch = originalFetch;
+      }
+    }, id);
+    assert.deepEqual(pausedUpload, { sent: false, calls: 0 });
+
+    // Switching modes is announced in the chat for everyone
+    await alice.evaluate(() => setStudioMode('dub'));
+    await waitFor(bob, () => session.mode === 'dub' && document.getElementById('chatMessages').innerText.includes(t('system.modeDub', { nick: 'Alice' })));
+    await alice.evaluate(() => setStudioMode('edit'));
+    await waitFor(bob, () => session.mode === 'edit');
+  });
+
+  test('Edit Mode: undoing a track rename after someone else changed the tracks', async () => {
+    await waitFor(bob, () => session.mode === 'edit');
+    const undo = page => page.evaluate(() => editorUndo());
+    const tracks = page => page.evaluate(() => [...session.trackOrder]);
+
+    // An empty track renamed by Bob, then Alice adds a role: Bob's undo still renames it back
+    await bob.evaluate(() => new Promise(resolve => socket.emit('editor_add_track', { character: 'Empty one' }, resolve)));
+    await bob.evaluate(() => new Promise(resolve => socket.emit('rename_character', { from: 'Empty one', to: 'Empty two', lines: [] }, resolve)));
+    await alice.evaluate(() => new Promise(resolve => socket.emit('editor_add_track', { character: 'Alice role' }, resolve)));
+    await waitFor(bob, () => session.trackOrder.includes('Alice role') && session.trackOrder.includes('Empty two'));
+    const renamedAt = (await tracks(bob)).indexOf('Empty two');
+    const result = await undo(bob);
+    assert.equal(result.undone, 1, JSON.stringify(result));
+    await waitFor(bob, () => session.trackOrder.includes('Empty one') && !session.trackOrder.includes('Empty two'));
+    assert.equal((await tracks(bob)).indexOf('Empty one'), renamedAt, 'the old name comes back in place');
+
+    // Nothing left to put back (Alice already renamed it): the undo reports a skip, not a success
+    await bob.evaluate(() => new Promise(resolve => socket.emit('rename_character', { from: 'Empty one', to: 'Empty three', lines: [] }, resolve)));
+    await alice.evaluate(() => new Promise(resolve => socket.emit('rename_character', { from: 'Empty three', to: 'Empty four', lines: [] }, resolve)));
+    await waitFor(bob, () => session.trackOrder.includes('Empty four'));
+    const skipped = await undo(bob);
+    assert.equal(skipped.undone, 0);
+    assert.equal(skipped.skipped, 1);
+
+    // A track with lines: the lines go back and the new name does not stay behind as an empty role
+    const lineIds = await bob.evaluate(() => session.lines.filter(l => l.character === 'Shion').map(l => l.id));
+    assert.ok(lineIds.length);
+    bob.promptAnswer = 'Shion renamed';
+    await bob.evaluate(() => renameCharacterTrack('Shion'));
+    await waitFor(alice, () => session.trackOrder.includes('Shion renamed'));
+    await alice.evaluate(() => new Promise(resolve => socket.emit('editor_add_track', { character: 'Another role' }, resolve)));
+    await waitFor(bob, () => session.trackOrder.includes('Another role'));
+    const back = await undo(bob);
+    assert.equal(back.undone, lineIds.length, JSON.stringify(back));
+    await waitFor(alice, ids => ids.every(id => session.lines.find(l => l.id === id).character === 'Shion')
+      && !session.trackOrder.includes('Shion renamed'), 5000, lineIds);
+
+    // Requests from the editor wait for each other: a rename right after a drag is not a "conflict"
+    const [first] = lineIds;
+    const outcome = await bob.evaluate(id => {
+      const line = session.lines.find(l => l.id === id);
+      const move = updateEditorLine(line, { start: Number((line.start + 0.2).toFixed(3)), end: Number((line.end + 0.2).toFixed(3)) });
+      const rename = queueEditorRequest(() => ['set_line_character', { lineId: id, revision: lineRevision(id), character: 'Mion' }]);
+      return Promise.all([move, rename]).then(results => results.map(r => r && (r.ok ? 'ok' : r.reason)));
+    }, first);
+    assert.deepEqual(outcome, ['ok', 'ok']);
+    await waitFor(alice, id => session.lines.find(l => l.id === id).character === 'Mion', 5000, first);
+  });
+
+  test('Edit Mode undo keeps what happened later: a new take, a claim, and tracks merged by others', async () => {
+    await waitFor(alice, () => session.mode === 'edit');
+    const id = await alice.evaluate(() => session.lines.find(l => !l.audioUrl && (!getLineOwner(l) || getLineOwner(l) === 'Alice')).id);
+    const before = await alice.evaluate(lineId => { const l = session.lines.find(x => x.id === lineId); return { start: l.start, end: l.end, caption: l.caption }; }, id);
+
+    // Alice moves the line and edits its text, then records a take for it while dubbing
+    await alice.evaluate((lineId, b) => updateEditorLine(session.lines.find(l => l.id === lineId), { start: b.start + 0.5, end: b.end + 0.5, caption: 'Moved and edited' }), id, before);
+    await alice.evaluate(() => setStudioMode('dub'));
+    await waitFor(bob, () => session.mode === 'dub');
+    await claimAndSelect(alice, id);
+    await recordTake(alice, id);
+    const take = await alice.evaluate(lineId => { const l = session.lines.find(x => x.id === lineId); return { audioStart: l.audioStart, audioUrl: l.audioUrl, owner: getLineOwner(l) }; }, id);
+
+    // Undo in Edit Mode: line and text come back, the take moves with the line, the claim stays
+    await alice.evaluate(() => setStudioMode('edit'));
+    await waitFor(bob, () => session.mode === 'edit');
+    const result = await alice.evaluate(() => editorUndo());
+    assert.equal(result.undone, 1, JSON.stringify(result));
+    await waitFor(bob, (lineId, start) => Math.abs(session.lines.find(l => l.id === lineId).start - start) < 0.001, 5000, id, before.start);
+    const after = await bob.evaluate(lineId => { const l = session.lines.find(x => x.id === lineId); return { caption: l.caption, audioStart: l.audioStart, audioUrl: l.audioUrl, owner: getLineOwner(l) }; }, id);
+    assert.equal(after.caption, before.caption);
+    assert.equal(after.audioUrl, take.audioUrl, 'the new take is kept');
+    assert.ok(Math.abs(after.audioStart - (take.audioStart - 0.5)) < 0.001, `the take follows the line: ${after.audioStart} vs ${take.audioStart}`);
+    assert.equal(after.owner, take.owner, 'a claim made after the edit is left alone');
+
+    // Bob merges an empty track into an existing one, Alice adds a role: undo brings it back in place
+    await bob.evaluate(() => new Promise(resolve => socket.emit('editor_add_track', { character: 'Merge me' }, resolve)));
+    const tracksBefore = await bob.evaluate(() => [...session.trackOrder]);
+    const target = tracksBefore[0];
+    await bob.evaluate(to => new Promise(resolve => socket.emit('rename_character', { from: 'Merge me', to, lines: [] }, resolve)), target);
+    await alice.evaluate(() => new Promise(resolve => socket.emit('editor_add_track', { character: 'Late role' }, resolve)));
+    await waitFor(bob, () => session.trackOrder.includes('Late role') && !session.trackOrder.includes('Merge me'));
+    const merged = await bob.evaluate(() => editorUndo());
+    assert.equal(merged.undone, 1, JSON.stringify(merged));
+    await waitFor(bob, () => session.trackOrder.includes('Merge me'));
+    const order = await bob.evaluate(() => [...session.trackOrder]);
+    assert.equal(order.indexOf('Merge me'), tracksBefore.indexOf('Merge me'), `back in place: ${order.join(', ')}`);
+
+    // The server answers a lost acknowledgement with the current scene
+    const resynced = await bob.evaluate(() => new Promise(resolve => {
+      socket.once('session_updated', data => resolve(Array.isArray(data.lines)));
+      socket.emit('editor_resync');
+    }));
+    assert.equal(resynced, true);
+  });
+
+  test('editor regressions: unchanged saves, deep undo and atomic stale deletion', async () => {
+    const created = await bob.evaluate(() => queueEditorRequest(() => ['editor_create_line', {
+      character: 'Regression role', start: 1, end: 2, caption: 'Original'
+    }]));
+    assert.equal(created.ok, true);
+    const id = created.line.id;
+    for (const caption of ['One', 'Two', 'Three']) {
+      await bob.evaluate((id, caption) => updateEditorLine(session.lines.find(line => line.id === id), { caption }), id, caption);
+    }
+    const revision = await bob.evaluate(id => lineRevision(id), id);
+    await bob.evaluate(id => updateEditorLine(session.lines.find(line => line.id === id), { caption: 'Three', start: 1, end: 2 }), id);
+    assert.equal(await bob.evaluate(id => lineRevision(id), id), revision);
+    for (const caption of ['Two', 'One', 'Original']) {
+      const undone = await bob.evaluate(() => editorUndo());
+      assert.equal(undone.undone, 1);
+      assert.equal(await bob.evaluate(id => session.lines.find(line => line.id === id).caption, id), caption);
+    }
+    const current = await bob.evaluate(id => lineRevision(id), id);
+    const stale = await bob.evaluate((id, revision) => new Promise(resolve => socket.emit('editor_delete_lines', {
+      lines: [{ lineId: id, revision }]
+    }, resolve)), id, current - 1);
+    assert.equal(stale.reason, 'conflict');
+    assert.equal(await bob.evaluate(id => session.lines.some(line => line.id === id), id), true);
+    const wrongScene = await bob.evaluate(id => new Promise(resolve => socket.emit('editor_delete_lines', {
+      sessionId: 'old-scene', lines: [{ lineId: id, revision: lineRevision(id) }]
+    }, resolve)), id);
+    assert.equal(wrongScene.reason, 'session');
+    assert.equal(await bob.evaluate(id => new Promise(resolve => socket.emit('editor_delete_lines', {
+      lines: [{ lineId: id, revision: lineRevision(id) }]
+    }, resolve)), id).then(result => result.ok), true);
+  });
+
+  test('editor regressions: releasing a renamed role stays released after undo', async () => {
+    const created = await alice.evaluate(() => queueEditorRequest(() => ['editor_create_line', {
+      character: 'Claim before rename', start: 1, end: 2, caption: 'Claim regression'
+    }]));
+    assert.equal(created.ok, true);
+    await alice.evaluate(() => socket.emit('claim_character', { character: 'Claim before rename' }));
+    await waitFor(alice, () => session.characterClaims['Claim before rename'] === 'Alice');
+    const renamed = await alice.evaluate(() => queueEditorRequest(() => ['rename_character', {
+      from: 'Claim before rename', to: 'Claim after rename',
+      lines: session.lines.filter(line => line.character === 'Claim before rename').map(line => ({ lineId: line.id, revision: line.revision || 0 }))
+    }]));
+    assert.equal(renamed.ok, true);
+    await alice.evaluate(() => socket.emit('unclaim_character', { character: 'Claim after rename' }));
+    await waitFor(alice, () => !session.characterClaims['Claim after rename']);
+    assert.equal((await alice.evaluate(() => editorUndo())).undone, 1);
+    assert.equal(await alice.evaluate(() => !!session.characterClaims['Claim before rename']), false);
+    await alice.evaluate(id => new Promise(resolve => socket.emit('editor_delete_lines', {
+      lines: [{ lineId: id, revision: lineRevision(id) }]
+    }, resolve)), created.line.id);
+  });
+
+  test('editor regressions: lost reply waits for resync and cancels dependent mutations', async () => {
+    const result = await bob.evaluate(async () => {
+      const originalTimeout = socket.timeout;
+      let writes = 0;
+      let resynced = false;
+      socket.timeout = function(ms) {
+        const target = originalTimeout.call(this, ms);
+        return {
+          emit(event, payload, ack) {
+            if (event === 'editor_add_track') {
+              writes++;
+              setTimeout(() => ack(new Error('Simulated lost reply')), 0);
+              return;
+            }
+            if (event === 'editor_resync') {
+              target.emit(event, payload, (err, data) => {
+                setTimeout(() => { resynced = true; ack(err, data); }, 30);
+              });
+              return;
+            }
+            writes++;
+            target.emit(event, payload, ack);
+          }
+        };
+      };
+      try {
+        const first = queueEditorRequest(() => ['editor_add_track', { character: 'Lost reply probe' }]);
+        const dependent = queueEditorRequest(() => ['editor_undo', {}]);
+        const answer = await first;
+        const next = await dependent;
+        return { first: answer.reason, next: next.reason, writes, resynced };
+      } finally {
+        socket.timeout = originalTimeout;
+      }
+    });
+    assert.deepEqual(result, { first: 'timeout', next: 'cancelled', writes: 1, resynced: true });
+  });
+
+  test('Random Cast, Blind Mode, download status and visual themes', async () => {
+    await alice.evaluate(() => setStudioMode('dub'));
+    await waitFor(bob, () => session.mode === 'dub');
+    await alice.evaluate(() => { window.confirm = () => true; hostResetClaims(); });
+    const freshTakeLine = await alice.evaluate(() => session.lines[0].id);
+    await claimAndSelect(alice, freshTakeLine);
+    await recordTake(alice, freshTakeLine);
+    await alice.evaluate(() => { window.confirm = () => true; randomCast(); });
+    await waitFor(bob, () => Object.keys(session.characterClaims || {}).length > 0);
+    assert.ok((await bob.evaluate(() => Object.values(session.characterClaims))).every(owner => ['Alice', 'Bob'].includes(owner)));
+    assert.equal(await bob.evaluate(() => {
+      const roles = new Set(session.lines.map(line => line.character));
+      return Object.keys(session.characterClaims).length === roles.size && Object.keys(session.characterClaims).every(role => roles.has(role));
+    }), true, 'empty editor tracks are not cast');
+
+    await alice.evaluate(() => socket.emit('set_blind_mode', { enabled: true }));
+    await waitFor(bob, () => session.blindMode === true);
+    const hidden = await bob.evaluate(() => {
+      const line = session.lines.find(item => item.audioUrl && item.recordedBy === 'Alice');
+      return line ? { id: line.id, audible: canHearLine(line) } : null;
+    });
+    assert.ok(hidden && !hidden.audible, 'another player cannot listen before reveal');
+    await alice.evaluate(() => revealAllTakes());
+    await waitFor(bob, id => canHearLine(session.lines.find(line => line.id === id)), 5000, hidden.id);
+
+    await alice.evaluate(() => {
+      socket.emit('set_blind_mode', { enabled: false });
+      socket.emit('set_blind_preference', { enabled: true });
+    });
+    await waitFor(bob, id => !canHearLine(session.lines.find(line => line.id === id)), 5000, hidden.id);
+    await alice.evaluate(() => socket.emit('rename_user', { newName: 'Alice renamed' }));
+    await waitFor(bob, id => session.blindPlayers.includes('Alice renamed') && session.lines.find(line => line.id === id).recordedBy === 'Alice renamed', 5000, hidden.id);
+    assert.equal(await bob.evaluate(id => canHearLine(session.lines.find(line => line.id === id)), hidden.id), false, 'personal Blind Mode survives a nickname change');
+    await alice.evaluate(() => socket.emit('rename_user', { newName: 'Alice' }));
+    await waitFor(bob, () => session.blindPlayers.includes('Alice') && !session.blindPlayers.includes('Alice renamed'));
+    await alice.evaluate(() => socket.emit('set_blind_preference', { enabled: false }));
+
+    await bob.evaluate(() => socket.emit('player_activity', { state: 'downloading', pct: 42 }));
+    await waitFor(alice, () => playerActivities.get('Bob')?.pct === 42);
+    assert.match(await alice.evaluate(() => [...document.querySelectorAll('.player-card')].find(card => card.innerText.includes('Bob')).innerText), /42%/);
+
+    await alice.evaluate(() => {
+      document.getElementById('settingsTheme').value = 'ocean';
+      document.getElementById('settingsTheme').dispatchEvent(new Event('change'));
+    });
+    assert.equal(await alice.evaluate(() => `${document.documentElement.dataset.theme}:${localStorage.getItem('dubline_theme')}`), 'ocean:ocean');
+  });
+
   test('ASS import skips typesetting drawings; host deletes lines; view follows a moved line', async () => {
     const ass = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'dubline-ass-')), 'episode.ass');
     fs.writeFileSync(ass, [
@@ -382,22 +896,24 @@ describe('studio', { skip: skipReason }, () => {
     await alice.evaluate(() => uploadCustomScene());
     const captions = await waitFor(alice, () => session.loaded && session.lines.length && document.querySelectorAll('.line-block').length === session.lines.length && session.lines.map(l => l.caption), 15000);
     assert.deepEqual(captions, ['School of hope', 'First line', 'Second line', 'Third line'], 'drawings dropped, \\h cleaned');
+    await alice.evaluate(() => setStudioMode('edit'));
+    await waitFor(bob, () => session.mode === 'edit');
 
     // The host deletes an on-screen sign
     const sign = await alice.evaluate(() => session.lines[0].id);
     await alice.evaluate(id => { window.confirm = () => true; deleteLines([id]); }, sign);
     await waitFor(bob, id => session.lines.length === 3 && !session.lines.some(l => l.id === id), 5000, sign);
-    assert.equal(await bob.evaluate(() => typeof deleteLines === 'function' && !document.querySelector('#inspector button[onclick^="deleteLines"]')), true, 'players have no delete button');
+    assert.equal(await bob.evaluate(() => session.mode === 'edit'), true, 'all players enter the shared editor');
 
     // The visible "🎭 Character" row in the inspector; after changing the character the timeline shows the line
     const target = await alice.evaluate(() => session.lines[2].id);
     await alice.evaluate(id => selectLine(session.lines.find(l => l.id === id)), target);
-    await waitFor(alice, () => !!document.getElementById('charInput'));
+    await waitFor(alice, () => !!document.getElementById('editorLineForm'));
     await alice.evaluate(() => { timelineContainer.scrollTop = 0; });
-    await alice.evaluate(() => {
-      document.getElementById('charInput').value = 'Yoshida';
-      document.querySelector('.insp-char-form').dispatchEvent(new Event('submit', { cancelable: true }));
-    });
+    await alice.evaluate(async id => {
+      const line = session.lines.find(item => item.id === id);
+      await updateEditorLine(line, { character: 'Yoshida' });
+    }, target);
     await waitFor(alice, id => {
       const tile = document.getElementById(`line-block-${id}`);
       if (!tile || session.lines.find(l => l.id === id).character !== 'Yoshida') return false;
@@ -408,10 +924,14 @@ describe('studio', { skip: skipReason }, () => {
   });
 
   test('deleting lines can be undone (Ctrl+Z, toast button); takes survive until then', async () => {
+    await alice.evaluate(() => setStudioMode('dub'));
+    await waitFor(bob, () => session.mode === 'dub');
     const ids = await alice.evaluate(() => session.lines.map(l => l.id));
     const target = ids[0];
     await claimAndSelect(alice, target);
     const takeUrl = await recordTake(alice, target);
+    await alice.evaluate(() => setStudioMode('edit'));
+    await waitFor(bob, () => session.mode === 'edit');
     const takeFile = path.join(server.dirs.uploads, decodeURIComponent(takeUrl).split('/').pop());
     const before = await alice.evaluate(() => session.lines.map(l => ({ id: l.id, character: l.character })));
     const undoBefore = await alice.evaluate(() => session.undoCount || 0);

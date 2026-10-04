@@ -7,6 +7,7 @@ const { saveRooms, getRoom, emptySession, snapshotActive, activateSession, delet
 const { WATCH_COUNTDOWN_MS, endWatch, broadcastRecording, broadcastSeeders, onlineMembers, addSystemMessage } = require('../presence');
 const { setRoomPassword, isHost } = require('../auth');
 const { isDesktopRoom } = require('../desktop');
+const history = require('../editHistory');
 
 module.exports = function registerHostHandlers(socket, conn) {
   // ---------- Host rights ----------
@@ -133,6 +134,7 @@ module.exports = function registerHostHandlers(socket, conn) {
       resetSceneState('🎬 Watch-together stopped: the session was deleted');
     }
     delete room.sessions[id];
+    history.clear(conn.roomId, id);
     const takes = deleteSessionFiles(doomed);
 
     saveRooms();

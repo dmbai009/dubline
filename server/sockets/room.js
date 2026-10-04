@@ -32,6 +32,9 @@ module.exports = function registerRoomHandlers(socket, conn) {
   }
 
   function renameClaims(room, oldName, newName) {
+    if (Array.isArray(room.blindPlayers)) {
+      room.blindPlayers = [...new Set(room.blindPlayers.map(nick => nick === oldName ? newName : nick))];
+    }
     for (const char in room.characterClaims) {
       if (room.characterClaims[char] === oldName) room.characterClaims[char] = newName;
     }

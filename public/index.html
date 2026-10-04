@@ -6,6 +6,13 @@
   <title data-i18n="app.title">Dubline — Collaborative dubbing studio</title>
   <link rel="icon" type="image/png" sizes="64x64" href="/icon-64.png">
   <link rel="apple-touch-icon" sizes="256x256" href="/icon-256.png">
+  <script>
+    (() => {
+      const allowed = ['midnight', 'graphite', 'light', 'ocean', 'forest', 'sunset'];
+      const saved = localStorage.getItem('dubline_theme');
+      document.documentElement.dataset.theme = allowed.includes(saved) ? saved : 'midnight';
+    })();
+  </script>
   <script src="/socket.io/socket.io.js"></script>
   <style>
     /* ==========================================
@@ -32,6 +39,7 @@
       --radius: 10px;
       --radius-sm: 6px;
       --shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+      --body-glow: #1b1430;
       --gap: 6px;
 
       /* Panel sizes (changed with the splitters and remembered) */
@@ -41,14 +49,46 @@
       --top-h: 50vh;
     }
 
+    html[data-theme="graphite"] {
+      --bg: #111315; --panel: #191c1f; --panel-2: #202428; --panel-3: #292e33;
+      --border: #333940; --border-strong: #4a535d; --text: #f1f3f5; --muted: #a2a9b0;
+      --faint: #6f7881; --accent: #e87924; --accent-2: #fb9a4a; --accent-soft: rgba(232, 121, 36, .16);
+      --body-glow: #352016;
+    }
+    html[data-theme="light"] {
+      --bg: #edf0f6; --panel: #ffffff; --panel-2: #f5f6fa; --panel-3: #e7eaf1;
+      --border: #d7dbe5; --border-strong: #b7bdca; --text: #20232b; --muted: #626a79;
+      --faint: #8d94a2; --accent: #6d4ce8; --accent-2: #6743e2; --accent-soft: rgba(109, 76, 232, .12);
+      --success-soft: rgba(5, 150, 105, .12); --warning-soft: rgba(217, 119, 6, .12);
+      --shadow: 0 10px 30px rgba(46, 52, 64, .16); --body-glow: #dcd4ff;
+    }
+    html[data-theme="ocean"] {
+      --bg: #07141b; --panel: #0d2029; --panel-2: #122b36; --panel-3: #193743;
+      --border: #244654; --border-strong: #386274; --text: #e7f7fb; --muted: #91b3bd;
+      --faint: #5c828e; --accent: #0ea5b7; --accent-2: #4dd6e6; --accent-soft: rgba(14, 165, 183, .16);
+      --body-glow: #0a3947;
+    }
+    html[data-theme="forest"] {
+      --bg: #0b1510; --panel: #122019; --panel-2: #18291f; --panel-3: #21352a;
+      --border: #2c4737; --border-strong: #41634e; --text: #edf7f0; --muted: #9ab4a2;
+      --faint: #66816d; --accent: #22a65a; --accent-2: #62d98d; --accent-soft: rgba(34, 166, 90, .16);
+      --body-glow: #164126;
+    }
+    html[data-theme="sunset"] {
+      --bg: #180d16; --panel: #25131f; --panel-2: #301927; --panel-3: #3d2132;
+      --border: #503047; --border-strong: #70445e; --text: #fff1f6; --muted: #c1a0b0;
+      --faint: #876676; --accent: #e75480; --accent-2: #ff8a9f; --accent-soft: rgba(231, 84, 128, .17);
+      --body-glow: #57203c;
+    }
+
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body { height: 100%; }
     body {
       font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background: radial-gradient(1200px 600px at 20% -10%, #1b1430 0%, transparent 60%), var(--bg);
+      background: radial-gradient(1200px 600px at 20% -10%, var(--body-glow) 0%, transparent 60%), var(--bg);
       color: var(--text); display: flex; flex-direction: column; overflow: hidden; font-size: 13px;
     }
-    button, input, select { font-family: inherit; }
+    button, input, select, textarea { font-family: inherit; }
     ::-webkit-scrollbar { width: 10px; height: 10px; }
     ::-webkit-scrollbar-thumb { background: #2c2c3a; border-radius: 10px; border: 2px solid transparent; background-clip: padding-box; }
     ::-webkit-scrollbar-thumb:hover { background: #3c3c4e; border: 2px solid transparent; background-clip: padding-box; }
@@ -75,6 +115,21 @@
     .btn-icon:hover:not(:disabled) { border-color: var(--border-strong); }
     .btn-host { background: rgba(245, 158, 11, 0.18); color: #fcd34d; border: 1px solid rgba(245, 158, 11, 0.35); padding: 4px 10px; font-size: 11px; }
     .btn-host:hover:not(:disabled) { background: rgba(245, 158, 11, 0.3); }
+    /* Host actions by kind: casting, playback for everyone, and the destructive reset */
+    .btn-host.cast { background: rgba(139, 92, 246, 0.2); color: #c4b5fd; border-color: rgba(139, 92, 246, 0.45); }
+    .btn-host.cast:hover:not(:disabled) { background: rgba(139, 92, 246, 0.34); }
+    .btn-host.reveal { background: rgba(20, 184, 166, 0.18); color: #5eead4; border-color: rgba(20, 184, 166, 0.42); }
+    .btn-host.reveal:hover:not(:disabled) { background: rgba(20, 184, 166, 0.32); }
+    .btn-host.pause { background: rgba(59, 130, 246, 0.2); color: #93c5fd; border-color: rgba(59, 130, 246, 0.45); }
+    .btn-host.pause:hover:not(:disabled) { background: rgba(59, 130, 246, 0.34); }
+    .btn-host.reset { background: rgba(239, 68, 68, 0.18); color: #fca5a5; border-color: rgba(239, 68, 68, 0.45); }
+    .btn-host.reset:hover:not(:disabled) { background: rgba(239, 68, 68, 0.32); }
+    .host-sep { width: 1px; align-self: stretch; margin: 2px 2px; background: var(--border-strong); }
+    html[data-theme="light"] .btn-host { color: #92400e; }
+    html[data-theme="light"] .btn-host.cast { color: #5b21b6; }
+    html[data-theme="light"] .btn-host.reveal { color: #0f766e; }
+    html[data-theme="light"] .btn-host.pause { color: #1d4ed8; }
+    html[data-theme="light"] .btn-host.reset { color: #b91c1c; }
     .recording-active { animation: pulseRecord 1.5s infinite; background: linear-gradient(135deg, #ef4444, #b91c1c) !important; }
     @keyframes pulseRecord {
       0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
@@ -195,7 +250,24 @@
        ========================================== */
     .video-box { flex: 1; display: flex; flex-direction: column; position: relative; background: #000; min-width: 0; }
     .video-wrapper { container-type: inline-size; flex: 1; display: flex; align-items: center; justify-content: center; width: 100%; overflow: hidden; position: relative; min-height: 0; }
-    video { max-height: 100%; max-width: 100%; }
+    video { width: 100%; height: 100%; object-fit: contain; display: block; }
+    .video-actions { position: absolute; top: 10px; right: 10px; z-index: 12; display: flex; gap: 6px; opacity: 0; transition: opacity 0.15s; }
+    .video-wrapper:hover .video-actions, .video-wrapper:focus-within .video-actions { opacity: 1; }
+    .video-action { background: rgba(10, 10, 14, 0.78); border: 1px solid rgba(255, 255, 255, 0.18); backdrop-filter: blur(8px); }
+    .video-action.active { background: var(--accent); }
+    .video-wrapper:fullscreen { background: #000; }
+    .video-wrapper:fullscreen video { width: 100vw; height: 100vh; }
+    body.video-expanded .workspace { grid-template-columns: 1fr; padding: 0; }
+    body.video-expanded #lobbyPanel,
+    body.video-expanded .workspace > .splitter,
+    body.video-expanded .main-area > .splitter,
+    body.video-expanded #inspector,
+    body.video-expanded #chatPanel,
+    body.video-expanded .studio > .splitter,
+    body.video-expanded .timeline-panel { display: none !important; }
+    body.video-expanded .studio { grid-template-rows: minmax(0, 1fr); }
+    body.video-expanded .main-area { height: 100%; }
+    body.video-expanded .video-box { border-radius: 0; }
     .video-prompter { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); background: rgba(10, 10, 14, 0.82); backdrop-filter: blur(8px); padding: 8px 18px; border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.12); color: #fff; font-size: 20px; max-width: 85%; text-align: center; pointer-events: none; z-index: 10; box-shadow: var(--shadow); line-height: 1.35; }
     .prompter-char { color: var(--accent-2); font-weight: 700; margin-right: 8px; }
     .prompter-text { font-weight: 500; }
@@ -238,11 +310,11 @@
     /* ==========================================
        INSPECTOR
        ========================================== */
-    .inspector { width: var(--inspector-w); padding: 12px; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; flex-shrink: 0; }
+    .inspector { width: var(--inspector-w); padding: 14px; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; flex-shrink: 0; background: linear-gradient(155deg, var(--panel-2), var(--panel) 42%); }
     .inspector > * { flex-shrink: 0; }
     .inspector h3 { font-size: 14px; }
     .inspector p { color: var(--muted); line-height: 1.4; }
-    .insp-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .insp-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
     .insp-title { display: flex; align-items: baseline; gap: 6px; min-width: 0; font-size: 15px; }
     .insp-title b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .insp-title span { color: var(--faint); font-size: 12px; font-weight: 600; }
@@ -251,7 +323,7 @@
     .insp-chip.other { background: var(--warning-soft); color: #fcd34d; }
     .insp-chip.free { background: var(--panel-3); color: var(--muted); }
     .insp-meta { font-size: 11px; color: var(--faint); font-variant-numeric: tabular-nums; margin-top: -4px; }
-    .insp-caption { background: var(--panel-2); border: 1px solid var(--border); padding: 7px 10px; border-radius: var(--radius-sm); font-style: italic; line-height: 1.4; max-height: calc(1.4em * 3 + 14px); overflow-y: auto; }
+    .insp-caption { background: var(--panel-3); border: 1px solid var(--border-strong); border-left: 3px solid var(--accent); padding: 10px 12px; border-radius: var(--radius-sm); font-style: italic; line-height: 1.5; max-height: calc(1.5em * 4 + 20px); overflow-y: auto; box-shadow: 0 6px 18px rgba(0,0,0,.1); }
     .insp-actions { display: flex; flex-wrap: wrap; gap: 6px; }
     .insp-actions button { padding: 7px 10px; }
     .insp-actions .grow { flex: 1 1 120px; }
@@ -264,7 +336,7 @@
     .insp-shift b { font-size: 11px; min-width: 44px; text-align: center; font-variant-numeric: tabular-nums; }
     .insp-shift button { padding: 2px 7px; font-size: 11px; }
     #visualizerCanvas { width: 100%; height: 28px; background: var(--bg); border-radius: var(--radius-sm); border: 1px solid var(--border); display: none; }
-    .take-panel { background: var(--panel-2); border: 1px solid var(--border); padding: 8px 10px; border-radius: var(--radius-sm); display: flex; flex-direction: column; gap: 7px; font-size: 11px; color: var(--muted); }
+    .take-panel { background: linear-gradient(145deg, var(--panel-2), var(--panel-3)); border: 1px solid var(--border); padding: 11px 12px; border-radius: var(--radius); display: flex; flex-direction: column; gap: 9px; font-size: 11px; color: var(--muted); box-shadow: 0 8px 20px rgba(0,0,0,.1); }
     .take-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
     .take-row select { flex: 1; min-width: 0; background: var(--panel-3); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 4px 6px; font-size: 11px; }
     .take-row .pitch-range { width: 90px; flex-shrink: 1; min-width: 50px; cursor: pointer; }
@@ -332,6 +404,26 @@
     .line-block.draggable { cursor: grab; }
     .line-block.dragging { cursor: grabbing; transform: none; border-color: #34d399; box-shadow: 0 0 0 2px rgba(52, 211, 153, 0.35); z-index: 16; }
     .line-block.latency-drag { border-color: #22d3ee; box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.35); }
+    .line-block.editor-draggable { cursor: grab; }
+    .line-block.editor-dragging { cursor: grabbing; opacity: 0.85; z-index: 20; pointer-events: none; }
+    .track-row.drop-target .track-timeline { background: var(--accent-soft); box-shadow: inset 0 0 0 2px var(--accent); }
+    .track-row.drop-target .track-label { box-shadow: inset 3px 0 0 var(--accent), 4px 0 10px rgba(0, 0, 0, 0.35); }
+    .track-add-row { display: flex; height: 40px; }
+    .track-add-row .track-label { justify-content: center; }
+    .track-add-btn { background: transparent; border: 1px dashed var(--border-strong); color: var(--muted); border-radius: var(--radius-sm); padding: 5px 8px; font-size: 12px; cursor: pointer; }
+    .track-add-btn:hover { border-color: var(--accent); color: var(--text); }
+    .line-resize-handle { position: absolute !important; z-index: 4 !important; top: 0; bottom: 0; width: 8px; cursor: ew-resize; }
+    .line-resize-handle.start { left: 0; }
+    .line-resize-handle.end { right: 0; }
+    .mode-switch { display: inline-flex; padding: 3px; gap: 3px; border: 1px solid var(--border); border-radius: 999px; background: var(--panel); }
+    .mode-switch button { padding: 4px 9px; border-radius: 999px; background: transparent; color: var(--muted); }
+    .mode-switch button.active { background: var(--accent); color: #fff; }
+    .editor-tools { display: none; gap: 6px; }
+    body.edit-mode .editor-tools { display: flex; }
+    .edit-banner { display: none; align-items: center; gap: 8px; padding: 5px 12px; font-size: 12px; font-weight: 600; color: #fde68a; background: linear-gradient(90deg, rgba(245, 158, 11, 0.22), rgba(245, 158, 11, 0.06)); border-bottom: 1px solid rgba(245, 158, 11, 0.4); }
+    html[data-theme="light"] .edit-banner { color: #92400e; }
+    body.edit-mode .edit-banner { display: flex; }
+    body.edit-mode .timeline-panel { box-shadow: inset 0 0 0 2px rgba(245, 158, 11, 0.65); }
     .drag-hint { position: absolute !important; right: 4px; bottom: 3px; background: #065f46; color: #d1fae5; font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 4px; }
     .drag-hint.latency { background: #155e75; color: #cffafe; }
     .wave-canvas { position: absolute; top: 0; height: 100%; pointer-events: none; z-index: 0; }
@@ -341,6 +433,7 @@
     .tile-nick.live { background: var(--danger); }
     .tile-nick.pending { background: #a16207; }
     .line-block.pending-upload { border-style: dashed; border-color: #eab308 !important; }
+    .line-block.blind-hidden { background: repeating-linear-gradient(135deg, var(--panel-2), var(--panel-2) 7px, var(--panel-3) 7px, var(--panel-3) 14px); }
     .insp-pending { display: flex; align-items: center; gap: 8px; background: rgba(234, 179, 8, 0.12); border: 1px solid rgba(234, 179, 8, 0.4); color: #fde68a; border-radius: var(--radius-sm); padding: 7px 10px; font-size: 11px; line-height: 1.4; }
     .insp-pending button { flex-shrink: 0; padding: 4px 9px; font-size: 11px; }
 
@@ -571,6 +664,13 @@
             </div>
             <label class="switch-ui"><input type="checkbox" id="settingsCue" checked><span class="switch-slider"></span></label>
           </div>
+          <div id="preRollSubRow" style="display: flex; flex-direction: column; gap: 4px; margin-top: 4px;">
+            <div style="display: flex; justify-content: space-between; font-size: 11px;">
+              <span style="color: var(--muted);" data-i18n="preRoll">Preparation time:</span>
+              <span id="settingsPreRollVal" style="font-weight: 700; color: var(--accent-2);">1.0 s</span>
+            </div>
+            <input type="range" id="settingsPreRoll" min="0" max="5" step="0.5" value="1" style="width: 100%; cursor: pointer;">
+          </div>
         </div>
 
         <div class="setting-card">
@@ -578,6 +678,20 @@
             <div><div class="setting-label" data-i18n="language">Language</div><div class="setting-sub" data-i18n="language.help">Interface language on this device</div></div>
             <select id="settingsLanguage" class="text-input">
               <option value="en">English</option><option value="ru">Русский</option><option value="uk">Українська</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="setting-card">
+          <div class="setting-card-row">
+            <div><div class="setting-label" data-i18n="theme">Visual theme</div><div class="setting-sub" data-i18n="theme.help">Applied only on this device</div></div>
+            <select id="settingsTheme" class="text-input">
+              <option value="midnight" data-i18n="theme.midnight">Midnight</option>
+              <option value="graphite" data-i18n="theme.graphite">Graphite</option>
+              <option value="light" data-i18n="theme.light">Light</option>
+              <option value="ocean" data-i18n="theme.ocean">Ocean</option>
+              <option value="forest" data-i18n="theme.forest">Forest</option>
+              <option value="sunset" data-i18n="theme.sunset">Sunset</option>
             </select>
           </div>
         </div>
@@ -642,6 +756,18 @@
           <button class="btn-outline" id="unbanBtn" onclick="unbanAll()" style="display: none; align-self: flex-start;"></button>
         </div>
 
+        <div class="setting-card">
+          <div class="setting-card-row">
+            <div><div class="setting-label" data-i18n="blind.room">Blind Mode for the room</div><div class="setting-sub" data-i18n="blind.room.help">Players hear only their own takes until the host reveals them.</div></div>
+            <label class="switch-ui"><input type="checkbox" id="settingsBlindMode"><span class="switch-slider"></span></label>
+          </div>
+          <div class="setting-card-row">
+            <div><div class="setting-label" data-i18n="blind.mine">Hide my takes</div><div class="setting-sub" data-i18n="blind.mine.help">Keep your new takes hidden even when room Blind Mode is off.</div></div>
+            <label class="switch-ui"><input type="checkbox" id="settingsHideMyTakes"><span class="switch-slider"></span></label>
+          </div>
+          <div class="setting-warning" style="display:block" data-i18n="blind.warning">This prevents spoilers in the interface, but is not technical access protection.</div>
+        </div>
+
         <div class="setting-card desktop-only">
           <div>
             <div class="setting-label" data-i18n="desktop.clearData">Очистить все данные Dubline</div>
@@ -702,7 +828,18 @@
         </div>
 
         <div class="setting-card">
-          <div class="setting-label" data-i18n="customImport">2. Video + subtitles</div>
+          <div class="setting-label" data-i18n="workshopImport">2. Voxalike Workshop link</div>
+          <div class="setting-sub" data-i18n="workshopImport.help">Paste a pack page link. The host validates and caches the ZIP locally.</div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <input id="workshopUrlInput" class="text-input" type="url" maxlength="300" data-i18n-placeholder="workshopImport.placeholder" placeholder="https://voxalike.com/workshop/pack-name" style="flex:1;min-width:0;">
+            <button id="workshopImportBtn" class="btn-play" onclick="importWorkshopPack()" data-i18n="workshopImport.button">Open pack</button>
+          </div>
+          <div id="workshopImportStatus" class="setting-sub" style="display:none;"></div>
+          <a href="https://voxalike.com/workshop" target="_blank" rel="noopener noreferrer" class="btn-share" style="align-self:flex-start;text-decoration:none;" data-i18n="workshopImport.browse">Browse Workshop</a>
+        </div>
+
+        <div class="setting-card">
+          <div class="setting-label" data-i18n="customImport">3. Video + subtitles</div>
           <div class="setting-sub" data-i18n="customImport.help">Upload MP4/MKV and ASS/SSA/SRT/VTT. MKV may contain its own subtitle track.</div>
           <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 4px;">
             <div>
@@ -777,7 +914,16 @@
         </div>
 
         <div class="setting-card">
-          <div class="setting-label" data-i18n="sourcePack">3. Original scene pack (.zip)</div>
+          <div class="setting-label" data-i18n="packExport">3. Export editable Voxalike pack (.zip)</div>
+          <div class="setting-sub" data-i18n="packExport.help">Builds a compatible pack from the video and edited lines on the host.</div>
+          <div id="packExportStatus" class="setting-sub" style="display:none;"></div>
+          <button id="packExportBtn" class="btn-header-action" onclick="exportVoxalikePack()" style="justify-content:center;">
+            <span data-i18n="packExport.button">📦 Build Voxalike pack</span>
+          </button>
+        </div>
+
+        <div class="setting-card">
+          <div class="setting-label" data-i18n="sourcePack">4. Original scene pack (.zip)</div>
           <div class="setting-sub" data-i18n="sourcePack.help">Download the original ZIP for friends</div>
           <a id="downloadOriginalPackBtn" class="btn-header-action" href="#" download style="justify-content: center; display: none;">
             <span data-i18n="downloadSource">📥 Download original pack (.zip)</span>
@@ -957,6 +1103,10 @@
         <div class="panel video-box">
           <div class="video-wrapper">
             <video id="mainVideo" controls crossorigin="anonymous"></video>
+            <div class="video-actions">
+              <button id="expandVideoBtn" class="video-action" type="button" onclick="toggleExpandedVideo()" data-i18n-title="video.expand" title="Expand video">⤢</button>
+              <button class="video-action" type="button" onclick="toggleVideoFullscreen()" data-i18n-title="video.fullscreen" title="Fullscreen">⛶</button>
+            </div>
             <audio id="backingAudio" crossorigin="anonymous"></audio>
             <audio id="originalTrackAudio" crossorigin="anonymous"></audio>
             <div id="videoPrompter" class="video-prompter" style="display: none;">
@@ -1034,6 +1184,14 @@
       <!-- TIMELINE -->
       <div class="panel timeline-panel">
         <div class="timeline-toolbar">
+          <div class="mode-switch" id="modeSwitch">
+            <button id="dubModeBtn" type="button" onclick="setStudioMode('dub')" data-i18n="mode.dub">🎙 Dub</button>
+            <button id="editModeBtn" type="button" onclick="setStudioMode('edit')" data-i18n="mode.edit">✎ Edit</button>
+          </div>
+          <div class="editor-tools">
+            <button class="btn-icon" type="button" onclick="createLineAtPlayhead()" data-i18n="editor.addLine">＋ Line</button>
+            <button class="btn-icon" type="button" onclick="editorUndo()" data-i18n="editor.undo" data-i18n-title="editor.undoTitle" title="Undo your last edit (Ctrl+Z)">↶ Undo</button>
+          </div>
           <div class="scene-progress">
             <span data-i18n="progress.scene">Dubbed</span>
             <b id="sceneProgressText">0 / 0</b>
@@ -1049,6 +1207,7 @@
             <button class="btn-icon" id="zoomFitBtn" onclick="fitTimeline()" data-i18n="zoom.fit">⤢ Whole scene</button>
           </div>
         </div>
+        <div class="edit-banner" data-i18n="editor.banner">✎ Edit Mode — everyone edits the scene together, recording is paused</div>
         <div class="timeline-container" id="timelineContainer">
           <div class="timeline-wrapper" id="timeline"></div>
         </div>
@@ -1066,6 +1225,8 @@
   <script src="import.js"></script>
   <script src="export.js"></script>
   <script src="room.js"></script>
+  <script src="editor.js"></script>
+  <script src="features.js"></script>
   <script src="p2p.js"></script>
   <script src="chat.js"></script>
   <script src="ui.js"></script>

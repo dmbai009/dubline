@@ -208,6 +208,7 @@ function playerCardHtml(nick, stats, online) {
   const recordingLine = [...liveRecordings.entries()].find(([, who]) => who === nick);
   const latencyMs = Math.round(latencyFor(nick) * 1000);
   const pct = stats.claimed ? Math.round((stats.recorded / stats.claimed) * 100) : (stats.recorded ? 100 : 0);
+  const activity = playerActivities.get(nick);
   const classes = ['player-card', isMe ? 'me' : '', online ? '' : 'offline', recordingLine ? 'recording' : ''].filter(Boolean).join(' ');
 
   const tags = [
@@ -218,8 +219,11 @@ function playerCardHtml(nick, stats, online) {
 
   const extra = [
     recordingLine ? `<span class="tag rec">${t('lobby.recording', { id: recordingLine[0] })}</span>` : '',
-    seedingNicks.has(nick) ? `<span class="tag seed">${t('lobby.seeding')}</span>` : ''
+    seedingNicks.has(nick) ? `<span class="tag seed">${t('lobby.seeding')}</span>` : '',
+    activity && activity.state === 'downloading' ? `<span class="tag seed">${t('lobby.downloading', { pct: activity.pct })}</span>` : ''
   ].filter(Boolean).join(' ');
+  const activityProgress = activity && activity.state === 'downloading'
+    ? `<div class="progress"><div style="width:${activity.pct}%;background:var(--accent)"></div></div>` : '';
 
   let latencyHtml = '';
   if (isMe) {
@@ -245,6 +249,7 @@ function playerCardHtml(nick, stats, online) {
       <div class="player-stats"><span>${t('lobby.recorded', { n: stats.recorded })}</span><span>${t('lobby.claimed', { n: stats.claimed })}</span></div>
       <div class="progress"><div style="width:${pct}%"></div></div>
       ${extra ? `<div>${extra}</div>` : ''}
+      ${activityProgress}
       ${latencyHtml}
     </div>`;
 }
@@ -389,7 +394,9 @@ window.purgeTrashSelected = function() {
 };
 
 socket.on('lines_deleted', ({ count }) => {
-  showToast(t('undo.toast', { n: count }), { label: t('undo.action'), onClick: undoDelete });
+  // In Edit Mode anyone may delete, and everyone undoes their own deletion
+  const undo = () => (session && session.mode === 'edit' ? editorUndo() : undoDelete());
+  showToast(t('undo.toast', { n: count }), { label: t('undo.action'), onClick: undo });
 });
 
 socket.on('lines_restored', ({ count }) => {
@@ -448,6 +455,7 @@ socket.on('room_users_updated', ({ users, host, hostOnline: online }) => {
   roomHost = host;
   hostOnline = online;
   lastOnlineUsers = users;
+  for (const nick of playerActivities.keys()) if (!users.includes(nick)) playerActivities.delete(nick);
   renderLobby();
   updateHostUi();
 });
@@ -499,14 +507,19 @@ let renderedAsHost = null;
 function updateHostUi() {
   if (amHost()) {
     hostPanel.className = 'host-panel';
-    const watchBtn = watchMode
+    const watchBtn = session && session.mode === 'edit' ? '' : watchMode
       ? `<button class="btn-host" onclick="hostWatchStop()">${t('host.watchStop')}</button>`
       : `<button class="btn-host" onclick="hostWatchStart()">${t('host.watch')}</button>`;
+    const dubControls = session && session.mode === 'edit' ? '' : `
+      <button class="btn-host cast" onclick="randomCast()">${t('randomCast')}</button>
+      ${(session && (session.blindMode || (session.blindPlayers || []).length)) ? `<button class="btn-host reveal" onclick="revealAllTakes()">${t('blind.reveal')}</button>` : ''}
+      <button class="btn-host pause" onclick="hostForcePause()">${t('host.pause')}</button>
+      <span class="host-sep"></span>
+      <button class="btn-host reset" onclick="hostResetClaims()">${t('host.reset')}</button>`;
     hostPanel.innerHTML = `
       ${t('host.you')}
       ${watchBtn}
-      <button class="btn-host" onclick="hostForcePause()">${t('host.pause')}</button>
-      <button class="btn-host" onclick="hostResetClaims()">${t('host.reset')}</button>
+      ${dubControls}
     `;
   } else if (!hostOnline) {
     hostPanel.className = 'host-panel offline';
@@ -523,6 +536,7 @@ function updateHostUi() {
   updateRoomSecurityUi();
   renderTrackPicker();
   updateUndoButton();
+  window.updateModeUi?.();
   const canManagePacks = amHost();
   uploadLabel.classList.toggle('disabled', !canManagePacks);
   zipInput.disabled = !canManagePacks;
@@ -550,7 +564,12 @@ socket.on('force_pause', () => {
   video.pause();
 });
 
-socket.on('session_updated', (data) => {
+function applySessionUpdate(data) {
+  const sessionChanged = !session || session.activeSessionId !== data.activeSessionId;
+  if (sessionChanged) {
+    multiSelection.clear();
+    selectedLine = null;
+  }
   session = data;
   if (!session || !session.loaded) {
     // The room has no session (e.g. the last one was deleted): clear the studio
@@ -601,10 +620,15 @@ socket.on('session_updated', (data) => {
     if (updated) {
       selectedLine = updated;
       showInspector(updated);
+    } else {
+      selectedLine = null;
+      inspector.innerHTML = `<h3>${t('inspector.title')}</h3><p>${t('inspector.empty')}</p>`;
     }
   }
   updatePrompter();
-});
+}
+
+socket.on('session_updated', applySessionUpdate);
 
 socket.on('line_updated', (updatedLine) => {
   if (!session || !session.lines) return;
