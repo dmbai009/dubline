@@ -1353,6 +1353,40 @@
     'error.workshopDownload': 'Не вдалося завантажити пак із Voxalike.'
   });
 
+  Object.assign(messages.en, {
+    'editor.draftConflict': 'This line changed while you were editing. Your draft is kept. Copy any text you need, then load the latest version before saving.',
+    'editor.loadLatest': 'Discard draft / load latest',
+    'editor.timingRequired': 'Enter both start and end times.',
+    'editor.timingRange': 'Times must be between 0 and 43200 seconds.',
+    'editor.timingOrder': 'The end must be later than the start.',
+    'editor.timingMinimum': 'Minimum line duration: {seconds} s.',
+    'editor.timingPrecision': 'Use up to three decimal places.',
+    'packExport.lines': 'Processing lines: {current} / {total}…',
+    'error.packExportBusy': 'Another pack export is running on this host. Wait for it to finish.'
+  });
+  Object.assign(messages.ru, {
+    'editor.draftConflict': 'Реплика изменилась, пока вы её редактировали. Черновик сохранён. Скопируйте нужный текст и загрузите последнюю версию перед сохранением.',
+    'editor.loadLatest': 'Сбросить черновик / загрузить актуальное',
+    'editor.timingRequired': 'Укажите время начала и конца.',
+    'editor.timingRange': 'Время должно быть от 0 до 43200 секунд.',
+    'editor.timingOrder': 'Конец должен быть позже начала.',
+    'editor.timingMinimum': 'Минимальная длина реплики: {seconds} с.',
+    'editor.timingPrecision': 'Допустимо до трёх знаков после запятой.',
+    'packExport.lines': 'Обрабатываю реплики: {current} / {total}…',
+    'error.packExportBusy': 'На этом хосте уже идёт экспорт пака. Дождитесь его завершения.'
+  });
+  Object.assign(messages.uk, {
+    'editor.draftConflict': 'Репліка змінилася, поки ви її редагували. Чернетку збережено. Скопіюйте потрібний текст і завантажте останню версію перед збереженням.',
+    'editor.loadLatest': 'Скинути чернетку / завантажити актуальне',
+    'editor.timingRequired': 'Укажіть час початку та кінця.',
+    'editor.timingRange': 'Час має бути від 0 до 43200 секунд.',
+    'editor.timingOrder': 'Кінець має бути пізніше початку.',
+    'editor.timingMinimum': 'Мінімальна довжина репліки: {seconds} с.',
+    'editor.timingPrecision': 'Дозволено до трьох знаків після коми.',
+    'packExport.lines': 'Обробляю репліки: {current} / {total}…',
+    'error.packExportBusy': 'На цьому хості вже триває експорт пака. Дочекайтеся його завершення.'
+  });
+
   let language = localStorage.getItem('dubline_language');
   if (!messages[language]) {
     const browser = String(navigator.language || 'en').toLowerCase();

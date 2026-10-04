@@ -17,6 +17,13 @@ Dubline is a collaborative desktop and browser-based dubbing studio and party ga
 
 The project is inspired by Voxalike and The Choicer Voicer, while removing the need for players to record one after another.
 
+## What's new in 1.2.1
+
+- **Millisecond timing:** import and edit timestamps with three decimal places; short subtitle cues keep their original duration.
+- **Safer editor drafts:** room updates and selection changes preserve unsaved text and timings. Conflicting edits show the latest server version without discarding your draft, and invalid timings are explained next to the fields.
+- **Smoother recording preparation:** adjust the buffer in 0.1-second steps. Lines at 0:00, 0:01 or 0:03 receive the full configured preparation time; canceling preparation clears pending playback and speech timers.
+- **Clearer pack exports:** line-by-line progress, one export at a time per host, and the correct ZIP filename even when the scene changes during export.
+
 ## What's new in 1.2.0
 
 - **Shared Edit Mode:** create, resize and move source lines, edit captions, add and rename role tracks, and undo your own changes. The host switches the whole room between Edit and Dub Mode; Dub Mode keeps source editing locked while allowing take alignment and host-created role tracks.
@@ -25,8 +32,6 @@ The project is inspired by Voxalike and The Choicer Voicer, while removing the n
 - **One-second preparation by default:** change the pre-recording buffer from 0 to 5 seconds in Settings; lines near 0:00 also get the full preparation time.
 - **Six visual themes**, download progress in the lobby, a refreshed inspector, video-only fullscreen and an expanded video view.
 - **Editor reliability fixes:** revision-checked edits and deletion, consecutive Undo, safe handling of lost replies and session changes, and consistent pack-export snapshots.
-
-AI-assisted editing and local voice separation are not included in this release.
 
 ## Features
 
@@ -56,18 +61,19 @@ AI-assisted editing and local voice separation are not included in this release.
 - **Multiple audio tracks.** If the video has several audio tracks (e.g. Japanese and Russian in an anime episode), the server extracts each one (AAC is copied, other codecs are converted) and the host picks which track plays as “Original” and which as “Background”, or none, below the mixer. The choice applies to everyone, to export, and survives restarts; scenes imported earlier get their tracks extracted automatically.
 - **Separate Edit and Dub Modes.** The host switches the whole room's mode. In Edit Mode every participant can create source lines, edit their captions and bounds in the inspector, resize their edges, drag them onto another role track, add tracks or rename/merge a whole track. Ctrl+click / Shift+click select several lines or a range. Changes are revision-checked; Ctrl+Z undoes your own edits without overwriting later source edits by others. Undo history is kept in memory (up to 200 operations per session) and resets on server restart. In Dub Mode source editing is disabled: players align their recorded takes, and the host may still add a role track. Overlapping lines of one character are stacked into lanes. Entering Edit Mode stops an active recording and queues its take until dubbing is available again.
 - **Random Cast.** The host randomly distributes roles with lines among online players. Empty editor tracks are ignored; existing takes are kept.
+- **Editor drafts and precise timing.** Unsaved inspector text and timings survive room updates and line selection changes within the open page. If someone edits the same line, your draft stays visible alongside a conflict notice; copy what you need before loading their latest version. Drafts are not persisted across page reloads. Timing fields support milliseconds and explain invalid bounds inline. Short imported subtitle cues keep their original duration, including cues shorter than the 0.1-second minimum for new lines.
 - **Blind Mode.** The host can hide other players' takes for the scene, or each player can hide their own takes. The host's “Reveal all” makes current takes listenable; a new recording is hidden again. This is a UI spoiler-prevention feature, not server-side access control.
 - **Six local themes.** Midnight, Graphite, Light, Ocean, Forest and Sunset can be selected in Settings; each device remembers its own choice.
 - **Larger video views.** Low-resolution video fills the available area while preserving its aspect ratio. Use the expand button for a larger in-window view or fullscreen to hide the surrounding workspace, including during watch-together.
 - **Three-channel mixer.** Control original video audio, background/ambience, and recorded dubbing independently.
 - **Auto-ducking.** Background and original audio fade down over 80 ms while a take plays and recover over 250 ms. The same automation is used for playback and exported mixes.
-- **Visual recording countdown.** After pressing Record the video rewinds by the configured preparation time (1 second by default, adjustable from 0 to 5 seconds in Settings). Near 0:00 the first frame is held for the missing part of the buffer. A thin bar sweeps across the video and three dots light up, then a red “Speak!” appears when the line starts. The visual cue is silent and can be turned off independently of the preparation time.
+- **Visual recording countdown.** After pressing Record the video rewinds by the configured preparation time (1 second by default, adjustable from 0 to 5 seconds in 0.1-second steps in Settings). Near 0:00 the first frame is held for the missing part of the buffer. A thin bar sweeps across the video and three dots light up, then a red “Speak!” appears when the line starts. The visual cue is silent and can be turned off independently of the preparation time.
 - **Recording follows your voice.** Recording does not stop at the end of the original line: if your phrase is longer, keep talking — it stops by itself after 0.8 s of silence (at most the line length, minimum 4 s, past the line end), or when you press the button again. Auto-trim keeps quiet word endings.
 - **Built-in guidance.** A short “How to play” guide (headphones, claiming, recording, listening, timing, watching together, hotkeys) opens on the first visit and from the ❓ button. Silent dead ends now show a hint instead (e.g. pressing R with no line selected, or on someone else’s line), and a denied microphone explains how to re-enable it.
 - **Video prompter.** The active character, line, and phrase progress are shown over the video. When several characters speak at once, all simultaneous lines are shown (up to four, then “+N more”); while recording, your line comes first and the others are dimmed. The overlay can be disabled or resized.
 - **Fast browser export.** On supported browsers, WebCodecs and Mediabunny pass the encoded video stream through without re-encoding and create a new mixed audio track. A real-time fallback is available when WebCodecs cannot be used.
 - **REAPER/DAW stems.** The browser renders one full-length, timeline-aligned WAV file per character and packages the files with a TSV cue sheet in a ZIP archive.
-- **Voxalike-compatible pack export.** The host exports the edited scene as a ZIP containing video, backing audio when present, and INI/WAV files for each line. Clean original voice files are preferred; otherwise line audio is cut from the selected original soundtrack. Recorded dubbing is exported separately as video or DAW stems. Export uses a scene snapshot, so collaborative edits cannot mix different versions inside the ZIP.
+- **Voxalike-compatible pack export.** The host exports the edited scene as a ZIP containing video, backing audio when present, and INI/WAV files for each line. Clean original voice files are preferred; otherwise line audio is cut from the selected original soundtrack. Recorded dubbing is exported separately as video or DAW stems. Export uses a scene snapshot, so collaborative edits cannot mix different versions inside the ZIP. Progress shows completed lines, and each host processes one pack export at a time.
 - **Room chat.** Includes persisted history, unread counts, and localized system notifications.
 - **English, Russian, and Ukrainian UI.** The browser language is detected automatically and the selection is stored in `localStorage`.
 
@@ -154,7 +160,7 @@ npm run dist
 
 `npm run dist` downloads the pinned official Windows `cloudflared` binary, verifies its SHA-256, and creates `dist/Dubline.exe`. The portable file includes Electron, `ffmpeg-static`, and `cloudflared`; the build does not include local `data/`, uploaded scenes, takes, or server packs.
 
-To publish an update, increment `version` in `package.json` and `package-lock.json`, build and smoke-test `Dubline.exe`, then create a stable GitHub Release in `dmbai009/dubline` with a matching tag such as `v1.2.0` and attach the EXE. A tag without a GitHub Release, a draft, or a prerelease does not trigger the in-app notice.
+To publish an update, increment `version` in `package.json` and `package-lock.json`, build and smoke-test `Dubline.exe`, then create a stable GitHub Release in `dmbai009/dubline` with a matching tag such as `v1.2.1` and attach the EXE. A tag without a GitHub Release, a draft, or a prerelease does not trigger the in-app notice.
 
 ### Legacy browser server (one click)
 
@@ -216,6 +222,8 @@ npm run test:electron             # packaged app smoke test
 npm run test:electron:cloudflare  # live Cloudflare smoke test
 node tools/electron-smoke.js cloudflare --portable # smoke the exact release EXE
 ```
+
+The 1.2.1 regression coverage also checks millisecond form submission, short subtitle import and exact-duration pack export, drafts across room updates and delayed save acknowledgements, simultaneous pack export rejection, and a full five-second preparation for lines starting at 0, 1 and 3 seconds.
 
 The end-to-end suite drives real Chrome/Edge (`puppeteer-core`, no browser download) with a fake microphone. Every run starts its own server with temporary `data/`, `uploads/` and `packs/` folders, so your real rooms are never touched, and generates a small test scene with `ffmpeg-static` (no third-party content). It covers recording and the countdown, effects, take dragging and per-player delay, zoom and panels, host tools, watch-together, sessions, reliable uploads, password and kicking, reconnects, P2P sharing, local media, WebCodecs export, and the desktop PIN room (the host and PIN guests get the video, strangers get neither the room nor its files). Editor regressions cover unchanged saves, consecutive Undo, claim changes, stale deletion, lost replies, and resized pack lines surviving reload and server restart. Random Cast, Blind Mode, themes, Workshop URL validation and pack export are covered too. If Chrome is installed in a non-standard place, set `CHROME_PATH`. Packaged smoke tests use a separate temporary Electron profile; Cloudflare smoke requires Internet access.
 

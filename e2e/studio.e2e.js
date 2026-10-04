@@ -3,11 +3,318 @@ const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const {
   skipReason, wait, launchBrowser, startServer, openPlayer, waitFor, waitUntil,
-  loadFixture, claimAndSelect, recordTake, FIXTURE_LINES, buildVoiceFile, fixtureVideoPath
+  loadFixture, claimAndSelect, recordTake, FIXTURE_LINES, buildVoiceFile, fixtureVideoPath, buildFixturePack
 } = require('./helpers');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const AdmZip = require('adm-zip');
+
+describe('millisecond timing', { skip: skipReason }, () => {
+  let server;
+  let browser;
+  let page;
+  before(async () => {
+    server = await startServer();
+    const zip = new AdmZip(buildFixturePack());
+    zip.updateFile('001.ini', Buffer.from('caption=Millisecond line\ndub_characters=["Hero"]\ndub_timestamps=[1.234, 2.345]\n'));
+    zip.writeZip(path.join(server.dirs.packs, 'millisecond-scene.zip'));
+    browser = await launchBrowser(server.port);
+    page = await openPlayer(browser, server.url('timing'), 'Alice');
+    await page.evaluate(() => loadSavedPack('millisecond-scene.zip'));
+    await waitFor(page, () => session && session.loaded && session.lines.length === 4);
+    await page.evaluate(() => setStudioMode('edit'));
+    await waitFor(page, () => session.mode === 'edit');
+  });
+  after(async () => {
+    if (browser) await browser.close();
+    if (server) await server.cleanup();
+  });
+
+  test('imported milliseconds save through the real editor form and survive Undo', async () => {
+    const original = await page.evaluate(() => {
+      const line = session.lines.find(item => item.id === 1);
+      selectLine(line);
+      return { start: line.start, end: line.end, caption: line.caption };
+    });
+    assert.deepEqual(original, { start: 1.234, end: 2.345, caption: 'Millisecond line' });
+    assert.equal(await page.evaluate(() => document.getElementById('editorLineForm').checkValidity()), true);
+    await page.evaluate(() => {
+      document.getElementById('editorStart').value = '1.237';
+      document.getElementById('editorEnd').value = '2.348';
+      document.getElementById('editorCaption').value = 'Saved with milliseconds';
+    });
+    // Clicking submit exercises native step validation, unlike dispatching submit directly.
+    await page.click('#editorLineForm button[type="submit"]');
+    await waitFor(page, () => {
+      const line = session.lines.find(item => item.id === 1);
+      return line.start === 1.237 && line.end === 2.348 && line.caption === 'Saved with milliseconds';
+    });
+    assert.equal((await page.evaluate(() => editorUndo())).undone, 1);
+    await waitFor(page, () => {
+      const line = session.lines.find(item => item.id === 1);
+      return line.start === 1.234 && line.end === 2.345 && line.caption === 'Millisecond line';
+    });
+    assert.equal(await page.evaluate(() => {
+      document.getElementById('editorStart').value = '';
+      return document.getElementById('editorStart').validity.valueMissing;
+    }), true, 'an empty start must not silently become zero');
+    await page.evaluate(() => reloadEditorDraft(1));
+  });
+
+  test('exactly 100 ms is accepted, while 99 ms remains too short', async () => {
+    const created = await page.evaluate(() => queueEditorRequest(() => ['editor_create_line', {
+      character: 'Hero', caption: 'Minimum duration', start: 1.1, end: 1.2
+    }]));
+    assert.equal(created.ok, true, JSON.stringify(created));
+    const rejected = await page.evaluate(id => updateEditorLine(session.lines.find(line => line.id === id), { end: 1.199 }), created.line.id);
+    assert.equal(rejected.reason, 'invalid');
+    assert.equal(await page.evaluate(id => session.lines.find(line => line.id === id).end, created.line.id), 1.2);
+  });
+
+  test('preparation slider moves by 0.1 s and persists after reload', async () => {
+    const adjusted = await page.evaluate(() => {
+      const input = document.getElementById('settingsPreRoll');
+      input.value = '1.2';
+      input.stepUp();
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      return { seconds: preRollSeconds, stored: localStorage.getItem('dubline_pre_roll'), step: input.step };
+    });
+    assert.deepEqual(adjusted, { seconds: 1.3, stored: '1.3', step: '0.1' });
+    await page.reload();
+    await waitFor(page, () => socket.connected && session && session.loaded);
+    assert.equal(await page.evaluate(() => preRollSeconds), 1.3);
+    assert.deepEqual(page.errors, []);
+  });
+
+  test('draft survives another player claiming a role, selection changes and a conflicting edit', async () => {
+    const bob = await openPlayer(browser, server.url('timing'), 'Bob');
+    try {
+      await page.evaluate(() => selectLine(session.lines.find(line => line.id === 1)));
+      await page.focus('#editorCaption');
+      await page.$eval('#editorCaption', input => input.select());
+      await page.type('#editorCaption', 'Unsaved draft');
+      await bob.evaluate(() => socket.emit('claim_character', { character: 'Friend' }));
+      await waitFor(page, () => session.characterClaims.Friend === 'Bob');
+      assert.deepEqual(await page.evaluate(() => ({ text: document.getElementById('editorCaption').value, focus: document.activeElement.id })), { text: 'Unsaved draft', focus: 'editorCaption' });
+      await page.evaluate(() => {
+        selectLine(session.lines.find(line => line.id === 2));
+        selectLine(session.lines.find(line => line.id === 1));
+      });
+      assert.equal(await page.$eval('#editorCaption', input => input.value), 'Unsaved draft');
+      assert.equal((await bob.evaluate(() => updateEditorLine(session.lines.find(line => line.id === 1), { caption: 'Remote version' }))).ok, true);
+      await waitFor(page, () => session.lines.find(line => line.id === 1).caption === 'Remote version');
+      assert.equal(await page.$eval('#editorCaption', input => input.value), 'Unsaved draft');
+      assert.equal(await page.$eval('#editorLineForm button[type="submit"]', button => button.disabled), true);
+      assert.ok(await page.$eval('#editorLineForm', form => form.textContent.includes(t('editor.draftConflict'))));
+      await page.evaluate(() => reloadEditorDraft(1));
+      assert.equal(await page.$eval('#editorCaption', input => input.value), 'Remote version');
+      await page.focus('#editorCaption');
+      await page.$eval('#editorCaption', input => input.select());
+      await page.type('#editorCaption', 'Reviewed version');
+      await page.click('#editorLineForm button[type="submit"]');
+      await waitFor(bob, () => session.lines.find(line => line.id === 1).caption === 'Reviewed version');
+      await waitFor(page, () => !document.querySelector('#editorLineForm button[type="submit"]').disabled);
+      assert.equal(await page.evaluate(() => editorDrafts.size), 0);
+    } finally { await bob.close(); }
+  });
+
+  test('typing while Save awaits its acknowledgement keeps the newer draft', async () => {
+    await page.evaluate(() => {
+      selectLine(session.lines.find(line => line.id === 1));
+      window.originalEditorEmit = socket.emit;
+      socket.emit = function(event, ...args) {
+        if (event === 'editor_update_line') {
+          const ack = args.pop();
+          args.push((...reply) => { window.releaseFormAck = () => ack(...reply); });
+        }
+        return originalEditorEmit.call(this, event, ...args);
+      };
+      document.getElementById('editorCaption').value = 'First saved version';
+    });
+    try {
+      await page.click('#editorLineForm button[type="submit"]');
+      await waitFor(page, () => typeof releaseFormAck === 'function' && session.lines.find(line => line.id === 1).caption === 'First saved version');
+      await page.$eval('#editorCaption', input => {
+        input.value = 'New text while saving';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      await page.evaluate(() => releaseFormAck());
+      await waitFor(page, () => !document.querySelector('#editorLineForm button[type="submit"]').disabled);
+      assert.equal(await page.$eval('#editorCaption', input => input.value), 'New text while saving');
+      assert.equal(await page.evaluate(() => session.lines.find(line => line.id === 1).caption), 'First saved version');
+      await page.evaluate(() => { socket.emit = originalEditorEmit; });
+      await page.click('#editorLineForm button[type="submit"]');
+      await waitFor(page, () => session.lines.find(line => line.id === 1).caption === 'New text while saving');
+      await waitFor(page, () => editorDrafts.size === 0);
+    } finally {
+      await page.evaluate(() => { socket.emit = originalEditorEmit; delete window.releaseFormAck; });
+    }
+  });
+
+  test('editor explains invalid bounds inline without sending an edit', async () => {
+    await page.evaluate(() => {
+      selectLine(session.lines.find(line => line.id === 1));
+      document.getElementById('editorStart').value = '2';
+      document.getElementById('editorEnd').value = '1';
+    });
+    await page.click('#editorLineForm button[type="submit"]');
+    assert.equal(await page.$eval('[data-editor-error]', el => el.textContent), await page.evaluate(() => t('editor.timingOrder')));
+    await page.evaluate(() => {
+      document.getElementById('editorEnd').value = '2.099';
+      document.getElementById('editorEnd').dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    assert.equal(await page.$eval('[data-editor-error]', el => el.textContent), await page.evaluate(() => t('editor.timingMinimum', { seconds: 0.1 })));
+    await page.evaluate(() => reloadEditorDraft(1));
+  });
+
+  test('pack export reports progress, excludes parallel exports and keeps its snapshot filename', async () => {
+    const bob = await openPlayer(browser, server.url('timing'), 'Bob');
+    try {
+      await bob.evaluate(() => { window.exportNotifications = []; socket.on('pack_export_progress', value => exportNotifications.push(value)); });
+      const result = await page.evaluate(async () => {
+        const originalClick = HTMLAnchorElement.prototype.click;
+        const title = session.title;
+        const messages = [];
+        let filename;
+        const collect = value => messages.push(value);
+        HTMLAnchorElement.prototype.click = function() { filename = this.download; };
+        socket.on('pack_export_progress', collect);
+        try {
+          const exporting = exportVoxalikePack();
+          session.title = 'Wrong scene';
+          const busy = await fetch('/api/export-voxalike-pack', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ room: currentRoom, clientId, requestId: 'parallel-test' })
+          });
+          const busyBody = await busy.json();
+          await exporting;
+          return { filename, title, messages, busy: busy.status, key: busyBody.key, status: document.getElementById('packExportStatus').textContent, done: t('packExport.done') };
+        } finally {
+          session.title = title;
+          HTMLAnchorElement.prototype.click = originalClick;
+          socket.off('pack_export_progress', collect);
+        }
+      });
+      assert.equal(result.busy, 409);
+      assert.equal(result.key, 'error.packExportBusy');
+      assert.equal(result.status, result.done);
+      assert.equal(result.filename, `${result.title}.zip`);
+      assert.equal(result.messages[0].current, 0);
+      assert.equal(result.messages.at(-1).current, result.messages.at(-1).total);
+      assert.equal(new Set(result.messages.map(value => value.requestId)).size, 1);
+      assert.deepEqual(await bob.evaluate(() => exportNotifications), []);
+      // The successful request must release the process-wide slot.
+      const again = await page.evaluate(async () => (await fetch('/api/export-voxalike-pack', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ room: currentRoom, clientId })
+      })).status);
+      assert.equal(again, 200);
+    } finally { await bob.close(); }
+  });
+
+  test('short SRT cues remain editable and export their exact audio duration', async () => {
+    const imported = await page.evaluate(async () => {
+      const data = new FormData();
+      data.append('clientId', clientId);
+      data.append('video', await (await fetch(session.videoUrl)).blob(), 'short.mp4');
+      data.append('subtitles', new Blob(['1\n00:00:01,234 --> 00:00:01,434\nShort\n\n2\n00:00:02,000 --> 00:00:02,050\nVery short\n']), 'short.srt');
+      const response = await fetch(`/api/upload-custom?room=${encodeURIComponent(currentRoom)}`, { method: 'POST', body: data });
+      return response.status;
+    });
+    assert.equal(imported, 200);
+    await waitFor(page, () => session.title === 'short' && session.lines.length === 2);
+    assert.deepEqual(await page.evaluate(() => session.lines.map(line => [line.start, line.end])), [[1.234, 1.434], [2, 2.05]]);
+    await page.evaluate(() => setStudioMode('edit'));
+    await waitFor(page, () => session.mode === 'edit');
+    await page.evaluate(() => {
+      selectLine(session.lines.find(line => line.id === 2));
+      document.getElementById('editorCaption').value = 'Edited short cue';
+    });
+    await page.click('#editorLineForm button[type="submit"]');
+    await waitFor(page, () => session.lines.find(line => line.id === 2).caption === 'Edited short cue');
+    assert.equal((await page.evaluate(() => updateEditorLine(session.lines.find(line => line.id === 2), { start: 3, end: 3.05 }))).ok, true);
+    const bytes = await page.evaluate(async () => {
+      const response = await fetch('/api/export-voxalike-pack', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ room: currentRoom, clientId })
+      });
+      if (!response.ok) throw new Error(await response.text());
+      return Array.from(new Uint8Array(await response.arrayBuffer()));
+    });
+    const archive = new AdmZip(Buffer.from(bytes));
+    const ini = archive.getEntries().find(entry => /^002_.*\.ini$/.test(entry.entryName));
+    assert.ok(archive.readAsText(ini).includes('dub_timestamps=[3.000, 3.050]'));
+    const wav = archive.readFile(archive.getEntries().find(entry => /^002_.*\.wav$/.test(entry.entryName)));
+    // FFmpeg writes extra WAV chunks: find the PCM data chunk, not a fixed offset.
+    let dataBytes = 0;
+    for (let offset = 12; offset + 8 <= wav.length;) {
+      const size = wav.readUInt32LE(offset + 4);
+      if (wav.toString('ascii', offset, offset + 4) === 'data') { dataBytes = size; break; }
+      offset += 8 + size + (size % 2);
+    }
+    assert.ok(Math.abs(dataBytes / (44100 * 2 * 2) - 0.05) < 0.002, `exported duration ${dataBytes / 176400}`);
+  });
+});
+
+describe('near-zero preparation', { skip: skipReason }, () => {
+  let server, browser, page;
+  before(async () => {
+    server = await startServer();
+    browser = await launchBrowser(server.port);
+    page = await openPlayer(browser, server.url('preparation'), 'Alice');
+    await loadFixture(page);
+    await claimAndSelect(page, 1);
+  });
+  after(async () => {
+    if (browser) await browser.close();
+    if (server) await server.cleanup();
+  });
+  for (const start of [0, 1, 3]) {
+    test(`line at ${start} s gets a full 5 s preparation and cancellation clears its timers`, async () => {
+      await page.evaluate(() => setStudioMode('edit'));
+      await waitFor(page, () => session.mode === 'edit');
+      assert.equal((await page.evaluate(start => updateEditorLine(session.lines.find(line => line.id === 1), { start, end: start + 1 }), start)).ok, true);
+      await page.evaluate(() => setStudioMode('dub'));
+      await waitFor(page, () => session.mode === 'dub');
+      await claimAndSelect(page, 1);
+      const result = await page.evaluate(async () => {
+        preRollSeconds = 5;
+        // Start from an ended frame to exercise preparation's auto-stop guard.
+        video.currentTime = video.duration;
+        await new Promise(resolve => video.addEventListener('seeked', resolve, { once: true }));
+        await handleStudioRecord(1);
+        const began = performance.now();
+        const audioStart = currentRecordingStartTime;
+        await new Promise(resolve => setTimeout(resolve, 300));
+        const held = { time: video.currentTime, paused: video.paused, state: recordState };
+        while (recordState === 'preparing' && performance.now() - began < 7000) await new Promise(resolve => setTimeout(resolve, 20));
+        const elapsed = (performance.now() - began) / 1000;
+        const state = recordState;
+        finishRecording({ discard: true });
+        const timersCleared = recordSpeechInterval === null && recordPlayTimeout === null;
+        await new Promise(resolve => setTimeout(resolve, 200));
+        return { elapsed, audioStart, held, state, paused: video.paused, idle: recordState === 'idle', timersCleared };
+      });
+      assert.equal(result.held.state, 'preparing');
+      assert.equal(result.held.paused, true);
+      assert.ok(result.held.time < 0.1, JSON.stringify(result));
+      assert.equal(result.audioStart, start - 5);
+      assert.equal(result.state, 'recording');
+      assert.ok(result.elapsed >= 4.85 && result.elapsed < 6.5, JSON.stringify(result));
+      assert.equal(result.idle, true);
+      assert.equal(result.paused, true);
+      assert.equal(result.timersCleared, true);
+    });
+  }
+  test('cancelling during the held frame never resumes playback later', async () => {
+    await page.evaluate(async () => {
+      await handleStudioRecord(1);
+      finishRecording({ discard: true });
+    });
+    await wait(2400); // line at 3 s: its otherwise scheduled hold is 2 s
+    assert.deepEqual(await page.evaluate(() => ({ idle: recordState === 'idle', paused: video.paused })), { idle: true, paused: true });
+    assert.deepEqual(page.errors, []);
+  });
+});
 
 describe('studio', { skip: skipReason }, () => {
   let server;

@@ -268,6 +268,13 @@ window.exportVoxalikePack = async function() {
   if (!amHost()) return alert(t('onlyHost'));
   const button = document.getElementById('packExportBtn');
   const status = document.getElementById('packExportStatus');
+  if (button.disabled) return;
+  const requestId = newUploadId();
+  const exportTitle = String(session.title || 'Dubline_pack').replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_');
+  const onProgress = progress => {
+    if (progress.requestId === requestId) status.textContent = t('packExport.lines', { current: progress.current, total: progress.total });
+  };
+  socket.on('pack_export_progress', onProgress);
   button.disabled = true;
   status.style.display = 'block';
   status.style.color = 'var(--accent-2)';
@@ -276,14 +283,16 @@ window.exportVoxalikePack = async function() {
     const response = await fetch('/api/export-voxalike-pack', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ room: currentRoom, clientId })
+      body: JSON.stringify({ room: currentRoom, clientId, requestId })
     });
     if (!response.ok) throw new Error(await readError(response));
     const blob = await response.blob();
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `${String(session.title || 'Dubline_pack').replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_')}.zip`;
+    const disposition = response.headers.get('Content-Disposition') || '';
+    const filename = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+    link.download = filename ? decodeURIComponent(filename[1]) : `${exportTitle}.zip`;
     link.click();
     setTimeout(() => URL.revokeObjectURL(url), 60000);
     status.style.color = 'var(--success)';
@@ -292,6 +301,7 @@ window.exportVoxalikePack = async function() {
     status.style.color = 'var(--danger)';
     status.textContent = t('error.generic', { message: err.message });
   } finally {
+    socket.off('pack_export_progress', onProgress);
     button.disabled = false;
   }
 };

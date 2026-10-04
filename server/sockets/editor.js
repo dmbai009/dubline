@@ -26,10 +26,13 @@ function editorAllowed(conn, room) {
   return !!conn.roomId && !!conn.nick && room.loaded && room.mode === 'edit';
 }
 
-function validBounds(startRaw, endRaw) {
+function validBounds(startRaw, endRaw, minimumSeconds = MIN_LINE_SECONDS) {
   const start = parseSeconds(startRaw);
   const end = parseSeconds(endRaw);
-  if (start === null || end === null || start < 0 || end > MAX_SCENE_SECONDS || end - start < MIN_LINE_SECONDS) return null;
+  // Bounds have millisecond precision; compare integer milliseconds so exactly
+  // 100 ms is not rejected as 0.09999999999999998 seconds.
+  if (start === null || end === null || start < 0 || end > MAX_SCENE_SECONDS ||
+      Math.round(end * 1000) - Math.round(start * 1000) < Math.max(1, Math.round(minimumSeconds * 1000))) return null;
   return { start, end };
 }
 
@@ -199,7 +202,9 @@ module.exports = function registerEditorHandlers(socket, conn) {
       const line = room.lines.find(item => item.id === id);
       if (!line) return reply({ ok: false, reason: 'missing' });
       if (Number(data.revision) !== Number(line.revision || 0)) { conflicts.push(line); continue; }
-      const bounds = validBounds(data.start ?? line.start, data.end ?? line.end);
+      // Preserve short imported cues: changing their caption or moving them must
+      // not force a longer duration. Newly created cues still require 100 ms.
+      const bounds = validBounds(data.start ?? line.start, data.end ?? line.end, Math.min(MIN_LINE_SECONDS, line.end - line.start));
       const character = data.character === undefined ? line.character : cleanTrackName(data.character);
       if (!bounds || !character) return reply({ ok: false, reason: 'invalid' });
       planned.push({ line, bounds, character, caption: data.caption === undefined ? line.caption : cleanCaption(data.caption) });

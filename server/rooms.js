@@ -50,7 +50,7 @@ function repairLineDurations(session) {
     if (!file || !fs.existsSync(file)) continue;
     const duration = path.extname(file).toLowerCase() === '.wav' ? getWavDuration(fs.readFileSync(file)) : probeAudioDuration(file);
     if (duration && Math.abs(duration - 3) > 0.05) {
-      line.end = Number((line.start + duration).toFixed(2));
+      line.end = Number((line.start + duration).toFixed(3));
       fixed++;
     }
   }

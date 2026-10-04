@@ -53,9 +53,10 @@ function stopVisualizer() {
 // Pre-roll before the line: the video rewinds and, near 0:00, holds the first frame
 // long enough to give the player the full configured preparation time.
 let recordPlayTimeout = null;
+let recordSpeechInterval = null;
 
 window.handleStudioRecord = async function(lineId) {
-  const line = session.lines.find(l => l.id === lineId);
+  let line = session.lines.find(l => l.id === lineId);
   if (!line) return;
   if (session.mode === 'edit') {
     showToast(t('editor.recordDisabled'));
@@ -101,11 +102,12 @@ window.handleStudioRecord = async function(lineId) {
   // The microphone permission prompt can outlive a mode/session/ownership change.
   const currentLine = session && session.lines.find(item => item.id === lineId);
   if (recordState !== 'idle' || !session || session.mode === 'edit' || watchMode ||
-      (session.activeSessionId || '') !== recordingSessionId || myName !== recordingNick ||
+      (session.activeSessionId || '') !== recordingSessionId || currentRoom !== recordingRoom || myName !== recordingNick ||
       !currentLine || getLineOwner(currentLine) !== recordingNick) {
     recordingMic.getTracks().forEach(track => track.stop());
     return;
   }
+  line = currentLine;
   micStream = recordingMic;
 
   if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -127,10 +129,10 @@ window.handleStudioRecord = async function(lineId) {
   const wantedPreRoll = Math.max(0, Math.min(5, Number(preRollSeconds) || 0));
   const videoPreRoll = Math.min(wantedPreRoll, line.start);
   const holdSeconds = Math.max(0, wantedPreRoll - videoPreRoll);
-  const playbackAt = performance.now() + holdSeconds * 1000;
   const startTime = Number((line.start - videoPreRoll).toFixed(3));
   const recordingStartTime = Number((startTime - holdSeconds).toFixed(3));
   currentRecordingStartTime = recordingStartTime;
+  video.pause();
   video.currentTime = startTime;
 
   recordState = 'preparing';
@@ -193,6 +195,7 @@ window.handleStudioRecord = async function(lineId) {
   };
 
   mediaRecorder.start(100);
+  const playbackAt = performance.now() + holdSeconds * 1000;
   socket.emit('recording_status', { lineId, recording: true });
   btn.className = 'btn-prep';
   btn.innerText = t('record.preparing');
@@ -207,10 +210,13 @@ window.handleStudioRecord = async function(lineId) {
   }
   startRecordCue(line, wantedPreRoll, holdSeconds);
 
-  const checkSpeechInterval = setInterval(() => {
-    if (performance.now() < playbackAt) return;
+  clearInterval(recordSpeechInterval);
+  recordSpeechInterval = setInterval(() => {
+    if (recordState === 'idle') return clearInterval(recordSpeechInterval);
+    if (performance.now() < playbackAt || video.seeking) return;
     if (video.currentTime >= line.start - 0.05) {
-      clearInterval(checkSpeechInterval);
+      clearInterval(recordSpeechInterval);
+      recordSpeechInterval = null;
       if (recordState === 'preparing') {
         recordState = 'recording';
         btn.className = 'btn-record recording-active';
@@ -230,6 +236,8 @@ window.handleStudioRecord = async function(lineId) {
 
   recordStopTimeout = setInterval(() => {
     if (recordState === 'idle') return clearInterval(recordStopTimeout);
+    // An ended frame from the previous playback can linger during the seek.
+    if (video.seeking) return;
     voiceMeter.getFloatTimeDomainData(samples);
     let sum = 0;
     for (let i = 0; i < samples.length; i++) sum += samples[i] * samples[i];
@@ -237,13 +245,17 @@ window.handleStudioRecord = async function(lineId) {
 
     const now = video.currentTime;
     // Measure microphone noise at the start of the pre-roll while the player is still silent
-    if (now < line.start - 0.6) {
+    if (performance.now() < playbackAt || now < line.start - 0.6) {
       noiseSum += level;
       noiseCount++;
     }
     const noise = noiseCount ? noiseSum / noiseCount : 0.003;
     // Voice threshold: clearly louder than the mic noise, but low enough for quiet phrase endings
     if (level > Math.max(noise * 2.5, 0.004)) lastVoiceAt = performance.now();
+
+    // Keep measuring microphone noise during the held frame, but do not stop
+    // preparation. After playback starts, an actual video ending still stops it.
+    if (performance.now() < playbackAt) return;
 
     const pastLine = now - line.end;
     const silentFor = (performance.now() - lastVoiceAt) / 1000;
@@ -260,6 +272,9 @@ const MIN_OVERRUN_LIMIT = 4;     // minimum time allowed to speak past the line
 function finishRecording({ discard = false } = {}) {
   clearInterval(recordStopTimeout);
   clearTimeout(recordPlayTimeout);
+  clearInterval(recordSpeechInterval);
+  recordPlayTimeout = null;
+  recordSpeechInterval = null;
   if (recordingLineId != null) socket.emit('recording_status', { lineId: recordingLineId, recording: false });
   recordState = 'idle';
   if (discard) discardTake = true;

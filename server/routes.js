@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { UPLOAD_DIR, PACKS_DIR, MAX_PACK_MB, MAX_PACK_EXPORT_MB, MAX_EXPORT_LINE_SECONDS, MAX_TAKE_MB, MAX_SUBTITLE_MB, HttpError } = require('./config');
-const { recordingNow, p2pSeeders } = require('./state');
+const { recordingNow, p2pSeeders, roomSockets } = require('./state');
 const { app, io } = require('./app');
 const { sanitizeNick, sanitizePackName } = require('./sanitize');
 const { resolveRoomId } = require('./desktop');
@@ -18,6 +18,7 @@ const { isAuthorized, isHost, getLineOwner } = require('./auth');
 const { parseWorkshopUrl, downloadVoxalikePack } = require('./workshop');
 
 const workshopDownloads = new Map();
+let packExportActive = false;
 
 // ==========================================
 // HTTP API
@@ -238,10 +239,12 @@ function iniQuoted(value) {
 // happens on the host machine and can be expensive for a long scene.
 app.post('/api/export-voxalike-pack', async (req, res) => {
   let tempDir = null;
+  let ownsExportSlot = false;
   try {
     const roomId = resolveRoomId(req.body.room);
     const room = getRoom(roomId);
     if (!isHost(room, req.body.clientId)) throw new HttpError(403, 'Only the room host can export a pack', 'error.hostOnlyPack');
+    if (packExportActive) throw new HttpError(409, 'Another pack export is in progress on this host', 'error.packExportBusy');
     if (!room.loaded || !room.videoUrl || !room.lines.length) throw new HttpError(400, 'The scene has no video or lines', 'error.noScene');
     if (room.lines.length > 2000) throw new HttpError(400, 'The scene has too many lines', 'error.tooManyLines');
     const videoPath = diskPathForUrl(room.videoUrl);
@@ -265,6 +268,15 @@ app.post('/api/export-voxalike-pack', async (req, res) => {
       throw new HttpError(413, `The exported pack would exceed ${MAX_PACK_EXPORT_MB} MB`, 'error.packExportTooLarge', { max: MAX_PACK_EXPORT_MB });
     }
 
+    packExportActive = true;
+    ownsExportSlot = true;
+    const requestId = typeof req.body.requestId === 'string' ? req.body.requestId.slice(0, 80) : '';
+    // Notify only the requesting host's windows, with a per-export identifier.
+    const recipients = Object.entries(roomSockets[roomId] || {}).filter(([, member]) => member.clientId === req.body.clientId).map(([id]) => id);
+    const progress = current => {
+      if (requestId && recipients.length) io.to(recipients).emit('pack_export_progress', { requestId, current, total: ordered.length });
+    };
+    progress(0);
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dubline-pack-'));
     const zip = new AdmZip();
     const title = packSafeName(room.title, 'Dubline scene');
@@ -288,7 +300,7 @@ app.post('/api/export-voxalike-pack', async (req, res) => {
       const line = ordered[index];
       const prefix = String(index + 1).padStart(Math.max(3, String(ordered.length).length), '0');
       const stem = `${prefix}_${packSafeName(line.character, 'Character')}`;
-      const duration = Math.max(0.1, line.end - line.start);
+      const duration = Number((line.end - line.start).toFixed(3));
       const audioPath = path.join(tempDir, `${stem}.wav`);
       const voicePath = line.originalAudioUrl ? diskPathForUrl(line.originalAudioUrl) : null;
       try {
@@ -304,17 +316,30 @@ app.post('/api/export-voxalike-pack', async (req, res) => {
       zip.addLocalFile(audioPath, '', `${stem}.wav`);
       const ini = `[data]\ntitle=${iniQuoted(`${line.character} ${index + 1}`)}\ncaption=${iniQuoted(line.caption)}\ndub_timestamps=[${line.start.toFixed(3)}, ${line.end.toFixed(3)}]\ndub_characters=${JSON.stringify([line.character])}\n`;
       zip.addFile(`${stem}.ini`, Buffer.from(ini, 'utf8'));
+      progress(index + 1);
     }
 
     const archiveName = `${packSafeName(title, 'Dubline_pack')}.zip`;
     const archive = zip.toBuffer();
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(archiveName)}`);
-    res.send(archive);
+    // Keep the export slot while the ZIP is being sent too: a slow connection
+    // can otherwise retain one large archive while a second is built in RAM.
+    if (!res.destroyed) await new Promise(resolve => {
+      const done = () => {
+        res.off('finish', done);
+        res.off('close', done);
+        resolve();
+      };
+      res.once('finish', done);
+      res.once('close', done);
+      res.send(archive);
+    });
     logEvent(roomId, `📦 ${room.host || 'Host'} exported Voxalike pack "${title}" (${ordered.length} lines)`);
   } catch (err) {
     sendError(res, err);
   } finally {
+    if (ownsExportSlot) packExportActive = false;
     if (tempDir && tempDir.startsWith(os.tmpdir() + path.sep)) fs.rm(tempDir, { recursive: true, force: true }, () => {});
   }
 });

@@ -207,44 +207,138 @@ window.createLineAtPlayhead = function(character = '') {
   });
 };
 
-window.showEditorInspector = function(line) {
+// Drafts are scoped to a scene and line, never to the currently selected tile.
+const editorDrafts = new Map();
+const EDITOR_FORM_FIELDS = ['start', 'end', 'character', 'caption'];
+function editorDraftKey(lineId) { return `${session.activeSessionId}:${lineId}`; }
+function readEditorForm(form) {
+  return Object.fromEntries(EDITOR_FORM_FIELDS.map(field => [field, form.querySelector(`[data-editor-field="${field}"]`).value]));
+}
+function rememberEditorDraft(form) {
+  const values = readEditorForm(form);
+  const key = form.dataset.draftKey;
+  const previous = editorDrafts.get(key);
+  if (previous && previous.pending) { previous.values = values; return previous; }
+  if (EDITOR_FORM_FIELDS.every(field => values[field] === String(form.editorBase[field] ?? ''))) {
+    editorDrafts.delete(key);
+    return null;
+  }
+  const draft = { base: form.editorBase, values };
+  editorDrafts.set(key, draft);
+  return draft;
+}
+function editorMinimumDuration(line) { return Math.max(0.001, Math.min(0.1, line.end - line.start)); }
+function validateEditorForm(form, line) {
+  const startInput = form.querySelector('[data-editor-field="start"]');
+  const endInput = form.querySelector('[data-editor-field="end"]');
+  endInput.setCustomValidity('');
+  const start = startInput.valueAsNumber;
+  const end = endInput.valueAsNumber;
+  let message = '';
+  if (!Number.isFinite(start) || !Number.isFinite(end)) message = t('editor.timingRequired');
+  else if (start < 0 || end > 43200) message = t('editor.timingRange');
+  else if (end <= start) message = t('editor.timingOrder');
+  else if (Math.round(end * 1000) - Math.round(start * 1000) < Math.round(editorMinimumDuration(line) * 1000)) {
+    message = t('editor.timingMinimum', { seconds: Number(editorMinimumDuration(line).toFixed(3)) });
+  } else if (startInput.validity.stepMismatch || endInput.validity.stepMismatch) message = t('editor.timingPrecision');
+  if (message) endInput.setCustomValidity(message);
+  form.querySelector('[data-editor-error]').textContent = message;
+  return !message && form.checkValidity();
+}
+window.reloadEditorDraft = function(lineId) {
+  editorDrafts.delete(editorDraftKey(lineId));
+  const line = session.lines.find(item => item.id === lineId);
+  if (line) showEditorInspector(line, false);
+};
+
+window.showEditorInspector = function(line, capture = true) {
+  const oldForm = inspector.querySelector('#editorLineForm');
+  if (oldForm && capture) rememberEditorDraft(oldForm);
+  const key = editorDraftKey(line.id);
+  const draft = editorDrafts.get(key);
   const tracks = sessionCharacters();
+  const conflict = draft && !draft.pending && Number(draft.base.revision || 0) !== Number(line.revision || 0);
+  // Unrelated room snapshots must not reset focus, selection or partially typed numbers.
+  if (capture && oldForm && oldForm.dataset.draftKey === key &&
+      oldForm.dataset.revision === String(line.revision || 0) && oldForm.dataset.tracks === JSON.stringify(tracks)) return;
+  const focused = oldForm && oldForm.contains(document.activeElement) ? document.activeElement : null;
+  const focusState = focused ? { id: focused.id, start: focused.selectionStart, end: focused.selectionEnd } : null;
+  const values = draft ? draft.values : Object.fromEntries(EDITOR_FORM_FIELDS.map(field => [field, String(line[field] ?? '')]));
+  const options = tracks.includes(values.character) ? tracks : [...tracks, values.character];
   inspector.innerHTML = `
     <div class="insp-head">
       <div class="insp-title"><b>${t('editor.line')}</b><span>#${line.id}</span></div>
       <span class="insp-chip me">${t('mode.edit')}</span>
     </div>
-    <form id="editorLineForm" class="setting-card" onsubmit="saveEditorLine(event, ${line.id})">
+    <form id="editorLineForm" class="setting-card" onsubmit="saveEditorLine(event, ${line.id})" novalidate>
       <label class="setting-sub">${t('editor.caption')}</label>
-      <textarea id="editorCaption" class="text-input" maxlength="2000" rows="4">${esc(line.caption || '')}</textarea>
+      <textarea id="editorCaption" data-editor-field="caption" class="text-input" maxlength="2000" rows="4">${esc(values.caption)}</textarea>
       <label class="setting-sub">${t('editor.track')}</label>
-      <select id="editorCharacter" class="text-input">
-        ${tracks.map(name => `<option value="${esc(name)}" ${name === line.character ? 'selected' : ''}>${esc(name)}</option>`).join('')}
+      <select id="editorCharacter" data-editor-field="character" class="text-input">
+        ${options.map(name => `<option value="${esc(name)}" ${name === values.character ? 'selected' : ''}>${esc(name)}</option>`).join('')}
       </select>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
-        <label class="setting-sub">${t('editor.start')}<input id="editorStart" class="text-input" type="number" min="0" max="43200" step="0.01" value="${line.start}" style="width:100%;margin-top:4px;"></label>
-        <label class="setting-sub">${t('editor.end')}<input id="editorEnd" class="text-input" type="number" min="0.1" max="43200" step="0.01" value="${line.end}" style="width:100%;margin-top:4px;"></label>
+        <label class="setting-sub">${t('editor.start')}<input id="editorStart" data-editor-field="start" class="text-input" type="number" min="0" max="43200" step="0.001" required value="${esc(values.start)}" style="width:100%;margin-top:4px;"></label>
+        <label class="setting-sub">${t('editor.end')}<input id="editorEnd" data-editor-field="end" class="text-input" type="number" min="0" max="43200" step="0.001" required value="${esc(values.end)}" style="width:100%;margin-top:4px;"></label>
       </div>
+      <p data-editor-error role="alert" style="color:var(--danger)"></p>
+      ${conflict ? `<div role="alert"><p>${t('editor.draftConflict')}</p><p>${esc(line.caption || '')} (${line.start}–${line.end})</p></div>` : ''}
+      ${draft ? `<button class="btn-outline" type="button" ${draft.pending ? 'disabled' : ''} onclick="reloadEditorDraft(${line.id})">${t('editor.loadLatest')}</button>` : ''}
       <div class="insp-actions">
-        <button class="btn-play grow" type="submit">${t('save')}</button>
+        <button class="btn-play grow" type="submit" ${conflict || (draft && draft.pending) ? 'disabled' : ''}>${t('save')}</button>
         <button class="btn-outline" type="button" onclick="video.currentTime=${line.start}">${t('editor.seek')}</button>
         <button class="btn-delete" type="button" onclick="deleteEditorLines([${line.id}])">${t('editor.delete')}</button>
       </div>
     </form>
     <p class="take-hint">${t('editor.dragHint')}</p>
   `;
+  const form = inspector.querySelector('#editorLineForm');
+  form.dataset.draftKey = key;
+  form.dataset.revision = String(line.revision || 0);
+  form.dataset.tracks = JSON.stringify(tracks);
+  form.editorBase = draft ? draft.base : { ...line };
+  form.addEventListener('input', () => { rememberEditorDraft(form); validateEditorForm(form, line); });
+  validateEditorForm(form, line);
+  if (focusState) {
+    const input = form.querySelector(`#${focusState.id}`);
+    if (input) {
+      input.focus();
+      if (input.tagName === 'TEXTAREA') input.setSelectionRange(focusState.start, focusState.end);
+    }
+  }
 };
 
 window.saveEditorLine = async function(event, lineId) {
   event.preventDefault();
   const line = session.lines.find(item => item.id === lineId);
   if (!line) return;
-  const start = Number(document.getElementById('editorStart').value);
-  const end = Number(document.getElementById('editorEnd').value);
-  const character = document.getElementById('editorCharacter').value;
-  const caption = document.getElementById('editorCaption').value;
-  const result = await updateEditorLine(line, { start, end, character, caption });
-  if (result && result.ok) showToast(t('editor.saved'));
+  const form = event.currentTarget;
+  if (!validateEditorForm(form, line)) return form.reportValidity();
+  const key = form.dataset.draftKey;
+  const draft = rememberEditorDraft(form) || { base: form.editorBase, values: readEditorForm(form) };
+  if (draft.pending || Number(draft.base.revision || 0) !== Number(line.revision || 0)) {
+    showEditorInspector(line);
+    return;
+  }
+  const submitted = { ...draft.values };
+  draft.pending = true;
+  editorDrafts.set(key, draft);
+  form.querySelector('button[type="submit"]').disabled = true;
+  const changes = { ...submitted, start: Number(submitted.start), end: Number(submitted.end) };
+  // A form edits the version the user actually saw, not a newer revision picked
+  // up while the request waited in the drag queue.
+  const result = await queueEditorRequest(() => ['editor_update_line', { lineId, revision: draft.base.revision || 0, ...changes }]);
+  draft.pending = false;
+  if (result && result.ok) {
+    const saved = result.line;
+    if (EDITOR_FORM_FIELDS.every(field => draft.values[field] === submitted[field])) editorDrafts.delete(key);
+    else draft.base = { ...saved };
+    showToast(t('editor.saved'));
+  } else editorResult(result);
+  if (session && editorDraftKey(lineId) === key && selectedLine && selectedLine.id === lineId && session.mode === 'edit') {
+    const current = session.lines.find(item => item.id === lineId);
+    if (current) showEditorInspector(current, false);
+  }
 };
 
 window.deleteEditorLines = function(lineIds) {
@@ -327,9 +421,9 @@ window.enableLineEditDrag = function(el, lineId) {
       moved = true;
       const shift = dx / pxPerSec;
       if (edge === 'start') {
-        start = Number(Math.max(0, Math.min(line.end - 0.1, line.start + shift)).toFixed(3));
+        start = Number(Math.max(0, Math.min(line.end - editorMinimumDuration(line), line.start + shift)).toFixed(3));
       } else if (edge === 'end') {
-        end = Number(Math.max(line.start + 0.1, line.end + shift).toFixed(3));
+        end = Number(Math.max(line.start + editorMinimumDuration(line), line.end + shift).toFixed(3));
       } else {
         delta = Number(Math.max(-minStart, shift).toFixed(3));
         // Vertical movement picks another role's track

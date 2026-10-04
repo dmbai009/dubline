@@ -136,24 +136,47 @@ async function main() {
     await host.evaluate(() => setStudioMode('edit'));
     await guest.waitForFunction(() => session.mode === 'edit');
     const created = await guest.evaluate(() => queueEditorRequest(() => ['editor_create_line', {
-      character: 'Smoke role', caption: 'Packaged smoke line', start: 1, end: 2
+      character: 'Smoke role', caption: 'Packaged smoke line', start: 1.234, end: 2.345
     }]));
     assert.equal(created.ok, true);
     await host.waitForFunction(id => session.lines.some(line => line.id === id), {}, created.line.id);
-    assert.equal((await guest.evaluate(id => updateEditorLine(session.lines.find(line => line.id === id), {
-      caption: 'Edited packaged line', end: 2.5
-    }), created.line.id)).ok, true);
+    const validForm = await guest.evaluate(id => {
+      selectLine(session.lines.find(line => line.id === id));
+      document.getElementById('editorCaption').value = 'Edited packaged line';
+      document.getElementById('editorEnd').value = '2.456';
+      return document.getElementById('editorLineForm').checkValidity();
+    }, created.line.id);
+    assert.equal(validForm, true, 'millisecond form is invalid');
+    await guest.click('#editorLineForm button[type="submit"]');
     await host.waitForFunction(id => session.lines.find(line => line.id === id)?.caption === 'Edited packaged line', {}, created.line.id);
+    assert.equal(await host.evaluate(id => session.lines.find(line => line.id === id).end, created.line.id), 2.456);
     assert.equal((await guest.evaluate(() => editorUndo())).undone, 1);
     await host.waitForFunction(id => session.lines.find(line => line.id === id)?.caption === 'Packaged smoke line', {}, created.line.id);
+    await guest.waitForFunction(id => session.lines.find(line => line.id === id)?.end === 2.345, {}, created.line.id);
+    await guest.evaluate(() => {
+      document.getElementById('editorCaption').value = 'Unsaved packaged draft';
+      document.getElementById('editorCaption').dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await host.evaluate(() => claimCharacter('Hero'));
+    await guest.waitForFunction(() => session.characterClaims.Hero === 'Smoke Host');
+    assert.equal(await guest.$eval('#editorCaption', input => input.value), 'Unsaved packaged draft');
+    await guest.evaluate(id => reloadEditorDraft(id), created.line.id);
     await guest.evaluate(() => claimCharacter('Smoke role'));
     await guest.waitForFunction(() => session.characterClaims['Smoke role'] === 'Smoke Guest');
     await host.evaluate(() => setStudioMode('dub'));
     await guest.waitForFunction(() => session.mode === 'dub');
-    await guest.evaluate(id => {
+    const preparation = await guest.evaluate(async id => {
       selectLine(session.lines.find(line => line.id === id));
-      handleStudioRecord(id);
+      preRollSeconds = 5;
+      await handleStudioRecord(id);
+      window.smokeRecordingBegan = performance.now();
+      return { audioStart: currentRecordingStartTime, paused: video.paused, state: recordState };
     }, created.line.id);
+    assert.equal(preparation.audioStart, -3.766);
+    assert.equal(preparation.paused, true);
+    assert.equal(preparation.state, 'preparing');
+    await guest.waitForFunction(() => recordState === 'recording', { timeout: 12000 });
+    assert.ok(await guest.evaluate(() => performance.now() - smokeRecordingBegan >= 4850), 'preparation was shorter than five seconds');
     await host.waitForFunction(id => !!session.lines.find(line => line.id === id)?.audioUrl, { timeout: 30000 }, created.line.id);
     await host.evaluate(() => socket.emit('set_blind_mode', { enabled: true }));
     await host.waitForFunction(id => session.blindMode && !canHearLine(session.lines.find(line => line.id === id)), {}, created.line.id);

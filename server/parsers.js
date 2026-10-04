@@ -55,8 +55,8 @@ function parseLineContent(content, fileName, fallbackId, originalAudioUrl, audio
     id,
     character,
     caption,
-    start: Number(start.toFixed(2)),
-    end: Number(end.toFixed(2)),
+    start: Number(start.toFixed(3)),
+    end: Number(end.toFixed(3)),
     durationChecked,
     originalAudioUrl: originalAudioUrl || null,
     claimedBy: null,
@@ -297,13 +297,13 @@ function parseSubtitles(buffer, fileName) {
         // Typesetters' vector drawings (\p1…) are not lines: skip them
         if (isAssDrawing(caption)) continue;
         caption = cleanAssText(caption);
-        if (caption) {
+        if (caption && Number.isFinite(start) && Number.isFinite(end) && start >= 0 && Math.round(end * 1000) > Math.round(start * 1000)) {
           lines.push({
             id: idCounter++,
             character: character || DEFAULT_CHARACTER,
             caption,
-            start: Number(start.toFixed(2)),
-            end: Number(Math.max(start + 0.5, end).toFixed(2)),
+            start: Number(start.toFixed(3)),
+            end: Number(end.toFixed(3)),
             originalAudioUrl: null,
             claimedBy: null,
             ...emptyTake()
@@ -343,13 +343,13 @@ function parseSubtitles(buffer, fileName) {
         caption = prefixed[2].trim();
       }
 
-      if (caption) {
+      if (caption && Number.isFinite(start) && Number.isFinite(end) && start >= 0 && Math.round(end * 1000) > Math.round(start * 1000)) {
         lines.push({
           id: idCounter++,
           character,
           caption,
-          start: Number(start.toFixed(2)),
-          end: Number(Math.max(start + 0.5, end).toFixed(2)),
+          start: Number(start.toFixed(3)),
+          end: Number(end.toFixed(3)),
           originalAudioUrl: null,
           claimedBy: null,
           ...emptyTake()

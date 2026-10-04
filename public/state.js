@@ -45,7 +45,7 @@
     prompterEnabled: storage.getItem('dubline_prompter') !== '0',
     cueEnabled: storage.getItem('dubline_cue') !== '0',
     preRollSeconds: Number.isFinite(storedPreRoll)
-      ? Math.max(0, Math.min(5, storedPreRoll))
+      ? Math.round(Math.max(0, Math.min(5, storedPreRoll)) * 10) / 10
       : 1,
     prompterSize: Number.isFinite(storedPrompterSize)
       ? Math.max(14, Math.min(36, storedPrompterSize))
