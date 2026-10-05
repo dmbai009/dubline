@@ -31,6 +31,7 @@ Dubline is a dubbing studio and party game for recording scenes together.
 - **Single Player:** dub every role yourself and invite friends into the same project later.
 - **Portable projects:** save and reopen a complete scene as `.dubline`, including media, recordings and mix settings.
 - **Large video optimization:** use a smaller working copy and keep the original for final export.
+- **Clip mixing:** individual or bulk volume, stereo pan and adjustable voice-effect amount, with author/host permissions.
 - **Choose your storage drive:** move project media, recordings and the library to another disk.
 - **Timeline and audio improvements:** smoother auto-ducking, clearer loading status, reliable fullscreen and audio-track controls, precise group editing and adjustable role heights.
 - **Clearer settings:** separate personal monitoring and microphone preferences from the shared project mix.
@@ -72,6 +73,8 @@ Adjust microphone gain, noise suppression, preparation time and microphone-delay
 Trim and align takes without changing their original audio. Pitch shifting and robot, radio, monster, thoughts, cave, behind-a-door and megaphone effects apply during playback and export. Each line keeps one current take; recording again replaces it.
 
 If an upload is interrupted, the take stays on that device and retries after reconnection, including after a page reload. A delayed upload belongs to the scene in which it was recorded.
+
+Clip mix controls in the inspector set volume (0–300%), stereo pan (1% steps), and effect amount (0–100%, original/processed blend). Actors can change their own recordings after releasing a role; the host can change any clip. Ctrl/Shift selection spans roles. Changing a bulk setting gives every editable recorded clip the same value and preserves unrelated settings. Preview, video export and stereo WAV stems use the same clip settings. Changed clip mixes are saved in `.dubline` format 3, requiring this development version or newer.
 
 ### Audio and playback
 

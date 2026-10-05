@@ -32,7 +32,7 @@ test('static DOM references exist and legacy modal IDs are gone', () => {
 
 test('client modules load in dependency order', () => {
   const scripts = [...html.matchAll(/<script[^>]+src=["']([^"']+)["']/g)].map(match => match[1]);
-  const positions = ['i18n.js', 'state.js', 'audio-fx.js', 'audio.js', ...CLIENT_MODULES].map(name => scripts.indexOf(name));
+  const positions = ['i18n.js', 'state.js', 'take-mix.js', 'audio-fx.js', 'audio.js', ...CLIENT_MODULES].map(name => scripts.indexOf(name));
   assert.ok(positions.every(position => position >= 0), 'a required client module is missing');
   assert.deepEqual([...positions].sort((a, b) => a - b), positions);
 });
@@ -62,6 +62,7 @@ test('state module owns persisted settings and compatibility aliases', () => {
 test('audio module exposes bounded take timing without leaking playback internals', () => {
   const context = {
     window: {
+      DublineTakeMix: require('../public/take-mix'),
       DublineAudioFx: {
         effectTailSeconds: effect => effect === 'cave' ? 2 : 0,
         fetchAndDecode: async () => null,
@@ -104,7 +105,7 @@ test('all interface translation keys exist in English, Russian and Ukrainian', (
   const markupKeys = [...html.matchAll(/data-i18n(?:-placeholder|-title)?=["']([^"']+)["']/g)].map(match => match[1]);
   const appKeys = [...app.matchAll(/\bt\(['`]([^'`${}]+)['`]/g)].map(match => match[1]);
   const serverKeys = [...server.matchAll(/addSystemMessage\([^,]+,\s*['"]([^'"]+)['"]/g)].map(match => match[1]);
-  const dynamicKeys = ['effect.none', 'effect.robot', 'effect.radio', 'effect.monster',
+  const dynamicKeys = ['clip.volume', 'clip.pan', 'clip.effectAmount', 'effect.none', 'effect.robot', 'effect.radio', 'effect.monster',
     'effect.thoughts', 'effect.cave', 'effect.behindDoor', 'effect.megaphone'];
   for (const key of new Set([...markupKeys, ...appKeys, ...serverKeys, ...dynamicKeys])) {
     for (const language of ['en', 'ru', 'uk']) assert.ok(messages[language][key], `${language}.${key} is missing`);

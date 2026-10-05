@@ -55,3 +55,12 @@ On 2026-10-05 the unit/server suite passed 144/144 before two additional storage
 Syntax and whitespace checks passed. Native storage smoke passed recording/save/close/reopen, immediate/deferred migration, original-video packet identity after both moves and rejection of untrusted storage IPC. The final Windows portable EXE passed a pending C-to-D storage move followed by PIN guest import, shared editing/Undo, recording, .dubline save/open and original video mux/download. No GitHub release is implied by these local build checks.
 
 Sparse >1 GiB fixtures exercise disk IO and memory bounds; they do not establish the compression time of a real anime episode. Physical >4 GiB project archives and subjective microphone/headphone/WAN behavior remain outside these automated checks.
+
+Clip mixing regressions: node --test take-mix.test.js projects.test.js reliability.test.js test/client-integrity.test.js; node --test e2e/take-mix.e2e.js. The browser suite uses real Web Audio rendering and sockets to cover author/host rights, released and reclaimed lines, atomic batches, conflicts, bulk UI and mixed values, 0/50/100% effects, stereo pan, preview/playback graphs, muted ducking, export snapshots, stereo stems, project save/open and restart.
+
+Native clip mixing smoke: npm run test:electron:take-mix uses hidden Electron windows with real recording, inspector controls, stereo stem rendering, format-3 save/launcher open in both modes, and original video packet identity during final export.
+
+## Clip mixing validation (2026-10-05)
+
+After the clip-mixing changes, npm test passed 153/153 and npm run test:e2e passed 192/192 across 22 browser suites, with zero failures/skips. npm run check and Git whitespace checks passed. Native Electron clip smoke passed real recording, inspector controls, stereo WAV rendering, format-3 save/open in Single Player and Multiplayer, and source video packet preservation. npm run dist built the updated Windows portable EXE. QA screenshots are local-only under docs/qa.
+The exact dist/Dubline.exe passed the isolated Porthole/PIN guest smoke, author/host clip controls, stereo stem rendering, format-3 project save/open, shared editor/Undo, recording, Blind Mode and original-video mux/download. SHA-256: 996686d89c6a7291b80fc8b62acc24691128dd05b681f8d5e33cb26cb10b9c2e. No GitHub release was created.

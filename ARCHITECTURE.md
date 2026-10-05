@@ -52,3 +52,5 @@ Auto-duck timing and smooth gain automation are shared in public/project-audio.j
 ## Desktop storage routing
 
 electron-storage.js stores a version-1 storage.json preference in the unchanged Electron userData profile. Server data/uploads/packs are migrated with disk copies and an atomic preference switch before server startup. Paths within scenes remain relative URLs. Main-frame-only launcher/host IPC selects storage; guest preloads have no such capability. Server environment directories and native cleanup use the selected root. Voxalike temporary export files also use DATA_DIR.
+
+Clip mixing uses public/take-mix.js for shared bounds/defaults and author/host ownership policy. server/sockets/roles.js validates atomic set_takes_props batches against session, audio URL and takeMixRevision. public/audio-fx.js renders the dry/wet effect blend and provides connectTake for a shared gain/stereo-panner path used by public/audio.js and public/export.js. Volume/pan do not invalidate processed audio caches. Version-3 serialization in server/projects.js is explicit; runtime revisions are omitted.

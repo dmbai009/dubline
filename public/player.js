@@ -701,7 +701,7 @@ window.nudgeLatency = function(deltaMs) {
 
 window.setTakeProps = function(lineId, props) {
   const line = session.lines.find(item => item.id === lineId);
-  if (line) socket.emit('set_take_props', { lineId, ...props, sessionId: session.activeSessionId, audioUrl: line.audioUrl });
+  if (line) socket.emit('set_take_props', { lineId, ...props, sessionId: session.activeSessionId, audioUrl: line.audioUrl, takeMixRevision: line.takeMixRevision || 0 });
 };
 
 window.nudgeTake = function(lineId, delta) {

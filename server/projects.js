@@ -10,7 +10,8 @@ const { UPLOAD_DIR, MAX_VIDEO_MB, MAX_CAPTION_LENGTH, VOICE_EFFECTS, MAX_PITCH, 
 const { diskPathForUrl } = require('./files');
 
 const FORMAT = 'dubline-project';
-const VERSION = 2;
+const VERSION = 3;
+const takeMix = require('../public/take-mix');
 // Production save/open uses project-archive.js and bounded streams.
 const MAX_VIDEO_BYTES = MAX_VIDEO_MB * 1024 * 1024;
 const MAX_MANIFEST_BYTES = 4 * 1024 * 1024;
@@ -110,6 +111,7 @@ function captureProject(session, resolveAsset = diskPathForUrl, snapshotDir = nu
         asset: asset(line.audioUrl, true), audioStart: line.audioStart ?? null,
         recordedStart: line.recordedStart ?? null, trimStart: line.trimStart ?? null, trimEnd: line.trimEnd ?? null,
         trimEnabled: line.trimEnabled !== false, effect: line.effect || 'none', pitch: line.pitch || 0,
+        ...takeMix.normalize(line),
         recordedBy: line.recordedBy || null
       }
     }))
@@ -118,7 +120,8 @@ function captureProject(session, resolveAsset = diskPathForUrl, snapshotDir = nu
     project.media.originalVideo = asset(session.originalVideoUrl);
     project.media.originalVideoName = String(session.originalVideoName || 'source').slice(0, 200);
   }
-  const manifest = { format: FORMAT, formatVersion: session.originalVideoUrl ? VERSION : 1, project, assets };
+  const manifest = { format: FORMAT, formatVersion: project.lines.some(line => Object.entries(takeMix.DEFAULTS).some(([key, value]) => line.take[key] !== value)) ? VERSION : (session.originalVideoUrl ? 2 : 1), project, assets };
+  if (manifest.formatVersion < 3) project.lines.forEach(line => Object.keys(takeMix.DEFAULTS).forEach(field => { delete line.take[field]; }));
   const manifestBytes = Buffer.from(JSON.stringify(manifest), 'utf8');
   if (manifestBytes.length > MAX_MANIFEST_BYTES) fail('Project manifest is too large');
   validateManifest(manifest);
@@ -143,7 +146,7 @@ function safeArchivePath(name) {
 
 function validateManifest(manifest) {
   if (!object(manifest) || manifest.format !== FORMAT) fail('Invalid project manifest');
-  if (![1, VERSION].includes(manifest.formatVersion)) throw new HttpError(400, 'Unsupported project version', 'project.unsupportedVersion');
+  if (![1, 2, VERSION].includes(manifest.formatVersion)) throw new HttpError(400, 'Unsupported project version', 'project.unsupportedVersion');
   if (!Array.isArray(manifest.assets) || !manifest.assets.length || manifest.assets.length >= MAX_ENTRIES) fail('Invalid project assets');
   const assets = new Map();
   let totalBytes = 0;
@@ -172,11 +175,11 @@ function validateManifest(manifest) {
   const m = p.media;
   if (!object(m) || ![null, true, false].includes(m.videoHasAudio) || !Array.isArray(m.audioTracks) || m.audioTracks.length > 64 ||
       !Number.isInteger(m.originalTrack) || m.originalTrack < -1 || !Number.isInteger(m.backingTrack) || m.backingTrack < -1) fail('Invalid source selection');
-  if (manifest.formatVersion === 2) {
+  if (manifest.formatVersion >= 2 && m.originalVideo !== undefined) {
     ref(m.originalVideo, true);
     if (!['.mp4', '.mkv', '.webm'].includes(path.posix.extname(m.originalVideo).toLowerCase()) ||
         m.originalVideo === m.video || !text(m.originalVideoName, 200, true)) fail('Invalid original video');
-  } else if (m.originalVideo !== undefined || m.originalVideoName !== undefined) fail('Original video requires project version 2');
+  } else if (manifest.formatVersion === 2 || m.originalVideo !== undefined || m.originalVideoName !== undefined) fail('Invalid original video version');
   ref(m.video, true, true);
   if (assets.get(m.video).size > MAX_VIDEO_BYTES) videoTooLarge();
   ref(m.original); ref(m.backing); ref(m.baseBacking);
@@ -210,6 +213,12 @@ function validateManifest(manifest) {
     const take = line.take;
     if (!object(take) || !VOICE_EFFECTS.includes(take.effect) || !finite(take.pitch, -MAX_PITCH, MAX_PITCH) ||
         typeof take.trimEnabled !== 'boolean' || !(take.recordedBy === null || text(take.recordedBy, 16, true))) fail('Invalid project take');
+    for (const [field, fallback] of Object.entries(takeMix.DEFAULTS)) {
+      if (manifest.formatVersion === 3 || take[field] !== undefined) {
+        if (!takeMix.valid(field, take[field])) fail('Invalid clip mix');
+        if (manifest.formatVersion < 3 && take[field] !== fallback) fail('Clip mix requires project version 3');
+      }
+    }
     for (const field of ['audioStart', 'recordedStart', 'trimStart', 'trimEnd']) {
       if (take[field] !== null && !finite(take[field], field.startsWith('trim') ? 0 : -86400, 86400)) fail('Invalid take alignment');
     }
@@ -291,7 +300,8 @@ function fieldsForProject(project, urls) {
       audioUrl: url(line.take.asset) || null,
       audioStart: line.take.audioStart, recordedStart: line.take.recordedStart,
       trimStart: line.take.trimStart, trimEnd: line.take.trimEnd, trimEnabled: line.take.trimEnabled,
-      effect: line.take.effect, pitch: line.take.pitch, recordedBy: line.take.recordedBy
+      effect: line.take.effect, pitch: line.take.pitch, recordedBy: line.take.recordedBy,
+      ...takeMix.normalize(line.take)
       // Fresh session/sequence identity: old queued uploads must never target these takes.
     }))
   };

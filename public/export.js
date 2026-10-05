@@ -138,7 +138,7 @@ async function mixSoundtrack(duration, gains, onStep, snapshot = createExportSna
   backingBus.gain.value = backingBase;
   originalBus.gain.value = originalBase;
 
-  const place = (buffer, gain, when, from = 0, to = buffer ? buffer.duration : 0, destination = limiter) => {
+  const place = (buffer, gain, when, from = 0, to = buffer ? buffer.duration : 0, destination = limiter, take = null) => {
     if (!buffer || gain <= 0) return;
     to = Math.min(to, buffer.duration);
     if (to <= from) return;
@@ -148,7 +148,8 @@ async function mixSoundtrack(duration, gains, onStep, snapshot = createExportSna
     src.buffer = buffer;
     const g = ctx.createGain();
     g.gain.value = gain;
-    src.connect(g);
+    if (take) window.DublineAudioFx.connectTake(ctx, src, g, take);
+    else src.connect(g);
     g.connect(destination);
     src.start(Math.max(0, when), from + skip, to - from - skip);
   };
@@ -168,9 +169,10 @@ async function mixSoundtrack(duration, gains, onStep, snapshot = createExportSna
   for (let i = 0; gains.dub > 0 && i < takes.length; i++) {
     onStep(t('render.takes', { current: i + 1, total: takes.length }));
     const line = takes[i];
+    if (window.DublineTakeMix.normalize(line).volume === 0) continue;
     const buffer = await requireExportTake(line);
     const { from, to } = takeBounds(line, buffer.duration);
-    place(buffer, gains.dub, startOf(line) + from, from, to);
+    place(buffer, gains.dub, startOf(line) + from, from, to, limiter, line);
     if (gains.dub > 0) duckIntervals.push([Math.max(0, startOf(line) + from), Math.min(duration, startOf(line) + to)]);
   }
 
@@ -212,13 +214,14 @@ function audioBufferToWav(buffer) {
 async function renderCharacterStem(lines, duration, sampleRate = 48000, snapshot = createExportSnapshot()) {
   lines = structuredClone(lines);
   const gain = snapshot.gains.dub;
-  const ctx = new OfflineAudioContext(1, Math.max(1, Math.ceil(duration * sampleRate)), sampleRate);
+  const ctx = new OfflineAudioContext(2, Math.max(1, Math.ceil(duration * sampleRate)), sampleRate);
   const limiter = ctx.createDynamicsCompressor();
   limiter.threshold.value = -1;
   limiter.knee.value = 0;
   limiter.ratio.value = 20;
   limiter.connect(ctx.destination);
   for (const line of gain > 0 ? lines : []) {
+    if (window.DublineTakeMix.normalize(line).volume === 0) continue;
     const buffer = await requireExportTake(line);
     const { from, to } = takeBounds(line, buffer.duration);
     const when = exportTakeStart(line, snapshot.scene) + from;
@@ -228,7 +231,8 @@ async function renderCharacterStem(lines, duration, sampleRate = 48000, snapshot
     source.buffer = buffer;
     const level = ctx.createGain();
     level.gain.value = gain;
-    source.connect(level).connect(limiter);
+    window.DublineAudioFx.connectTake(ctx, source, level, line);
+    level.connect(limiter);
     source.start(Math.max(0, when), from + skip, to - from - skip);
   }
   return ctx.startRendering();

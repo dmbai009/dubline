@@ -8,6 +8,7 @@ const { sceneDirOf, diskPathForUrl, fileSizeForUrl, fileHashForUrl, deleteTakeFi
 const { extractAudioTracks, probeAudioDuration, getWavDuration } = require('./media');
 const { isAssDrawing, cleanAssText } = require('./parsers');
 const projectAudio = require('../public/project-audio');
+const takeMix = require('../public/take-mix');
 const timelineBounds = require('../public/timeline-model');
 
 // ==========================================
@@ -99,6 +100,13 @@ function normalizeEditorState(session) {
   let maxId = 0;
   session.lines.forEach(line => {
     maxId = Math.max(maxId, Number(line.id) || 0);
+    const mix = takeMix.normalize(line);
+    if (Object.keys(mix).some(field => line[field] !== mix[field])) repairedOnLoad = true;
+    Object.assign(line, mix);
+    if (!Number.isSafeInteger(line.takeMixRevision) || line.takeMixRevision < 0) {
+      line.takeMixRevision = 0;
+      repairedOnLoad = true;
+    }
     if (!Number.isInteger(line.revision) || line.revision < 0) {
       line.revision = 0;
       repairedOnLoad = true;

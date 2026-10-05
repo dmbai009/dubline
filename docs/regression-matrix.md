@@ -28,3 +28,5 @@ Large disk IO: projects-stream.test.js exercises real >400 MiB save/open, ZIP64,
 Proxy/source + smoother ducking: video-proxy.test.js and e2e/proxy.e2e.js cover >1 GiB IO, 720p proxy, complete v2 archive, original codec/packet-preserving MP4/MKV export, original audio/subtitles, host/privacy/cancellation and gain continuity. Validation commands and limitations: TESTING.md.
 
 Storage folder: electron-storage.test.js and native/storage launcher checks cover immediate/deferred copy, persistence, large-file memory bounds, actual disk-boundary migration, source retention on failure, destination/junction safety and final original-video export after migration.
+
+Clip mixing: author/host permissions after release/reclaim; atomic bulk across roles; mixed values and absolute assignment; invalid/session/revision/URL conflicts; non-destructive rerecord/delete; effect dry/wet endpoints and user pitch; real gain/pan in preview, playback, stereo stems and final mix; live ramps, muted ducking and pending-processing cancellation; format-3 save/open/restart with legacy 1/2 defaults. Covered by take-mix.test.js, e2e/take-mix.e2e.js and tools/electron-take-mix-smoke.js.

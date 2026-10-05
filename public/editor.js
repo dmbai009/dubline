@@ -328,7 +328,11 @@ window.showEditorInspector = function(line, capture = true) {
   draft = editorDrafts.get(key);
   // Unrelated room snapshots must not reset focus, selection or partially typed numbers.
   if (capture && oldForm && oldForm.dataset.draftKey === key &&
-      oldForm.dataset.revision === String(line.revision || 0) && oldForm.dataset.tracks === JSON.stringify(tracks)) return;
+      oldForm.dataset.revision === String(line.revision || 0) && oldForm.dataset.tracks === JSON.stringify(tracks)) {
+    const mix = inspector.querySelector('[data-editor-take]');
+    if (mix) mix.innerHTML = takePanelHtml(line, canEditTake(line));
+    return;
+  }
   const focused = oldForm && oldForm.contains(document.activeElement) ? document.activeElement : null;
   const focusState = focused ? { id: focused.id, start: focused.selectionStart, end: focused.selectionEnd } : null;
   const values = draft ? draft.values : Object.fromEntries(EDITOR_FORM_FIELDS.map(field => [field, String(line[field] ?? '')]));
@@ -359,6 +363,7 @@ window.showEditorInspector = function(line, capture = true) {
         <button class="btn-delete" type="button" onclick="deleteEditorLines([${line.id}])">${t('editor.delete')}</button>
       </div>
     </form>
+    <div data-editor-take>${takePanelHtml(line, canEditTake(line))}</div>
     <p class="take-hint">${t('editor.dragHint')}</p>
   `;
   const form = inspector.querySelector('#editorLineForm');

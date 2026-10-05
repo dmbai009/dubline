@@ -246,6 +246,26 @@ async function main() {
         recorder: mediaRecorder?.state, pendingUploads: pendingTakes.size, selected: selectedLine?.id }));
       throw new Error(`${error.message}: ${JSON.stringify({ state, dialogs: guest.dialogs, errors: guest.errors, diagnostics: diagnostics.filter(message => message.startsWith('page:') || message.startsWith('guest:')) })}`);
     });
+    await guest.evaluate(id => {
+      selectLine(session.lines.find(line => line.id === id));
+      const input = document.querySelector('[data-clip-field=volume]');
+      input.value = '64'; input.dispatchEvent(new Event('change', { bubbles: true }));
+    }, created.line.id);
+    await host.waitForFunction(id => session.lines.find(line => line.id === id)?.volume === 0.64, {}, created.line.id);
+    await host.evaluate(id => {
+      selectLine(session.lines.find(line => line.id === id));
+      const input = document.querySelector('[data-clip-field=pan]');
+      input.value = '-35'; input.dispatchEvent(new Event('change', { bubbles: true }));
+    }, created.line.id);
+    await guest.waitForFunction(id => session.lines.find(line => line.id === id)?.pan === -0.35, {}, created.line.id);
+    await host.evaluate(() => {
+      const input = document.querySelector('[data-clip-field=effectAmount]');
+      input.value = '45'; input.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await guest.waitForFunction(id => session.lines.find(line => line.id === id)?.effectAmount === 0.45, {}, created.line.id);
+    const channels = await host.evaluate(async id => (await renderCharacterStem([session.lines.find(line => line.id === id)], 12)).numberOfChannels, created.line.id);
+    assert.equal(channels, 2);
+    process.stdout.write('Packaged clip author/host controls and stereo stem render passed.\n');
     await host.evaluate(() => socket.emit('set_blind_mode', { enabled: true }));
     await host.waitForFunction(id => session.blindMode && !canHearLine(session.lines.find(line => line.id === id)), {}, created.line.id);
     await host.evaluate(() => revealAllTakes());
@@ -272,16 +292,17 @@ async function main() {
     assert.equal(await host.evaluate(() => document.body.classList.contains('video-expanded')), true);
     await host.evaluate(() => toggleExpandedVideo());
     const portable = await host.evaluate(async () => {
-      const before = { id:session.activeSessionId, title:session.title, lines:session.lines.length, takes:session.lines.filter(line=>line.audioUrl).length };
+      const before = { id:session.activeSessionId, title:session.title, lines:session.lines.length, takes:session.lines.filter(line=>line.audioUrl).length, clip:session.lines.find(line=>line.audioUrl) };
       const saved = await fetch('/api/export-project',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({room:currentRoom,clientId,sessionId:before.id})});
       if(!saved.ok)throw Error(await saved.text());
       const form=new FormData();form.append('clientId',clientId);form.append('sessionId',before.id);form.append('project',await saved.blob(),'portable.dubline');
       const opened=await fetch('/api/import-project?room='+currentRoom,{method:'POST',body:form});if(!opened.ok)throw Error(await opened.text());
-      const after=(await opened.json()).session;return {before,after:{id:after.activeSessionId,title:after.title,lines:after.lines.length,takes:after.lines.filter(line=>line.audioUrl).length}};
+      const after=(await opened.json()).session;return {before,after:{id:after.activeSessionId,title:after.title,lines:after.lines.length,takes:after.lines.filter(line=>line.audioUrl).length,clip:after.lines.find(line=>line.audioUrl)}};
     });
     assert.notEqual(portable.after.id,portable.before.id);assert.equal(portable.after.title,portable.before.title);assert.equal(portable.after.lines,portable.before.lines);assert.equal(portable.after.takes,portable.before.takes);
     await guest.waitForFunction(id=>session.activeSessionId===id,{timeout:30000},portable.after.id);
-    process.stdout.write('Packaged .dubline disk save/open retained media and recordings.\n');
+    for (const field of ['volume','pan','effectAmount']) assert.equal(portable.after.clip[field], portable.before.clip[field]);
+    process.stdout.write('Packaged .dubline disk save/open retained media, recordings and clip mixes.\n');
     const optimized = await host.evaluate(async () => {
       const source=await (await fetch(session.videoUrl)).blob();
       const form=new FormData();form.append('clientId',clientId);form.append('video',source,'episode.mp4');

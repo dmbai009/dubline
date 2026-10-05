@@ -35,3 +35,7 @@ My Settings contains microphone, monitoring, local auto-duck, ADR volume/prepara
 ## Desktop storage folder
 
 The launcher and My Settings let the desktop host select a parent folder on another drive. Dubline creates a dedicated Dubline subfolder and moves persisted scenes, original/proxy media, audio, recordings, library and server export staging. Launcher changes apply immediately; host changes apply at the next workspace launch, after the current scene has been flushed on close. Saved archives/final downloads retain their chosen destination. Chromium preferences/cache and portable executable extraction remain in their normal system locations.
+
+## Clip mixing in development main
+
+The inspector supports per-recording volume, stereo pan and effect blend, individually or across a multi-selection. Authors control their own recordings; hosts control every recording, in Dub and Edit Mode. Bulk changes set an absolute value and preserve unrelated settings. Processing stays non-destructive; project files, previews, final videos and stereo character stems retain these settings. Changed clip mixes use portable format 3; formats 1/2 remain readable.

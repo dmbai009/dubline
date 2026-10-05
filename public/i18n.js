@@ -1637,4 +1637,53 @@
   });
   window.DublineI18n = { t, apply, setLanguage, getLanguage: () => language, languageName, messages };
   if (preferences && preferences.setLanguage) preferences.setLanguage(language).catch(() => {});
+
+  Object.assign(messages.en, {
+  "clip.title": "Clip mix",
+  "clip.volume": "Volume",
+  "clip.pan": "Pan",
+  "clip.effectAmount": "Effect amount",
+  "clip.mixed": "Mixed",
+  "clip.center": "Centre",
+  "clip.left": "L {n}%",
+  "clip.right": "R {n}%",
+  "clip.bulk": "Editing {n} of {total} recorded clips. Each changed setting is set to the same value for all editable clips.",
+  "clip.effectHelp": "Effect amount blends the original voice (0%) with the selected effect (100%). Choose a voice effect to hear the processing.",
+  "clip.readOnly": "Only the recording author and the host can change this clip.",
+  "clip.timeout": "No reply received. Check the clip settings before retrying.",
+  "clip.changed": "The clip or scene changed. Review the latest settings and try again.",
+  "clip.invalid": "Invalid clip settings."
+});
+  Object.assign(messages.ru, {
+  "clip.title": "Сведение клипа",
+  "clip.volume": "Громкость",
+  "clip.pan": "Панорама",
+  "clip.effectAmount": "Сила эффекта",
+  "clip.mixed": "Разные",
+  "clip.center": "Центр",
+  "clip.left": "Л {n}%",
+  "clip.right": "П {n}%",
+  "clip.bulk": "Изменяемых клипов: {n} из {total}. Каждый изменённый параметр получит одно значение у всех доступных клипов.",
+  "clip.effectHelp": "Сила эффекта смешивает исходный голос (0%) с выбранным эффектом (100%). Выберите эффект голоса, чтобы услышать обработку.",
+  "clip.readOnly": "Менять клип могут только автор записи и хост.",
+  "clip.timeout": "Ответ не получен. Проверьте настройки клипа перед повтором.",
+  "clip.changed": "Клип или сцена изменились. Проверьте актуальные настройки и повторите.",
+  "clip.invalid": "Некорректные настройки клипа."
+});
+  Object.assign(messages.uk, {
+  "clip.title": "Зведення кліпу",
+  "clip.volume": "Гучність",
+  "clip.pan": "Панорама",
+  "clip.effectAmount": "Сила ефекту",
+  "clip.mixed": "Різні",
+  "clip.center": "Центр",
+  "clip.left": "Л {n}%",
+  "clip.right": "П {n}%",
+  "clip.bulk": "Доступні кліпи: {n} з {total}. Кожен змінений параметр отримає одне значення в усіх доступних кліпах.",
+  "clip.effectHelp": "Сила ефекту змішує початковий голос (0%) з вибраним ефектом (100%). Виберіть ефект голосу, щоб почути обробку.",
+  "clip.readOnly": "Змінювати кліп можуть лише автор запису та хост.",
+  "clip.timeout": "Відповідь не отримано. Перевірте налаштування кліпу перед повторенням.",
+  "clip.changed": "Кліп або сцена змінилися. Перевірте актуальні налаштування та повторіть.",
+  "clip.invalid": "Некоректні налаштування кліпу."
+});
 })();

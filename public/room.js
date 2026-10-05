@@ -655,24 +655,28 @@ function applySessionUpdate(data) {
 
 socket.on('session_updated', applySessionUpdate);
 
-socket.on('line_updated', (updatedLine) => {
+function applyTakeUpdates(lines) {
   if (!session || !session.lines) return;
-  const idx = session.lines.findIndex(l => l.id === updatedLine.id);
-  if (idx !== -1) {
-    // Shift/effects change on the fly: if the take is playing, restart it with the new settings
-    if (!video.paused) {
-      resetLine(updatedLine.id);
-    }
+  let changed = false, selectedChanged = false;
+  for (const updatedLine of lines) {
+    const idx = session.lines.findIndex(line => line.id === updatedLine.id);
+    if (idx === -1) continue;
+    audio.updateLine(session.lines[idx], updatedLine);
     session.lines[idx] = updatedLine;
     updateLineBlock(updatedLine);
-    if (window.refreshStudioWaves) window.refreshStudioWaves();
-    renderLobby();
     if (updatedLine.audioUrl) getProcessedTake(updatedLine);
-    if (selectedLine && selectedLine.id === updatedLine.id) {
-      selectedLine = updatedLine;
-      showInspector(updatedLine);
-    }
+    changed = true;
+    if (selectedLine?.id === updatedLine.id) { selectedLine = updatedLine; selectedChanged = true; }
   }
+  if (!changed) return;
+  if (window.refreshStudioWaves) window.refreshStudioWaves();
+  renderLobby();
+  if (multiSelection.size >= 2 && lines.some(line => multiSelection.has(line.id))) showMultiInspector();
+  else if (selectedChanged) showInspector(selectedLine);
+}
+socket.on('line_updated', line => applyTakeUpdates([line]));
+socket.on('takes_updated', data => {
+  if (session && data.sessionId === session.activeSessionId) applyTakeUpdates(data.lines);
 });
 
 window.claimCharacter = function(char) { socket.emit('claim_character', { character: char }); };

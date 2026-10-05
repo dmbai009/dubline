@@ -4,10 +4,10 @@ const { recordingNow } = require('../state');
 const { io } = require('../app');
 const { sanitizeChatText } = require('../sanitize');
 const { logEvent } = require('../log');
-const { parseSeconds } = require('../parsers');
 const { saveRooms, flushRooms, getRoom, emitSession, dropEmptyRoleClaims, snapshotActive } = require('../rooms');
 const { broadcastRecording, addSystemMessage } = require('../presence');
-const { isHost, getLineOwner } = require('../auth');
+const { isHost, isAuthorized, getLineOwner } = require('../auth');
+const takeMix = require('../../public/take-mix');
 const history = require('../editHistory');
 
 module.exports = function registerRoleHandlers(socket, conn) {
@@ -86,31 +86,68 @@ module.exports = function registerRoleHandlers(socket, conn) {
     if (owner !== conn.nick) addSystemMessage(conn.roomId, 'system.lineReleased', { id: line.id, owner }, `👑 The host released line #${line.id} from ${owner}`);
   });
 
-  // Settings of your own take: effect, pitch, silence trimming, manual shift on the timeline
-  socket.on('set_take_props', (data = {}) => {
-    if (!conn.roomId || !conn.nick) return;
+  // Captured take identity prevents settings from reaching replacement recordings.
+  // Validate the entire batch before changing any line.
+  function updateTakes(data, ack, bulk) {
+    const reply = typeof ack === 'function' ? ack : () => {};
+    if (!data || typeof data !== 'object' || !conn.roomId || !conn.nick) return reply({ ok: false, reason: 'room' });
     const room = getRoom(conn.roomId);
-    const line = room.lines.find(l => l.id === data.lineId);
-    if (!line || getLineOwner(room, line) !== conn.nick) return;
-    if (data.sessionId !== room.activeSessionId || data.audioUrl !== line.audioUrl) return;
-
-    if (VOICE_EFFECTS.includes(data.effect)) line.effect = data.effect;
-    if (data.pitch !== undefined) {
-      const pitch = Math.round(Number(data.pitch));
-      if (Number.isFinite(pitch)) line.pitch = Math.max(-MAX_PITCH, Math.min(MAX_PITCH, pitch));
-    }
-    if (typeof data.trimEnabled === 'boolean') line.trimEnabled = data.trimEnabled;
-    if (data.audioStart !== undefined && line.audioUrl) {
-      const start = parseSeconds(data.audioStart);
-      if (start !== null) {
-        const min = Math.max(-5, line.start - MAX_TAKE_SHIFT);
-        line.audioStart = Number(Math.max(min, Math.min(line.start + MAX_TAKE_SHIFT, start)).toFixed(3));
+    if (!isAuthorized(room, conn.nick, conn.clientId)) return reply({ ok: false, reason: 'owner' });
+    if (data.sessionId !== room.activeSessionId) return reply({ ok: false, reason: 'session' });
+    const targets = bulk ? data.takes : [data];
+    const props = bulk ? data.props : data;
+    if (!Array.isArray(targets) || !targets.length || targets.length > 2000 || !props || typeof props !== 'object') return reply({ ok: false, reason: 'invalid' });
+    const patch = {};
+    for (const field of Object.keys(takeMix.DEFAULTS)) {
+      if (Object.hasOwn(props, field)) {
+        if (!takeMix.valid(field, props[field])) return reply({ ok: false, reason: 'invalid' });
+        patch[field] = props[field];
       }
     }
-
+    if (Object.hasOwn(props, 'effect')) {
+      if (!VOICE_EFFECTS.includes(props.effect)) return reply({ ok: false, reason: 'invalid' });
+      patch.effect = props.effect;
+    }
+    if (Object.hasOwn(props, 'pitch')) {
+      const pitch = Math.round(Number(props.pitch));
+      if (!Number.isFinite(pitch)) return reply({ ok: false, reason: 'invalid' });
+      patch.pitch = Math.max(-MAX_PITCH, Math.min(MAX_PITCH, pitch));
+    }
+    if (Object.hasOwn(props, 'trimEnabled')) {
+      if (typeof props.trimEnabled !== 'boolean') return reply({ ok: false, reason: 'invalid' });
+      patch.trimEnabled = props.trimEnabled;
+    }
+    if (Object.hasOwn(props, 'audioStart')) {
+      if (bulk || typeof props.audioStart !== 'number' || !Number.isFinite(props.audioStart)) return reply({ ok: false, reason: 'invalid' });
+      patch.audioStart = props.audioStart;
+    }
+    if (!Object.keys(patch).length) return reply({ ok: false, reason: 'invalid' });
+    const seen = new Set(), lines = [];
+    for (const target of targets) {
+      if (!target || seen.has(target.lineId)) return reply({ ok: false, reason: 'invalid' });
+      seen.add(target.lineId);
+      const line = room.lines.find(item => item.id === target.lineId);
+      if (!line || !takeMix.canEdit(line, conn.nick, isHost(room, conn.clientId), getLineOwner(room, line))) return reply({ ok: false, reason: 'owner' });
+      if (target.audioUrl !== line.audioUrl || (bulk && !line.audioUrl)) return reply({ ok: false, reason: 'take' });
+      if ((bulk || target.takeMixRevision !== undefined) && (!Number.isSafeInteger(target.takeMixRevision) || target.takeMixRevision !== (line.takeMixRevision || 0))) return reply({ ok: false, reason: 'conflict' });
+      lines.push(line);
+    }
+    for (const line of lines) {
+      const applied = { ...patch };
+      if (applied.audioStart !== undefined && line.audioUrl) {
+        const min = Math.max(-5, line.start - MAX_TAKE_SHIFT);
+        applied.audioStart = Number(Math.max(min, Math.min(line.start + MAX_TAKE_SHIFT, applied.audioStart)).toFixed(3));
+      } else delete applied.audioStart;
+      Object.assign(line, applied);
+      line.takeMixRevision = (line.takeMixRevision || 0) + 1;
+    }
     saveRooms();
-    io.to(conn.roomId).emit('line_updated', line);
-  });
+    if (bulk) io.to(conn.roomId).emit('takes_updated', { sessionId: room.activeSessionId, lines });
+    else io.to(conn.roomId).emit('line_updated', lines[0]);
+    reply({ ok: true, updated: lines.length });
+  }
+  socket.on('set_take_props', (data, ack) => updateTakes(data, ack, false));
+  socket.on('set_takes_props', (data, ack) => updateTakes(data, ack, true));
 
   socket.on('host_reset_claims', () => {
     if (!conn.roomId) return;

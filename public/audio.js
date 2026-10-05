@@ -34,6 +34,9 @@
     let playGeneration = 0;
     const startedTakes = new Set();
     const activeTakeSources = new Map();
+    const activeTakeGraphs = new Map();
+    const lineGenerations = new Map();
+    let previewGeneration = 0, previewGraph = null, previewPendingLine = null;
     let previewAudio = null;
     let previewSource = null;
 
@@ -143,7 +146,7 @@
 
     function takeBounds(line, duration = Infinity) {
       const dry = takeDryBounds(line, duration);
-      const tail = fx.effectTailSeconds(line.effect || 'none');
+      const tail = fx.effectTailSeconds(line.effect || 'none', global.DublineTakeMix.normalize(line).effectAmount);
       const trimOn = line.trimEnabled !== false && line.trimStart != null && line.trimEnd != null;
       return {
         from: dry.from,
@@ -164,14 +167,16 @@
 
     function getProcessedTake(line) {
       if (!line.audioUrl) return Promise.resolve(null);
-      const key = `${line.audioUrl}|${line.effect || 'none'}|${line.pitch || 0}|${line.trimEnabled !== false}|${line.trimStart}|${line.trimEnd}`;
+      line = { ...line };
+      const key = `${line.audioUrl}|${line.effect || 'none'}|${line.pitch || 0}|${global.DublineTakeMix.normalize(line).effectAmount}|${line.trimEnabled !== false}|${line.trimStart}|${line.trimEnd}`;
       if (!processedTakeCache.has(key)) {
         const job = getRawTake(line.audioUrl)
           .then(buffer => buffer && fx.renderVoice(
             buffer,
             line.effect || 'none',
             line.pitch || 0,
-            takeDryBounds(line, buffer.duration)
+            takeDryBounds(line, buffer.duration),
+            global.DublineTakeMix.normalize(line).effectAmount
           ))
           .catch(error => {
             console.error('[Dubline] Failed to process take:', error);
@@ -205,9 +210,10 @@
 
     async function startTake(line) {
       startedTakes.add(line.id);
-      const generation = playGeneration;
+      const generation = playGeneration, lineGeneration = lineGenerations.get(line.id);
+      line = { ...line };
       const buffer = await getProcessedTake(line);
-      if (!buffer || generation !== playGeneration || video.paused) return;
+      if (!buffer || generation !== playGeneration || lineGeneration !== lineGenerations.get(line.id) || video.paused) return;
 
       const ctx = ensurePlayCtx();
       const start = takeStartTime(line);
@@ -223,16 +229,19 @@
       const at = ctx.currentTime + Math.max(0, when - now);
       fade.gain.setValueAtTime(0, at);
       fade.gain.linearRampToValueAtTime(1, at + 0.012);
-      source.connect(fade);
+      const graph = fx.connectTake(ctx, source, fade, line);
+      graph.volume = global.DublineTakeMix.normalize(line).volume;
+      graph.fade = fade;
       fade.connect(takesBus);
       source.start(at, offset, to - offset);
 
       stopTake(line.id);
       activeTakeSources.set(line.id, source);
+      activeTakeGraphs.set(line.id, graph);
       const delay = Math.max(0, (at - ctx.currentTime - duck.attack) * 1000);
       const timer = setTimeout(() => {
         duckStartTimers.delete(line.id);
-        if (activeTakeSources.get(line.id) === source) {
+        if (activeTakeSources.get(line.id) === source && graph.volume > 0) {
           duckingTakes.add(line.id);
           updateDuckingState();
         }
@@ -241,12 +250,15 @@
       source.onended = () => {
         if (activeTakeSources.get(line.id) !== source) return;
         activeTakeSources.delete(line.id);
+        activeTakeGraphs.delete(line.id);
+        source.disconnect(); graph.gain.disconnect(); graph.panner.disconnect(); fade.disconnect();
         duckingTakes.delete(line.id);
         updateDuckingState();
       };
     }
 
     function stopTake(lineId) {
+      lineGenerations.set(lineId, (lineGenerations.get(lineId) || 0) + 1);
       const timer = duckStartTimers.get(lineId);
       if (timer) clearTimeout(timer);
       duckStartTimers.delete(lineId);
@@ -254,6 +266,10 @@
       if (source) {
         activeTakeSources.delete(lineId);
         try { source.stop(); } catch (error) {}
+        source.disconnect();
+        const graph = activeTakeGraphs.get(lineId);
+        if (graph) { graph.gain.disconnect(); graph.panner.disconnect(); graph.fade.disconnect(); }
+        activeTakeGraphs.delete(lineId);
       }
       duckingTakes.delete(lineId);
       updateDuckingState();
@@ -276,6 +292,9 @@
     }
 
     function stopPreview() {
+      previewGeneration++;
+      previewPendingLine = null;
+      if (previewGraph) { previewGraph.gain.disconnect(); previewGraph.panner.disconnect(); previewGraph = null; }
       if (previewAudio) {
         previewAudio.pause();
         previewAudio = null;
@@ -297,19 +316,53 @@
     async function previewTake(line) {
       stopPreview();
       if (!line) return false;
+      const generation = previewGeneration;
+      line = { ...line };
+      previewPendingLine = line;
       const ctx = ensurePlayCtx();
       const buffer = await getProcessedTake(line);
-      if (!buffer) return false;
+      if (!buffer || generation !== previewGeneration) return false;
       const { from, to } = takeBounds(line, buffer.duration);
       const source = ctx.createBufferSource();
       source.buffer = buffer;
-      source.connect(takesBus);
+      previewGraph = fx.connectTake(ctx, source, takesBus, line);
+      previewGraph.lineId = line.id;
+      previewPendingLine = null;
       source.start(0, from, Math.max(0.05, to - from));
       previewSource = source;
       return true;
     }
 
+    function updateLine(before, after) {
+      const processing = ['audioUrl', 'audioStart', 'start', 'recordedBy', 'blindRevealed', 'effect', 'pitch', 'effectAmount', 'trimEnabled', 'trimStart', 'trimEnd'];
+      const defaults = { effect: 'none', pitch: 0, effectAmount: 1, trimEnabled: true };
+      const changed = processing.some(key => (before[key] ?? defaults[key]) !== (after[key] ?? defaults[key]));
+      if (changed) {
+        resetLine(after.id);
+        if (previewGraph?.lineId === after.id || previewPendingLine?.id === after.id) stopPreview();
+        return;
+      }
+      const mix = global.DublineTakeMix.normalize(after);
+      function update(graph) {
+        if (!graph) return;
+        rampGain(graph.gain.gain, mix.volume * graph.scale, 0.02, false);
+        rampGain(graph.panner.pan, mix.pan, 0.02, false);
+        graph.volume = mix.volume;
+      }
+      const graph = activeTakeGraphs.get(after.id);
+      update(graph);
+      if (!graph && startedTakes.has(after.id)) resetLine(after.id);
+      if (previewPendingLine?.id === after.id) Object.assign(previewPendingLine, mix);
+      if (previewGraph?.lineId === after.id) update(previewGraph);
+      if (graph && !duckStartTimers.has(after.id)) {
+        if (mix.volume > 0) duckingTakes.add(after.id);
+        else duckingTakes.delete(after.id);
+        updateDuckingState();
+      }
+    }
+
     return Object.freeze({
+      updateLine,
       applyVolumes,
       ensurePlayCtx,
       getProcessedTake,

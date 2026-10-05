@@ -19,7 +19,7 @@ test('portable builds use per-launch extraction with the installed packager', ()
 });
 
 function audioController(fx) {
-  const context = { window: { DublineAudioFx: fx }, console: { error() {} }, setTimeout, clearTimeout };
+  const context = { window: { DublineAudioFx: fx, DublineTakeMix: require('./public/take-mix') }, console: { error() {} }, setTimeout, clearTimeout };
   vm.runInNewContext(fs.readFileSync('public/audio.js', 'utf8'), context);
   return context.window.DublineAudio.createController({ getSession: () => null, getLatency: () => 0 });
 }
@@ -54,6 +54,8 @@ function exportContext() {
     document: { getElementById: () => ({ style: {} }) }, video: { addEventListener() {} },
     session: { activeSessionId: 'one', videoUrl: '/video', backingUrl: '/backing', title: 'First', lines: [], latency: { Alice: 0 } },
     localMedia: null, mediaUrl: url => url, canHearLine: () => true,
+    DublineTakeMix: require('./public/take-mix'),
+    DublineAudioFx: { connectTake(ctx, source, destination, line) { source.clipMix = require('./public/take-mix').normalize(line); source.connect(destination); } },
     t: (key, args) => `${key}:${args?.source || ''}`, DublineProjectAudio: model,
     takeBounds: (line, duration) => ({ from: 0, to: duration }), getProcessedTake: async () => ({ duration: 1 }) };
   context.window = context;

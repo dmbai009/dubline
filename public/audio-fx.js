@@ -23,8 +23,8 @@ const EFFECT_TAIL_SECONDS = {
   megaphone: 0.15
 };
 
-function effectTailSeconds(effect) {
-  return EFFECT_TAIL_SECONDS[effect] || 0;
+function effectTailSeconds(effect, amount = 1) {
+  return amount > 0 ? (EFFECT_TAIL_SECONDS[effect] || 0) : 0;
 }
 
 let sharedDecodeCtx = null;
@@ -312,20 +312,39 @@ function buildEffect(ctx, input, effect) {
 const EFFECT_PITCH = { monster: -6 };
 
 // Applies the effect and pitch to a take, keeping delay and reverb tails.
-async function renderVoice(buffer, effect = 'none', pitch = 0, bounds = null) {
+async function renderVoice(buffer, effect = 'none', pitch = 0, bounds = null, effectAmount = 1) {
+  const amount = window.DublineTakeMix.normalize({ effectAmount }).effectAmount;
+  const dry = pitch ? pitchShiftBuffer(buffer, pitch) : buffer;
+  if (!amount || !effect || effect === 'none' || !VOICE_EFFECTS[effect]) return dry;
   const totalPitch = (pitch || 0) + (EFFECT_PITCH[effect] || 0);
-  let working = totalPitch !== 0 ? pitchShiftBuffer(buffer, totalPitch) : buffer;
-  if (!effect || effect === 'none' || !VOICE_EFFECTS[effect]) return working;
-
-  const tail = effectTailSeconds(effect);
-  const ctx = new OfflineAudioContext(1, working.length + Math.ceil(tail * working.sampleRate), working.sampleRate);
-  const src = ctx.createBufferSource();
-  src.buffer = working;
-  buildEffect(ctx, src, effect).connect(ctx.destination);
-  const from = bounds ? Math.max(0, Math.min(working.duration, bounds.from || 0)) : 0;
-  const to = bounds ? Math.max(from, Math.min(working.duration, bounds.to ?? working.duration)) : working.duration;
-  src.start(from, from, Math.max(0.001, to - from));
+  const wet = totalPitch === pitch ? dry : pitchShiftBuffer(buffer, totalPitch);
+  const tail = effectTailSeconds(effect, amount);
+  const ctx = new OfflineAudioContext(1, wet.length + Math.ceil(tail * wet.sampleRate), wet.sampleRate);
+  const from = bounds ? Math.max(0, Math.min(wet.duration, bounds.from || 0)) : 0;
+  const to = bounds ? Math.max(from, Math.min(wet.duration, bounds.to ?? wet.duration)) : wet.duration;
+  function start(sourceBuffer, level, processed) {
+    if (!level) return;
+    const source = ctx.createBufferSource();
+    source.buffer = sourceBuffer;
+    const gain = ctx.createGain(); gain.gain.value = level;
+    (processed ? buildEffect(ctx, source, effect) : source).connect(gain).connect(ctx.destination);
+    source.start(from, from, Math.max(0.001, to - from));
+  }
+  start(dry, 1 - amount, false);
+  start(wet, amount, true);
   return limitPeak(await ctx.startRendering());
+}
+
+// Shared by monitoring, preview, video export and stereo character stems.
+function connectTake(ctx, source, destination, line) {
+  const mix = window.DublineTakeMix.normalize(line);
+  const gain = ctx.createGain(), panner = ctx.createStereoPanner();
+  // Keep legacy mono takes at the same centre level with equal-power panning.
+  const scale = source.buffer.numberOfChannels === 1 ? Math.SQRT2 : 1;
+  gain.gain.value = mix.volume * scale;
+  panner.pan.value = mix.pan;
+  source.connect(gain).connect(panner).connect(destination);
+  return { gain, panner, scale };
 }
 
 // Effects with overdrive and echo can exceed 0 dB: bring the peak down to a safe level
@@ -340,4 +359,4 @@ function limitPeak(buffer, maxPeak = 0.95) {
   return buffer;
 }
 
-window.DublineAudioFx = { VOICE_EFFECTS, effectTailSeconds, fetchAndDecode, renderVoice };
+window.DublineAudioFx = { VOICE_EFFECTS, effectTailSeconds, fetchAndDecode, renderVoice, connectTake };

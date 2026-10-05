@@ -1,6 +1,6 @@
-# Dubline Project formats 1 and 2
+# Dubline Project formats 1, 2 and 3
 
-An archive uses the `.dubline` extension and a standard ZIP container. `project.json` is UTF-8 JSON with `format: "dubline-project"`, required `formatVersion: 1` or `2`, `project`, and `assets`. The serializer is `server/projects.js`; it never exports raw room persistence.
+An archive uses the `.dubline` extension and a standard ZIP container. `project.json` is UTF-8 JSON with `format: "dubline-project"`, required `formatVersion: 1`, `2` or `3`, `project`, and `assets`. The serializer is `server/projects.js`; it never exports raw room persistence.
 
 ## Manifest
 
@@ -34,3 +34,7 @@ Single Player and Multiplayer share this format. Launcher open uses the same tra
 Validation commands and large-project coverage are documented in [the testing guide](../TESTING.md).
 
 The original is staged/probed as video and must match the working duration within 250 ms (container/audio padding tolerance). It receives a generated source_video filename that static HTTP refuses; the session stores its URL internally, and publicRoom exposes only presence, name and size. Both copies participate in immutable archive snapshots and session cleanup. No relinking is needed for a complete archive.
+
+## Clip mix in version 3
+
+When any clip has non-default volume, pan or effectAmount, the writer emits format 3. Each take then requires finite numeric volume (0–3), pan (−1–1) and effectAmount (0–1). Defaults are 1, 0, 1. Fields describe non-destructive gain, stereo pan and dry/wet preset blend; user pitch stays separate. Original/proxy media can be present using the version-2 source rules, but a source original is optional in version 3. Runtime takeMixRevision is excluded and starts fresh on import. Format-1/2 manifests import missing mix fields as defaults; non-default clip mixes may not masquerade as those older versions. Default mixes still emit format 1 (no original) or 2 (original embedded). Older apps explicitly reject format 3.

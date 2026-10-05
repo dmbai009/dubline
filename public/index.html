@@ -540,6 +540,14 @@
     .pack-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 12px; text-align: left; }
     input[type="range"] { accent-color: var(--accent); }
     input[type="file"] { color: var(--muted); }
+  /* Per-clip controls remain usable in a narrow inspector. */
+    .clip-mix-panel { display:grid; gap:9px; }
+    .clip-mix-panel .take-hint { margin:0; }
+    .clip-mix-row { display:grid; grid-template-columns: minmax(0, 1fr) 55px; gap:5px 8px; align-items:center; font-size:12px; }
+    .clip-mix-row > span { grid-column:1 / -1; }
+    .clip-mix-row input { width:100%; min-width:0; accent-color:var(--accent); }
+    .clip-mix-row output { text-align:right; font-variant-numeric:tabular-nums; font-size:11px; }
+    .clip-mix-row select { grid-column:1 / -1; min-width:0; }
   </style>
   <link rel="stylesheet" href="studio.css">
 </head>
@@ -1285,6 +1293,7 @@
   <script src="dialogs.js"></script>
   <script src="project-audio.js"></script>
   <script src="timeline-model.js"></script>
+  <script src="take-mix.js"></script>
   <script src="audio-fx.js"></script>
   <script src="audio.js"></script>
   <script src="player.js"></script>

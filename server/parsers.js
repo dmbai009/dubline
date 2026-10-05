@@ -90,6 +90,7 @@ function emptyTake() {
     trimEnabled: true,
     effect: 'none',
     pitch: 0,
+    volume: 1, pan: 0, effectAmount: 1, takeMixRevision: 0,
     recordedBy: null,     // who recorded the take (so it can be played even after the line is released)
     uploadId: null        // upload id: a repeat of the same upload is not stored twice
   };

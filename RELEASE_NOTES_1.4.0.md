@@ -51,3 +51,5 @@ Auto-duck now anticipates takes with a smooth 300 ms attack and restores over 85
 ## Choose the project storage drive
 
 Select a parent folder in the launcher or My Settings. Dubline creates its own subfolder and moves existing projects, original/proxy videos, audio, takes, library and server export staging. Changes made in the workspace apply at the next launch. Progress is shown; failure preserves current data. Preferences, Chromium cache and portable EXE extraction keep their standard system locations. [Validation coverage](TESTING.md).
+
+Clip mixing: per-take volume, stereo pan and dry/wet effect amount, with atomic bulk controls across selected clips. Recording authors may mix their own takes after releasing a role; hosts may mix every take. Settings apply to preview, playback, video audio and stereo character stems. Changed mixes save as .dubline format 3; formats 1/2 remain readable.

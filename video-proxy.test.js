@@ -58,10 +58,10 @@ test('1 GiB source imports as a bounded working copy, survives .dubline and expo
 test('playback state updates keep duck transitions scheduled instead of snapping gain',async()=>{
  const vm=require('node:vm');const parameters=[];
  const param=()=>{const p={value:1,events:[],setValueAtTime(v,t){this.events.push(['set',v,t]);},linearRampToValueAtTime(v,t){this.events.push(['ramp',v,t]);},cancelAndHoldAtTime(t){this.events.push(['hold',t]);}};parameters.push(p);return p;};
- const node=()=>({connect(){return this;},gain:param(),threshold:{},knee:{},ratio:{},attack:{},release:{},start(){},stop(){}});
+ const node=()=>({connect(){return this;},disconnect(){},gain:param(),threshold:{},knee:{},ratio:{},attack:{},release:{},start(){},stop(){}});
  class Context{constructor(){this.currentTime=10;this.destination={};this.state='running';}createGain(){return node();}createDynamicsCompressor(){return node();}createMediaElementSource(){return node();}createBufferSource(){return node();}}
  const video={volume:1,paused:false,currentTime:1};let muted=false;
- const window={AudioContext:Context,DublineProjectAudio:audio,DublineAudioFx:{effectTailSeconds:()=>0,fetchAndDecode:async()=>({duration:2}),renderVoice:async buffer=>buffer}};
+ const window={AudioContext:Context,DublineTakeMix:require('./public/take-mix'),DublineProjectAudio:audio,DublineAudioFx:{connectTake(ctx,source,destination){source.connect(destination);return {gain:node(),panner:node(),scale:1};},effectTailSeconds:()=>0,fetchAndDecode:async()=>({duration:2}),renderVoice:async buffer=>buffer}};
  vm.runInNewContext(fs.readFileSync('public/audio.js','utf8'),{window,console,setTimeout,clearTimeout});
  const controller=window.DublineAudio.createController({video,backing:{volume:1},projectMix:true,getSession:()=>({lines:[{id:1,audioUrl:'take',start:1,trimStart:0,trimEnd:1,trimEnabled:true}]}),getVolumes:()=>({original:1,backing:1,recorded:1,isMuted:muted}),getSettings:()=>({autoDuckEnabled:true,autoDuckAmount:0.6}),isRenderInProgress:()=>false,getRecordingLineId:()=>null});
  controller.ensurePlayCtx();controller.scheduleTakes(1);await new Promise(resolve=>setTimeout(resolve,10));

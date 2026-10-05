@@ -771,8 +771,8 @@ app.post('/api/delete-line-audio', (req, res) => {
     if (!Object.hasOwn(req.body, 'audioUrl') || req.body.audioUrl !== line.audioUrl) throw new HttpError(409, 'The take changed', 'error.takeChanged');
 
     deleteTakeFile(line.audioUrl);
-    const { effect, pitch, trimEnabled } = line;
-    Object.assign(line, emptyTake(), { effect: effect || 'none', pitch: pitch || 0, trimEnabled: trimEnabled !== false });
+    const { effect, pitch, trimEnabled, volume = 1, pan = 0, effectAmount = 1 } = line;
+    Object.assign(line, emptyTake(), { effect: effect || 'none', pitch: pitch || 0, trimEnabled: trimEnabled !== false, volume, pan, effectAmount });
 
     flushRooms();
     io.to(roomId).emit('line_updated', line);
