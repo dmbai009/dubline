@@ -1,7 +1,7 @@
 (function(global) {
   'use strict';
   function preparation(seconds, enabled) { return Math.max(enabled ? 3 : 0, Math.min(5, Number(seconds) || 0)); }
-  function create(AudioContext) {
+  function create(AudioContext, volume = () => 1) {
     let context = null, generation = 0;
     const nodes = new Set();
     function stop() {
@@ -28,7 +28,7 @@
       // Only the speaker destination. Never the microphone graph, take bus or export.
       const oscillator = context.createOscillator(), gain = context.createGain();
       oscillator.frequency.value = 880;
-      gain.gain.setValueAtTime(0, at); gain.gain.linearRampToValueAtTime(0.12, at + 0.005);
+      gain.gain.setValueAtTime(0, at); gain.gain.linearRampToValueAtTime(0.12 * Math.max(0, Math.min(1, Number(volume()) || 0)), at + 0.005);
       gain.gain.linearRampToValueAtTime(0, at + 0.075);
       oscillator.connect(gain); gain.connect(context.destination);
       nodes.add(oscillator);

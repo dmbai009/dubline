@@ -85,6 +85,7 @@ function isHost(room, clientId) {
 }
 
 function getLineOwner(room, line) {
+  if (room.singlePlayer) return room.host;
   return (Object.hasOwn(room.characterClaims, line.character) && room.characterClaims[line.character]) || line.claimedBy || null;
 }
 

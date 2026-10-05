@@ -16,7 +16,10 @@
       originalTrack = null   // a separate <audio> with the chosen video audio track (if there are several)
     } = options;
 
-    const TAKE_LOOKAHEAD = 0.25;
+    const duck = global.DublineProjectAudio?.DUCK || {attack:0.3,hold:0.15,release:0.85};
+    const TAKE_LOOKAHEAD = duck.attack;
+    const gainTargets = new WeakMap();
+    let duckReleaseTimer = null;
     const rawTakeCache = new Map();
     const processedTakeCache = new Map();
     let playCtx = null;
@@ -73,6 +76,8 @@
 
     function rampGain(param, value, seconds, immediate) {
       if (!playCtx) return;
+      if (!immediate && gainTargets.get(param) === value) return;
+      gainTargets.set(param,value);
       const now = playCtx.currentTime;
       if (typeof param.cancelAndHoldAtTime === 'function') param.cancelAndHoldAtTime(now);
       else {
@@ -80,6 +85,7 @@
         param.setValueAtTime(param.value, now);
       }
       if (immediate) param.setValueAtTime(value, now);
+      else if(global.DublineProjectAudio) global.DublineProjectAudio.smoothRamp(param,param.value,value,now,seconds);
       else param.linearRampToValueAtTime(value, now + seconds);
     }
 
@@ -89,7 +95,7 @@
       duckingActive = !!active && settings.autoDuckEnabled && volumes.recorded > 0;
       if (!playCtx || !videoGain || !backingGain) return;
       const factor = duckingActive ? 1 - settings.autoDuckAmount : 1;
-      const seconds = duckingActive ? 0.08 : 0.25;
+      const seconds = duckingActive ? duck.attack : duck.release;
       rampGain(videoGain.gain, volumes.isMuted ? 0 : effectiveOriginalVolume() * factor, seconds, immediate);
       rampGain(
         backingGain.gain,
@@ -100,13 +106,15 @@
     }
 
     function updateDuckingState() {
-      setDucking(duckingTakes.size > 0);
+      clearTimeout(duckReleaseTimer); duckReleaseTimer=null;
+      if(duckingTakes.size) setDucking(true);
+      else duckReleaseTimer=setTimeout(()=>{duckReleaseTimer=null;setDucking(false);},duck.hold*1000);
     }
 
     function applyVolumes() {
       const volumes = getVolumes();
       if (videoGain && backingGain && playCtx) {
-        setDucking(duckingTakes.size > 0, true);
+        setDucking(duckingTakes.size > 0 || !!duckReleaseTimer, volumes.isMuted || isRenderInProgress());
         takesBus.gain.setValueAtTime(volumes.isMuted ? 0 : volumes.recorded, playCtx.currentTime);
       } else {
         // Media elements accept only 0..1; louder levels need the Web Audio graph above
@@ -221,7 +229,7 @@
 
       stopTake(line.id);
       activeTakeSources.set(line.id, source);
-      const delay = Math.max(0, (at - ctx.currentTime) * 1000);
+      const delay = Math.max(0, (at - ctx.currentTime - duck.attack) * 1000);
       const timer = setTimeout(() => {
         duckStartTimers.delete(line.id);
         if (activeTakeSources.get(line.id) === source) {
@@ -231,7 +239,8 @@
       }, delay);
       duckStartTimers.set(line.id, timer);
       source.onended = () => {
-        if (activeTakeSources.get(line.id) === source) activeTakeSources.delete(line.id);
+        if (activeTakeSources.get(line.id) !== source) return;
+        activeTakeSources.delete(line.id);
         duckingTakes.delete(line.id);
         updateDuckingState();
       };
@@ -257,6 +266,7 @@
       duckStartTimers.forEach(clearTimeout);
       duckStartTimers.clear();
       duckingTakes.clear();
+      clearTimeout(duckReleaseTimer); duckReleaseTimer=null;
       setDucking(false);
     }
 

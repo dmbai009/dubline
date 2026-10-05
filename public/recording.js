@@ -362,7 +362,7 @@ window.deleteLineAudio = async function(lineId) {
   const line = session.lines.find(item => item.id === lineId);
   if (!line) return;
   const target = { sessionId: session.activeSessionId, audioUrl: line.audioUrl };
-  if (!confirm(t('confirm.delete'))) return;
+  if (!await askConfirm(t('confirm.delete'))) return;
   const res = await fetch('/api/delete-line-audio', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -388,7 +388,7 @@ const recordCueBar = document.getElementById('recordCueBar');
 const recordCueLabel = document.getElementById('recordCueLabel');
 const recordCueDots = [...recordCue.querySelectorAll('.cue-dot')];
 let cueFrame = null;
-const adrCues = window.DublineAdr.create(window.AudioContext || window.webkitAudioContext);
+const adrCues = window.DublineAdr.create(window.AudioContext || window.webkitAudioContext, () => adrCueVolume);
 
 function startRecordCue(line, preRoll, holdSeconds = 0, adrEnabled = false) {
   stopRecordCue();

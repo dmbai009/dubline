@@ -28,6 +28,11 @@ function sandboxUploads(req, res, next) {
 // instead of downloading them through the tunnel again on every re-render.
 // In the desktop app only the host and players who entered the PIN can fetch them.
 app.use(['/uploads', '/packs', '/api/server-packs', '/api/audio-waveform'], mediaAccessGate);
+// Source video stays on the host. Only the server's export path reads it.
+app.use('/uploads', (req, res, next) => {
+  if (/^source_video(?:_\d+)?\.(mp4|mkv|webm)$/i.test(path.basename(decodeURIComponent(req.path)))) return res.sendStatus(403);
+  next();
+});
 app.use('/uploads', sandboxUploads, express.static(UPLOAD_DIR, { maxAge: '1h' }));
 app.use('/packs', sandboxUploads, express.static(PACKS_DIR));
 app.use(express.static(PUBLIC_DIR));

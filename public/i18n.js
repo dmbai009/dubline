@@ -65,12 +65,12 @@
       'sceneTitle.placeholder': 'Моя новая сцена…', 'createScene': '🚀 Создать сцену', 'library.help': 'Выберите ранее загруженный мод:',
       'searchingPacks': 'Поиск модов…', 'videoExport': '1. Экспорт готового видео (WebCodecs)',
       'videoExport.help': 'Быстрый экспорт MP4 со сведённым звуком прямо в браузере', 'dubTrack': '🎙️ Записанный дубляж:',
-      'backingTrack': '🎵 Интершум / фон:', 'originalTrack': '🗣️ Оригинальный звук видео:', 'rendering': '⏳ Идёт экспорт видео…',
+      'backingTrack': '🎵 Фон / фон:', 'originalTrack': '🗣️ Оригинальный звук видео:', 'rendering': '⏳ Идёт экспорт видео…',
       'startExport': '▶ Экспортировать видео MP4', 'stemExport': '2. Стемы персонажей для REAPER (.zip)',
       'stemExport.help': 'Цельный WAV каждого персонажа от 0:00 с тишиной между репликами', 'downloadStems': '🎛️ Создать и скачать WAV-стемы',
       'sourcePack': '3. Исходный мод сцены (.zip)', 'sourcePack.help': 'Скачать исходный ZIP для друзей',
       'downloadSource': '📥 Скачать исходный архив (.zip)', 'sourceUnavailable': 'Архив недоступен (ручная сцена или нет ZIP)',
-      'muteAll': '🔇 Замутить всё', 'original': 'Оригинал:', 'background': 'Интершум:', 'dubbing': 'Дубляж:',
+      'muteAll': '🔇 Замутить всё', 'original': 'Оригинал:', 'background': 'Фон:', 'dubbing': 'Дубляж:',
       'inspector.title': 'Инспектор реплики', 'inspector.empty': 'Выберите реплику на таймлайне для записи. (Пробел — плей/пауза, R — запись)',
       'chat.title': '💬 Чат комнаты', 'chat.empty': 'Сообщений пока нет. Напишите первым!', 'chat.placeholder': 'Сообщение… (Enter)',
       'host.you': '👑 Вы хост', 'host.pause': '⏸ Пауза у всех', 'host.reset': '♻ Сбросить роли', 'host.offline': '👑 Хост не в сети',
@@ -105,12 +105,12 @@
       'videoFile': 'Відео (.mp4 / .mkv):', 'subtitleFile': 'Субтитри (необов’язково для MKV):', 'sceneTitle': 'Назва сцени (необов’язково):',
       'sceneTitle.placeholder': 'Моя нова сцена…', 'createScene': '🚀 Створити сцену', 'library.help': 'Оберіть раніше завантажений мод:',
       'searchingPacks': 'Пошук модів…', 'videoExport': '1. Експорт готового відео (WebCodecs)', 'videoExport.help': 'Швидкий експорт MP4 зі зведеним звуком у браузері',
-      'dubTrack': '🎙️ Записане озвучення:', 'backingTrack': '🎵 Інтершум / фон:', 'originalTrack': '🗣️ Оригінальний звук відео:',
+      'dubTrack': '🎙️ Записане озвучення:', 'backingTrack': '🎵 Фон / фон:', 'originalTrack': '🗣️ Оригінальний звук відео:',
       'rendering': '⏳ Експорт відео…', 'startExport': '▶ Експортувати MP4', 'stemExport': '2. Стеми персонажів для REAPER (.zip)',
       'stemExport.help': 'Повний WAV кожного персонажа від 0:00 із тишею між репліками', 'downloadStems': '🎛️ Створити й завантажити WAV-стеми',
       'sourcePack': '3. Початковий мод сцени (.zip)', 'sourcePack.help': 'Завантажити початковий ZIP для друзів',
       'downloadSource': '📥 Завантажити початковий архів (.zip)', 'sourceUnavailable': 'Архів недоступний (ручна сцена або немає ZIP)',
-      'muteAll': '🔇 Вимкнути все', 'original': 'Оригінал:', 'background': 'Інтершум:', 'dubbing': 'Озвучення:',
+      'muteAll': '🔇 Вимкнути все', 'original': 'Оригінал:', 'background': 'Фон:', 'dubbing': 'Озвучення:',
       'inspector.title': 'Інспектор репліки', 'inspector.empty': 'Оберіть репліку на таймлайні. (Пробіл — відтворення/пауза, R — запис)',
       'chat.title': '💬 Чат кімнати', 'chat.empty': 'Повідомлень ще немає. Напишіть першим!', 'chat.placeholder': 'Повідомлення… (Enter)',
       'host.you': '👑 Ви хост', 'host.pause': '⏸ Пауза для всіх', 'host.reset': '♻ Скинути ролі', 'host.offline': '👑 Хост не онлайн',
@@ -161,7 +161,7 @@
     'shift': 'Сдвиг:', 'earlier': '◀ 50мс', 'later': '50мс ▶', 'reset': 'Сброс', 'dragHint': 'Дубль можно перетащить мышкой по таймлайну',
     'recordedBy': 'Записал {owner}', 'error.mic': 'Нет доступа к микрофону.', 'error.take': 'Не удалось загрузить дубль.',
     'error.notOwner': 'Нельзя записывать реплику другого игрока.', 'error.emptyAudio': 'Микрофон записал пустой файл.',
-    'render.readVideo': 'Читаю видео…', 'render.decodeBackground': 'Декодирую интершум…', 'render.decodeOriginal': 'Декодирую оригинальный звук…',
+    'render.readVideo': 'Читаю видео…', 'render.decodeBackground': 'Декодирую фон…', 'render.decodeOriginal': 'Декодирую оригинальный звук…',
     'render.takes': 'Обрабатываю дубли ({current}/{total})…', 'render.mix': 'Свожу звук…', 'render.finalize': 'Финализирую файл…',
     'rolesTrack': 'Роли и персонажи', 'linesTrack': 'Дорожка реплик', 'claimRoleShort': '+ Взять роль', 'you': 'Вы', 'lineFallback': '(реплика)',
     'dragTitle': 'Перетащите, чтобы сдвинуть дубль', 'record.retry': '🎙️ Повторить запись', 'record.trim': '✂ Ищу речь…',
@@ -694,7 +694,7 @@
   });
   Object.assign(messages.ru, {
     'tracks.original': "🎧 Оригинал",
-    'tracks.backing': "🎵 Интершум",
+    'tracks.backing': "🎵 Фон",
     'tracks.none': "— нет —",
     'tracks.label': "Дорожка {n}: {name}",
     'tracks.onlyHost': "дорожки выбирает хост",
@@ -705,7 +705,7 @@
   });
   Object.assign(messages.uk, {
     'tracks.original': "🎧 Оригінал",
-    'tracks.backing': "🎵 Інтершум",
+    'tracks.backing': "🎵 Фон",
     'tracks.none': "— немає —",
     'tracks.label': "Доріжка {n}: {name}",
     'tracks.onlyHost': "доріжки вибирає хост",
@@ -1422,6 +1422,8 @@
     'studio.videoAudio': ['Audio from video', 'Звук из видео', 'Звук із відео'],
     'studio.separateAudio': ['Separate audio', 'Отдельное аудио', 'Окреме аудіо'],
     'studio.noWave': ['No readable audio waveform', 'Нет доступного аудиосигнала', 'Немає доступного аудіосигналу'],
+    'tracks.buffering': ['Loading audio…', 'Загружаю звук…', 'Завантажую звук…'],
+    'tracks.failed': ['Audio could not be prepared. Try reopening the scene.', 'Не удалось подготовить звук. Попробуйте открыть сцену заново.', 'Не вдалося підготувати звук. Спробуйте відкрити сцену знову.'],
     'studio.waveLoading': ['Building waveform…', 'Строю waveform…', 'Будую waveform…'],
     'studio.play': ['Play / pause (Space)', 'Воспроизвести / пауза (Space)', 'Відтворити / пауза (Space)'],
     'studio.back': ['Back 3 seconds (J)', 'Назад на 3 секунды (J)', 'Назад на 3 секунди (J)'],
@@ -1432,13 +1434,24 @@
     'studio.three': ['3 beeps', '3 сигнала', '3 сигнали'],
     'studio.adrHelp': ['Three beeps one second apart; start on the silent fourth beat. Preparation is at least 3 seconds. Use headphones to avoid microphone bleed.', 'Три сигнала с интервалом 1 с; начало реплики — на четвёртый, беззвучный удар. Подготовка не менее 3 с. Используйте наушники, чтобы сигналы не попадали в микрофон.', 'Три сигнали з інтервалом 1 с; початок репліки — на четвертий, беззвучний удар. Підготовка не менше 3 с. Використовуйте навушники, щоб сигнали не потрапляли в мікрофон.'],
     'studio.importOriginal': ['Original audio (optional)', 'Оригинальное аудио (необязательно)', 'Оригінальне аудіо (необов’язково)'],
-    'studio.importBacking': ['Intershum / M&E (optional)', 'Интершум / M&E (необязательно)', 'Інтершум / M&E (необов’язково)'],
+    'studio.importBacking': ['Background / M&E (optional)', 'Фон / M&E (необязательно)', 'Фон / M&E (необов’язково)'],
     'studio.collapseLobby': ['Collapse / expand players', 'Свернуть / развернуть игроков', 'Згорнути / розгорнути гравців'],
     'studio.offline': ['Offline', 'Не в сети', 'Не в мережі'],
     'studio.done': ['All assigned lines recorded', 'Все назначенные реплики записаны', 'Усі призначені репліки записано'],
     'studio.exportMix': ['Export uses the shared project mix, not personal monitoring. Change the mix on the Audio tracks.', 'Экспорт использует общий микс проекта, а не личное прослушивание. Настройте микс на дорожках Audio.', 'Експорт використовує спільний мікс проєкту, а не особисте прослуховування. Налаштуйте мікс на доріжках Audio.'],
     'customImport': ['3. Custom scene', '3. Своя сцена', '3. Власна сцена'],
     'customImport.help': ['Upload MP4/MKV. Audio and subtitles are optional. Without subtitles, start with an empty Edit Mode scene. Embedded MKV subtitles are used when available.', 'Загрузите MP4/MKV. Аудио и субтитры необязательны. Без субтитров создаётся пустая сцена в Edit Mode. Встроенные субтитры MKV используются, если есть.', 'Завантажте MP4/MKV. Аудіо й субтитри необов’язкові. Без субтитрів створюється порожня сцена в Edit Mode. Вбудовані субтитри MKV використовуються, якщо є.'],
+    'customImport.limits': ['Working video: up to 300 MB. Larger videos are optimized automatically on the host; the original is kept for export. Separate audio is independent. Subtitles: up to 20 MB.', 'Рабочее видео: до 300 МБ. Большие видео автоматически сжимаются на хосте; исходник сохраняется для экспорта. Аудио считается отдельно. Субтитры: до 20 МБ.', 'Робоче відео: до 300 МБ. Великі відео автоматично стискаються на хості; оригінал зберігається для експорту. Аудіо рахується окремо. Субтитри: до 20 МБ.'],
+    'proxy.uploading': ['Loading original video onto the host…','Загружаем исходник на хост…','Завантажуємо оригінал на хост…'],
+    'proxy.compressing': ['Creating working video: {percent}%','Создаём рабочую копию: {percent}%','Створюємо робочу копію: {percent}%'],
+    'proxy.audio': ['Preparing original audio tracks…','Подготавливаем исходные аудиодорожки…','Готуємо оригінальні аудіодоріжки…'],
+    'proxy.cancelled': ['Import cancelled','Импорт отменён','Імпорт скасовано'],
+    'proxy.timing': ['Working copy and original have different timing. Import/export cancelled.','Тайминги рабочей копии и исходника различаются. Импорт/экспорт отменён.','Таймінги робочої копії та оригіналу відрізняються. Імпорт/експорт скасовано.'],
+    'proxy.originalMissing': ['Original video is unavailable. Reopen the complete .dubline project.','Исходник недоступен. Откройте полный проект .dubline.','Оригінал недоступний. Відкрийте повний проєкт .dubline.'],
+    'render.originalQuality': ['Final export uses the original video at its original resolution and quality.','Финальный экспорт использует исходное видео с его разрешением и качеством.','Фінальний експорт використовує оригінальне відео з його роздільністю та якістю.'],
+    'render.originalHost': ['Original-quality video export is available on the host.','Экспорт видео в исходном качестве доступен у хоста.','Експорт відео в оригінальній якості доступний у хоста.'],
+    'render.encodeSoundtrack': ['Encoding soundtrack…','Кодируем звуковую дорожку…','Кодуємо звукову доріжку…'],
+    'render.originalMux': ['Adding the finished soundtrack to the original video…','Добавляем готовую звуковую дорожку к исходному видео…','Додаємо готову звукову доріжку до оригінального відео…'],
     'subtitleFile': ['Subtitles (optional):', 'Субтитры (необязательно):', 'Субтитри (необов’язково):'],
     'error.audioFormat': ['Use WAV, MP3, M4A, AAC, OGG, OPUS or FLAC audio.', 'Используйте аудио WAV, MP3, M4A, AAC, OGG, OPUS или FLAC.', 'Використовуйте аудіо WAV, MP3, M4A, AAC, OGG, OPUS або FLAC.'],
     'error.audioInvalid': ['The audio file is empty or unreadable.', 'Аудиофайл пуст или повреждён.', 'Аудіофайл порожній або пошкоджений.'],
@@ -1451,8 +1464,123 @@
     'render.audioUnavailable': ['Could not load audio ({source}). Export stopped; check the connection and try again.', 'Не удалось загрузить аудио ({source}). Экспорт остановлен; проверьте соединение и повторите.', 'Не вдалося завантажити аудіо ({source}). Експорт зупинено; перевірте з’єднання та повторіть.'],
     'render.sceneChanged': ['The scene changed during export. Export stopped; start again for the current scene.', 'Сцена изменилась во время экспорта. Экспорт остановлен; запустите его заново для текущей сцены.', 'Сцена змінилася під час експорту. Експорт зупинено; запустіть його знову для поточної сцени.']
   });
+  Object.assign(studioCopy, {
+    'project.open': ['Open Dubline Project (.dubline)', 'Открыть проект Dubline (.dubline)', 'Відкрити проєкт Dubline (.dubline)'],
+    'project.openHelp': ["Continue a saved project in a new scene. Existing scenes are kept. No overall archive size limit; working video: up to 300 MB; a preserved original is included.","Продолжите сохранённый проект в новой сцене. Существующие сцены сохраняются. Общего лимита архива нет; рабочее видео: до 300 МБ; сохранённый исходник включён.","Продовжіть збережений проєкт у новій сцені. Наявні сцени зберігаються. Загального ліміту архіву немає; робоче відео: до 300 МБ; збережений оригінал включено."],
+    'project.choose': ['Choose .dubline file', 'Выбрать файл .dubline', 'Вибрати файл .dubline'],
+    'project.save': ['Save Dubline Project (.dubline)', 'Сохранить проект Dubline (.dubline)', 'Зберегти проєкт Dubline (.dubline)'],
+    'project.saveHelp': ["Saves this scene with its media, current recordings, edits and project mix. No overall project size limit; working video: up to 300 MB; a preserved original is included. Large projects need free disk space.","Сохраняет сцену с медиа, текущими записями, правками и миксом. Общего лимита проекта нет; рабочее видео: до 300 МБ; сохранённый исходник включён. Для больших проектов нужно свободное место на диске.","Зберігає сцену з медіа, поточними записами, правками й міксом. Загального ліміту проєкту немає; робоче відео: до 300 МБ; збережений оригінал включено. Для великих проєктів потрібне вільне місце на диску."],
+    'project.saveButton': ['Save project', 'Сохранить проект', 'Зберегти проєкт'],
+    'project.opening': ['Checking and opening project…', 'Проверка и открытие проекта…', 'Перевірка та відкриття проєкту…'],
+    'project.opened': ['Project opened in a new scene.', 'Проект открыт в новой сцене.', 'Проєкт відкрито в новій сцені.'],
+    'project.saving': ['Saving project with media and current recordings…', 'Сохранение проекта с медиа и текущими записями…', 'Збереження проєкту з медіа й поточними записами…'],
+    'project.savingLarge': ['This project includes large media files. Saving and downloading may take a while…', 'Проект содержит большие медиафайлы. Сохранение и скачивание может занять время…', 'Проєкт містить великі медіафайли. Збереження й завантаження може тривати певний час…'],
+    'project.saved': ['Project saved. Keep the downloaded .dubline file to continue later.', 'Проект сохранён. Сохраните скачанный файл .dubline для продолжения работы.', 'Проєкт збережено. Збережіть завантажений файл .dubline для подальшої роботи.'],
+    'project.pendingTakes': ['Wait for your queued recordings to upload before saving the project.', 'Перед сохранением проекта дождитесь загрузки записей из очереди.', 'Перед збереженням проєкту дочекайтеся завантаження записів із черги.'],
+    'project.invalid': ['The project is damaged, incomplete, or contains invalid data.', 'Проект повреждён, неполон или содержит некорректные данные.', 'Проєкт пошкоджено, він неповний або містить некоректні дані.'],
+    'project.unsupportedVersion': ['This project format version is not supported.', 'Эта версия формата проекта не поддерживается.', 'Ця версія формату проєкту не підтримується.'],
+    'project.tooLarge': ['The project exceeds the supported size ({max} MB).', 'Проект превышает допустимый размер ({max} МБ).', 'Проєкт перевищує допустимий розмір ({max} МБ).'],
+    'project.missingMedia': ['A referenced project media file is missing. Restore it before saving.', 'Медиафайл проекта не найден. Восстановите его перед сохранением.', 'Медіафайл проєкту не знайдено. Відновіть його перед збереженням.'],
+    'project.downloadStarted': ["Project download started. Wait for your browser to finish saving the .dubline file.","Скачивание проекта началось. Дождитесь, пока браузер сохранит файл .dubline.","Завантаження проєкту почалося. Дочекайтеся, поки браузер збереже файл .dubline."],
+    'project.downloadExpired': ["The prepared download expired. Save the project again.","Подготовленное скачивание истекло. Сохраните проект ещё раз.","Підготовлене завантаження прострочено. Збережіть проєкт ще раз."],
+    'project.diskSpace': ["Not enough free disk space for this project. Free some space and try again.","Недостаточно свободного места на диске для проекта. Освободите место и повторите.","Недостатньо вільного місця на диску для проєкту. Звільніть місце й повторіть."],
+    'error.videoTooBig': ["Video exceeds the {max} MB limit. Choose a smaller video.","Видео превышает лимит {max} МБ. Выберите видео меньшего размера.","Відео перевищує ліміт {max} МБ. Виберіть відео меншого розміру."],
+    'project.busy': ['Another project operation is in progress. Try again when it finishes.', 'Уже выполняется операция с проектом. Повторите после её завершения.', 'Уже виконується операція з проєктом. Повторіть після її завершення.']
+  });
+  Object.assign(studioCopy, {
+    'studio.original': ['Original', 'Оригинал', 'Оригінал'],
+    'studio.backing': ['Background / M&E', 'Фон', 'Фон'],
+    'studio.dub': ['Dub', 'Дубляж', 'Дубляж'],
+    'workshop.direct': ['Downloading media directly from Voxalike…', 'Загрузка медиа напрямую с Voxalike…', 'Завантаження медіа напряму з Voxalike…'],
+    'workshop.fallback': ['Direct download unavailable; downloading from players / host…', 'Прямая загрузка недоступна; загрузка от участников / хоста…', 'Пряме завантаження недоступне; завантаження від учасників / хоста…'],
+    'studio.coverage': ['Recorded coverage · current takes', 'Покрытие записями · текущие дубли', 'Покриття записами · поточні дублі'],
+    'dialog.confirm': ['Confirm', 'Подтвердить', 'Підтвердити'],
+    'dialog.cancel': ['Cancel', 'Отмена', 'Скасувати'],
+    'userTab': ['My Settings', 'Мои настройки', 'Мої налаштування'],
+    'playerTab': ['Room / Project Settings', 'Настройки комнаты / проекта', 'Налаштування кімнати / проєкту'],
+    'adr.volume': ['ADR cue volume (on this device)', 'Громкость сигналов ADR (на этом устройстве)', 'Гучність сигналів ADR (на цьому пристрої)'],
+    'timeline.outside': ['Beyond the end of the video', 'За пределами видео', 'За межами відео'],
+    'timeline.outsideCreate': ['Create the line before the end of the video.', 'Создайте реплику до конца видео.', 'Створіть репліку до кінця відео.'],
+    'timeline.bounds': ['The line must stay inside the video.', 'Реплика должна находиться в пределах видео.', 'Репліка має залишатися в межах відео.'],
+    'timeline.trackBoundary': ['The selected group cannot move past the first or last role.', 'Группа не может выходить за первую или последнюю роль.', 'Група не може виходити за першу або останню роль.'],
+    'single.title': ['Single Player', 'Одиночная работа', 'Одиночна робота'],
+    'single.host': ['Host Multiplayer', 'Начать совместную работу', 'Почати спільну роботу'],
+    'single.defaultName': ['Me', 'Я', 'Я']
+  });
   for (const [key, translations] of Object.entries(studioCopy)) ['en', 'ru', 'uk'].forEach((code, i) => { messages[code][key] = translations[i]; });
 
+  for (const [key, values] of Object.entries({
+  "storage.title": [
+    "Project storage folder",
+    "Папка хранения проектов",
+    "Папка зберігання проєктів"
+  ],
+  "storage.change": [
+    "Change folder",
+    "Изменить папку",
+    "Змінити папку"
+  ],
+  "storage.help": [
+    "Originals, working videos, recordings, library and temporary exports. A Dubline subfolder is created in the selected folder. Existing data is moved automatically.",
+    "Исходники, рабочие видео, записи, библиотека и временные экспорты. В выбранной папке создаётся подпапка Dubline. Уже созданные данные переносятся автоматически.",
+    "Оригінали, робочі відео, записи, бібліотека й тимчасові експорти. У вибраній папці створюється підпапка Dubline. Наявні дані переносяться автоматично."
+  ],
+  "storage.hostHelp": [
+    "Changing the folder takes effect at the next workspace launch, after the current project is closed.",
+    "Смена папки применяется при следующем запуске рабочего пространства, после закрытия текущего проекта.",
+    "Зміна папки застосовується під час наступного запуску робочого простору, після закриття поточного проєкту."
+  ],
+  "storage.pending": [
+    "After restart: {path}",
+    "После перезапуска: {path}",
+    "Після перезапуску: {path}"
+  ],
+  "storage.moving": [
+    "Moving project data: {done} / {total} MB…",
+    "Перенос данных проектов: {done} / {total} МБ…",
+    "Перенесення даних проєктів: {done} / {total} МБ…"
+  ],
+  "storage.leftovers": [
+    "Data moved. Some old files could not be removed: {paths}",
+    "Данные перенесены. Не удалось удалить некоторые старые файлы: {paths}",
+    "Дані перенесено. Не вдалося видалити деякі старі файли: {paths}"
+  ],
+  "storage.error.occupied": [
+    "The destination Dubline folder must be empty. Choose another parent folder.",
+    "Папка Dubline в месте назначения должна быть пустой. Выберите другую родительскую папку.",
+    "Папка Dubline у місці призначення має бути порожньою. Виберіть іншу батьківську папку."
+  ],
+  "storage.error.overlap": [
+    "Choose a folder outside the current storage folder.",
+    "Выберите папку за пределами текущего хранилища.",
+    "Виберіть папку поза поточним сховищем."
+  ],
+  "storage.error.missing": [
+    "The storage folder is unavailable. Connect the drive and retry.",
+    "Папка хранения недоступна. Подключите диск и повторите попытку.",
+    "Папка зберігання недоступна. Підключіть диск і повторіть спробу."
+  ],
+  "storage.error.space": [
+    "Not enough free space in the destination. Existing projects remain in their current folder.",
+    "В новой папке недостаточно свободного места. Проекты остаются в текущей папке.",
+    "У новій папці недостатньо вільного місця. Проєкти залишаються в поточній папці."
+  ],
+  "storage.error.busy": [
+    "Wait for the current operation to finish.",
+    "Дождитесь завершения текущей операции.",
+    "Дочекайтеся завершення поточної операції."
+  ],
+  "storage.error.config": [
+    "The storage setting is damaged. Restore storage.json in the app profile.",
+    "Настройка хранения повреждена. Восстановите storage.json в профиле приложения.",
+    "Налаштування зберігання пошкоджене. Відновіть storage.json у профілі застосунку."
+  ],
+  "storage.error.io": [
+    "Could not move project data: {message}. Existing projects remain available in their current folder.",
+    "Не удалось перенести данные: {message}. Проекты сохранены в текущей папке.",
+    "Не вдалося перенести дані: {message}. Проєкти збережені в поточній папці."
+  ]
+})) ['en', 'ru', 'uk'].forEach((code, index) => messages[code][key] = values[index]);
   const preferences = window.dublinePreferences || window.dublineDesktop;
   let language = preferences && preferences.language || localStorage.getItem('dubline_language');
   if (!messages[language]) {

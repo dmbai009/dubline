@@ -97,6 +97,27 @@ describe('desktop invitation', { skip: skipReason }, () => {
     assert.match(result.url, /^http:\/\/26\.10\.20\.30:38500\/\?room=desktop$/);
   });
 
+  test('single promotion clears solo state; tabs remain clickable during delayed requests and old replies cannot change the selected mode', async () => {
+    await page.evaluate(() => {
+      handleDesktopStatus({ ...__desktopStatus, mode:'single', singlePlayer:true, state:'local' });
+      window.__pendingModes = [];
+      window.__oldSetHostingMode = dublineDesktop.setHostingMode;
+      dublineDesktop.setHostingMode = mode => new Promise(resolve => __pendingModes.push({ mode, resolve }));
+      openHostingModal();
+    });
+    await page.click('[data-hosting-mode=porthole]');
+    assert.equal(await page.$eval('[data-hosting-mode=cloudflare]', node => node.disabled), false);
+    await page.click('[data-hosting-mode=cloudflare]');
+    assert.equal(await page.$eval('[data-hosting-mode=cloudflare]', node => node.classList.contains('active')), true);
+    await page.click('[data-hosting-mode=vpn]');
+    await page.evaluate(() => __pendingModes[2].resolve({ ...__desktopStatus, mode:'vpn', singlePlayer:false, state:'waitingGuest' }));
+    await waitFor(page, () => desktopInviteState.mode === 'vpn' && !desktopInviteState.singlePlayer);
+    await page.evaluate(() => { __pendingModes[1].resolve({ ...__desktopStatus, mode:'cloudflare' }); __pendingModes[0].resolve({ ...__desktopStatus, mode:'porthole' }); });
+    assert.equal(await page.$eval('[data-hosting-mode=vpn]', node => node.classList.contains('active')), true);
+    assert.equal(await page.$eval('#desktopInvitePanel', node => getComputedStyle(node).display), 'flex');
+    await page.evaluate(() => { dublineDesktop.setHostingMode = __oldSetHostingMode; });
+  });
+
   test('keeps the update notice optional and non-blocking', async () => {
     await waitFor(page, () => document.getElementById('appUpdateBanner').classList.contains('show'));
     assert.match(await page.$eval('#appUpdateVersion', node => node.textContent), /1\.2\.0/);

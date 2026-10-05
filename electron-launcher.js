@@ -34,6 +34,84 @@ const copy = {
   }
 };
 
+for (const [key, values] of Object.entries({
+  single: ['New Single Player Project', 'Новый одиночный проект', 'Новий одиночний проєкт'],
+  openProjectFile: ['Open Dubline Project', 'Открыть проект Dubline', 'Відкрити проєкт Dubline'],
+  singleMode: ['Open in Single Player', 'Открыть в одиночку', 'Відкрити самостійно'],
+  multiMode: ['Open as Multiplayer host', 'Открыть для совместной работы', 'Відкрити для спільної роботи']
+})) ['en', 'ru', 'uk'].forEach((code, i) => copy[code][key] = values[i]);
+for (const [key, values] of Object.entries({
+  "storage.title": [
+    "Project storage folder",
+    "Папка хранения проектов",
+    "Папка зберігання проєктів"
+  ],
+  "storage.change": [
+    "Change folder",
+    "Изменить папку",
+    "Змінити папку"
+  ],
+  "storage.help": [
+    "Originals, working videos, recordings, library and temporary exports. A Dubline subfolder is created in the selected folder. Existing data is moved automatically.",
+    "Исходники, рабочие видео, записи, библиотека и временные экспорты. В выбранной папке создаётся подпапка Dubline. Уже созданные данные переносятся автоматически.",
+    "Оригінали, робочі відео, записи, бібліотека й тимчасові експорти. У вибраній папці створюється підпапка Dubline. Наявні дані переносяться автоматично."
+  ],
+  "storage.hostHelp": [
+    "Changing the folder takes effect at the next workspace launch, after the current project is closed.",
+    "Смена папки применяется при следующем запуске рабочего пространства, после закрытия текущего проекта.",
+    "Зміна папки застосовується під час наступного запуску робочого простору, після закриття поточного проєкту."
+  ],
+  "storage.pending": [
+    "After restart: {path}",
+    "После перезапуска: {path}",
+    "Після перезапуску: {path}"
+  ],
+  "storage.moving": [
+    "Moving project data: {done} / {total} MB…",
+    "Перенос данных проектов: {done} / {total} МБ…",
+    "Перенесення даних проєктів: {done} / {total} МБ…"
+  ],
+  "storage.leftovers": [
+    "Data moved. Some old files could not be removed: {paths}",
+    "Данные перенесены. Не удалось удалить некоторые старые файлы: {paths}",
+    "Дані перенесено. Не вдалося видалити деякі старі файли: {paths}"
+  ],
+  "storage.error.occupied": [
+    "The destination Dubline folder must be empty. Choose another parent folder.",
+    "Папка Dubline в месте назначения должна быть пустой. Выберите другую родительскую папку.",
+    "Папка Dubline у місці призначення має бути порожньою. Виберіть іншу батьківську папку."
+  ],
+  "storage.error.overlap": [
+    "Choose a folder outside the current storage folder.",
+    "Выберите папку за пределами текущего хранилища.",
+    "Виберіть папку поза поточним сховищем."
+  ],
+  "storage.error.missing": [
+    "The storage folder is unavailable. Connect the drive and retry.",
+    "Папка хранения недоступна. Подключите диск и повторите попытку.",
+    "Папка зберігання недоступна. Підключіть диск і повторіть спробу."
+  ],
+  "storage.error.space": [
+    "Not enough free space in the destination. Existing projects remain in their current folder.",
+    "В новой папке недостаточно свободного места. Проекты остаются в текущей папке.",
+    "У новій папці недостатньо вільного місця. Проєкти залишаються в поточній папці."
+  ],
+  "storage.error.busy": [
+    "Wait for the current operation to finish.",
+    "Дождитесь завершения текущей операции.",
+    "Дочекайтеся завершення поточної операції."
+  ],
+  "storage.error.config": [
+    "The storage setting is damaged. Restore storage.json in the app profile.",
+    "Настройка хранения повреждена. Восстановите storage.json в профиле приложения.",
+    "Налаштування зберігання пошкоджене. Відновіть storage.json у профілі застосунку."
+  ],
+  "storage.error.io": [
+    "Could not move project data: {message}. Existing projects remain available in their current folder.",
+    "Не удалось перенести данные: {message}. Проекты сохранены в текущей папке.",
+    "Не вдалося перенести дані: {message}. Проєкти збережені в поточній папці."
+  ]
+})) ['en', 'ru', 'uk'].forEach((code, index) => copy[code][key] = values[index]);
 const modes = ['cloudflare', 'porthole', 'vpn'];
 let language = (window.dublineLauncher.language || localStorage.getItem('dubline_language') || 'en').slice(0, 2);
 if (!copy[language]) language = 'en';
@@ -91,8 +169,46 @@ function render() {
     });
   }
   renderUpdate();
+  renderStorage();
 }
 
+let storageInfo = null;
+let storageProgress = null;
+let storageFailure = null;
+function renderStorage() {
+  document.getElementById('storagePath').textContent = storageInfo?.root || '';
+  document.getElementById('storagePending').textContent = storageInfo?.pending ? tr('storage.pending', { path: storageInfo.pending }) : '';
+  let message = '';
+  if (storageFailure) message = tr(copy[language]['storage.error.' + storageFailure.code] ? 'storage.error.' + storageFailure.code : 'storage.error.io', { message: storageFailure.message || storageFailure.code });
+  else if (storageProgress?.leftovers) message = tr('storage.leftovers', { paths: storageProgress.leftovers.join(', ') });
+  else if (storageProgress) message = tr('storage.moving', { done: (storageProgress.completed / 1048576).toFixed(1), total: (storageProgress.total / 1048576).toFixed(1) });
+  document.getElementById('storageStatus').textContent = message;
+}
+async function refreshStorage() {
+  if (!window.dublineLauncher.getStorage) { document.getElementById('storageCard').hidden = true; return; }
+  storageInfo = await window.dublineLauncher.getStorage();
+  if (storageInfo.error) storageFailure = { code: storageInfo.error };
+  renderStorage();
+}
+window.dublineLauncher.onStorageProgress?.(progress => { storageProgress = progress; renderStorage(); });
+document.getElementById('storageChange').addEventListener('click', async () => {
+  const buttons = ['storageChange', 'startSingle', 'openProjectFile', 'startHost', 'joinGuest'].map(id => document.getElementById(id));
+  buttons.forEach(button => button.disabled = true);
+  storageFailure = null; storageProgress = null;
+  try {
+    const result = await window.dublineLauncher.chooseStorage();
+    if (!result.ok) storageFailure = result;
+    if (!storageProgress?.leftovers) storageProgress = null;
+    await refreshStorage();
+  } catch (error) { storageFailure = { code: 'io', message: error.message }; }
+  finally { buttons.forEach(button => button.disabled = false); renderStorage(); }
+});
+function workspaceError(result) {
+  if (!result.storageCode) return result.error;
+  storageFailure = { code: result.storageCode, message: result.error };
+  renderStorage();
+  return tr(copy[language]['storage.error.' + result.storageCode] ? 'storage.error.' + result.storageCode : 'storage.error.io', { message: result.error });
+}
 function renderUpdate() {
   const banner = document.getElementById('updateBanner');
   if (updateStatus?.currentVersion) document.getElementById('launcherVersion').textContent = `Dubline v${updateStatus.currentVersion}`;
@@ -112,14 +228,16 @@ document.querySelectorAll('[data-view]').forEach(button => button.addEventListen
 }));
 document.getElementById('language').addEventListener('change', event => { language=event.target.value; localStorage.setItem('dubline_language',language); window.dublineLauncher.setLanguage?.(language).catch(() => {}); render(); });
 document.getElementById('startHost').addEventListener('click', async event => {
-  event.currentTarget.disabled=true; event.currentTarget.textContent=tr('starting'); document.getElementById('hostError').textContent='';
-  try { const result=await window.dublineLauncher.startHost(selectedMode); if (!result.ok) throw new Error(result.error); }
-  catch (err) { document.getElementById('hostError').textContent=tr('invalid',{error:err.message}); event.currentTarget.disabled=false; event.currentTarget.textContent=tr('start'); }
+  const button = event.currentTarget;
+  button.disabled=true; button.textContent=tr('starting'); document.getElementById('hostError').textContent='';
+  try { const result=await window.dublineLauncher.startHost(selectedMode); if (!result.ok) throw new Error(workspaceError(result)); }
+  catch (err) { storageProgress = null; void refreshStorage(); document.getElementById('hostError').textContent=tr('invalid',{error:err.message}); button.disabled=false; button.textContent=tr('start'); }
 });
 document.getElementById('joinGuest').addEventListener('click', async event => {
-  event.currentTarget.disabled=true; document.getElementById('guestError').textContent='';
-  try { const result=await window.dublineLauncher.joinGuest(document.getElementById('guestAddress').value); if (!result.ok) throw new Error(result.error); }
-  catch (err) { document.getElementById('guestError').textContent=tr('invalid',{error:err.message}); event.currentTarget.disabled=false; }
+  const button = event.currentTarget;
+  button.disabled=true; document.getElementById('guestError').textContent='';
+  try { const result=await window.dublineLauncher.joinGuest(document.getElementById('guestAddress').value); if (!result.ok) throw new Error(workspaceError(result)); }
+  catch (err) { document.getElementById('guestError').textContent=tr('invalid',{error:err.message}); button.disabled=false; }
 });
 document.getElementById('guestAddress').addEventListener('keydown', event => { if (event.key === 'Enter') document.getElementById('joinGuest').click(); });
 document.getElementById('updateDownload').addEventListener('click', () => window.dublineLauncher.openUpdate());
@@ -134,4 +252,14 @@ async function initUpdate() {
   try { updateStatus=await window.dublineLauncher.getUpdateStatus(); renderUpdate(); } catch (_) {}
   window.dublineLauncher.onUpdateStatus?.(status => { updateStatus=status; renderUpdate(); });
 }
-render(); refreshTools(); initUpdate(); setInterval(refreshTools, 4000);
+for (const id of ['startSingle', 'openProjectFile']) document.getElementById(id).addEventListener('click', async () => {
+  const buttons = ['startSingle', 'openProjectFile', 'startHost'].map(name => document.getElementById(name));
+  buttons.forEach(button => button.disabled = true);
+  document.getElementById('projectError').textContent = '';
+  try {
+    const result = id === 'startSingle' ? await window.dublineLauncher.startSingle() : await window.dublineLauncher.openProjectFile(document.getElementById('projectOpenMode').value === 'single' ? 'single' : selectedMode);
+    if (!result.ok) throw new Error(workspaceError(result));
+  } catch (error) { storageProgress = null; void refreshStorage(); document.getElementById('projectError').textContent = tr('invalid', { error: error.message }); }
+  finally { buttons.forEach(button => button.disabled = false); }
+});
+render(); refreshTools(); initUpdate(); refreshStorage().catch(() => {}); setInterval(refreshTools, 4000);

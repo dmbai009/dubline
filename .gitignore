@@ -10,3 +10,10 @@ dist/
 /audit/
 resources/cloudflared.exe
 resources/cloudflared.exe.download
+
+# Local development specifications, reports and generated QA media
+/docs/Dubline_1.4.0_TZ.md
+/docs/1.4.0-*.md
+/docs/large-projects-plan.md
+/docs/qa/
+/tools/prepare-main-push.js

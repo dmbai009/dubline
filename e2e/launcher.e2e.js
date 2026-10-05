@@ -21,6 +21,8 @@ describe('desktop launcher', { skip: skipReason }, () => {
           hamachi: { installed: false, running: false, ip: '' }
         }),
         startHost: async mode => { window.__launcherAction = { type: 'host', mode }; return { ok: true, port: 38500 }; },
+        startSingle: async () => { window.__launcherAction = { type:'single' }; return { ok:true }; },
+        openProjectFile: async mode => { window.__launcherAction = { type:'open', mode }; return window.__fileError ? { ok:false, error:'Invalid project' } : { ok:true, canceled:!!window.__cancelFile }; },
         joinGuest: async address => { window.__launcherAction = { type: 'guest', address }; return { ok: true }; },
         openNetworkTool: async tool => { window.__launcherAction = { type: 'tool', tool }; return true; },
         getUpdateStatus: async () => ({ state: 'available', currentVersion: '1.1.0', version: '1.2.0', url: 'https://github.com/dmbai009/dubline/releases/tag/v1.2.0', dismissed: false }),
@@ -36,6 +38,18 @@ describe('desktop launcher', { skip: skipReason }, () => {
 
   after(async () => { if (browser) await browser.close(); });
 
+  test('Single Player and project-open entries choose runtime mode and report errors', async () => {
+    await page.click('#startSingle'); await waitFor(page, () => window.__launcherAction?.type === 'single');
+    await page.click('#openProjectFile'); await waitFor(page, () => window.__launcherAction?.type === 'open');
+    assert.equal(await page.evaluate(() => window.__launcherAction.mode),'single');
+    await page.select('#projectOpenMode','multiplayer'); await page.$eval('[data-mode=porthole]', node => node.click());
+    await page.click('#openProjectFile'); assert.equal(await page.evaluate(() => window.__launcherAction.mode),'porthole');
+    await page.evaluate(() => window.__fileError = true); await page.click('#openProjectFile');
+    await waitFor(page, () => document.getElementById('projectError').textContent.includes('Invalid project'));
+    assert.equal(await page.$eval('#openProjectFile', node => node.disabled),false);
+    await page.evaluate(() => { window.__fileError = false; window.__cancelFile = true; }); await page.click('#openProjectFile');
+    assert.equal(await page.$eval('#projectError', node => node.textContent),'');
+  });
   test('chooses a detected fallback and starts hosting', async () => {
     const layout = await page.evaluate(() => {
       const grid = document.getElementById('modes').getBoundingClientRect();
@@ -73,3 +87,6 @@ describe('desktop launcher', { skip: skipReason }, () => {
     await waitFor(page, () => window.__launcherAction?.type === 'project');
   });
 });
+
+// Keep storage controls in the standard browser regression command.
+require('./storage.e2e');

@@ -3,6 +3,8 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('dublineDesktop', Object.freeze({
   language: ipcRenderer.sendSync('app:get-language'),
   setLanguage: language => ipcRenderer.invoke('app:set-language', language),
+  getStorage: () => ipcRenderer.invoke('app:get-storage'),
+  chooseStorage: () => ipcRenderer.invoke('app:choose-storage'),
   getStatus: () => ipcRenderer.invoke('desktop:get-status'),
   setHostingMode: mode => ipcRenderer.invoke('desktop:set-hosting-mode', mode),
   retryHosting: () => ipcRenderer.invoke('desktop:retry-hosting'),

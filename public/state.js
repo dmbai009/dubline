@@ -44,8 +44,9 @@
       : 0.4,
     prompterEnabled: storage.getItem('dubline_prompter') !== '0',
     cueEnabled: storage.getItem('dubline_cue') !== '0',
+    adrCueVolume: Math.max(0, Math.min(1, Number(storage.getItem('dubline_adr_volume') ?? 1) || 0)),
     preRollSeconds: Number.isFinite(storedPreRoll)
-      ? Math.round(Math.max(0, Math.min(5, storedPreRoll)) * 10) / 10
+      ? Math.round(Math.max(storage.getItem('dubline_adr') === 'three' ? 3 : 0, Math.min(5, storedPreRoll)) * 10) / 10
       : 1,
     prompterSize: Number.isFinite(storedPrompterSize)
       ? Math.max(14, Math.min(36, storedPrompterSize))

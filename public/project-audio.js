@@ -39,7 +39,46 @@
     const from = Math.max(0, -offset);
     return { when: Math.max(0, offset), from, duration: Math.max(0, duration - from) };
   }
-  const api = Object.freeze({ CHANNELS, MAX_VOLUME, normalize, sources, gains, sourceTime, placement });
+  function takeLatency(session, author) {
+    if (!session || !author) return 0;
+    // JSON dictionaries arriving in the browser have Object.prototype. Nicknames
+    // such as constructor/toString must use actual entries, never inherited ones.
+    const imported = session.takeLatency || {};
+    const current = session.latency || {};
+    const value = Object.hasOwn(imported, author) ? imported[author] : Object.hasOwn(current, author) ? current[author] : 0;
+    return Number.isFinite(Number(value)) ? Number(value) : 0;
+  }
+  const DUCK = Object.freeze({attack:0.3,hold:0.15,release:0.85});
+  const ease = x => x*x*(3-2*x);
+  // Linear segments sample a smooth curve and can be safely cancelled mid-transition.
+  function smoothRamp(param, from, to, start, seconds) {
+    param.setValueAtTime(from,start);
+    for(let i=1;i<=24;i++)param.linearRampToValueAtTime(from+(to-from)*ease(i/24),start+seconds*i/24);
+  }
+  function automateDucking(param, base, amount, intervals, duration) {
+    const merged=[];
+    for(const pair of intervals.filter(([a,b])=>b>a).sort((a,b)=>a[0]-b[0])){
+      const last=merged.at(-1);
+      if(last && pair[0]<=last[1]+DUCK.hold+DUCK.attack)last[1]=Math.max(last[1],pair[1]);
+      else merged.push([...pair]);
+    }
+    const events=[[0,base]];
+    const addCurve=(from,to,start,end)=>{events.push([start,from]);for(let i=1;i<=24;i++)events.push([start+(end-start)*i/24,from+(to-from)*ease(i/24)]);};
+    for(const [start,end] of merged){
+      const attackStart=Math.max(0,start-DUCK.attack);
+      // A new phrase can interrupt an unfinished release without jumping to full volume.
+      let from=base;
+      for(let i=events.length-1;i>=0;i--){if(events[i][0]<=attackStart){const a=events[i],b=events[i+1];from=b && b[0]>a[0]?a[1]+(b[1]-a[1])*(attackStart-a[0])/(b[0]-a[0]):a[1];break;}}
+      while(events.at(-1)?.[0]>attackStart)events.pop();
+      const ducked=base*(1-amount), attackEnd=Math.min(duration,end,Math.max(start,attackStart+DUCK.attack));
+      addCurve(from,ducked,attackStart,attackEnd);
+      const holdEnd=Math.min(duration,end+DUCK.hold);events.push([holdEnd,ducked]);
+      addCurve(ducked,base,holdEnd,Math.min(duration,holdEnd+DUCK.release));
+    }
+    param.setValueAtTime(base,0);
+    for(const [at,value] of events)param.linearRampToValueAtTime(value,at);
+  }
+  const api = Object.freeze({ DUCK, smoothRamp, automateDucking, CHANNELS, MAX_VOLUME, normalize, sources, gains, sourceTime, placement, takeLatency });
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else global.DublineProjectAudio = api;
 })(typeof window !== 'undefined' ? window : globalThis);

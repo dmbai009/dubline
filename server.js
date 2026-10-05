@@ -49,6 +49,23 @@ if (require.main === module) {
   });
 
   process.on('message', message => {
+    if (message?.type === 'new-single-project' || message?.type === 'enable-multiplayer' || message?.type === 'open-project-file') {
+      (async () => {
+        if (message.type === 'new-single-project') {
+          const { getRoom, snapshotActive, activateSession, flushRooms } = require('./server/rooms');
+          const room = getRoom(require('./server/desktop').desktopRoomId);
+          snapshotActive(room); activateSession(room, null); flushRooms();
+        } else if (message.type === 'enable-multiplayer') require('./server/desktop').enableMultiplayer();
+        else {
+          const fs = require('fs');
+          const stat = fs.statSync(message.path);
+          if (!stat.isFile() || !stat.size) throw new Error('Invalid project file.');
+          await require('./server/routes').importProjectIntoRoom(require('./server/desktop').desktopRoomId, message.path);
+        }
+        process.send?.({ requestId: message.requestId, ok: true });
+      })().catch(error => process.send?.({ requestId: message.requestId, ok: false, error: error.message }));
+      return;
+    }
     if (!message || message.type !== 'shutdown') return;
     flushRooms();
     server.close(() => process.exit(0));

@@ -294,7 +294,8 @@ async function sha256Hex(blob) {
   return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-async function downloadFile({ url, size, hash, type }, onProgress, abort) {
+async function downloadFile({ url, size, hash, type, direct }, onProgress, abort) {
+  if (direct) { try { return await direct(); } catch (error) { if (abort.signal.aborted) throw error; console.info('[Dubline] Voxalike direct unavailable; using peers / host.'); } }
   const count = Math.ceil(size / P2P_CHUNK);
   const job = {
     url, size,
@@ -306,7 +307,7 @@ async function downloadFile({ url, size, hash, type }, onProgress, abort) {
     progress: () => onProgress(job)
   };
 
-  const seeders = (await findSeeders(url)).slice(0, P2P_MAX_PEERS);
+  const seeders = p2pEnabled ? (await findSeeders(url)).slice(0, P2P_MAX_PEERS) : [];
   await Promise.all(seeders.map(id => connectToSeeder(id).then(peer => runPeer(peer, job)).catch(() => {})));
   if (job.cancelled) throw new Error('cancelled');
   if (job.pending.length) await runHttp(job);
@@ -343,7 +344,7 @@ async function loadSceneMedia() {
   const hasLocal = localMedia && localMedia.forVideoUrl === current.videoUrl;
 
   // Already have it from disk, or we are on the server itself, or P2P is off: play as usual
-  if (hasLocal || isOnServerMachine() || !p2pEnabled || !window.RTCPeerConnection || !current.videoSize || !current.videoUrl) {
+  if (hasLocal || isOnServerMachine() || ((!p2pEnabled || !window.RTCPeerConnection) && !current.workshopSource) || !current.videoSize || !current.videoUrl) {
     setHostSources();
     updateP2pStatus();
     announceHave();
@@ -360,9 +361,49 @@ async function loadSceneMedia() {
   if (current.backingUrl && current.backingSize) {
     files.push({ url: current.backingUrl, size: current.backingSize, hash: current.backingHash, type: 'audio/mpeg', role: 'backing' });
   }
+  const direct = current.workshopSource;
+  let archive;
+  if (direct && window.crypto?.subtle && /^[a-f0-9]{64}$/.test(direct.archiveHash)) {
+    for (const file of files) {
+      const entry = file.role === 'video' ? direct.videoEntry : direct.backingEntry;
+      if (!entry || decodeURIComponent(file.url.split('/').pop()) !== entry || !file.hash) continue;
+      file.direct = async () => {
+        if (!archive) archive = (async () => {
+          const url = new URL(direct.downloadUrl);
+          if (url.protocol !== 'https:' || !['voxalike.com', 'www.voxalike.com'].includes(url.hostname) || url.username || url.password || url.port || !/^\/workshop\/[a-z0-9_/-]+\/download$/.test(url.pathname)) throw new Error('Invalid Voxalike URL');
+          p2pStatus = { state: 'direct' }; updateP2pStatus();
+          const response = await fetch(url, { credentials: 'omit', signal: AbortSignal.any([abort.signal, AbortSignal.timeout(15000)]) });
+          if (!response.ok || !response.body) throw new Error('Voxalike download failed');
+          if (response.url && !['voxalike.com', 'www.voxalike.com'].includes(new URL(response.url).hostname)) throw new Error('Unsupported redirect');
+          const parts = []; let total = 0;
+          const reader = response.body.getReader();
+          try {
+            while (true) {
+              const { done, value } = await reader.read(); if (done) break;
+              total += value.byteLength;
+              if (total > direct.archiveSize || total > 300 * 1024 * 1024) throw new Error('Voxalike archive too large');
+              parts.push(value);
+            }
+          } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
+          const blob = new Blob(parts);
+          if (blob.size !== direct.archiveSize || await sha256Hex(blob) !== direct.archiveHash) throw new Error('Voxalike archive changed');
+          return JSZip.loadAsync(await blob.arrayBuffer());
+        })();
+        try {
+          const zip = await archive;
+          const matches = Object.values(zip.files).filter(item => !item.dir && item.name.split(/[\\/]/).pop() === entry);
+          const item = matches.at(-1);
+          if (!item || item._data?.uncompressedSize !== file.size) throw new Error('Voxalike asset mismatch');
+          const blob = new Blob([await item.async('arraybuffer')], { type: file.type });
+          if (blob.size !== file.size || await sha256Hex(blob) !== file.hash) throw new Error('Voxalike asset changed');
+          return { blob, p2pBytes: 0, httpBytes: 0, directBytes: blob.size, peers: 0 };
+        } catch (error) { p2pStatus = { state: 'fallback' }; updateP2pStatus(); throw error; }
+      };
+    }
+  }
   const totalSize = files.reduce((sum, f) => sum + f.size, 0);
   let doneBytes = 0;
-  const totals = { p2p: 0, http: 0 };
+  const totals = { p2p: 0, http: 0, direct: 0 };
   const results = {};
 
   try {
@@ -380,6 +421,7 @@ async function loadSceneMedia() {
       }, abort);
       results[file.role] = result.blob;
       doneBytes += file.size;
+      totals.direct += result.directBytes || 0;
       totals.p2p += result.p2pBytes;
       totals.http += result.httpBytes;
       socket.emit('p2p_report', { url: file.url, p2pBytes: result.p2pBytes, httpBytes: result.httpBytes, peers: result.peers });
@@ -387,7 +429,7 @@ async function loadSceneMedia() {
     if (mediaDownload !== download || session.videoUrl !== download.videoUrl) return;
     mediaDownload = null;
     setLocalMedia({ video: results.video, backing: results.backing || null, source: 'p2p', videoSourceUrl: current.videoUrl, backingSourceUrl: current.backingUrl });
-    p2pStatus = { state: 'done', p2p: totals.p2p, http: totals.http, size: totalSize };
+    p2pStatus = { state: 'done', direct: totals.direct, p2p: totals.p2p, http: totals.http, size: totalSize };
   } catch (err) {
     if (mediaDownload !== download) return; // cancelled: already loading something else
     mediaDownload = null;
@@ -411,7 +453,8 @@ function updateP2pStatus() {
   let pct = null;
   let showWatchNow = false;
 
-  if (p2pStatus && p2pStatus.state === 'fetching') {
+  if (p2pStatus?.state === 'direct' || p2pStatus?.state === 'fallback') { lines.push(t(p2pStatus.state === 'direct' ? 'workshop.direct' : 'workshop.fallback')); }
+  else if (p2pStatus && p2pStatus.state === 'fetching') {
     lines.push(t('p2p.fetching', { pct: p2pStatus.pct, p2p: formatSize(p2pStatus.p2p) || '0', http: formatSize(p2pStatus.http) || '0' }));
     pct = p2pStatus.pct;
     showWatchNow = true;

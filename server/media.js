@@ -33,18 +33,18 @@ function probeAudioStreams(file) {
 
 const audioTrackJobs = new Map(); // videoUrl -> Promise (so the same video is not extracted twice)
 
-function extractAudioTracks(videoUrl) {
+function extractAudioTracks(videoUrl, sourcePath = null, signal) {
   if (audioTrackJobs.has(videoUrl)) return audioTrackJobs.get(videoUrl);
   const job = (async () => {
-    const videoPath = diskPathForUrl(videoUrl);
+    const videoPath = sourcePath || diskPathForUrl(videoUrl);
     if (!videoPath || !fs.existsSync(videoPath)) throw new Error('Video file is unavailable');
     const streams = probeAudioStreams(videoPath);
     // Keep the common single-AAC path local/P2P-friendly. Other single-track codecs
     // need the same browser-compatible conversion as multilingual videos.
-    if (streams.length === 1 && streams[0].codec === 'aac') {
+    if (!sourcePath && streams.length === 1 && streams[0].codec === 'aac') {
       return [{ index: 0, url: videoUrl, language: streams[0].language, label: streams[0].title, codec: 'aac' }];
     }
-    const dir = path.dirname(videoPath);
+    const dir = path.dirname(diskPathForUrl(videoUrl));
     const dirUrl = videoUrl.slice(0, videoUrl.lastIndexOf('/'));
     const tracks = [];
     for (let i = 0; i < streams.length; i++) {
@@ -52,7 +52,7 @@ function extractAudioTracks(videoUrl) {
       const out = path.join(dir, name);
       if (!fs.existsSync(out)) {
         const codecArgs = streams[i].codec === 'aac' ? ['-c:a', 'copy'] : ['-c:a', 'aac', '-b:a', '160k'];
-        await runFfmpeg(['-i', videoPath, '-map', `0:a:${i}`, '-vn', ...codecArgs, '-movflags', '+faststart', out], 'Could not extract an audio track');
+        await runFfmpeg(['-i', videoPath, '-map', `0:a:${i}`, '-vn', ...codecArgs, '-movflags', '+faststart', out], 'Could not extract an audio track', {signal, timeoutMs: sourcePath ? 2 * 60 * 60 * 1000 : 10 * 60 * 1000});
       }
       const language = streams[i].language;
       tracks.push({
@@ -101,14 +101,28 @@ function getWavDuration(buffer) {
   }
 }
 
-function runFfmpeg(args, label) {
+function runFfmpeg(args, label, { signal, onProgress, timeoutMs = 10 * 60 * 1000 } = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(ffmpegPath, ['-hide_banner', '-loglevel', 'error', '-y', ...args], { windowsHide: true });
-    let stderr = '';
+    const child = spawn(ffmpegPath, ['-hide_banner', '-loglevel', 'error', '-y', ...(onProgress ? ['-progress', 'pipe:1', '-nostats'] : []), ...args], { windowsHide: true });
+    let stderr = '', progressText = '';
+    if (onProgress) child.stdout.on('data', chunk => {
+      progressText += chunk.toString();
+      const lines = progressText.split(/\r?\n/); progressText = lines.pop();
+      for (const line of lines) {
+        const match = /^out_time_us=(\d+)$/.exec(line);
+        if (match) onProgress(Number(match[1]) / 1000000);
+      }
+    });
     const timer = setTimeout(() => {
       child.kill();
       reject(new HttpError(408, `${label}: processing timed out`, 'error.processingTimeout'));
-    }, 10 * 60 * 1000);
+    }, timeoutMs);
+    const abort = () => {
+      clearTimeout(timer); child.kill();
+      const error = new Error('Media processing cancelled'); error.name = 'AbortError'; reject(error);
+    };
+    if (signal?.aborted) abort(); else signal?.addEventListener('abort', abort, { once: true });
+    child.once('close', () => signal?.removeEventListener('abort', abort));
     child.stderr.on('data', chunk => {
       if (stderr.length < 8 * 1024 * 1024) stderr += chunk.toString();
     });
@@ -118,6 +132,7 @@ function runFfmpeg(args, label) {
     });
     child.on('close', code => {
       clearTimeout(timer);
+      if (signal?.aborted) return;
       if (code === 0) return resolve();
       const detail = stderr.trim().split(/\r?\n/).slice(-3).join(' ');
       if (detail) console.error(`[Dubline] ${label}: ${detail}`);

@@ -16,6 +16,10 @@ let pxPerSec = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Number(localStorage.getItem
 const urlParams = new URLSearchParams(window.location.search);
 const currentRoom = urlParams.get('room') || 'main';
 const desktopHostToken = urlParams.get('desktopHost') || '';
+if (desktopHostToken && urlParams.get('workspace') === 'single' && !myName) {
+  myName = t('single.defaultName');
+  localStorage.setItem('dubline_nick', myName);
+}
 if (desktopHostToken) {
   urlParams.delete('desktopHost');
   const cleanQuery = urlParams.toString();
@@ -93,12 +97,13 @@ const audio = window.DublineAudio.createController({
 
 // The player's microphone delay correction in seconds (stored on the server in ms)
 function latencyFor(nick) {
-  const ms = nick && state.session && state.session.latency ? state.session.latency[nick] : 0;
+  const ms = window.DublineProjectAudio.takeLatency(state.session, nick);
   return (Number(ms) || 0) / 1000;
 }
 
 function canHearLine(line) {
   if (!line || !line.audioUrl || !state.session) return false;
+  if (state.session.singlePlayer) return true;
   const author = line.recordedBy || getLineOwner(line);
   if (!author || author === state.myName || line.blindRevealed) return true;
   return !state.session.blindMode && !(state.session.blindPlayers || []).includes(author);
@@ -304,6 +309,7 @@ video.addEventListener('loadedmetadata', () => { if (session && session.loaded) 
 
 function getLineOwner(line) {
   if (!session) return null;
+  if (session.singlePlayer) return myName;
   const charOwner = session.characterClaims && Object.hasOwn(session.characterClaims, line.character) && session.characterClaims[line.character];
   return charOwner || line.claimedBy || null;
 }
@@ -311,6 +317,10 @@ function getLineOwner(line) {
 const MIN_TILE_PX = 22;
 const LANE_HEIGHT = 54;  // tile height 48 + gap 6
 const ROW_PADDING = 6;
+let roleHeights = {};
+try { roleHeights = JSON.parse(localStorage.getItem('dubline_role_heights') || '{}') || {}; } catch { /* invalid preference */ }
+if (typeof roleHeights !== 'object' || Array.isArray(roleHeights)) roleHeights = {};
+function roleHeightKey(character) { return JSON.stringify([currentRoom, session.activeSessionId, character]); }
 
 // Greedy lane layout: each line goes to the first lane where the previous one has already ended
 function assignLanes(lines) {
@@ -348,10 +358,15 @@ function sessionCharacters() {
   return [...new Set([...ordered, ...fromLines].filter(Boolean))];
 }
 
+let visibleLineNumbers = new Map();
+function lineNumber(line) { return visibleLineNumbers.get(line.id) ?? line.id; }
+
 function renderTimeline() {
+  visibleLineNumbers = window.DublineTimeline.numbers(session.lines || []);
   const savedScrollLeft = timelineContainer.scrollLeft;
   const savedScrollTop = timelineContainer.scrollTop;
   timeline.innerHTML = '';
+  // Keep media choices in the fixed video panel, outside horizontal timeline scrolling.
   timeline.appendChild(playhead);
 
   if (!session.lines) return;
@@ -378,8 +393,7 @@ function renderTimeline() {
   rulerTicks.onclick = (e) => {
     if (window.studioCanTransport && !window.studioCanTransport()) return;
     const rect = rulerTicks.getBoundingClientRect();
-    const clickX = e.clientX - rect.left;
-    video.currentTime = Math.max(0, clickX / pxPerSec);
+    video.currentTime = Math.max(0, Math.min(editorVideoDuration(), window.DublineTimeline.coordinate(e.clientX, rect.left, pxPerSec)));
   };
 
   const tickStep = Math.max([1, 2, 5, 10, 15, 30, 60].find(step => step * pxPerSec >= 70) || 120, Math.ceil(maxTime / 1500));
@@ -410,7 +424,7 @@ function renderTimeline() {
 
     let roleHtml = '';
     const hasLines = session.lines.some(l => l.character === char);
-    if (allowCharacterClaims && !editing && hasLines) {
+    if (allowCharacterClaims && !editing && hasLines && !session.singlePlayer) {
       if (!charClaimedBy) {
         roleHtml = `<button class="role-btn" onclick="claimCharacter(${jsArg(char)})">${t('claimRoleShort')}</button>`;
       } else if (charClaimedBy === myName) {
@@ -436,11 +450,24 @@ function renderTimeline() {
     const trackArea = document.createElement('div');
     trackArea.className = 'track-timeline';
     trackArea.style.width = `${trackWidth}px`;
+    const duration = editorVideoDuration();
+    if (duration < 43200) {
+      const outside = document.createElement('div');
+      outside.className = 'timeline-outside';
+      outside.style.left = `${duration * pxPerSec}px`;
+      outside.title = t('timeline.outside');
+      trackArea.appendChild(outside);
+    }
+    const emptyTarget = event => event.target === trackArea || event.target.classList.contains('timeline-outside');
+    trackArea.onclick = event => {
+      if (event.button !== 0 || !emptyTarget(event) || !window.studioCanTransport()) return;
+      video.currentTime = Math.max(0, Math.min(duration, window.DublineTimeline.coordinate(event.clientX, trackArea.getBoundingClientRect().left, pxPerSec)));
+    };
     trackArea.ondblclick = event => {
-      if (session.mode !== 'edit' || event.button !== 0 || event.target !== trackArea) return;
+      if (session.mode !== 'edit' || event.button !== 0 || !emptyTarget(event)) return;
       event.preventDefault();
       event.stopPropagation();
-      createEditorLineAt(char, (event.clientX - trackArea.getBoundingClientRect().left) / pxPerSec);
+      createEditorLineAt(char, window.DublineTimeline.coordinate(event.clientX, trackArea.getBoundingClientRect().left, pxPerSec));
     };
 
     const charLines = session.lines.filter(l => l.character === char);
@@ -448,7 +475,24 @@ function renderTimeline() {
     // otherwise they are drawn on top of each other. Uses real time, so the layout doesn't jump when zooming.
     const laneOf = assignLanes(charLines);
     const laneCount = laneOf.size ? Math.max(...laneOf.values()) + 1 : 1;
-    row.style.height = `${ROW_PADDING + laneCount * LANE_HEIGHT}px`;
+    const minimumHeight = ROW_PADDING + laneCount * LANE_HEIGHT;
+    const heightKey = roleHeightKey(char);
+    row.style.height = Math.max(minimumHeight, Math.min(600, Number(roleHeights[heightKey]) || 0)) + 'px';
+    const resize = document.createElement('button'); resize.className = 'role-height-handle'; resize.type = 'button'; resize.title = t('splitter.hint'); resize.setAttribute('aria-label', t('splitter.hint'));
+    resize.ondblclick = event => { event.stopPropagation(); delete roleHeights[heightKey]; localStorage.setItem('dubline_role_heights', JSON.stringify(roleHeights)); renderTimeline(); };
+    resize.onpointerdown = event => {
+      if (event.button !== 0) return; event.stopPropagation();
+      const origin = event.clientY, height = row.getBoundingClientRect().height;
+      const move = next => { row.style.height = Math.max(minimumHeight, Math.min(600, height + next.clientY - origin)) + 'px'; };
+      const finish = () => {
+        window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', finish); window.removeEventListener('pointercancel', finish);
+        roleHeights[heightKey] = row.getBoundingClientRect().height;
+        for (const key of Object.keys(roleHeights).slice(0, -200)) delete roleHeights[key];
+        localStorage.setItem('dubline_role_heights', JSON.stringify(roleHeights));
+      };
+      window.addEventListener('pointermove', move); window.addEventListener('pointerup', finish); window.addEventListener('pointercancel', finish);
+    };
+    label.appendChild(resize);
     charLines.forEach(line => {
       const block = document.createElement('div');
       block.className = 'line-block';
@@ -535,7 +579,7 @@ function updateLineBlockVisual(el, line) {
 
   el.innerHTML = `
     <div style="display:flex; justify-content:space-between; align-items:center; gap:4px;">
-      <strong>#${line.id}</strong>
+      <strong>#${lineNumber(line)}</strong>
       ${nickBadge}
     </div>
     <span style="white-space:nowrap; text-overflow:ellipsis; overflow:hidden; font-size:11px; opacity:0.9;">
@@ -867,6 +911,7 @@ function applyAudioTracks() {
   setMediaSource(backing, mediaUrl(state.session.backingUrl) || null);
   if (window.syncProjectSources) window.syncProjectSources();
   renderTrackPicker();
+  refreshAudioLoadingStatus();
 }
 
 function renderTrackPicker() {
@@ -953,3 +998,20 @@ window.renameCharacterTrack = async function(name) {
     else editorResult(result);
   });
 };
+
+// Audio preparation is independent of waveform building and remains visible when Audio is collapsed.
+function refreshAudioLoadingStatus() {
+  const status = document.getElementById('audioLoadingStatus');
+  if (!status || !session?.loaded) { if (status) status.hidden = true; return; }
+  const failed = session.audioTracksError === session.videoUrl;
+  const preparing = session.audioTracksPending || (!failed && session.audioTracks === undefined && session.videoHasAudio === undefined && !session.externalOriginalUrl);
+  const sources = window.DublineProjectAudio.sources(session), gains = window.DublineProjectAudio.gains(window.DublineProjectAudio.normalize(session));
+  const audible = [['original', originalTrackAudio], ['backing', backing]].filter(([channel]) => sources[channel] && gains[channel] > 0);
+  const buffering = audible.some(([, element]) => !element.error && element.readyState < 3);
+  const sourceError = audible.some(([, element]) => element.error);
+  status.hidden = !preparing && !buffering && !failed && !sourceError;
+  status.classList.toggle('audio-loading', !!preparing || buffering);
+  status.textContent = t(preparing ? 'tracks.preparing' : failed || sourceError ? 'tracks.failed' : 'tracks.buffering');
+}
+for (const element of [originalTrackAudio, backing]) for (const event of ['loadstart', 'loadedmetadata', 'waiting', 'stalled', 'canplay', 'playing', 'error', 'emptied']) element.addEventListener(event, refreshAudioLoadingStatus);
+window.addEventListener('dubline-language-changed', refreshAudioLoadingStatus);

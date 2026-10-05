@@ -680,7 +680,8 @@
             <select data-studio-setting="adr" class="text-input"><option value="off" data-i18n="studio.off">Off</option><option value="three" data-i18n="studio.three">3 beeps</option></select>
           </div>
         </div>
-        <div class="setting-card">
+        <div class="setting-card"><label class="setting-label" for="settingsAdrVolume" data-i18n="adr.volume"></label><input id="settingsAdrVolume" type="range" min="0" max="100" step="1" value="100"><output id="settingsAdrVolumeVal">100%</output></div>
+<div class="setting-card">
           <div class="setting-label" data-i18n="latency.label">Microphone delay</div>
           <div class="setting-sub" data-i18n="latency.help"></div>
           <div class="setting-card-row">
@@ -713,6 +714,15 @@
           </div>
         </div>
 
+        <div class="setting-card desktop-only" id="desktopStorageCard">
+          <div class="setting-label" data-i18n="storage.title"></div>
+          <div class="setting-sub" data-i18n="storage.help"></div>
+          <div class="setting-sub" data-i18n="storage.hostHelp"></div>
+          <div id="desktopStoragePath" style="overflow-wrap:anywhere;"></div>
+          <div id="desktopStoragePending" class="setting-sub" style="overflow-wrap:anywhere;"></div>
+          <button class="btn-outline" id="desktopStorageChange" onclick="changeDesktopStorage()" data-i18n="storage.change"></button>
+          <div id="desktopStorageStatus" class="setting-sub" role="status" aria-live="polite"></div>
+        </div>
         <div class="setting-card desktop-only">
           <div class="setting-card-row">
             <div style="display:flex;align-items:center;gap:10px;">
@@ -853,6 +863,15 @@
 
       <div id="tabContentImport" class="tab-content active">
         <div class="setting-card">
+          <div class="setting-label" data-i18n="project.open">Open Dubline Project (.dubline)</div>
+          <div class="setting-sub" data-i18n="project.openHelp">Continue a saved project in a new scene. Existing scenes are kept.</div>
+          <label class="upload-btn" id="projectOpenLabel" style="width:100%;">
+            <span data-i18n="project.choose">Choose .dubline file</span>
+            <input type="file" id="projectInput" accept=".dubline" style="display:none;">
+          </label>
+          <div id="projectImportStatus" class="setting-sub" role="status" style="display:none;"></div>
+        </div>
+        <div class="setting-card">
           <div class="setting-label" data-i18n="zipImport">1. Import a Voxalike pack (.zip)</div>
           <div class="setting-sub" data-i18n="zipImport.help">Supports Voxalike and The Choicer Voicer scene archives</div>
           <label class="upload-btn" id="uploadLabel" style="width: 100%;">
@@ -875,6 +894,7 @@
         <div class="setting-card">
           <div class="setting-label" data-i18n="customImport">3. Video + subtitles</div>
           <div class="setting-sub" data-i18n="customImport.help">Upload MP4/MKV and ASS/SSA/SRT/VTT. MKV may contain its own subtitle track.</div>
+          <div class="setting-sub" data-i18n="customImport.limits">Working video: up to 300 MB. Larger videos are optimized automatically on the host; the original is kept for export. Separate audio is independent. Subtitles: up to 20 MB.</div>
           <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 4px;">
             <div class="file-field">
               <span class="file-field-label" data-i18n="videoFile">Video (.mp4 / .mkv):</span>
@@ -890,13 +910,14 @@
               <label class="file-pick"><input type="file" id="customOriginalInput" accept=".wav,.mp3,.m4a,.aac,.ogg,.oga,.opus,.flac"><span class="file-pick-button" data-i18n="file.choose">Choose file</span><span class="file-pick-name">No file chosen</span></label>
             </div>
             <div class="file-field">
-              <span class="file-field-label" data-i18n="studio.importBacking">Intershum / M&amp;E (optional)</span>
+              <span class="file-field-label" data-i18n="studio.importBacking">Background / M&amp;E (optional)</span>
               <label class="file-pick"><input type="file" id="customIntershumInput" accept=".wav,.mp3,.m4a,.aac,.ogg,.oga,.opus,.flac"><span class="file-pick-button" data-i18n="file.choose">Choose file</span><span class="file-pick-name">No file chosen</span></label>
             </div>
             <div>
               <span style="font-size: 11px; color: var(--muted); font-weight: 700;" data-i18n="sceneTitle">Scene title (optional):</span>
               <input type="text" id="customSceneTitle" class="text-input" data-i18n-placeholder="sceneTitle.placeholder" placeholder="My new scene…" maxlength="80" style="width: 100%; margin-top: 2px;">
             </div>
+            <button id="customCancelBtn" class="btn-share" onclick="cancelCustomImport()" style="display:none;" data-i18n="dialog.cancel">Cancel</button>
             <div id="customUploadStatus" style="font-size: 11px; display: none;"></div>
             <button id="customUploadBtn" class="btn-play" onclick="uploadCustomScene()" style="padding: 9px 12px;">
               <span data-i18n="createScene">🚀 Create scene</span>
@@ -913,6 +934,14 @@
       </div>
 
       <div id="tabContentExport" class="tab-content">
+        <div class="setting-card">
+          <div class="setting-label" data-i18n="project.save">Save Dubline Project (.dubline)</div>
+          <div class="setting-sub" data-i18n="project.saveHelp">Saves this scene with its media, current recordings, edits and project mix.</div>
+          <div id="projectExportStatus" class="setting-sub" role="status" style="display:none;"></div>
+          <button id="projectExportBtn" class="btn-header-action" onclick="saveDublineProject()" style="justify-content:center;">
+            <span data-i18n="project.saveButton">Save project</span>
+          </button>
+        </div>
         <div class="setting-card">
           <div class="setting-label" data-i18n="videoExport">1. Export finished video (WebCodecs)</div>
           <div class="setting-sub" data-i18n="videoExport.help">Fast MP4 export with mixed audio in your browser</div>
@@ -942,6 +971,7 @@
             <span id="renderStatusText" data-i18n="rendering" style="font-size:12px; font-weight:700; color: var(--success);">⏳ Exporting video…</span>
             <div class="progress" style="margin-top:6px;"><div id="renderProgressBar" style="background: var(--success);"></div></div>
           </div>
+          <div id="renderOriginalNotice" class="setting-sub" role="status" style="display:none;"></div>
           <button id="startRenderBtn" class="btn-play" onclick="startVideoRender()" style="padding: 9px 14px;">
             <span data-i18n="startExport">▶ Export MP4 video</span>
           </button>
@@ -1103,7 +1133,7 @@
       </div>
       <div class="room-badge">
         <span data-i18n="room">Room:</span> <span id="roomNameLabel">main</span><span id="roomLockIcon" style="display: none;" data-i18n-title="pw.statusOn" title="The room is password-protected">🔒</span>
-        <button class="btn-share" data-i18n="share" data-i18n-title="share.title" onclick="copyInviteLink()" title="Copy invitation link">🔗 Share</button>
+        <span id="singleModeLabel" hidden data-i18n="single.title"></span><button id="singleMultiplayerBtn" hidden class="btn-share" data-i18n="single.host" onclick="openHostingModal()"></button><button class="btn-share" data-i18n="share" data-i18n-title="share.title" onclick="copyInviteLink()" title="Copy invitation link">🔗 Share</button>
       </div>
       <div class="users-online" id="usersOnlineBadge">
         <span data-i18n="online">👥 Online:</span> <span id="usersOnlineText">1</span>
@@ -1148,7 +1178,6 @@
             <video id="mainVideo" crossorigin="anonymous"></video>
             <div class="video-actions">
               <button id="expandVideoBtn" class="video-action" type="button" onclick="toggleExpandedVideo()" data-i18n-title="video.expand" title="Expand video">⤢</button>
-              <button class="video-action" type="button" onclick="toggleVideoFullscreen()" data-i18n-title="video.fullscreen" title="Fullscreen">⛶</button>
             </div>
             <audio id="backingAudio" crossorigin="anonymous"></audio>
             <audio id="originalTrackAudio" crossorigin="anonymous"></audio>
@@ -1176,6 +1205,7 @@
             <button class="btn-play" data-studio-action="play" data-i18n-title="studio.play" title="Play / pause (Space)">▶</button>
             <button class="btn-icon" data-studio-action="forward" data-i18n-title="studio.forward" title="Forward 3 seconds (L)">+3</button>
             <span data-studio-time>0:00 / 0:00</span>
+            <span id="audioLoadingStatus" role="status" aria-live="polite" hidden></span>
             <label class="mute-toggle">
               <input type="checkbox" id="muteAllCheckbox">
               <span data-i18n="muteAll">🔇 Mute all</span>
@@ -1254,6 +1284,7 @@
   <script src="state.js"></script>
   <script src="dialogs.js"></script>
   <script src="project-audio.js"></script>
+  <script src="timeline-model.js"></script>
   <script src="audio-fx.js"></script>
   <script src="audio.js"></script>
   <script src="player.js"></script>

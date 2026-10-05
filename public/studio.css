@@ -57,3 +57,48 @@ dialog.text-prompt { color: var(--text, #fafafa); background: #18181b; border: 1
 dialog.text-prompt::backdrop { background: #0009; }
 .text-prompt form { display: grid; gap: 16px; }
 .text-prompt .text-input { width: 100%; box-sizing: border-box; }
+.timeline-outside { position:absolute; top:0; bottom:0; right:0; border-left:2px solid var(--warning, #f59e0b); background:repeating-linear-gradient(135deg, #8881 0 6px, #0002 6px 12px); z-index:1; cursor:not-allowed; }
+.line-block.axis-locked { outline:2px solid var(--success); }
+.line-block.move-blocked { outline:2px solid var(--danger); }
+
+/* Native dialog provides focus containment; reset margins must not move it to a corner. */
+dialog.text-prompt { position:fixed; inset:0; margin:auto; max-height:90vh; overflow:auto; background:var(--panel); border-color:var(--border); }
+#textPromptTitle { white-space:pre-line; }
+.text-prompt [hidden] { display:none; }
+.single-player #lobbyPanel, .single-player [data-resize=lobby], .single-player #hostPanel,
+.single-player .users-online, .single-player .room-badge > :not(#singleModeLabel):not(#singleMultiplayerBtn),
+.single-player #roomSecuritySettings, .single-player #desktopInvitePanel, .single-player [data-studio-action=lobby] { display:none !important; }
+.single-player .workspace { grid-template-columns:minmax(0,1fr); }
+.single-player [data-single-hide] { display:none !important; }
+html[data-theme=light] dialog.text-prompt { box-shadow:0 15px 50px #0003; }
+
+.desktop-mode.single-player #singleMultiplayerBtn { display:inline-flex; }
+#projectMixSettings .setting-card-row { flex-wrap:wrap; }
+#projectMixSettings input[type=number] { width:90px; }
+html[data-theme=light] header { background:#fffe; }
+html[data-theme=light] .recording-cue { color:#20232b; }
+
+.track-label { position:sticky; }
+.role-height-handle { position:absolute; left:4px; right:4px; bottom:0; height:6px; padding:0; background:var(--border); cursor:ns-resize; opacity:.45; }
+.role-height-handle:hover { opacity:1; }
+
+.single-player #chatPanel, .single-player #chatToggleBtn, .single-player [data-resize=chat] { display:none !important; }
+html[data-theme=light] .track-row:nth-child(even) { background:var(--panel-2); }
+
+html[data-theme=light] .line-block { background:linear-gradient(180deg,#f5f3ff,#ede9fe); color:var(--text); }
+html[data-theme=light] .line-block.claimed-me { background:linear-gradient(180deg,#ede9fe,#ddd6fe); }
+html[data-theme=light] .line-block.claimed-other { background:linear-gradient(180deg,#fef3c7,#fde68a); }
+html[data-theme=light] .line-block.recorded { background:linear-gradient(180deg,#d1fae5,#a7f3d0); }
+html[data-theme=light] .line-block.selected { outline-color:var(--accent); }
+#projectMixSettings .setting-card-row { display:grid; grid-template-columns:100px minmax(0,1fr) auto auto; gap:8px; margin-top:12px; }
+#projectMixSettings .setting-card-row > label { display:flex; align-items:center; gap:4px; min-width:0; }
+#projectMixSettings input[type=range] { min-width:0; width:100%; }
+#projectMixSettings .setting-card-row > label:last-child { grid-column:2 / -1; }
+#projectMixSettings .setting-card-row > button { font-size:11px; }
+@media(max-width:520px) { #projectMixSettings .setting-card-row { grid-template-columns:80px minmax(0,1fr); } #projectMixSettings .setting-card-row > label:last-child { grid-column:1 / -1; } }
+
+#trackPicker { flex:none; justify-content:flex-start; }
+#audioLoadingStatus { color:var(--muted); font-size:11px; max-width:40%; }
+#audioLoadingStatus[hidden] { display:none; }
+#audioLoadingStatus.audio-loading::before { content:''; display:inline-block; width:10px; height:10px; margin-right:6px; border:2px solid var(--border); border-top-color:var(--accent); border-radius:50%; vertical-align:middle; animation:audioPreparing .9s linear infinite; }
+@keyframes audioPreparing { to { transform:rotate(360deg); } }

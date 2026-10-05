@@ -40,10 +40,35 @@ function endpointReady(port) {
   });
 }
 
+async function waitForTunnel(url) {
+  const https = require('node:https');
+  const deadline = Date.now() + 90000;
+  let reason = '';
+  process.stdout.write('Waiting for Cloudflare DNS and tunnel readiness.\n');
+  while (Date.now() < deadline) {
+    const ready = await new Promise(resolve => {
+      const request = https.get(url, response => {
+        response.resume(); reason = 'HTTP ' + response.statusCode;
+        resolve(response.statusCode >= 200 && response.statusCode < 400);
+      });
+      request.on('error', error => { reason = error.message; resolve(false); });
+      request.setTimeout(3000, () => request.destroy(new Error('Tunnel request timed out')));
+    });
+    if (ready) return;
+    await wait(1000);
+  }
+  throw new Error('Cloudflare DNS/tunnel did not become reachable: ' + reason);
+}
+
 async function main() {
   const hostingMode = process.argv[2] === 'cloudflare' ? 'cloudflare' : 'porthole';
   const debugPort = await freePort();
   const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'dubline-electron-smoke-'));
+  const storageDestination = process.argv.includes('--storage') ? fs.mkdtempSync(path.join(root, '.storage-packaged-')) : '';
+  if (storageDestination) {
+    fs.mkdirSync(path.join(userData,'uploads')); fs.writeFileSync(path.join(userData,'uploads','storage-marker'),'preserve existing project media');
+    fs.writeFileSync(path.join(userData,'storage.json'),JSON.stringify({version:1,root:userData,pending:path.join(storageDestination,'Dubline')}));
+  }
   const child = spawn(executable, [`--remote-debugging-port=${debugPort}`, '--disable-gpu',
     '--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'], {
     cwd: root,
@@ -94,6 +119,14 @@ async function main() {
       bodyClass: document.body?.className || ''
     }));
     assert.equal(desktopReady, true, `Desktop UI did not initialize: ${JSON.stringify(bridgeState)} ${diagnostics.join(' | ')}`);
+    if (storageDestination) {
+      const info=await host.evaluate(()=>window.dublineDesktop.getStorage()); assert.equal(info.root,path.join(storageDestination,'Dubline'));assert.equal(info.pending,'');
+      assert.equal(fs.readFileSync(path.join(info.root,'uploads','storage-marker'),'utf8'),'preserve existing project media');
+      assert.equal(fs.existsSync(path.join(userData,'uploads')),false);
+      await host.evaluate(()=>openSettingsModal());await host.waitForFunction(()=>!!document.getElementById('desktopStoragePath').textContent);
+      assert.equal(await host.$eval('#desktopStoragePath',node=>node.textContent),info.root);await host.evaluate(()=>closeSettingsModal());
+      process.stdout.write('Exact packaged EXE applied pending storage move to the workspace drive.\n');
+    }
     assert.equal(await host.evaluate(() => DublineI18n.getLanguage()), 'uk', 'launcher language must follow into the server origin');
     await host.evaluate(async () => { DublineI18n.setLanguage('en'); await window.dublineDesktop.setLanguage('en'); });
     assert.equal(JSON.parse(fs.readFileSync(path.join(userData, 'language.json'), 'utf8')), 'en');
@@ -123,10 +156,14 @@ async function main() {
     });
     await host.waitForFunction(() => myName === 'Smoke Host' && amHost());
     await (await host.$('#zipInput')).uploadFile(buildFixturePack());
-    await host.waitForFunction(() => session.loaded && session.lines.length === 4 && video.readyState >= 2, { timeout: 30000 });
+    await host.waitForFunction(() => session.loaded && session.lines.length === 4 && video.readyState >= 2, { timeout: 30000 }).catch(async error => {
+      const media = await host.evaluate(() => ({loaded:session?.loaded,lines:session?.lines?.length,readyState:video.readyState,source:video.currentSrc,error:video.error?.message,file:zipInput.files[0]?.name,disabled:zipInput.disabled}));
+      throw Error(error.message+': '+JSON.stringify({media,diagnostics}));
+    });
     const pin = await host.evaluate(async () => (await window.dublineDesktop.getStatus()).pin);
     guestBrowser = await launchBrowser(result.port);
     const guestUrl = hostingMode === 'cloudflare' ? result.inviteUrl : host.url();
+    if (hostingMode === 'cloudflare') await waitForTunnel(guestUrl);
     const guest = await openPlayer(guestBrowser, guestUrl, 'Smoke Guest');
     // The guest's own warnings (e.g. a discarded or empty take) end up in a failure report
     guest.on('console', message => {
@@ -234,6 +271,31 @@ async function main() {
     await host.evaluate(() => toggleExpandedVideo());
     assert.equal(await host.evaluate(() => document.body.classList.contains('video-expanded')), true);
     await host.evaluate(() => toggleExpandedVideo());
+    const portable = await host.evaluate(async () => {
+      const before = { id:session.activeSessionId, title:session.title, lines:session.lines.length, takes:session.lines.filter(line=>line.audioUrl).length };
+      const saved = await fetch('/api/export-project',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({room:currentRoom,clientId,sessionId:before.id})});
+      if(!saved.ok)throw Error(await saved.text());
+      const form=new FormData();form.append('clientId',clientId);form.append('sessionId',before.id);form.append('project',await saved.blob(),'portable.dubline');
+      const opened=await fetch('/api/import-project?room='+currentRoom,{method:'POST',body:form});if(!opened.ok)throw Error(await opened.text());
+      const after=(await opened.json()).session;return {before,after:{id:after.activeSessionId,title:after.title,lines:after.lines.length,takes:after.lines.filter(line=>line.audioUrl).length}};
+    });
+    assert.notEqual(portable.after.id,portable.before.id);assert.equal(portable.after.title,portable.before.title);assert.equal(portable.after.lines,portable.before.lines);assert.equal(portable.after.takes,portable.before.takes);
+    await guest.waitForFunction(id=>session.activeSessionId===id,{timeout:30000},portable.after.id);
+    process.stdout.write('Packaged .dubline disk save/open retained media and recordings.\n');
+    const optimized = await host.evaluate(async () => {
+      const source=await (await fetch(session.videoUrl)).blob();
+      const form=new FormData();form.append('clientId',clientId);form.append('video',source,'episode.mp4');
+      const imported=await fetch('/api/upload-custom?room='+currentRoom+'&optimize=1',{method:'POST',body:form});if(!imported.ok)throw Error(await imported.text());
+      const scene=(await imported.json()).session;
+      const sound=await (await fetch(scene.audioTracks[0].url)).blob();
+      const audio=new FormData();audio.append('clientId',clientId);audio.append('sessionId',scene.activeSessionId);audio.append('soundtrack',sound,'soundtrack.m4a');
+      const muxed=await fetch('/api/export-original-video?room='+currentRoom,{method:'POST',body:audio});if(!muxed.ok)throw Error(await muxed.text());
+      const prepared=await muxed.json(),download=await fetch(prepared.downloadUrl);
+      return {hasOriginal:scene.hasOriginalVideo,sourceUrl:scene.originalVideoUrl,downloadStatus:download.status,bytes:(await download.arrayBuffer()).byteLength,id:scene.activeSessionId};
+    });
+    assert.equal(optimized.hasOriginal,true);assert.equal(optimized.sourceUrl,undefined);assert.equal(optimized.downloadStatus,200);assert.ok(optimized.bytes>1000);
+    await guest.waitForFunction(id=>session.activeSessionId===id && session.hasOriginalVideo,{timeout:30000},optimized.id);
+    process.stdout.write('Packaged source/proxy import and original video mux/download passed.\n');
     assert.deepEqual(guest.errors, [], 'guest page errors');
     assert.equal(diagnostics.some(message => message.startsWith('page:')), false, diagnostics.join(' | '));
     succeeded = true;
@@ -245,6 +307,10 @@ async function main() {
     if (child.exitCode === null) child.kill();
     for (let attempt = 0; attempt < 40 && await endpointReady(debugPort); attempt++) await wait(250);
     fs.rmSync(userData, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+    if (storageDestination) {
+      assert.equal(path.dirname(path.resolve(storageDestination)),path.resolve(root),'temporary storage must remain inside the workspace');
+      fs.rmSync(storageDestination,{recursive:true,force:true,maxRetries:10,retryDelay:200});
+    }
   }
   if (succeeded && serverPort) {
     await assert.rejects(fetch(`http://127.0.0.1:${serverPort}/api/server-packs`), 'packaged server was left running after closing the app');

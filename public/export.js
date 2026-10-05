@@ -49,9 +49,9 @@ function downloadBlob(blob, ext, title = session.title) {
 // instead of silently leaving them out of the result.
 let includeHiddenTakes = false;
 
-function confirmHiddenTakes() {
+async function confirmHiddenTakes() {
   const hidden = session.lines.filter(line => line.audioUrl && !canHearLine(line)).length;
-  includeHiddenTakes = hidden > 0 && confirm(t('blind.exportConfirm', { n: hidden }));
+  includeHiddenTakes = hidden > 0 && await askConfirm(t('blind.exportConfirm', { n: hidden }));
 }
 
 function exportableTake(line) {
@@ -67,7 +67,7 @@ function createExportSnapshot() {
 }
 
 function exportTakeStart(line, scene) {
-  return (line.audioStart ?? line.start) - (Number((scene.latency || {})[line.recordedBy]) || 0) / 1000;
+  return (line.audioStart ?? line.start) - window.DublineProjectAudio.takeLatency(scene, line.recordedBy) / 1000;
 }
 
 function exportAudioError(source) {
@@ -155,7 +155,7 @@ async function mixSoundtrack(duration, gains, onStep, snapshot = createExportSna
 
   if (snapshot.backingUrl && backingBase > 0) {
     onStep(t('render.decodeBackground'));
-    place(await decodeExportSource(snapshot.backingUrl, 'Intershum / M&E'), 1, mix.backing.offset, 0, Infinity, backingBus);
+    place(await decodeExportSource(snapshot.backingUrl, t('studio.backing')), 1, mix.backing.offset, 0, Infinity, backingBus);
   }
   // Original is the chosen video audio track (if there are several) or the video's own sound
   const originalUrl = snapshot.originalUrl;
@@ -175,26 +175,8 @@ async function mixSoundtrack(duration, gains, onStep, snapshot = createExportSna
   }
 
   if (mix.autoDuckEnabled && mix.autoDuckAmount > 0 && duckIntervals.length) {
-    duckIntervals.sort((a, b) => a[0] - b[0]);
-    const merged = [];
-    for (const interval of duckIntervals) {
-      const last = merged[merged.length - 1];
-      if (last && interval[0] <= last[1] + 0.25) last[1] = Math.max(last[1], interval[1]);
-      else merged.push([...interval]);
-    }
-    const automateDuck = (param, base) => {
-      if (base <= 0) return;
-      const ducked = base * (1 - mix.autoDuckAmount);
-      param.setValueAtTime(base, 0);
-      merged.forEach(([start, end]) => {
-        param.setValueAtTime(base, Math.max(0, start));
-        param.linearRampToValueAtTime(ducked, Math.min(duration, start + 0.08));
-        param.setValueAtTime(ducked, Math.max(start + 0.08, end));
-        param.linearRampToValueAtTime(base, Math.min(duration, end + 0.25));
-      });
-    };
-    automateDuck(backingBus.gain, backingBase);
-    automateDuck(originalBus.gain, originalBase);
+    window.DublineProjectAudio.automateDucking(backingBus.gain,backingBase,mix.autoDuckAmount,duckIntervals,duration);
+    window.DublineProjectAudio.automateDucking(originalBus.gain,originalBase,mix.autoDuckAmount,duckIntervals,duration);
   }
 
   onStep(t('render.mix'));
@@ -254,7 +236,7 @@ async function renderCharacterStem(lines, duration, sampleRate = 48000, snapshot
 
 window.downloadReaperStems = async function() {
   if (!session || !session.loaded) return alert(t('error.noScene'));
-  confirmHiddenTakes();
+  await confirmHiddenTakes();
   const snapshot = createExportSnapshot(), takes = snapshot.takes;
   if (!takes.length) return alert(t('error.noTakes'));
   const grouped = new Map();
@@ -306,6 +288,43 @@ window.downloadReaperStems = async function() {
     status.style.color = '#ef4444';
   } finally {
     button.disabled = false;
+  }
+};
+
+let projectExportBusy = false;
+window.saveDublineProject = async function() {
+  if (!session?.loaded) return showToast(t('error.noScene'));
+  if (!amHost()) return showToast(t('onlyHost'));
+  if (recordState !== 'idle' || renderInProgress) return showToast(t('studio.mediaBusy'));
+  if (pendingTakeLines.size) return showToast(t('project.pendingTakes'));
+  if (projectExportBusy) return;
+  const button = document.getElementById('projectExportBtn');
+  const status = document.getElementById('projectExportStatus');
+  projectExportBusy = true;
+  button.disabled = true;
+  status.style.display = 'block';
+  status.style.color = 'var(--accent-2)';
+  const knownBytes = Number(session.videoSize || 0) + Number(session.backingSize || 0);
+  status.textContent = t(knownBytes >= 100 * 1024 * 1024 ? 'project.savingLarge' : 'project.saving');
+  try {
+    const response = await fetch('/api/export-project', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ room: currentRoom, clientId, sessionId: session.activeSessionId, download: true })
+    });
+    if (!response.ok) throw new Error(await readError(response));
+    const prepared = await response.json();
+    const link = document.createElement('a');
+    link.href = prepared.downloadUrl;
+    link.download = prepared.filename;
+    link.click();
+    status.style.color = 'var(--success)';
+    status.textContent = t('project.downloadStarted');
+  } catch (error) {
+    status.style.color = 'var(--danger)';
+    status.textContent = error instanceof TypeError ? t('upload.networkFailed') : error.message;
+  } finally {
+    projectExportBusy = false;
+    button.disabled = !amHost();
   }
 };
 
@@ -517,9 +536,32 @@ async function renderRealtime(progress, snapshot = createExportSnapshot()) {
   return { blob: new Blob(recordedChunks, { type: mimeType }), ext: mimeType.includes('mp4') ? 'mp4' : 'webm' };
 }
 
+async function renderOriginalVideo(progress,snapshot) {
+  const soundtrack=await mixSoundtrack(snapshot.scene.videoDuration || video.duration,snapshot.gains,text=>progress(5,text),snapshot);
+  assertExportScene(snapshot);
+  progress(25,t('render.encodeSoundtrack'));
+  const mb=await import('/vendor/mediabunny/mediabunny.min.mjs');
+  const output=new mb.Output({format:new mb.Mp4OutputFormat({fastStart:'in-memory'}),target:new mb.BufferTarget()});
+  const source=new mb.AudioBufferSource({codec:'aac',bitrate:192000});
+  output.addAudioTrack(source);await output.start();
+  for(let from=0;from<soundtrack.length;from+=soundtrack.sampleRate){
+    assertExportScene(snapshot);
+    await source.add(sliceAudioBuffer(soundtrack,from,Math.min(soundtrack.length,from+soundtrack.sampleRate)));
+    progress(25+45*from/soundtrack.length,t('render.encodeSoundtrack'));
+  }
+  source.close();await output.finalize();
+  const form=new FormData();form.append('clientId',clientId);form.append('sessionId',snapshot.scene.activeSessionId);
+  form.append('soundtrack',new Blob([output.target.buffer],{type:'audio/mp4'}),'soundtrack.m4a');
+  progress(75,t('render.originalMux'));
+  const response=await fetch('/api/export-original-video?room='+encodeURIComponent(currentRoom),{method:'POST',body:form});
+  if(!response.ok)throw new Error(await readError(response));
+  const prepared=await response.json();assertExportScene(snapshot);
+  const link=document.createElement('a');link.href=prepared.downloadUrl;link.download=prepared.filename;link.click();
+}
 window.startVideoRender = async function() {
   if (renderInProgress || recordState !== 'idle') return showToast(t('studio.mediaBusy'));
   if (!session || !session.loaded) return showToast(t('error.noScene'));
+  if (session.hasOriginalVideo && !amHost()) return showToast(t('render.originalHost'));
   const startBtn = document.getElementById('startRenderBtn');
   const progressBox = document.getElementById('renderProgressBox');
   const progressBar = document.getElementById('renderProgressBar');
@@ -530,7 +572,7 @@ window.startVideoRender = async function() {
     statusText.innerText = `⏳ ${text}`;
   };
 
-  confirmHiddenTakes();
+  await confirmHiddenTakes();
   const snapshot = createExportSnapshot();
   startBtn.disabled = true;
   progressBox.style.display = 'block';
@@ -542,7 +584,8 @@ window.startVideoRender = async function() {
 
   try {
     let result = null;
-    if (supportsWebCodecsRender()) {
+    if (snapshot.scene.hasOriginalVideo) {await renderOriginalVideo(progress,snapshot);result={downloaded:true};}
+    if (!result && supportsWebCodecsRender()) {
       try {
         result = { blob: await renderWithWebCodecs(progress, snapshot), ext: 'mp4' };
       } catch (err) {
@@ -554,10 +597,10 @@ window.startVideoRender = async function() {
     if (!result) result = await renderRealtime(progress, snapshot);
 
     assertExportScene(snapshot);
-    downloadBlob(result.blob, result.ext, snapshot.scene.title);
+    if (!result.downloaded) downloadBlob(result.blob, result.ext, snapshot.scene.title);
     const seconds = ((performance.now() - startedAt) / 1000).toFixed(1);
     progressBar.style.width = '100%';
-    statusText.innerText = t('render.done', { seconds });
+    statusText.innerText = result.downloaded ? t('project.downloadStarted') : t('render.done', { seconds });
     setTimeout(() => {
       closeRenderModal();
       progressBox.style.display = 'none';
@@ -569,7 +612,7 @@ window.startVideoRender = async function() {
     renderInProgress = false;
     window.refreshStudioTransport?.();
     applyVolumes();
-    startBtn.disabled = false;
+    startBtn.disabled = !!(session?.hasOriginalVideo && !amHost());
   }
 };
 
@@ -582,6 +625,10 @@ const downloadVideoBtn = document.getElementById('downloadVideoBtn');
 
 function updateDownloadButtons() {
   const loaded = !!(session && session.loaded);
+  const notice=document.getElementById('renderOriginalNotice');
+  notice.style.display=loaded && session.hasOriginalVideo?'block':'none';
+  notice.textContent=t(amHost()?'render.originalQuality':'render.originalHost');
+  if(!renderInProgress)document.getElementById('startRenderBtn').disabled=!!(loaded && session.hasOriginalVideo && !amHost());
   if (loaded && session.zipUrl) {
     downloadPackBtn.href = session.zipUrl;
     downloadPackBtn.download = `${String(session.title || 'scene').replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_')}.zip`;

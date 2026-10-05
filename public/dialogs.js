@@ -21,25 +21,43 @@ function closeTextPrompt(value = null) {
   return true;
 }
 
-window.askText = function(message, initial = '', maxLength = 40) {
+function askDialog(message, initial, maxLength, confirmMode) {
   closeTextPrompt();
+  textPrompt.dataset.kind = confirmMode ? 'confirm' : 'text';
   document.getElementById('textPromptTitle').textContent = message;
   const input = document.getElementById('textPromptInput');
+  input.hidden = confirmMode;
+  input.disabled = confirmMode;
+  input.required = !confirmMode;
   input.value = initial;
   input.maxLength = maxLength;
-  document.getElementById('textPromptSave').textContent = t('save');
-  document.getElementById('textPromptCancel').setAttribute('aria-label', t('close'));
+  document.getElementById('textPromptSave').textContent = t(confirmMode ? 'dialog.confirm' : 'save');
+  document.getElementById('textPromptCancel').textContent = t('dialog.cancel');
   return new Promise(resolve => {
-    pendingTextPrompt = { resolve, focus: document.activeElement };
+    pendingTextPrompt = { resolve, focus: document.activeElement, confirmMode };
     textPrompt.showModal();
-    input.focus();
-    input.select();
+    if (confirmMode) document.getElementById('textPromptSave').focus();
+    else { input.focus(); input.select(); }
   });
+}
+window.askText = (message, initial = '', maxLength = 40) => askDialog(message, initial, maxLength, false);
+window.askConfirm = message => {
+  const id = window.DublineState?.data.session?.activeSessionId;
+  return askDialog(message, '', 40, true).then(value => !!value && id === window.DublineState?.data.session?.activeSessionId);
 };
 document.getElementById('textPromptForm').addEventListener('submit', event => {
   event.preventDefault();
+  if (pendingTextPrompt?.confirmMode) return closeTextPrompt(true);
   const value = document.getElementById('textPromptInput').value.trim();
   if (value) closeTextPrompt(value);
 });
 document.getElementById('textPromptCancel').onclick = () => closeTextPrompt();
 textPrompt.addEventListener('cancel', event => { event.preventDefault(); closeTextPrompt(); });
+
+textPrompt.addEventListener('keydown', event => {
+  if (event.key !== 'Tab') return;
+  const controls = [...textPrompt.querySelectorAll('input, button')].filter(control => !control.disabled && !control.hidden);
+  const index = controls.indexOf(document.activeElement);
+  event.preventDefault();
+  controls[(index + (event.shiftKey ? -1 : 1) + controls.length) % controls.length].focus();
+});

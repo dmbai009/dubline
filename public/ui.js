@@ -1,3 +1,31 @@
+// Personal preferences stay on this device; shared values have their own controls.
+(() => {
+  const personal = document.getElementById('tabContentUser'), shared = document.getElementById('tabContentPlayer');
+  for (const id of ['settingsPrompter', 'settingsP2P', 'desktopClearDataBtn']) {
+    const card = document.getElementById(id).closest('.setting-card'); personal.appendChild(card);
+    if (id === 'settingsP2P') card.dataset.singleHide = '';
+  }
+  personal.appendChild(shared.querySelector('[data-i18n="layout.reset"]').closest('.setting-card'));
+  const own = document.createElement('div'); own.className = 'setting-card';
+  own.append(document.getElementById('settingsLocalDuck').closest('.setting-card-row'), document.getElementById('localDuckSubRow'));
+  personal.appendChild(own);
+  const hide = document.createElement('div'); hide.className = 'setting-card'; hide.dataset.singleHide = '';
+  hide.appendChild(document.getElementById('settingsHideMyTakes').closest('.setting-card-row')); personal.appendChild(hide);
+  document.getElementById('settingsBlindMode').closest('.setting-card').dataset.singleHide = '';
+  const monitoring = document.createElement('div'); monitoring.className = 'setting-card';
+  monitoring.innerHTML = '<label data-i18n="studio.mixMode"></label><select data-studio-mix class="text-input"><option value="project" data-i18n="studio.projectMix"></option><option value="monitor" data-i18n="studio.monitor"></option></select><div class="setting-sub" data-i18n="studio.monitorHelp"></div>';
+  personal.appendChild(monitoring);
+  const card = document.createElement('div'); card.id = 'projectMixSettings'; card.className = 'setting-card';
+  card.innerHTML = '<div class="setting-label" data-i18n="studio.projectMix"></div><div class="setting-sub" data-i18n="studio.projectHelp"></div>';
+  for (const channel of ['original', 'backing', 'dub']) {
+    const row = document.createElement('div'); row.className = 'setting-card-row'; row.dataset.projectChannel = channel;
+    row.innerHTML = '<span data-i18n="studio.' + channel + '"></span><label><input type="range" min="0" max="150" step="1" data-project-field="volume"><output></output></label><button class="btn-outline" data-project-field="muted" data-i18n="studio.mute"></button><button class="btn-outline" data-project-field="solo" data-i18n="studio.solo"></button>' + (channel === 'dub' ? '' : '<label><span data-i18n="studio.offset"></span><input class="text-input" type="number" min="-43200" max="43200" step="0.01" data-project-field="offset"></label>');
+    card.appendChild(row);
+  }
+  shared.prepend(card);
+  DublineI18n.apply(personal);
+  DublineI18n.apply(shared);
+})();
 // ==========================================
 // UI
 // Settings and files modals, line inspector, hotkeys, app startup
@@ -9,6 +37,8 @@ function refreshViews() {
 }
 
 let desktopInviteState = null;
+let desktopHostingRequest = 0;
+let desktopHostingRequestedMode = null;
 let desktopCopyTimer = null;
 let desktopInviteCollapsed = localStorage.getItem('dubline_invite_collapsed') !== '0';
 let desktopFailureNotice = '';
@@ -41,6 +71,7 @@ function desktopPublicInviteUrl() {
 function renderDesktopInvite() {
   if (!desktopInviteState) return;
   const panel = document.getElementById('desktopInvitePanel');
+  if (desktopInviteState.singlePlayer) { panel.style.display = 'none'; renderDesktopHostingModal(); return; }
   const status = document.getElementById('desktopTunnelStatus');
   const input = document.getElementById('desktopInviteUrl');
   const copy = document.getElementById('desktopCopyBtn');
@@ -62,7 +93,7 @@ function renderDesktopInvite() {
 
 function renderDesktopHostingModal() {
   if (!desktopInviteState) return;
-  const mode = desktopMode();
+  const mode = desktopHostingRequestedMode || (desktopMode() === 'single' ? 'cloudflare' : desktopMode());
   document.querySelectorAll('[data-hosting-mode]').forEach(button => button.classList.toggle('active', button.dataset.hostingMode === mode));
   document.getElementById('desktopHostingModeTitle').textContent = desktopModeName(mode);
   const status = document.getElementById('desktopHostingStatus');
@@ -82,8 +113,9 @@ function renderDesktopHostingModal() {
 }
 
 function handleDesktopStatus(nextStatus) {
+  if (desktopHostingRequestedMode && nextStatus.mode !== desktopHostingRequestedMode) return;
   if (!desktopInviteState) desktopInviteState = {};
-  Object.assign(desktopInviteState, nextStatus);
+  Object.assign(desktopInviteState, nextStatus, { singlePlayer: nextStatus.mode === 'single' });
   const failed = ['error', 'missing', 'stopped'].includes(desktopInviteState.state);
   const noticeKey = `${desktopMode()}:${desktopInviteState.state}:${desktopInviteState.error || ''}`;
   if (failed && desktopFailureNotice !== noticeKey) {
@@ -152,11 +184,19 @@ window.closeHostingModal = function() {
 };
 
 window.selectDesktopHostingMode = async function(mode) {
-  if (!DESKTOP_MODES.includes(mode) || mode === desktopMode()) return;
-  document.querySelectorAll('[data-hosting-mode]').forEach(button => { button.disabled = true; });
-  try { handleDesktopStatus(await window.dublineDesktop.setHostingMode(mode)); }
-  catch (err) { showToast(t('desktop.hostingChangeError', { message: err.message })); }
-  finally { document.querySelectorAll('[data-hosting-mode]').forEach(button => { button.disabled = false; }); }
+  if (session?.singlePlayer && (recordState !== 'idle' || pendingTakeLines.size || renderInProgress)) return showToast(t('project.pendingTakes'));
+  if (!DESKTOP_MODES.includes(mode) || (mode === desktopMode() && !desktopHostingRequestedMode)) return;
+  const request = ++desktopHostingRequest;
+  desktopHostingRequestedMode = mode;
+  renderDesktopHostingModal();
+  try {
+    const status = await window.dublineDesktop.setHostingMode(mode);
+    if (request === desktopHostingRequest) handleDesktopStatus(status);
+  } catch (err) {
+    if (request === desktopHostingRequest) showToast(t('desktop.hostingChangeError', { message: err.message }));
+  } finally {
+    if (request === desktopHostingRequest) { desktopHostingRequestedMode = null; renderDesktopHostingModal(); }
+  }
 };
 
 window.retryDesktopHosting = async function() {
@@ -197,9 +237,34 @@ window.dismissAppUpdate = function() {
   window.dublineDesktop?.dismissUpdate?.();
 };
 
+let desktopStorageInfo = null;
+function renderDesktopStorage() {
+  document.getElementById('desktopStoragePath').textContent = desktopStorageInfo?.root || '';
+  document.getElementById('desktopStoragePending').textContent = desktopStorageInfo?.pending ? t('storage.pending', { path: desktopStorageInfo.pending }) : '';
+}
+async function refreshDesktopStorage() {
+  if (!window.dublineDesktop?.getStorage) return;
+  desktopStorageInfo = await window.dublineDesktop.getStorage(); renderDesktopStorage();
+}
+window.changeDesktopStorage = async function() {
+  if (!window.dublineDesktop?.chooseStorage) return;
+  const button = document.getElementById('desktopStorageChange');
+  const status = document.getElementById('desktopStorageStatus');
+  button.disabled = true; status.textContent = '';
+  try {
+    const result = await window.dublineDesktop.chooseStorage();
+    if (!result.ok) {
+      const key = 'storage.error.' + result.code;
+      status.textContent = t(DublineI18n.messages.en[key] ? key : 'storage.error.io', { message: result.message || result.code });
+    }
+    await refreshDesktopStorage();
+  } catch (error) { status.textContent = t('storage.error.io', { message: error.message }); }
+  finally { button.disabled = false; }
+};
+window.addEventListener('dubline-language-changed', renderDesktopStorage);
 window.clearDesktopData = async function() {
   if (!window.dublineDesktop) return;
-  if (!confirm(t('desktop.clearData.confirm'))) return;
+  if (!await askConfirm(t('desktop.clearData.confirm'))) return;
   const button = document.getElementById('desktopClearDataBtn');
   button.disabled = true;
   button.textContent = t('desktop.clearData.progress');
@@ -255,6 +320,9 @@ function syncSettingsUi() {
   settingsPrompter.checked = prompterEnabled;
   settingsCue.checked = cueEnabled;
   settingsPreRoll.value = preRollSeconds;
+  settingsPreRoll.min = localStorage.getItem('dubline_adr') === 'three' ? '3' : '0';
+  document.getElementById('settingsAdrVolume').value = Math.round(adrCueVolume * 100);
+  document.getElementById('settingsAdrVolumeVal').textContent = `${Math.round(adrCueVolume * 100)}%`;
   settingsPreRollVal.textContent = t('seconds.short', { value: Number(preRollSeconds).toFixed(1) });
   document.getElementById('preRollSubRow').style.opacity = cueEnabled ? '1' : '0.75';
   settingsPrompterSize.value = prompterSize;
@@ -266,7 +334,7 @@ function syncSettingsUi() {
   updatePrompter();
 }
 
-window.openSettingsModal = function() { syncSettingsUi(); settingsModal.style.display = 'flex'; };
+window.openSettingsModal = function() { syncSettingsUi(); refreshDesktopStorage().catch(() => {}); settingsModal.style.display = 'flex'; };
 window.closeSettingsModal = function() { settingsModal.style.display = 'none'; };
 window.switchSettingsTab = function(tab) {
   ['user', 'player'].forEach(name => {
@@ -462,6 +530,8 @@ function showInspector(line) {
       : `<button class="btn-host" onclick="unclaimSingleLine(${line.id})">${t('host.releaseLine', { owner: esc(owner) })}</button>`);
   }
 
+  if (session.singlePlayer) secondary.length = 0;
+
   // The take is recorded but hasn't reached the server yet
   const pendingNotice = isOwnedByMe && pendingTakeLines.has(line.id)
     ? `<div class="insp-pending"><span>${t('take.pendingNotice')}</span><button class="btn-outline" onclick="retryPendingTakes()">${t('take.sendNow')}</button></div>`
@@ -491,7 +561,7 @@ function showInspector(line) {
 
   inspector.innerHTML = `
     <div class="insp-head">
-      <div class="insp-title"><b>${esc(line.character)}</b><span>#${line.id}</span></div>
+      <div class="insp-title"><b>${esc(line.character)}</b><span>#${lineNumber(line)}</span></div>
       ${chip}
     </div>
     <div class="insp-meta">${line.start}–${line.end} s · ${duration} s${line.audioUrl && author ? ` · ${t('recordedBy', { owner: esc(author) })}` : ''}</div>
@@ -511,7 +581,7 @@ function showInspector(line) {
 function showMultiInspector() {
   const lines = session.lines.filter(l => multiSelection.has(l.id)).sort((a, b) => a.start - b.start);
   const characters = sessionCharacters().sort((a, b) => a.localeCompare(b));
-  const preview = lines.slice(0, 6).map(l => `<div class="multi-item"><b>#${l.id}</b> <span class="multi-char">${esc(l.character)}</span> ${esc(l.caption || '')}</div>`).join('');
+  const preview = lines.slice(0, 6).map(l => `<div class="multi-item"><b>#${lineNumber(l)}</b> <span class="multi-char">${esc(l.character)}</span> ${esc(l.caption || '')}</div>`).join('');
   const editorForm = session.mode === 'edit' ? `
     <form class="insp-char-form" onsubmit="assignSelectedCharacter(event)">
       <input id="multiCharInput" class="text-input" list="multiCharList" maxlength="40" placeholder="${esc(t('char.placeholder'))}">
@@ -523,7 +593,7 @@ function showMultiInspector() {
     <div class="multi-list">${preview}${lines.length > 6 ? `<div class="insp-meta">${t('multi.more', { n: lines.length - 6 })}</div>` : ''}</div>
     ${editorForm}
     <div class="insp-actions secondary">
-      ${amHost() ? `<button class="btn-host" onclick="releaseSelectedLines()">${t('multi.release')}</button>` : ''}
+      ${amHost() && !session.singlePlayer ? `<button class="btn-host" onclick="releaseSelectedLines()">${t('multi.release')}</button>` : ''}
       ${session.mode === 'edit' ? `<button class="btn-outline" onclick="deleteEditorLines([...multiSelection])">${t('multi.delete')}</button>` : ''}
       <button class="btn-outline" onclick="clearMultiSelection()">${t('multi.clear')}</button>
     </div>
@@ -577,9 +647,9 @@ window.saveLineCharacter = function(e, lineId) {
 };
 
 // The host deletes lines (e.g. on-screen signs that shouldn't be dubbed)
-window.deleteLines = function(lineIds) {
+window.deleteLines = async function(lineIds) {
   if (session && session.mode === 'edit') return deleteEditorLines(lineIds);
-  if (!lineIds.length || !confirm(t('line.deleteConfirm', { n: lineIds.length }))) return;
+  if (!lineIds.length || !await askConfirm(t('line.deleteConfirm', { n: lineIds.length }))) return;
   socket.emit('host_delete_lines', { lineIds });
   if (lineIds.length > 1) clearMultiSelection();
 };
@@ -678,9 +748,16 @@ settingsCue.addEventListener('change', () => {
 });
 
 settingsPreRoll.addEventListener('input', () => {
-  preRollSeconds = Math.max(0, Math.min(5, Number(settingsPreRoll.value) || 0));
+  preRollSeconds = DublineAdr.preparation(settingsPreRoll.value, localStorage.getItem('dubline_adr') === 'three');
+  settingsPreRoll.value = preRollSeconds;
   localStorage.setItem('dubline_pre_roll', String(preRollSeconds));
   settingsPreRollVal.textContent = t('seconds.short', { value: preRollSeconds.toFixed(1) });
+});
+
+document.getElementById('settingsAdrVolume').addEventListener('input', event => {
+  adrCueVolume = Math.max(0, Math.min(1, Number(event.target.value) / 100));
+  localStorage.setItem('dubline_adr_volume', String(adrCueVolume));
+  document.getElementById('settingsAdrVolumeVal').textContent = `${Math.round(adrCueVolume * 100)}%`;
 });
 
 const videoWrapper = document.querySelector('.video-wrapper');

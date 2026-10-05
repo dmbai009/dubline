@@ -118,7 +118,7 @@ async function startServer(extraEnv = {}) {
   const server = { port, dirs, log: '', proc: null };
   server.start = () => new Promise((resolve, reject) => {
     const proc = spawn(process.execPath, ['server.js'], {
-      cwd: ROOT,
+      cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
       env: { ...process.env, PORT: String(port), DUBLINE_DATA_DIR: dirs.data, DUBLINE_UPLOAD_DIR: dirs.uploads, DUBLINE_PACKS_DIR: dirs.packs, DUBLINE_OPEN_BROWSER: '', ...extraEnv }
     });
     server.proc = proc;
@@ -153,7 +153,7 @@ async function startServer(extraEnv = {}) {
 }
 
 // ---------- Players ----------
-async function openPlayer(browser, url, nick, { helpSeen = true, viewport = { width: 1600, height: 900 }, context = null, audioExpanded = true } = {}) {
+async function openPlayer(browser, url, nick, { helpSeen = true, viewport = { width: 1600, height: 900 }, context = null, audioExpanded = true, autoConfirm = true } = {}) {
   const ctx = context || await browser.createBrowserContext();
   const page = await ctx.newPage();
   await page.setViewport(viewport);
@@ -168,7 +168,17 @@ async function openPlayer(browser, url, nick, { helpSeen = true, viewport = { wi
     page.dialogs.push(dialog.message());
     dialog.accept(dialog.type() === 'prompt' ? (page.promptAnswer || '') : undefined);
   });
-  await page.evaluateOnNewDocument((name, seen, expanded) => {
+  await page.exposeFunction('testDialogObserved', text => page.dialogs.push(text));
+  await page.evaluateOnNewDocument((name, seen, expanded, acceptConfirm) => {
+    document.addEventListener('DOMContentLoaded', () => {
+      const dialog = document.querySelector('dialog.text-prompt');
+      new MutationObserver(() => {
+        if (dialog?.open && dialog.dataset.kind === 'confirm' && acceptConfirm) {
+          window.testDialogObserved(document.getElementById('textPromptTitle').textContent);
+          document.getElementById('textPromptSave').click();
+        }
+      }).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['open'] });
+    });
     // The UI language would otherwise follow the machine's locale; assertions expect English
     localStorage.setItem('dubline_language', 'en');
     if (name && !localStorage.getItem('dubline_nick')) localStorage.setItem('dubline_nick', name);
@@ -176,7 +186,7 @@ async function openPlayer(browser, url, nick, { helpSeen = true, viewport = { wi
     // The Audio group starts collapsed; most suites look at its rows, so open it once
     // (a later collapse by the test itself survives reloads)
     if (expanded && localStorage.getItem('dubline_audio_collapsed') === null) localStorage.setItem('dubline_audio_collapsed', '0');
-  }, nick, helpSeen, audioExpanded);
+  }, nick, helpSeen, audioExpanded, autoConfirm);
   await page.goto(url);
   await waitFor(page, () => typeof socket !== 'undefined' && socket.connected, 10000);
   return page;

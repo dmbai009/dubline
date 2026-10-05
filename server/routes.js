@@ -2,13 +2,12 @@ const multer = require('multer');
 const AdmZip = require('adm-zip');
 const fs = require('fs');
 const path = require('path');
-const os = require('os');
 const crypto = require('crypto');
-const { UPLOAD_DIR, PACKS_DIR, MAX_PACK_MB, MAX_PACK_EXPORT_MB, MAX_EXPORT_LINE_SECONDS, MAX_TAKE_MB, MAX_SUBTITLE_MB, HttpError } = require('./config');
+const { DATA_DIR, UPLOAD_DIR, PACKS_DIR, MAX_VIDEO_MB, MAX_PACK_MB, MAX_PACK_EXPORT_MB, MAX_EXPORT_LINE_SECONDS, MAX_TAKE_MB, MAX_SUBTITLE_MB, HttpError } = require('./config');
 const { rooms, recordingNow, p2pSeeders, roomSockets } = require('./state');
 const { app, io } = require('./app');
 const { sanitizeNick, sanitizePackName } = require('./sanitize');
-const { resolveRoomId } = require('./desktop');
+const { resolveRoomId, clientIdFromCookie } = require('./desktop');
 const { logEvent } = require('./log');
 const { forgetFileSizes, deleteTakeFile, diskPathForUrl } = require('./files');
 const { runFfmpeg, findEmbeddedSubtitleMap } = require('./media');
@@ -17,12 +16,19 @@ const { saveRooms, flushRooms, getRoom, snapshotActive, startNewSession, publicR
 const { endWatch, broadcastRecording, addSystemMessage } = require('./presence');
 const { isAuthorized, isHost, getLineOwner } = require('./auth');
 const { parseWorkshopUrl, downloadVoxalikePack } = require('./workshop');
+const { exportProjectDisk, stageProjectDisk } = require('./project-archive');
+const { diskUpload } = require('./project-uploads');
+const { pipeline } = require('node:stream/promises');
 
 const workshopDownloads = new Map();
 // Pack exports in progress, by room. One per room; at most two on the whole server because
 // every export builds its ZIP in memory (the browser server can host several rooms).
 const packExports = new Set();
 const MAX_PARALLEL_PACK_EXPORTS = 2;
+const projectExports = new Set();
+const projectImports = new Set();
+const customImports = new Set();
+const projectDownloads = new Map();
 
 app.get('/api/audio-waveform', async (req, res) => {
   // Look the room up without creating it: a GET with a made-up name must not add rooms
@@ -146,34 +152,6 @@ function acceptFile(field, maxMb, authorize) {
   return uploadErrorHandler(handler, maxMb);
 }
 
-function acceptCustomFiles(maxMb, authorize) {
-  const handler = multer({
-    storage: multer.memoryStorage(),
-    limits: { fileSize: maxMb * 1024 * 1024, files: 4, fields: 4 },
-    fileFilter: checkedBefore(authorize)
-  }).fields([
-    { name: 'video', maxCount: 1 },
-    { name: 'subtitles', maxCount: 1 },
-    { name: 'original', maxCount: 1 },
-    { name: 'intershum', maxCount: 1 }
-  ]);
-  const accept = uploadErrorHandler(handler, maxMb);
-  // Up to four files are kept in memory: refuse an import that is too large as a whole from its
-  // Content-Length, before any of it is read (multer alone would buffer 4 × maxMb first)
-  return (req, res, next) => {
-    const length = Number(req.headers['content-length']);
-    if (!Number.isFinite(length) || length <= 0) {
-      return sendJsonError(res, 411, 'The upload size is unknown', 'error.uploadFailed', { message: 'Content-Length required' });
-    }
-    if (length > maxMb * 1024 * 1024 + MULTIPART_OVERHEAD) {
-      logEvent(null, `⚠ Upload rejected: the import is larger than ${maxMb} MB`, 'warn');
-      res.set('Connection', 'close');
-      return sendJsonError(res, 413, `Scene files exceed the total import limit (max ${maxMb} MB)`, 'error.fileTooBig', { max: maxMb });
-    }
-    accept(req, res, next);
-  };
-}
-
 // Multipart boundaries, headers and the text fields around the files
 const MULTIPART_OVERHEAD = 1024 * 1024;
 
@@ -272,7 +250,7 @@ app.post('/api/import-workshop-pack', async (req, res) => {
       if (cached) buffer = fs.readFileSync(filePath);
     }
 
-    if (room.activeSessionId !== importSessionId || !isHost(room, req.body.clientId)) throw new HttpError(409, 'The scene changed during import', 'error.importSceneChanged');
+    if (res.destroyed || room.activeSessionId !== importSessionId || !isHost(room, req.body.clientId)) throw new HttpError(409, 'The scene changed during import', 'error.importSceneChanged');
     const pack = readPack(buffer, source.filename);
     if (!cached) {
       try {
@@ -283,6 +261,13 @@ app.post('/api/import-workshop-pack', async (req, res) => {
       }
     }
     const updatedRoom = loadPackIntoRoom(roomId, source.filename, buffer, pack);
+    updatedRoom.workshopSource = {
+      downloadUrl: source.downloadUrl, archiveSize: buffer.length,
+      archiveHash: crypto.createHash('sha256').update(buffer).digest('hex'),
+      videoEntry: decodeURIComponent(pack.videoUrl.split('/').pop()),
+      backingEntry: pack.backingUrl ? decodeURIComponent(pack.backingUrl.split('/').pop()) : ''
+    };
+    flushRooms(); emitSession(roomId);
     logEvent(roomId, `📦 Voxalike workshop pack "${source.slug}" ${cached ? 'loaded from cache' : 'downloaded'}`);
     res.json({ success: true, cached, session: publicRoom(updatedRoom) });
   } catch (err) {
@@ -298,6 +283,94 @@ function packSafeName(value, fallback) {
 function iniQuoted(value) {
   return JSON.stringify(String(value || ''));
 }
+
+// The same project routes serve all runtime modes. Binding the request to a session
+// prevents a delayed save/open from silently operating on a different active scene.
+function projectFilename(title) {
+  return String(title || 'Dubline_project').replace(/[<>:"/\\|?*\u0000-\u001f\u007f]/g, '_').slice(0,120)+'.dubline';
+}
+async function sendProjectFile(res,saved,filename) {
+  res.setHeader('Content-Type','application/zip');
+  res.setHeader('Content-Disposition',"attachment; filename*=UTF-8''"+encodeURIComponent(filename));
+  res.setHeader('Content-Length',saved.bytes);
+  await pipeline(fs.createReadStream(saved.path),res);
+}
+app.post('/api/export-project', async (req,res)=>{
+  let ownsSlot,saved;const abort=new AbortController();
+  res.once('close',()=>{if(!res.writableFinished)abort.abort();});
+  try{
+    const roomId=resolveRoomId(req.body.room),room=getRoom(roomId);
+    if(!isHost(room,req.body.clientId))throw new HttpError(403,'Only the host can save a project','onlyHost');
+    if(req.body.sessionId!==room.activeSessionId)throw new HttpError(409,'The scene changed','error.importSceneChanged');
+    if(projectExports.has(roomId)||projectExports.size>=2)throw new HttpError(409,'A project save is in progress','project.busy');
+    projectExports.add(roomId);ownsSlot=roomId;
+    saved=await exportProjectDisk(room,undefined,{signal:abort.signal});
+    if(!isHost(room,req.body.clientId))throw new HttpError(403,'Host rights changed','onlyHost');
+    if(res.destroyed)return;
+    const filename=projectFilename(saved.title);
+    if(req.body.download===true){
+      const ticket=crypto.randomUUID(),archive=saved;
+      const release=async()=>{projectDownloads.delete(ticket);projectExports.delete(roomId);await archive.cleanup();};
+      const timer=setTimeout(()=>{void release().catch(error=>console.error('[Dubline] Project cleanup:',error.message));},5*60*1000);timer.unref();
+      projectDownloads.set(ticket,{archive,roomId,clientId:req.body.clientId,filename,timer,release});
+      saved=null;ownsSlot=null;
+      res.json({downloadUrl:'/api/download-project?ticket='+ticket,filename,bytes:archive.bytes});
+    }else await sendProjectFile(res,saved,filename);
+  }catch(error){if(!res.destroyed&&!res.headersSent)sendError(res,error);}
+  finally{if(saved)await saved.cleanup();if(ownsSlot)projectExports.delete(ownsSlot);}
+});
+app.get('/api/download-project',async(req,res)=>{
+  const job=projectDownloads.get(req.query.ticket);
+  if(!job)return sendJsonError(res,404,'The prepared download expired','project.downloadExpired');
+  if(clientIdFromCookie(req.headers.cookie)!==job.clientId||!isHost(getRoom(job.roomId),job.clientId))return sendJsonError(res,403,'Only the host can download this project','onlyHost');
+  projectDownloads.delete(req.query.ticket);clearTimeout(job.timer);
+  try{await sendProjectFile(res,job.archive,job.filename);}
+  catch(error){if(!res.destroyed&&!res.headersSent)sendError(res,error);}
+  finally{await job.release();}
+});
+
+async function importProjectIntoRoom(roomId, archivePath, authorize = () => true, signal) {
+  const room = getRoom(roomId), sessionId = room.activeSessionId;
+  if (projectImports.has(roomId) || projectImports.size >= 2) throw new HttpError(409, 'A project open is in progress', 'project.busy');
+  projectImports.add(roomId);
+  let staged, committed = false;
+  try {
+    if (!authorize()) throw new HttpError(409, 'The scene changed', 'error.importSceneChanged');
+    staged = await stageProjectDisk(archivePath, UPLOAD_DIR, { authorize, signal });
+    for (const file of staged.mediaFiles) {
+      const args = file.video ? ['-map', '0:v:0', '-frames:v', '1', '-an'] : ['-map', '0:a:0', '-frames:a', '1', '-vn'];
+      try { await runFfmpeg(['-i', file.path, ...args, '-f', 'null', '-'], 'Could not read project media', {signal}); }
+      catch { if(signal?.aborted)signal.throwIfAborted(); throw new HttpError(400, 'Unreadable project media', 'project.invalid'); }
+      if (room.activeSessionId !== sessionId || !authorize()) throw new HttpError(409, 'The scene changed during import', 'error.importSceneChanged');
+    }
+    const videoFile = staged.mediaFiles.find(file => file.primary);
+    const duration = require('./media').probeAudioDuration(videoFile.path);
+    if (!duration || staged.fields.lines.some(line => !require('../public/timeline-model').valid(line.start, line.end, duration, Math.min(0.1, line.end - line.start)))) throw new HttpError(400, 'Project lines exceed video duration', 'project.invalid');
+    const sourceFile = staged.mediaFiles.find(file => file.video && !file.primary);
+    if (sourceFile && Math.abs(require('./media').probeAudioDuration(sourceFile.path) - duration) > 0.25) throw new HttpError(400, 'Original/proxy duration differs', 'project.invalid');
+    staged.fields.videoDuration = duration;
+    startNewSession(room, staged.commit()); committed = true;
+    delete recordingNow[roomId]; delete p2pSeeders[roomId];
+    endWatch(roomId, null, 'Watch-together stopped: a project was opened');
+    flushRooms(); emitSession(roomId); broadcastRecording(roomId); ensureAudioTracks(roomId);
+    logEvent(roomId, 'Project opened: ' + room.title);
+    return room;
+  } finally {
+    if (!committed) staged?.rollback();
+    projectImports.delete(roomId);
+  }
+}
+module.exports.importProjectIntoRoom = importProjectIntoRoom;
+app.post('/api/import-project', diskUpload(['project'], requireHost('Only the host can open a project', 'onlyHost')), async (req, res) => {
+  try {
+    const roomId = resolveRoomId(req.query.room), room = getRoom(roomId);
+    if (!isHost(room, req.body.clientId)) throw new HttpError(403, 'Only the host can open a project', 'onlyHost');
+    if (req.body.sessionId !== (room.activeSessionId || '')) throw new HttpError(409, 'The scene changed', 'error.importSceneChanged');
+    if (!req.file) throw new HttpError(400, 'No project file', 'error.noFile');
+    const updated = await importProjectIntoRoom(roomId, req.file.path, () => !res.destroyed && isHost(room, req.body.clientId), req.uploadAbort.signal);
+    res.json({ success: true, session: publicRoom(updated) });
+  } catch (error) { if (!res.destroyed) sendError(res, error); }
+});
 
 // Build a standard Voxalike pack from the edited timeline. Host only because FFmpeg work
 // happens on the host machine and can be expensive for a long scene.
@@ -344,7 +417,7 @@ app.post('/api/export-voxalike-pack', async (req, res) => {
       if (requestId && recipients.length) io.to(recipients).emit('pack_export_progress', { requestId, current, total: ordered.length });
     };
     progress(0);
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dubline-pack-'));
+    tempDir = fs.mkdtempSync(path.join(DATA_DIR, '.pack-export-'));
     const zip = new AdmZip();
     const title = String(room.title || 'Dubline scene');
     const videoExt = path.extname(videoPath).toLowerCase() === '.webm' ? '.webm' : '.mp4';
@@ -416,7 +489,7 @@ app.post('/api/export-voxalike-pack', async (req, res) => {
     sendError(res, err);
   } finally {
     if (ownsExportSlot) packExports.delete(ownsExportSlot);
-    if (tempDir && tempDir.startsWith(os.tmpdir() + path.sep)) fs.rm(tempDir, { recursive: true, force: true }, () => {});
+    if (tempDir && path.dirname(tempDir) === DATA_DIR && path.basename(tempDir).startsWith('.pack-export-')) fs.rm(tempDir, { recursive: true, force: true }, () => {});
   }
 });
 
@@ -441,7 +514,19 @@ app.post('/api/load-server-pack', (req, res) => {
 });
 
 // Separate upload of a video (.mp4 / .mkv) and subtitles (.ass / .ssa / .srt / .vtt)
-app.post('/api/upload-custom', acceptCustomFiles(MAX_PACK_MB, requireHost('Only the room host can create a scene', 'error.hostOnlyScene')), async (req, res) => {
+app.post('/api/upload-custom', (req,res,next) => {
+  const roomId = resolveRoomId(req.query.room);
+  req.importSessionId = getRoom(roomId).activeSessionId;
+  const release = () => { if(req.customImportSlot === roomId) customImports.delete(roomId); };
+  res.once('finish',release); res.once('close',release);
+  next();
+}, diskUpload(['video','subtitles','original','intershum'], req => {
+  requireHost('Only the room host can create a scene','error.hostOnlyScene')(req);
+  if(req.customImportSlot)return;
+  const roomId=resolveRoomId(req.query.room);
+  if(customImports.has(roomId) || customImports.size >= 2) throw new HttpError(409,'An import is already in progress','project.busy');
+  customImports.add(roomId); req.customImportSlot=roomId;
+}), async (req, res) => {
   let targetDir = null;
   try {
     const roomId = resolveRoomId(req.query.room);
@@ -452,10 +537,15 @@ app.post('/api/upload-custom', acceptCustomFiles(MAX_PACK_MB, requireHost('Only 
     const subFile = req.files && req.files['subtitles'] ? req.files['subtitles'][0] : null;
     const originalFile = req.files && req.files.original ? req.files.original[0] : null;
     const intershumFile = req.files && req.files.intershum ? req.files.intershum[0] : null;
-    const importSessionId = room.activeSessionId;
-    if (Object.values(req.files || {}).flat().reduce((sum, file) => sum + file.size, 0) > MAX_PACK_MB * 1024 * 1024) {
-      throw new HttpError(413, 'Scene files exceed the total import limit', 'error.fileTooBig', { max: MAX_PACK_MB });
-    }
+    const importSessionId = req.importSessionId;
+    const requestId = String(req.body.requestId || '').slice(0,80);
+    const recipients = Object.entries(roomSockets[roomId] || {}).filter(([,member]) => member.clientId === req.body.clientId).map(([id]) => id);
+    let progressAt = 0;
+    const progress = (stage, percent) => {
+      if (Date.now() - progressAt < 300 && percent !== 0 && percent !== 100) return;
+      progressAt = Date.now();
+      if (requestId && recipients.length) io.to(recipients).emit('video_import_progress',{requestId,stage,percent});
+    };
     for (const audio of [originalFile, intershumFile].filter(Boolean)) {
       if (!/\.(wav|mp3|m4a|aac|ogg|oga|opus|flac)$/i.test(audio.originalname)) throw new HttpError(400, 'Unsupported audio file', 'error.audioFormat');
     }
@@ -476,18 +566,36 @@ app.post('/api/upload-custom', acceptCustomFiles(MAX_PACK_MB, requireHost('Only 
 
     const videoName = 'dub_video.mp4';
     const videoPath = path.join(targetDir, videoName);
-    let subtitleBuffer = subFile ? subFile.buffer : null;
+    let subtitleBuffer = subFile ? fs.readFileSync(subFile.path) : null;
     let subtitleName = subFile ? subFile.originalname : '';
 
-    if (isMkvFile(videoFile)) {
+    let originalVideoUrl = '', originalVideoName = '', proxy = null;
+    if (req.query.optimize === '1') {
+      const sourceName = 'source_video' + (isMkvFile(videoFile) ? '.mkv' : '.mp4');
+      const sourcePath = path.join(targetDir, sourceName);
+      require('./video-proxy').checkSpace(targetDir,videoFile.size + MAX_VIDEO_MB * 1024 * 1024);
+      fs.copyFileSync(videoFile.path,sourcePath);
+      if (isMkvFile(videoFile) && !subtitleBuffer) {
+        const map = findEmbeddedSubtitleMap(sourcePath), extracted = path.join(targetDir,'embedded.ass');
+        if (map) try {
+          await runFfmpeg(['-i',sourcePath,'-map',map,'-c:s','ass',extracted],'Could not extract embedded subtitles',{signal:req.uploadAbort.signal});
+          if (fs.statSync(extracted).size > MAX_SUBTITLE_MB * 1024 * 1024) throw new HttpError(413,'Embedded subtitles exceed the limit','error.subtitlesTooBig',{max:MAX_SUBTITLE_MB});
+          subtitleBuffer=fs.readFileSync(extracted); subtitleName='embedded.ass';
+        } finally {fs.rmSync(extracted,{force:true});}
+      }
+      const videoUrl = '/uploads/' + dirName + '/' + videoName;
+      proxy = await require('./video-proxy').createVideoProxy(sourcePath,videoPath,videoUrl,{signal:req.uploadAbort.signal,progress});
+      originalVideoUrl = '/uploads/' + dirName + '/' + sourceName;
+      originalVideoName = path.basename(videoFile.originalname).slice(0,200);
+    } else if (isMkvFile(videoFile)) {
       const mkvPath = path.join(targetDir, 'source.mkv');
-      fs.writeFileSync(mkvPath, videoFile.buffer);
+      fs.copyFileSync(videoFile.path, mkvPath);
 
       if (!subtitleBuffer) {
         const extractedPath = path.join(targetDir, 'embedded.ass');
         const subtitleMap = findEmbeddedSubtitleMap(mkvPath);
         if (subtitleMap) try {
-          await runFfmpeg(['-i', mkvPath, '-map', subtitleMap, '-c:s', 'ass', extractedPath], 'Could not extract embedded subtitles');
+          await runFfmpeg(['-i', mkvPath, '-map', subtitleMap, '-c:s', 'ass', extractedPath], 'Could not extract embedded subtitles', {signal:req.uploadAbort.signal});
           subtitleBuffer = fs.readFileSync(extractedPath);
           subtitleName = 'embedded.ass';
           if (subtitleBuffer.length > MAX_SUBTITLE_MB * 1024 * 1024) {
@@ -499,17 +607,18 @@ app.post('/api/upload-custom', acceptCustomFiles(MAX_PACK_MB, requireHost('Only 
       }
 
       try {
-        await runFfmpeg(['-i', mkvPath, '-map', '0:v:0', '-map', '0:a?', '-c', 'copy', '-movflags', '+faststart', videoPath], 'Could not remux MKV to MP4');
+        await runFfmpeg(['-i', mkvPath, '-map', '0:v:0', '-map', '0:a?', '-c', 'copy', '-movflags', '+faststart', videoPath], 'Could not remux MKV to MP4', {signal:req.uploadAbort.signal});
       } catch (copyError) {
-        await runFfmpeg(['-i', mkvPath, '-map', '0:v:0', '-map', '0:a?', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', videoPath], 'Could not remux MKV to MP4 with AAC audio');
+        await runFfmpeg(['-i', mkvPath, '-map', '0:v:0', '-map', '0:a?', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', videoPath], 'Could not remux MKV to MP4 with AAC audio', {signal:req.uploadAbort.signal});
       } finally {
         fs.rmSync(mkvPath, { force: true });
       }
     } else {
-      fs.writeFileSync(videoPath, videoFile.buffer);
-      await runFfmpeg(['-i', videoPath, '-map', '0:v:0', '-frames:v', '1', '-an', '-f', 'null', '-'], 'Could not read scene video');
+      fs.copyFileSync(videoFile.path, videoPath);
+      await runFfmpeg(['-i', videoPath, '-map', '0:v:0', '-frames:v', '1', '-an', '-f', 'null', '-'], 'Could not read scene video', {signal:req.uploadAbort.signal});
     }
 
+    if (fs.statSync(videoPath).size > MAX_VIDEO_MB * 1024 * 1024) throw new HttpError(413, 'Converted video exceeds the video limit', 'error.videoTooBig', {max:MAX_VIDEO_MB});
     const lines = subtitleBuffer ? parseSubtitles(subtitleBuffer, subtitleName) : [];
     if (subtitleBuffer && !lines.length) {
       throw new HttpError(400, 'No lines found in the subtitle file', 'error.noSubtitleLines');
@@ -522,8 +631,8 @@ app.post('/api/upload-custom', acceptCustomFiles(MAX_PACK_MB, requireHost('Only 
       const sourcePath = path.join(targetDir, `${channel}_source${path.extname(file.originalname).toLowerCase()}`);
       const outputName = `${channel}.m4a`;
       const outputPath = path.join(targetDir, outputName);
-      fs.writeFileSync(sourcePath, file.buffer);
-      await runFfmpeg(['-i', sourcePath, '-map', '0:a:0', '-vn', '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', outputPath], 'Could not read external audio');
+      fs.copyFileSync(file.path, sourcePath);
+      await runFfmpeg(['-i', sourcePath, '-map', '0:a:0', '-vn', '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', outputPath], 'Could not read external audio', {signal:req.uploadAbort.signal});
       fs.rmSync(sourcePath, { force: true });
       const { probeAudioDuration } = require('./media');
       const duration = probeAudioDuration(outputPath);
@@ -532,10 +641,12 @@ app.post('/api/upload-custom', acceptCustomFiles(MAX_PACK_MB, requireHost('Only 
       audioMetadata[channel] = { name: path.basename(file.originalname).slice(0, 200), duration, size: fs.statSync(outputPath).size };
     }
     // A long remux/convert may have outlived a session switch or a host change.
-    if (room.activeSessionId !== importSessionId || !isHost(room, req.body.clientId)) throw new HttpError(409, 'The scene changed during import', 'error.importSceneChanged');
+    if (res.destroyed || room.activeSessionId !== importSessionId || !isHost(room, req.body.clientId)) throw new HttpError(409, 'The scene changed during import', 'error.importSceneChanged');
 
     startNewSession(room, {
       title: customTitle,
+      originalVideoUrl, originalVideoName,
+      ...(proxy ? {videoDuration:proxy.duration, audioTracks:proxy.tracks, videoHasAudio:proxy.tracks.length > 0} : {}),
       kind: 'custom',
       zipUrl: '',
       videoUrl: `/uploads/${encodeURIComponent(dirName)}/${encodeURIComponent(videoName)}`,
@@ -562,10 +673,11 @@ app.post('/api/upload-custom', acceptCustomFiles(MAX_PACK_MB, requireHost('Only 
     console.log(`[Dubline] Custom scene [${customTitle}] (${lines.length} lines) created in room [${roomId}]`);
     res.json({ success: true, skippedTimings: lines.skippedTimings || 0, session: publicRoom(room) });
   } catch (err) {
-    if (targetDir) fs.rmSync(targetDir, { recursive: true, force: true });
-    sendError(res, err);
+    if (targetDir) fs.rmSync(targetDir, { recursive: true, force: true, maxRetries:10, retryDelay:100 });
+    if (!res.destroyed) sendError(res, ['ENOSPC','EDQUOT'].includes(err.code) ? new HttpError(507,'Not enough disk space','project.diskSpace') : err);
   }
 });
+require('./video-export');
 
 // Take upload
 app.post('/api/upload-line-audio', acceptFile('audio', MAX_TAKE_MB, requireConfirmedNick), (req, res) => {
@@ -598,7 +710,7 @@ app.post('/api/upload-line-audio', acceptFile('audio', MAX_TAKE_MB, requireConfi
     const line = target.lines.find(l => l.id === lineId);
     if (!line) throw new HttpError(404, 'Line not found', 'error.lineNotFound');
 
-    const owner = target.characterClaims[line.character] || line.claimedBy || null;
+    const owner = room.singlePlayer ? room.host : getLineOwner(target, line);
     if (owner !== userName) throw new HttpError(403, 'The line is claimed by another player', 'error.lineTaken');
     if (!uploadId || !Number.isSafeInteger(takeSequence) || takeSequence < 1 || takeSequence > (line.takeCounter || 0)) {
       throw new HttpError(400, 'Invalid take reservation', 'error.badRequest');

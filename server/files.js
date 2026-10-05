@@ -45,7 +45,11 @@ function fileHashForUrl(url) {
   try {
     const full = diskPathForUrl(url);
     if (!full) return null;
-    const hash = crypto.createHash('sha256').update(fs.readFileSync(full)).digest('hex');
+    const digest = crypto.createHash('sha256'), chunk = Buffer.allocUnsafe(256 * 1024);
+    const fd = fs.openSync(full, 'r');
+    try { let n; while ((n = fs.readSync(fd, chunk, 0, chunk.length, null))) digest.update(chunk.subarray(0, n)); }
+    finally { fs.closeSync(fd); }
+    const hash = digest.digest('hex');
     fileHashCache.set(url, hash);
     return hash;
   } catch (err) {

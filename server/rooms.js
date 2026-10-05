@@ -8,6 +8,7 @@ const { sceneDirOf, diskPathForUrl, fileSizeForUrl, fileHashForUrl, deleteTakeFi
 const { extractAudioTracks, probeAudioDuration, getWavDuration } = require('./media');
 const { isAssDrawing, cleanAssText } = require('./parsers');
 const projectAudio = require('../public/project-audio');
+const timelineBounds = require('../public/timeline-model');
 
 // ==========================================
 // ROOMS (persisted to disk)
@@ -15,7 +16,7 @@ const projectAudio = require('../public/project-audio');
 // Scene fields that belong to a session (see "Sessions" below)
 const SESSION_FIELDS = ['loaded', 'title', 'kind', 'zipUrl', 'videoUrl', 'backingUrl', 'lines', 'characterClaims', 'createdAt', 'updatedAt',
   'audioTracks', 'originalTrack', 'backingTrack', 'baseBackingUrl', 'deletedLines', 'mode', 'trackOrder', 'nextLineId', 'blindMode',
-  'externalOriginalUrl', 'audioMetadata', 'projectAudio', 'videoHasAudio'];
+  'externalOriginalUrl', 'audioMetadata', 'projectAudio', 'videoHasAudio', 'takeLatency', 'videoDuration', 'workshopSource', 'originalVideoUrl', 'originalVideoName'];
 let repairedOnLoad = false;
 
 function loadRooms() {
@@ -77,7 +78,13 @@ function cleanImportedCaptions(session) {
 function normalizeEditorState(session) {
   if (!session || !Array.isArray(session.lines)) return;
   session.characterClaims = Object.assign(Object.create(null), session.characterClaims);
+  session.takeLatency = Object.assign(Object.create(null), session.takeLatency);
   session.projectAudio = projectAudio.normalize(session);
+  if (session.videoUrl && !Number.isFinite(session.videoDuration)) {
+    const file = diskPathForUrl(session.videoUrl);
+    const duration = file && probeAudioDuration(file);
+    if (duration) { session.videoDuration = duration; repairedOnLoad = true; }
+  }
   if (!['edit', 'dub'].includes(session.mode)) {
     session.mode = 'dub';
     repairedOnLoad = true;
@@ -101,6 +108,17 @@ function normalizeEditorState(session) {
   (session.deletedLines || []).forEach(batch => (batch.lines || []).forEach(entry => {
     maxId = Math.max(maxId, Number(entry.line && entry.line.id) || 0);
   }));
+  // Legacy/imported captions may extend past their source. Keep text and take assets,
+  // fitting only source timing into the media; recorded audioStart remains independent.
+  if (Number.isFinite(session.videoDuration) && session.videoDuration >= 0.001) {
+    const endOfVideo = timelineBounds.limit(session.videoDuration);
+    for (const line of session.lines) {
+      if (!Number.isFinite(line.start) || !Number.isFinite(line.end)) continue;
+      const start = Math.round(Math.max(0, Math.min(endOfVideo - 0.001, line.start)) * 1000) / 1000;
+      const end = Math.round(Math.max(start + 0.001, Math.min(endOfVideo, line.end)) * 1000) / 1000;
+      if (start !== line.start || end !== line.end) { line.start = start; line.end = end; repairedOnLoad = true; }
+    }
+  }
   if (!Number.isInteger(session.nextLineId) || session.nextLineId <= maxId) {
     session.nextLineId = maxId + 1;
     repairedOnLoad = true;
@@ -185,7 +203,8 @@ function emptySession() {
   return {
     loaded: false, title: '', kind: null, zipUrl: '', videoUrl: '', backingUrl: '', lines: [], characterClaims: {}, createdAt: null, updatedAt: null,
     mode: 'dub', trackOrder: [], nextLineId: 1, blindMode: false,
-    externalOriginalUrl: '', audioMetadata: {}, projectAudio: undefined,
+    externalOriginalUrl: '', audioMetadata: {}, projectAudio: undefined, takeLatency: Object.create(null),
+    videoDuration: undefined, workshopSource: undefined, originalVideoUrl: '', originalVideoName: '',
     videoHasAudio: undefined, // unknown until probing succeeds; false only for genuinely silent video
     audioTracks: undefined,   // video audio tracks as separate files (if there are several); undefined = not checked yet
     originalTrack: 0,         // which track plays as "Original" (-1 = none)
@@ -244,7 +263,7 @@ function sessionSummaries(room) {
 // Whether any other session in any room still uses the scene folder
 function isSceneDirUsed(dir) {
   return Object.values(rooms).some(room => [room, ...Object.values(room.sessions || {})]
-    .some(session => [session.videoUrl, session.backingUrl, session.externalOriginalUrl, session.baseBackingUrl].some(url => sceneDirOf(url) === dir)));
+    .some(session => [session.videoUrl, session.originalVideoUrl, session.backingUrl, session.externalOriginalUrl, session.baseBackingUrl].some(url => sceneDirOf(url) === dir)));
 }
 
 // Lines in a session are always sorted by id (the import creates them that way and the list is never re-sorted),
@@ -265,7 +284,7 @@ function deleteSessionFiles(session) {
       takes++;
     }
   });
-  const dirs = new Set([session.videoUrl, session.backingUrl, session.externalOriginalUrl, session.baseBackingUrl].map(sceneDirOf).filter(Boolean));
+  const dirs = new Set([session.videoUrl, session.originalVideoUrl, session.backingUrl, session.externalOriginalUrl, session.baseBackingUrl].map(sceneDirOf).filter(Boolean));
   dirs.forEach(dir => {
     if (isSceneDirUsed(dir)) return;
     const full = path.join(UPLOAD_DIR, dir);
@@ -280,9 +299,12 @@ function deleteSessionFiles(session) {
 
 // Secrets (players' clientIds) never reach clients
 function publicRoom(room) {
-  const { hostClientId, nickOwners, chat, sessions, passwordHash, passwordSalt, admitted, banned, deletedLines, ...rest } = room;
+  const { hostClientId, nickOwners, chat, sessions, passwordHash, passwordSalt, admitted, banned, deletedLines, originalVideoUrl, ...rest } = room;
   return {
     ...rest,
+    hasOriginalVideo: !!originalVideoUrl,
+    originalVideoSize: fileSizeForUrl(originalVideoUrl),
+    audioTracksPending: room.audioTracksPending === room.videoUrl,
     undoCount: (deletedLines || []).length,
     trashCount: (deletedLines || []).reduce((sum, batch) => sum + batch.lines.length, 0),
     hasPassword: !!room.passwordHash,
@@ -306,16 +328,18 @@ const audioTrackFailures = new Map(); // videoUrl -> { count, retryAt }
 // If the open session's tracks were not checked yet, check them in the background and tell everyone when done
 function ensureAudioTracks(roomId) {
   const room = getRoom(roomId);
-  if (!room.loaded || (room.audioTracks !== undefined && typeof room.videoHasAudio === 'boolean') || !sceneDirOf(room.videoUrl) || room.audioTracksPending) return;
+  if (!room.loaded || (room.audioTracks !== undefined && typeof room.videoHasAudio === 'boolean') || !sceneDirOf(room.videoUrl) || room.audioTracksPending === room.videoUrl) return;
   const failure = audioTrackFailures.get(room.videoUrl);
   if (failure && Date.now() < failure.retryAt) return;
   const sessionId = room.activeSessionId;
   const videoUrl = room.videoUrl;
-  room.audioTracksPending = true;
+  room.audioTracksPending = videoUrl;
+  delete room.audioTracksError;
+  emitSession(roomId);
   extractAudioTracks(videoUrl).then(tracks => {
     audioTrackFailures.delete(videoUrl);
     const target = room.activeSessionId === sessionId ? room : room.sessions[sessionId];
-    if (room.videoUrl === videoUrl) delete room.audioTracksPending;
+    if (room.audioTracksPending === videoUrl) delete room.audioTracksPending;
     if (!target || target.videoUrl !== videoUrl) return;
     target.audioTracks = tracks;
     target.videoHasAudio = tracks.length > 0;
@@ -328,6 +352,7 @@ function ensureAudioTracks(roomId) {
     if (tracks.length) logEvent(roomId, `🎧 Audio tracks found: ${tracks.length} (${tracks.map(t => t.label || t.language).join(', ')})`);
   }).catch(() => {
     if (room.videoUrl === videoUrl) delete room.audioTracksPending;
+    if (room.videoUrl === videoUrl) { room.audioTracksError = videoUrl; emitSession(roomId); }
     // 15 s, 30 s, 1 min … up to 10 min between attempts
     const count = (audioTrackFailures.get(videoUrl)?.count || 0) + 1;
     audioTrackFailures.set(videoUrl, { count, retryAt: Date.now() + Math.min(10 * 60 * 1000, 15000 * 2 ** (count - 1)) });

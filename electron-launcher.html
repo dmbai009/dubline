@@ -67,6 +67,20 @@
       <div><h1>Dubline</h1><p data-t="tagline"></p></div>
       <select id="language" class="lang" aria-label="Language"><option value="en">English</option><option value="ru">Русский</option><option value="uk">Українська</option></select>
     </header>
+    <div class="footer project-entry">
+      <button id="startSingle" class="primary" data-t="single"></button>
+      <button id="openProjectFile" data-t="openProjectFile"></button>
+      <select id="projectOpenMode" aria-label="Project mode"><option value="single" data-t="singleMode"></option><option value="multiplayer" data-t="multiMode"></option></select>
+      <span id="projectError" class="error" role="status"></span>
+    </div>
+    <section class="details" id="storageCard">
+      <h2 data-t="storage.title"></h2>
+      <p data-t="storage.help"></p>
+      <p id="storagePath" style="overflow-wrap:anywhere;"></p>
+      <p id="storagePending" style="overflow-wrap:anywhere;"></p>
+      <button id="storageChange" data-t="storage.change"></button>
+      <p id="storageStatus" role="status" aria-live="polite"></p>
+    </section>
     <nav class="switcher">
       <button id="hostTab" class="active" data-view="host" data-t="create"></button>
       <button id="guestTab" data-view="guest" data-t="join"></button>

@@ -1,4 +1,9 @@
 // ==========================================
+function editorVideoDuration() {
+  const actual = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : Infinity;
+  const saved = Number.isFinite(session?.videoDuration) && session.videoDuration > 0 ? session.videoDuration : Infinity;
+  return Math.min(actual, saved, 43200);
+}
 // COLLABORATIVE EDIT MODE
 // Dub mode only shifts recorded takes. Edit mode changes source lines and tracks.
 // ==========================================
@@ -210,10 +215,9 @@ window.createLineAtPlayhead = function(character = '') {
 window.createEditorLineAt = function(character, time) {
   if (!session || session.mode !== 'edit' || !session.loaded || !sessionCharacters().includes(character)) return;
   if (!Number.isFinite(time) || time < 0 || time > 43200) return;
-  const duration = Number.isFinite(video.duration) ? video.duration : 43200;
-  if (time >= duration || duration < 0.1) return;
-  const start = Number(Math.min(time, duration - 0.1).toFixed(3));
-  const end = Number(Math.min(duration, start + 2).toFixed(3));
+  const bounds = window.DublineTimeline.create(time, editorVideoDuration());
+  if (!bounds) return showToast(t('timeline.outsideCreate'));
+  const { start, end } = bounds;
   const sessionId = session.activeSessionId;
   return queueEditorRequest(() => ['editor_create_line', { character, caption: '', start, end }]).then(result => {
     if (session.activeSessionId !== sessionId) return;
@@ -255,7 +259,7 @@ function validateEditorForm(form, line) {
   const end = endInput.valueAsNumber;
   let message = '';
   if (!Number.isFinite(start) || !Number.isFinite(end)) message = t('editor.timingRequired');
-  else if (start < 0 || end > 43200) message = t('editor.timingRange');
+  else if (start < 0 || end > window.DublineTimeline.limit(editorVideoDuration())) message = t('timeline.bounds');
   else if (end <= start) message = t('editor.timingOrder');
   else if (Math.round(end * 1000) - Math.round(start * 1000) < Math.round(editorMinimumDuration(line) * 1000)) {
     message = t('editor.timingMinimum', { seconds: Number(editorMinimumDuration(line).toFixed(3)) });
@@ -331,7 +335,7 @@ window.showEditorInspector = function(line, capture = true) {
   const options = tracks.includes(values.character) ? tracks : [...tracks, values.character];
   inspector.innerHTML = `
     <div class="insp-head">
-      <div class="insp-title"><b>${t('editor.line')}</b><span>#${line.id}</span></div>
+      <div class="insp-title"><b>${t('editor.line')}</b><span>#${lineNumber(line)}</span></div>
       <span class="insp-chip me">${t('mode.edit')}</span>
     </div>
     <form id="editorLineForm" class="setting-card" onsubmit="saveEditorLine(event, ${line.id})" novalidate>
@@ -406,8 +410,8 @@ window.saveEditorLine = async function(event, lineId) {
   }
 };
 
-window.deleteEditorLines = function(lineIds) {
-  if (!lineIds.length || !confirm(t('line.deleteConfirm', { n: lineIds.length }))) return;
+window.deleteEditorLines = async function(lineIds) {
+  if (!lineIds.length || !await askConfirm(t('line.deleteConfirm', { n: lineIds.length }))) return;
   return queueEditorRequest(() => ['editor_delete_lines', {
     lines: lineIds.map(lineId => ({ lineId, revision: lineRevision(lineId) }))
   }]).then(result => {
@@ -448,7 +452,7 @@ window.enableLineEditDrag = function(el, lineId) {
       ? session.lines.filter(item => multiSelection.has(item.id))
       : [line];
     const blocks = group.map(item => ({ line: item, el: document.getElementById(`line-block-${item.id}`) })).filter(item => item.el);
-    const minStart = Math.min(...group.map(item => item.start));
+    const tracks = sessionCharacters();
     const originX = event.clientX;
     const originY = event.clientY;
     let delta = 0;
@@ -456,6 +460,8 @@ window.enableLineEditDrag = function(el, lineId) {
     let end = line.end;
     let targetRow = null;
     let moved = false;
+    let axisReleased = false;
+    let roleChanges = null;
 
     const setTarget = row => {
       if (row === targetRow) return;
@@ -486,14 +492,20 @@ window.enableLineEditDrag = function(el, lineId) {
       moved = true;
       const shift = dx / pxPerSec;
       if (edge === 'start') {
-        start = Number(Math.max(0, Math.min(line.end - editorMinimumDuration(line), line.start + shift)).toFixed(3));
+        start = window.DublineTimeline.resize(line, edge, line.start + shift, editorVideoDuration(), editorMinimumDuration(line))?.start ?? line.start;
       } else if (edge === 'end') {
-        end = Number(Math.max(line.start + editorMinimumDuration(line), line.end + shift).toFixed(3));
+        end = window.DublineTimeline.resize(line, edge, line.end + shift, editorVideoDuration(), editorMinimumDuration(line))?.end ?? line.end;
       } else {
-        delta = Number(Math.max(-minStart, shift).toFixed(3));
+        if (Math.abs(dx) >= 12) axisReleased = true;
+        const locked = !axisReleased && Math.abs(dy) > 6;
+        delta = window.DublineTimeline.move(group, locked ? 0 : shift, editorVideoDuration());
+        blocks.forEach(({ el: block }) => block.classList.toggle('axis-locked', locked));
         // Vertical movement picks another role's track
         const row = trackUnderPointer(moveEvent.clientX, moveEvent.clientY);
         setTarget(row && row.dataset.character !== line.character ? row : (row ? null : targetRow));
+        const offset = targetRow ? tracks.indexOf(targetRow.dataset.character) - tracks.indexOf(line.character) : 0;
+        roleChanges = window.DublineTimeline.roles(group, tracks, offset);
+        blocks.forEach(({ el: block }) => block.classList.toggle('move-blocked', !!offset && !roleChanges));
       }
       blocks.forEach(({ line: item, el: block }) => {
         block.classList.add('editor-dragging');
@@ -512,11 +524,12 @@ window.enableLineEditDrag = function(el, lineId) {
       const character = targetRow ? targetRow.dataset.character : null;
       setTarget(null);
       blocks.forEach(({ el: block }) => {
-        block.classList.remove('editor-dragging');
+        block.classList.remove('editor-dragging', 'axis-locked', 'move-blocked');
         block.style.transform = '';
       });
       if (!moved) return;
       el.dataset.justDragged = '1';
+      if (character && !roleChanges) { renderTimeline(); showToast(t('timeline.trackBoundary')); return; }
       const changes = new Map();
       if (edge) {
         if (start !== line.start || end !== line.end) changes.set(line.id, { start, end });
@@ -524,7 +537,8 @@ window.enableLineEditDrag = function(el, lineId) {
         group.forEach(item => {
           const update = {};
           if (delta) Object.assign(update, { start: Number((item.start + delta).toFixed(3)), end: Number((item.end + delta).toFixed(3)) });
-          if (character && character !== item.character) update.character = character;
+          const target = roleChanges?.get(item.id);
+          if (target && target !== item.character) update.character = target;
           if (Object.keys(update).length) changes.set(item.id, update);
         });
       }
@@ -576,7 +590,7 @@ window.handleEditorKey = function(e) {
   if ((e.code === 'ArrowLeft' || e.code === 'ArrowRight') && !e.altKey && !e.ctrlKey && !e.metaKey) {
     e.preventDefault();
     const step = (e.shiftKey ? 1 : 0.1) * (e.code === 'ArrowLeft' ? -1 : 1);
-    const shift = Math.max(step, -Math.min(...lines.map(line => line.start)));
+    const shift = window.DublineTimeline.move(lines, step, editorVideoDuration());
     if (!shift) return true;
     sendLineUpdates(new Map(lines.map(line => [line.id, {
       start: Number((line.start + shift).toFixed(3)),
@@ -588,9 +602,9 @@ window.handleEditorKey = function(e) {
   if ((e.code === 'ArrowUp' || e.code === 'ArrowDown') && e.altKey) {
     e.preventDefault();
     const tracks = sessionCharacters();
-    const target = tracks[tracks.indexOf(lines[0].character) + (e.code === 'ArrowUp' ? -1 : 1)];
-    if (!target) return true;
-    sendLineUpdates(new Map(lines.filter(line => line.character !== target).map(line => [line.id, { character: target }])));
+    const targets = window.DublineTimeline.roles(lines, tracks, e.code === 'ArrowUp' ? -1 : 1);
+    if (!targets) { showToast(t('timeline.trackBoundary')); return true; }
+    sendLineUpdates(new Map(lines.map(line => [line.id, { character: targets.get(line.id) }])));
     revealLineId = lines[0].id;
     return true;
   }

@@ -173,8 +173,20 @@ describe('media', { skip: skipReason }, () => {
         lineId: id, revision: line.revision || 0, end: line.start + 601
       }, resolve));
     }, lineId);
-    assert.equal(changed.ok, true);
-
+    assert.equal(changed.ok, false, 'The editor must reject a line beyond the current video');
+    const longDir = require('node:fs').mkdtempSync(require('node:path').join(require('node:os').tmpdir(), 'dubline-long-video-'));
+    const longVideo = require('node:path').join(longDir, 'long.mp4');
+    require('node:child_process').execFileSync(require('ffmpeg-static'), ['-y', '-f', 'lavfi', '-i', 'color=size=16x16:rate=1:duration=620', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', longVideo], { stdio:'ignore', windowsHide:true });
+    const encoded = require('node:fs').readFileSync(longVideo).toString('base64');
+    require('node:fs').rmSync(longDir, { recursive:true, force:true });
+    await host.evaluate(async encoded => {
+      const form = new FormData(); form.append('clientId',clientId);
+      form.append('video',new Blob([Uint8Array.from(atob(encoded), c => c.charCodeAt(0))]),'long.mp4');
+      form.append('subtitles',new Blob(['1\n00:00:00,000 --> 00:10:01,000\n[Hero] Long line\n']),'long.srt');
+      const response = await fetch('/api/upload-custom?room='+currentRoom,{method:'POST',body:form});
+      if (!response.ok) throw Error(await response.text());
+    },encoded);
+    await waitFor(host, () => session.lines.length === 1 && session.lines[0].end === 601);
     const rejected = await host.evaluate(async () => {
       const res = await fetch('/api/export-voxalike-pack', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ room: currentRoom, clientId })
@@ -184,13 +196,7 @@ describe('media', { skip: skipReason }, () => {
     assert.equal(rejected.status, 413);
     assert.equal(rejected.body.key, 'error.exportLineTooLong');
 
-    const restored = await host.evaluate((id, end) => {
-      const line = session.lines.find(item => item.id === id);
-      return new Promise(resolve => socket.emit('editor_update_line', {
-        lineId: id, revision: line.revision || 0, end
-      }, resolve));
-    }, lineId, originalEnd);
-    assert.equal(restored.ok, true);
+    await loadFixture(host);
     await host.evaluate(() => setStudioMode('dub'));
     await waitFor(host, () => session.mode === 'dub');
   });

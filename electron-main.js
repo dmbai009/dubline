@@ -7,6 +7,7 @@ const path = require('path');
 const { ROOM_ID, PORT_MIN, PORT_MAX, normalizeGuestUrl, findFreePort } = require('./electron-network');
 const { checkLatestRelease } = require('./electron-update');
 const { createWorkshopLinkHandler } = require('./electron-external-links');
+const { DesktopStorage, StorageError, FOLDERS } = require('./electron-storage');
 
 const PIN_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const HOSTING_MODES = new Set(['cloudflare', 'porthole', 'vpn']);
@@ -41,6 +42,10 @@ let shutdownComplete = false;
 let hostStarting = false;
 let localPort = null;
 let hostingMode = null;
+let hostingModeRequest = 0;
+let networkToolProbe = null;
+let networkToolCache = null;
+let networkToolCheckedAt = 0;
 let firstGuestConnected = false;
 let serverFailure = '';
 let appUpdateStatus = { state: 'checking', currentVersion: app.getVersion(), version: '', url: '' };
@@ -73,6 +78,11 @@ function cleanupPortableLeftovers() {
 
 const desktopHostToken = crypto.randomBytes(32).toString('hex');
 const languageFile = path.join(app.getPath('userData'), 'language.json');
+const projectStorage = new DesktopStorage(app.getPath('userData'));
+let storageSelecting = false;
+function publishStorageProgress(progress) {
+  if (launcherWindow && !launcherWindow.isDestroyed()) launcherWindow.webContents.send('app:storage-progress', progress);
+}
 let interfaceLanguage = null;
 try { const saved = JSON.parse(fs.readFileSync(languageFile, 'utf8')); if (['en', 'ru', 'uk'].includes(saved)) interfaceLanguage = saved; } catch { /* first launch */ }
 const roomPin = Array.from({ length: 4 }, () => PIN_ALPHABET[crypto.randomInt(PIN_ALPHABET.length)]).join('');
@@ -193,8 +203,17 @@ async function detectNetworkTools() {
   };
 }
 
+async function currentNetworkTools() {
+  if (networkToolCache && Date.now() - networkToolCheckedAt < 4000) return networkToolCache;
+  if (!networkToolProbe) networkToolProbe = detectNetworkTools().then(tools => {
+    networkToolCache = tools; networkToolCheckedAt = Date.now(); return tools;
+  }).finally(() => { networkToolProbe = null; });
+  return networkToolProbe;
+}
+
 async function getHostingStatus() {
-  const tools = await detectNetworkTools();
+  if (hostingMode === 'single') return { isDesktop: true, singlePlayer: true, room: ROOM_ID, pin: '', port: localPort, mode: 'single', state: serverFailure ? 'error' : 'local', error: serverFailure, publicUrl: '' };
+  const tools = await currentNetworkTools();
   const activeVpn = [
     { ...tools.radmin, provider: 'radmin' },
     { ...tools.hamachi, provider: 'hamachi' }
@@ -209,7 +228,7 @@ async function getHostingStatus() {
     provider: activeVpn?.provider || ''
   };
   const base = {
-    isDesktop: true, room: ROOM_ID, pin: roomPin, port: localPort,
+    isDesktop: true, singlePlayer: false, room: ROOM_ID, pin: roomPin, port: localPort,
     portRange: `${PORT_MIN}-${PORT_MAX}`, mode: hostingMode,
     provider: hostingMode === 'vpn' ? vpnTool.provider : '', firstGuestConnected, tools
   };
@@ -244,7 +263,7 @@ function startServer(port) {
   return new Promise((resolve, reject) => {
     serverFailure = '';
     const serverEntry = path.join(app.getAppPath(), 'server.js');
-    const storageRoot = app.getPath('userData');
+    const storageRoot = projectStorage.info().root;
     const ffmpeg = app.isPackaged ? resourcePath('bin', 'ffmpeg.exe') : require('ffmpeg-static');
     const env = {
       ...process.env,
@@ -255,7 +274,7 @@ function startServer(port) {
       DUBLINE_FFMPEG_PATH: ffmpeg,
       DUBLINE_DESKTOP_ROOM: ROOM_ID,
       DUBLINE_DESKTOP_HOST_TOKEN: desktopHostToken,
-      DUBLINE_ROOM_PIN: roomPin
+      DUBLINE_ROOM_PIN: roomPin, DUBLINE_SINGLE_PLAYER: hostingMode === 'single' ? '1' : '0'
     };
     serverChild = fork(serverEntry, [], {
       cwd: app.isPackaged ? storageRoot : app.getAppPath(), env,
@@ -354,6 +373,9 @@ function startTunnel(port) {
 
 async function setHostingMode(mode) {
   if (!HOSTING_MODES.has(mode)) throw new Error('Unsupported hosting mode.');
+  const request = ++hostingModeRequest;
+  if (hostingMode === 'single') await requestServer('enable-multiplayer');
+  if (request !== hostingModeRequest) return getHostingStatus();
   if (mode !== hostingMode) firstGuestConnected = false;
   hostingMode = mode;
   if (mode === 'cloudflare') startTunnel(localPort);
@@ -388,7 +410,7 @@ function createHostWindow(port) {
     if (launcherWindow && !launcherWindow.isDestroyed()) launcherWindow.destroy();
     launcherWindow = null;
   });
-  mainWindow.loadURL(`${localOrigin}/?room=${encodeURIComponent(ROOM_ID)}&desktopHost=${desktopHostToken}`);
+  mainWindow.loadURL(`${localOrigin}/?room=${encodeURIComponent(ROOM_ID)}&desktopHost=${desktopHostToken}${hostingMode === 'single' ? '&workspace=single' : ''}`);
 }
 
 function createGuestWindow(target) {
@@ -512,15 +534,17 @@ ipcMain.handle('app:open-project', async event => {
   await shell.openExternal('https://github.com/dmbai009/dubline');
   return true;
 });
-ipcMain.handle('launcher:start-host', async (event, mode) => {
-  if (!isLauncherSender(event)) throw new Error('Untrusted launcher request.');
-  if (hostStarting) return { ok: false, error: 'Dubline is already starting.' };
-  if (!HOSTING_MODES.has(mode)) return { ok: false, error: 'Choose a supported hosting mode.' };
+async function launchWorkspace(mode, projectPath = '') {
+  if (hostStarting || storageSelecting || projectStorage.busy) return { ok: false, error: 'Dubline is already starting or moving storage.' };
+  if (mode !== 'single' && !HOSTING_MODES.has(mode)) return { ok: false, error: 'Choose a supported hosting mode.' };
   hostStarting = true;
   try {
+    await projectStorage.prepare(publishStorageProgress);
     hostingMode = mode;
     localPort = await findFreePort();
     await startServer(localPort);
+    if (projectPath) await requestServer('open-project-file', { path: projectPath });
+    else if (mode === 'single') await requestServer('new-single-project');
     createHostWindow(localPort);
     if (mode === 'cloudflare') startTunnel(localPort);
     else setTunnelStatus('idle');
@@ -528,13 +552,37 @@ ipcMain.handle('launcher:start-host', async (event, mode) => {
   } catch (err) {
     killProcessTree(serverChild);
     serverChild = null;
-    return { ok: false, error: err.message };
+    return { ok: false, error: err.message, storageCode: err instanceof StorageError ? err.code : '' };
   } finally {
     hostStarting = false;
   }
+}
+function requestServer(type, payload = {}) {
+  return new Promise((resolve, reject) => {
+    const child = serverChild, requestId = crypto.randomUUID();
+    if (!child?.connected) return reject(new Error('The local server is unavailable.'));
+    const finish = (error, value) => { clearTimeout(timer); child.off('message', listener); child.off('exit', exited); error ? reject(error) : resolve(value); };
+    const listener = message => { if (message?.requestId === requestId) finish(message.ok ? null : new Error(message.error || 'Project could not be opened.'), message); };
+    const exited = () => finish(new Error('The local server stopped.'));
+    const timer = type === 'open-project-file' ? null : setTimeout(() => finish(new Error('The local server did not respond.')), 120000);
+    child.on('message', listener); child.once('exit', exited);
+    child.send({ type, requestId, ...payload }, error => { if (error) finish(error); });
+  });
+}
+ipcMain.handle('launcher:start-host', (event, mode) => {
+  if (!isLauncherSender(event)) throw new Error('Untrusted launcher request.');
+  return launchWorkspace(mode);
+});
+ipcMain.handle('launcher:open-project-file', async (event, mode = 'single') => {
+  if (!isLauncherSender(event)) throw new Error('Untrusted project-file request.');
+  if (hostStarting) return { ok: false, error: 'Dubline is already starting.' };
+  const selection = await dialog.showOpenDialog(launcherWindow, { properties: ['openFile'], filters: [{ name: 'Dubline Project', extensions: ['dubline'] }] });
+  if (selection.canceled || !selection.filePaths[0]) return { ok: true, canceled: true };
+  return launchWorkspace(mode, selection.filePaths[0]);
 });
 ipcMain.handle('launcher:join-guest', (event, value) => {
   if (!isLauncherSender(event)) throw new Error('Untrusted launcher request.');
+  if (hostStarting || storageSelecting || projectStorage.busy) return { ok: false, error: 'Wait for the current operation to finish.' };
   try {
     const target = normalizeGuestUrl(value);
     const args = process.argv.slice(1).filter(item => !item.startsWith(JOIN_ARG));
@@ -584,9 +632,10 @@ ipcMain.handle('desktop:copy-text', (event, value) => {
 });
 ipcMain.handle('desktop:clear-all-data', async event => {
   if (!isHostSender(event)) throw new Error('Untrusted data cleanup request.');
+  if (storageSelecting || projectStorage.busy) throw new Error('Wait for the storage operation to finish.');
   await shutdown();
-  const userData = path.resolve(app.getPath('userData'));
-  for (const name of ['data', 'uploads', 'packs']) {
+  const userData = path.resolve(projectStorage.info().root);
+  for (const name of FOLDERS) {
     const target = path.resolve(userData, name);
     const relative = path.relative(userData, target);
     if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) throw new Error('Unsafe cleanup path.');
@@ -597,6 +646,32 @@ ipcMain.handle('desktop:clear-all-data', async event => {
   app.relaunch({ args: process.argv.slice(1).filter(item => !item.startsWith(JOIN_ARG)) });
   app.exit(0);
   return true;
+});
+
+ipcMain.handle('app:get-storage', event => {
+  if ((!isHostSender(event) && !isLauncherSender(event)) || event.senderFrame !== event.sender.mainFrame) throw new Error('Untrusted storage request.');
+  return projectStorage.info();
+});
+ipcMain.handle('app:choose-storage', async event => {
+  if ((!isHostSender(event) && !isLauncherSender(event)) || event.senderFrame !== event.sender.mainFrame) throw new Error('Untrusted storage request.');
+  if (hostStarting || storageSelecting || projectStorage.busy || shuttingDown) return { ok: false, code: 'busy' };
+  storageSelecting = true;
+  try {
+    const labels = {
+      en: 'Choose a parent folder — project data will be stored in its Dubline subfolder',
+      ru: 'Выберите папку — данные проектов будут храниться в её подпапке Dubline',
+      uk: 'Виберіть папку — дані проєктів зберігатимуться в її підпапці Dubline'
+    };
+    const selected = await dialog.showOpenDialog(BrowserWindow.fromWebContents(event.sender), {
+      title: labels[interfaceLanguage || 'en'], properties: ['openDirectory', 'createDirectory'],
+      defaultPath: path.dirname(projectStorage.info().pending || projectStorage.info().root)
+    });
+    if (selected.canceled || !selected.filePaths[0]) return { ok: true, canceled: true, ...projectStorage.info() };
+    const info = await projectStorage.choose(selected.filePaths[0], !!serverChild, publishStorageProgress);
+    return { ok: true, ...info };
+  } catch (error) {
+    return { ok: false, code: error.code || 'io', message: error.message, ...projectStorage.info() };
+  } finally { storageSelecting = false; }
 });
 
 if (!app.requestSingleInstanceLock()) app.quit();
@@ -612,12 +687,13 @@ else {
     app.setAppUserModelId('io.github.dmbai009.dubline');
     // Not at once: it must not slow down the start
     setTimeout(cleanupPortableLeftovers, 20000).unref?.();
-    session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
+    session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
       let allowed = false;
       try {
         const origin = new URL(webContents.getURL()).origin;
         const expected = guestOrigin || (localPort ? `http://127.0.0.1:${localPort}` : '');
-        allowed = permission === 'media' && origin === expected;
+        const requester = new URL(details.requestingUrl || webContents.getURL()).origin;
+        allowed = ['media', 'fullscreen'].includes(permission) && origin === expected && requester === expected;
       } catch (err) { /* invalid or not loaded yet */ }
       callback(allowed);
     });

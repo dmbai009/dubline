@@ -3,6 +3,40 @@
 // Pack upload, mod library, custom scene import
 // ==========================================
 // Upload a new pack
+const projectInput = document.getElementById('projectInput');
+let projectImportBusy = false;
+projectInput.addEventListener('change', async () => {
+  const file = projectInput.files[0];
+  projectInput.value = '';
+  if (!file || projectImportBusy) return;
+  if (!amHost()) return showToast(t('onlyHost'));
+  if (recordState !== 'idle' || renderInProgress) return showToast(t('studio.mediaBusy'));
+  const tooBig = tunnelUploadError([file]);
+  if (tooBig) return showToast(tooBig);
+  const status = document.getElementById('projectImportStatus');
+  projectImportBusy = true;
+  projectInput.disabled = true;
+  status.style.display = 'block';
+  status.style.color = 'var(--accent-2)';
+  status.textContent = t('project.opening');
+  const form = new FormData();
+  form.append('clientId', clientId);
+  form.append('sessionId', session?.activeSessionId || '');
+  form.append('project', file);
+  try {
+    const response = await fetch(`/api/import-project?room=${encodeURIComponent(currentRoom)}`, { method: 'POST', body: form });
+    if (!response.ok) throw new Error(await readError(response));
+    status.style.color = 'var(--success)';
+    status.textContent = t('project.opened');
+  } catch (error) {
+    status.style.color = 'var(--danger)';
+    status.textContent = error instanceof TypeError ? t('upload.networkFailed') : error.message;
+  } finally {
+    projectImportBusy = false;
+    projectInput.disabled = !amHost();
+  }
+});
+
 zipInput.addEventListener('change', async (e) => {
   const file = e.target.files[0];
   if (!file) return;
@@ -120,8 +154,15 @@ document.addEventListener('change', event => { if (event.target.closest && event
 window.addEventListener('dubline-language-changed', refreshFilePickers);
 refreshFilePickers();
 
+let customImportRequest = null;
+window.cancelCustomImport = () => customImportRequest?.abort.abort();
+window.addEventListener('DOMContentLoaded',()=>socket.on('video_import_progress',event => {
+  if(event.requestId!==customImportRequest?.id)return;
+  document.getElementById('customUploadStatus').textContent=t(event.stage==='audio'?'proxy.audio':'proxy.compressing',{percent:event.percent});
+}));
 window.uploadCustomScene = async function() {
   if (!amHost()) return alert(t('onlyHost'));
+  if (customImportRequest || recordState !== 'idle' || renderInProgress) return showToast(t('studio.mediaBusy'));
   const videoFile = customVideoInput.files[0];
   const subtitleFile = document.getElementById('customSubInput').files[0];
   const originalFile = document.getElementById('customOriginalInput').files[0];
@@ -129,21 +170,25 @@ window.uploadCustomScene = async function() {
   const status = document.getElementById('customUploadStatus');
   const button = document.getElementById('customUploadBtn');
   if (!videoFile) return alert(t('error.generic', { message: t('videoFile') }));
+  const optimize=videoFile.size > 300 * 1024 * 1024;
   const tooBig = tunnelUploadError([videoFile, subtitleFile, originalFile, intershumFile]);
   if (tooBig) return alert(tooBig);
 
   const form = new FormData();
   form.append('clientId', clientId);
+  const abort=new AbortController(),id=Date.now().toString(36)+'-'+Math.random().toString(36).slice(2);customImportRequest={abort,id};
+  form.append('requestId',id);
   form.append('title', document.getElementById('customSceneTitle').value.trim());
   form.append('video', videoFile);
   if (subtitleFile) form.append('subtitles', subtitleFile);
   if (originalFile) form.append('original', originalFile);
   if (intershumFile) form.append('intershum', intershumFile);
-  status.textContent = t('uploading');
+  status.textContent = t(optimize?'proxy.uploading':'uploading');
+  document.getElementById('customCancelBtn').style.display='block';
   status.style.cssText = 'display:block;color:#a78bfa;font-size:11px;';
   button.disabled = true;
   try {
-    const res = await fetch(`/api/upload-custom?room=${encodeURIComponent(currentRoom)}`, { method: 'POST', body: form });
+    const res = await fetch(`/api/upload-custom?room=${encodeURIComponent(currentRoom)}${optimize?'&optimize=1':''}`, { method: 'POST', body: form, signal:abort.signal });
     if (!res.ok) throw new Error(await readError(res));
     const result = await res.json().catch(() => ({}));
     const skipped = Number(result.skippedTimings) || 0;
@@ -158,10 +203,12 @@ window.uploadCustomScene = async function() {
     setTimeout(closeFilesModal, skipped ? 4000 : 700);
   } catch (err) {
     // fetch throws a TypeError when the tunnel drops the connection mid-upload
-    status.textContent = err instanceof TypeError ? t('upload.networkFailed') : t('error.generic', { message: err.message });
+    status.textContent = err.name==='AbortError'?t('proxy.cancelled'):err instanceof TypeError ? t('upload.networkFailed') : t('error.generic', { message: err.message });
     status.style.color = '#ef4444';
   } finally {
     button.disabled = false;
+    customImportRequest=null;
+    document.getElementById('customCancelBtn').style.display='none';
   }
 };
 
@@ -265,7 +312,7 @@ localMediaInput.addEventListener('change', async () => {
 
     const expected = session.videoSize;
     if (expected && media.video.size !== expected
-        && !confirm(t('localMedia.mismatch', { local: formatSize(media.video.size), remote: formatSize(expected) }))) {
+        && !await askConfirm(t('localMedia.mismatch', { local: formatSize(media.video.size), remote: formatSize(expected) }))) {
       updateLocalMediaStatus();
       return;
     }
@@ -341,9 +388,9 @@ window.closeSessionsModal = function() {
   sessionsModal.style.display = 'none';
 };
 
-window.switchSession = function(id) {
+window.switchSession = async function(id) {
   const recording = [...new Set(liveRecordings.values())].filter(nick => nick !== myName);
-  if (recording.length && !confirm(t('sessions.recordingConfirm', { names: recording.join(', ') }))) return;
+  if (recording.length && !await askConfirm(t('sessions.recordingConfirm', { names: recording.join(', ') }))) return;
   if (recordState !== 'idle') finishRecording({ discard: true });
   socket.emit('host_switch_session', { id });
   closeSessionsModal();
@@ -358,10 +405,10 @@ window.renameSession = async function(id) {
   if (next && next.trim() && next.trim() !== item.title) socket.emit('host_rename_session', { id, title: next.trim() });
 };
 
-window.deleteSession = function(id) {
+window.deleteSession = async function(id) {
   const item = sessionItems().find(entry => entry.id === id);
   if (!item) return;
-  if (!confirm(t('sessions.deleteConfirm', { title: item.title || '—', takes: item.recorded }))) return;
+  if (!await askConfirm(t('sessions.deleteConfirm', { title: item.title || '—', takes: item.recorded }))) return;
   socket.emit('host_delete_session', { id });
 };
 

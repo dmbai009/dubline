@@ -37,7 +37,7 @@ function showAccessDenied() {
 }
 
 socket.on('join_denied', ({ reason, pin }) => {
-  if (reason === 'banned') return showAccessDenied();
+  if (reason === 'banned' || reason === 'singlePlayer') return showAccessDenied();
   roomUsesPin = !!pin;
   const errors = { wrongPassword: t('pw.wrong'), tooMany: t('pw.tooMany') };
   passwordError.textContent = errors[reason] || '';
@@ -392,10 +392,10 @@ window.restoreTrashAll = function() {
   trashSelected.clear();
 };
 
-window.purgeTrashSelected = function() {
+window.purgeTrashSelected = async function() {
   if (!trashSelected.size) return;
   const takes = trashItems.filter(item => trashSelected.has(item.lineId) && item.hasTake).length;
-  if (!confirm(t('trash.purgeConfirm', { n: trashSelected.size, takes }))) return;
+  if (!await askConfirm(t('trash.purgeConfirm', { n: trashSelected.size, takes }))) return;
   socket.emit('host_trash_purge', { lineIds: [...trashSelected] });
   trashSelected.clear();
 };
@@ -410,9 +410,9 @@ socket.on('lines_restored', ({ count }) => {
   showToast(t('undo.done', { n: count }));
 });
 
-window.kickPlayer = function(nick) {
+window.kickPlayer = async function(nick) {
   const text = t('kick.confirm', { nick }) + (session && session.hasPassword ? '' : '\n\n' + t('kick.noPassword'));
-  if (!confirm(text)) return;
+  if (!await askConfirm(text)) return;
   socket.emit('host_kick', { nick });
 };
 
@@ -421,7 +421,11 @@ function updateRoomSecurityUi() {
   const has = !!(session && session.hasPassword);
   const host = amHost();
   document.getElementById('roomLockIcon').style.display = has ? 'inline' : 'none';
-  document.getElementById('passwordHostControls').style.display = host ? 'flex' : 'none';
+  document.getElementById('passwordHostControls').style.display = 'flex';
+  document.querySelectorAll('#passwordHostControls input, #passwordHostControls button').forEach(control => {
+    control.disabled = !host;
+    control.title = host ? '' : t('pw.onlyHost');
+  });
   document.getElementById('removePasswordBtn').style.display = host && has ? '' : 'none';
   const status = document.getElementById('passwordStatus');
   status.textContent = (has ? t('pw.statusOn') : t('pw.statusOff')) + (host ? '' : ' · ' + t('pw.onlyHost'));
@@ -512,6 +516,10 @@ function amHost() {
 let renderedAsHost = null;
 
 function updateHostUi() {
+  const single = !!session?.singlePlayer;
+  document.body.classList.toggle('single-player', single);
+  document.getElementById('singleMultiplayerBtn').hidden = !single;
+  document.getElementById('singleModeLabel').hidden = !single;
   if (amHost()) {
     hostPanel.className = 'host-panel';
     const watchBtn = session && session.mode === 'edit' ? '' : watchMode
@@ -548,6 +556,13 @@ function updateHostUi() {
   uploadLabel.classList.toggle('disabled', !canManagePacks);
   zipInput.disabled = !canManagePacks;
   uploadLabel.title = canManagePacks ? t('chooseZip') : t('onlyHost');
+  const projectLabel = document.getElementById('projectOpenLabel');
+  projectLabel.classList.toggle('disabled', !canManagePacks);
+  projectLabel.title = canManagePacks ? t('project.choose') : t('onlyHost');
+  document.getElementById('projectInput').disabled = !canManagePacks || projectImportBusy;
+  const projectSave = document.getElementById('projectExportBtn');
+  projectSave.disabled = !canManagePacks || projectExportBusy;
+  projectSave.title = canManagePacks ? t('project.saveHelp') : t('onlyHost');
 
   if (renderedAsHost !== canManagePacks) {
     renderedAsHost = canManagePacks;
@@ -555,14 +570,14 @@ function updateHostUi() {
   }
 }
 
-window.hostForcePause = function() {
+window.hostForcePause = async function() {
   const others = [...new Set(liveRecordings.values())].filter(nick => nick !== myName);
-  if (others.length && !confirm(t('host.pauseConfirm', { names: others.join(', ') }))) return;
+  if (others.length && !await askConfirm(t('host.pauseConfirm', { names: others.join(', ') }))) return;
   socket.emit('host_force_pause');
 };
 window.claimHost = function() { socket.emit('claim_host'); };
-window.hostResetClaims = function() {
-  if (!confirm(t('confirm.reset'))) return;
+window.hostResetClaims = async function() {
+  if (!await askConfirm(t('confirm.reset'))) return;
   socket.emit('host_reset_claims');
 };
 
@@ -761,9 +776,9 @@ video.addEventListener('ended', () => {
   if (watchMode && amHost()) socket.emit('host_watch_stop');
 });
 
-window.hostWatchStart = function() {
+window.hostWatchStart = async function() {
   if (!session || !session.loaded) return alert(t('error.noScene'));
-  if (!confirm(t('host.watchConfirm'))) return;
+  if (!await askConfirm(t('host.watchConfirm'))) return;
   socket.emit('host_watch_start', { position: 0 });
 };
 

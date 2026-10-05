@@ -38,6 +38,10 @@ module.exports = function registerRoomHandlers(socket, conn) {
     }
     snapshotActive(room);
     for (const scene of Object.values(room.sessions)) {
+      if (scene.takeLatency && Object.hasOwn(scene.takeLatency, oldName)) {
+        if (!Object.hasOwn(scene.takeLatency, newName)) scene.takeLatency[newName] = scene.takeLatency[oldName];
+        delete scene.takeLatency[oldName];
+      }
       for (const char of Object.keys(scene.characterClaims || {})) {
         if (scene.characterClaims[char] === oldName) scene.characterClaims[char] = newName;
       }
@@ -73,6 +77,7 @@ module.exports = function registerRoomHandlers(socket, conn) {
       if (!candidateRoom.admitted.includes(nextClientId)) candidateRoom.admitted.push(nextClientId);
     }
     const isRoomHost = desktopHost || candidateRoom.hostClientId === nextClientId;
+    if (candidateRoom.singlePlayer && !isRoomHost) return socket.emit('join_denied', { reason: 'singlePlayer' });
     const pinProtected = isDesktopRoom(nextRoomId);
 
     // Kicked players are refused; a password-protected room needs the right password (once per device)
@@ -215,10 +220,17 @@ module.exports = function registerRoomHandlers(socket, conn) {
     if (!Number.isFinite(value)) return;
     const room = getRoom(conn.roomId);
     const clamped = Math.max(-MAX_LATENCY_MS, Math.min(MAX_LATENCY_MS, value));
+    // Imported take alignment belongs to the session, but the existing delay tool
+    // still adjusts all of this author's takes, including those imported scenes.
+    snapshotActive(room);
+    for (const scene of Object.values(room.sessions)) {
+      if (scene.takeLatency && Object.hasOwn(scene.takeLatency, conn.nick)) scene.takeLatency[conn.nick] = clamped;
+    }
     if (clamped === 0) delete room.latency[conn.nick];
     else room.latency[conn.nick] = clamped;
     saveRooms();
     io.to(conn.roomId).emit('latency_updated', room.latency);
+    if (Object.hasOwn(room.takeLatency || {}, conn.nick)) emitSession(conn.roomId);
     logEvent(conn.roomId, `⏱ ${conn.nick}: delay correction ${clamped > 0 ? '+' : ''}${clamped} ms`);
   });
 

@@ -10,8 +10,8 @@ const { getRoom, saveRooms, snapshotActive, emitSession, dropEmptyRoleClaims, no
 const { isHost } = require('../auth');
 const { endWatch, broadcastRecording, addSystemMessage } = require('../presence');
 const history = require('../editHistory');
+const timelineModel = require('../../public/timeline-model');
 
-const MAX_SCENE_SECONDS = 12 * 60 * 60;
 const MIN_LINE_SECONDS = 0.1;
 
 function cleanTrackName(raw) {
@@ -27,14 +27,12 @@ function editorAllowed(conn, room) {
   return !!conn.roomId && !!conn.nick && room.loaded && room.mode === 'edit';
 }
 
-function validBounds(startRaw, endRaw, minimumSeconds = MIN_LINE_SECONDS) {
+function validBounds(startRaw, endRaw, minimumSeconds = MIN_LINE_SECONDS, duration) {
   const start = parseSeconds(startRaw);
   const end = parseSeconds(endRaw);
   // Bounds have millisecond precision; compare integer milliseconds so exactly
   // 100 ms is not rejected as 0.09999999999999998 seconds.
-  if (start === null || end === null || start < 0 || end > MAX_SCENE_SECONDS ||
-      Math.round(end * 1000) - Math.round(start * 1000) < Math.max(1, Math.round(minimumSeconds * 1000))) return null;
-  return { start, end };
+  return timelineModel.valid(start, end, duration, minimumSeconds);
 }
 
 function putInTrash(room, lines, by) {
@@ -157,7 +155,7 @@ module.exports = function registerEditorHandlers(socket, conn) {
     const room = getRoom(conn.roomId);
     if (!editorAllowed(conn, room)) return reply({ ok: false, reason: 'mode' });
     if (data.sessionId !== undefined && data.sessionId !== room.activeSessionId) return reply({ ok: false, reason: 'session' });
-    const bounds = validBounds(data.start, data.end);
+    const bounds = validBounds(data.start, data.end, MIN_LINE_SECONDS, room.videoDuration);
     const character = cleanTrackName(data.character);
     const caption = cleanCaption(data.caption);
     if (caption === null) return reply({ ok: false, reason: 'caption' });
@@ -207,7 +205,7 @@ module.exports = function registerEditorHandlers(socket, conn) {
       if (Number(data.revision) !== Number(line.revision || 0)) { conflicts.push(line); continue; }
       // Preserve short imported cues: changing their caption or moving them must
       // not force a longer duration. Newly created cues still require 100 ms.
-      const bounds = validBounds(data.start ?? line.start, data.end ?? line.end, Math.min(MIN_LINE_SECONDS, line.end - line.start));
+      const bounds = validBounds(data.start ?? line.start, data.end ?? line.end, Math.min(MIN_LINE_SECONDS, line.end - line.start), room.videoDuration);
       const character = data.character === undefined ? line.character : cleanTrackName(data.character);
       if (!bounds || !character) return reply({ ok: false, reason: 'invalid' });
       const caption = data.caption === undefined ? line.caption : cleanCaption(data.caption);

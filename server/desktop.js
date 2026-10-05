@@ -49,6 +49,7 @@ function canAccessMedia(clientId) {
   const { getRoom } = require('./rooms');
   const room = getRoom(desktopRoomId);
   if (room.banned.includes(clientId)) return false;
+  if (room.singlePlayer) return room.hostClientId === clientId;
   return room.hostClientId === clientId || !room.passwordHash || room.admitted.includes(clientId);
 }
 
@@ -66,7 +67,8 @@ function configureDesktopRoom() {
   const { getRoom, saveRooms } = require('./rooms');
   const { setRoomPassword } = require('./auth');
   const room = getRoom(desktopRoomId);
-  setRoomPassword(room, desktopRoomPin);
+  room.singlePlayer = process.env.DUBLINE_SINGLE_PLAYER === '1';
+  setRoomPassword(room, room.singlePlayer ? '' : desktopRoomPin);
   room.admitted = [];
   room.host = null;
   room.hostClientId = null;
@@ -74,11 +76,25 @@ function configureDesktopRoom() {
   return true;
 }
 
+function enableMultiplayer() {
+  const { getRoom, flushRooms, emitSession } = require('./rooms');
+  const { setRoomPassword } = require('./auth');
+  const room = getRoom(desktopRoomId);
+  if (room.singlePlayer) {
+    room.singlePlayer = false;
+    setRoomPassword(room, desktopRoomPin);
+    flushRooms();
+    emitSession(desktopRoomId);
+  }
+}
+
 module.exports = {
   desktopRoomId,
   isDesktopRoom,
   resolveRoomId,
+  clientIdFromCookie,
   mediaAccessGate,
   hasDesktopHostProof,
-  configureDesktopRoom
+  configureDesktopRoom,
+  enableMultiplayer
 };

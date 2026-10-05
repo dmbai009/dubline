@@ -19,7 +19,7 @@ module.exports = function registerRoleHandlers(socket, conn) {
     snapshotActive(room);
     const target = sessionId === room.activeSessionId ? room : room.sessions[sessionId];
     const line = target && target.lines.find(item => item.id === lineId);
-    if (!line || getLineOwner(target, line) !== conn.nick) return ack({ ok: false, reason: 'owner' });
+    if (!line || (room.singlePlayer ? room.host : getLineOwner(target, line)) !== conn.nick) return ack({ ok: false, reason: 'owner' });
     if (target.mode === 'edit') return ack({ ok: false, reason: 'mode' });
     line.takeCounter = Math.max(Number(line.takeCounter) || 0, Number(line.takeSequence) || 0) + 1;
     flushRooms();

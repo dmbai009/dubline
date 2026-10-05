@@ -112,7 +112,7 @@
     const next = session && session.activeSessionId || '';
     if (sceneId !== next) { generation++; pending.clear(); busy = false; inFlight = null; sceneId = next; }
     if (session && session.loaded) applyMix({ sessionId: next, mix: project() });
-    refreshTransport();
+    refreshTransport(); refreshAudioLoadingStatus();
   });
   socket.on('room_users_updated', () => { refreshControls(); refreshTransport(); });
   socket.on('latency_updated', () => window.syncStudioSettings());
@@ -128,7 +128,7 @@
   };
   function refreshTransport() {
     const recordButton = document.getElementById('recBtn'); if (recordButton) recordButton.disabled = renderInProgress;
-    const exportButton = document.getElementById('startRenderBtn'); if (exportButton) exportButton.disabled = renderInProgress || recordState !== 'idle';
+    const exportButton = document.getElementById('startRenderBtn'); if (exportButton) exportButton.disabled = renderInProgress || recordState !== 'idle' || !!(session?.hasOriginalVideo && !amHost());
     const time = value => `${Math.floor((value || 0) / 60)}:${String(Math.floor((value || 0) % 60)).padStart(2, '0')}`;
     document.querySelector('[data-studio-time]').textContent = `${time(video.currentTime)} / ${time(Number.isFinite(video.duration) ? video.duration : 0)}`;
     for (const button of document.querySelectorAll('.studio-transport [data-studio-action]')) {
@@ -179,10 +179,10 @@
       <select class="text-input studio-select" data-studio-mix aria-label="${esc(t('studio.mixMode'))}"><option value="project">${esc(t('studio.projectMix'))}</option><option value="monitor">${esc(t('studio.monitor'))}</option></select>
       <button class="btn-icon" data-studio-action="monitor-reset" title="${esc(t('studio.monitorReset'))}">⟲</button><span class="studio-mix-note"></span>`;
     timeline.appendChild(header);
-    header.after(trackPicker); trackPicker.hidden = collapsed;
+    trackPicker.hidden = false;
     if (!collapsed) for (const channel of model.CHANNELS) {
       const row = document.createElement('div'); row.className = 'studio-audio-row'; row.dataset.audioChannel = channel;
-      const names = { original: 'Original', backing: 'Intershum / M&E', dub: 'Dub' };
+      const names = { original: t('studio.original'), backing: t('studio.backing'), dub: t('studio.dub') };
       const ids = { original: 'volOriginal', backing: 'volBacking', dub: 'volRecorded' };
       row.innerHTML = `<div class="track-label"><div class="studio-channel-head"><b>${names[channel]}</b>
         <button class="btn-icon" data-audio-field="muted" title="${esc(t('studio.mute'))}">M</button><button class="btn-icon" data-audio-field="solo" title="${esc(t('studio.solo'))}">S</button></div>
@@ -196,7 +196,7 @@
   function refreshControls() {
     if (!session) return;
     const mix = mixMode === 'monitor' ? personal() : project();
-    const select = document.querySelector('[data-studio-mix]'); if (select) select.value = mixMode;
+    document.querySelectorAll('[data-studio-mix]').forEach(select => select.value = mixMode);
     const note = document.querySelector('.studio-mix-note');
     if (note) note.textContent = t(mixMode === 'monitor' ? 'studio.monitorHelp' : canMix() ? 'studio.projectHelp' : 'studio.mixLocked');
     for (const row of document.querySelectorAll('.studio-audio-row')) {
@@ -214,6 +214,16 @@
       }
       row.querySelector('output').textContent = `${Math.round(mix[channel].volume * 100)}%`;
     }
+    for (const row of document.querySelectorAll('[data-project-channel]')) {
+      const channel = row.dataset.projectChannel;
+      for (const control of row.querySelectorAll('[data-project-field]')) {
+        const field = control.dataset.projectField, value = projectIntent(channel, field);
+        control.disabled = !canMix(); control.title = canMix() ? '' : t('studio.mixLocked');
+        if (control.tagName === 'BUTTON') { control.classList.toggle('active', !!value); control.setAttribute('aria-pressed', String(!!value)); }
+        else if (document.activeElement !== control) control.value = field === 'volume' ? Math.round(value * 100) : value;
+      }
+      row.querySelector('output').textContent = Math.round(project()[channel].volume * 100) + '%';
+    }
     const gain = model.gains(project());
     for (const [id, channel] of [['renderOrig', 'original'], ['renderBacking', 'backing'], ['renderDub', 'dub']]) {
       const slider = document.querySelector(`#${id}Vol`), label = document.querySelector(`#${id}Val`);
@@ -221,6 +231,7 @@
       if (label) label.textContent = `${Math.round(gain[channel] * 100)}%`;
     }
     if (typeof syncSettingsUi === 'function') syncSettingsUi();
+    refreshAudioLoadingStatus();
   }
   function requestWave(channel, url) {
     const entry = waves.get(url) || { failures: 0 };
@@ -262,20 +273,28 @@
   function drawWaves() {
     if (!session || !session.loaded) return;
     const sources = model.sources(session), mix = project();
-    const left = Math.max(0, timelineContainer.scrollLeft - labelWidth);
-    const width = Math.max(1, Math.min(1800, timelineContainer.clientWidth));
+    const viewport = timelineContainer.clientWidth;
+    const padding = Math.ceil(viewport / 2);
+    const left = Math.max(0, timelineContainer.scrollLeft - labelWidth - padding);
+    const width = Math.max(1, Math.ceil(viewport * 2));
+    const scale = window.devicePixelRatio || 1;
     for (const row of document.querySelectorAll('.studio-audio-row')) {
       const channel = row.dataset.audioChannel, canvas = row.querySelector('canvas');
-      canvas.width = width; canvas.height = 88; canvas.style.width = `${width}px`; canvas.style.left = `${left}px`;
-      const ctx = canvas.getContext('2d');
+      canvas.width = Math.ceil(width * scale); canvas.height = Math.ceil(88 * scale); canvas.style.width = `${width}px`; canvas.style.left = `${left}px`;
+      const ctx = canvas.getContext('2d'); ctx.setTransform(scale, 0, 0, scale, 0, 0);
       ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#8b5cf6'; ctx.fillStyle = ctx.strokeStyle;
       const status = row.querySelector('.studio-wave-status');
       if (channel === 'dub') {
         status.textContent = '';
+        row.querySelector('.studio-wave-source').textContent = t('studio.coverage');
         for (const line of session.lines.filter(canHearLine)) {
           const start = takeStartTime(line) + (line.trimEnabled !== false ? line.trimStart || 0 : 0);
           const length = line.trimEnabled !== false && line.trimEnd != null ? line.trimEnd - (line.trimStart || 0) : Math.max(0.1, line.end - line.start);
-          ctx.fillRect(start * pxPerSec - left, 29, Math.max(2, length * pxPerSec), 30);
+          const x = start * pxPerSec - left, w = Math.max(2, length * pxPerSec);
+          ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--success').trim() || '#34d399';
+          ctx.globalAlpha = 0.25; ctx.beginPath(); ctx.roundRect(x, 35, w, 18, 4); ctx.fill();
+          ctx.globalAlpha = 1; ctx.fillRect(x, 35, Math.min(3, w), 18);
+          if (w > 35) { ctx.font = '10px sans-serif'; ctx.fillText('#' + lineNumber(line), x + 6, 47, w - 9); }
         }
         continue;
       }
@@ -308,7 +327,7 @@
     const delay = document.querySelector('[data-studio-setting=latency]');
     if (delay && document.activeElement !== delay) delay.value = Math.round(latencyFor(myName) * 1000);
     if (delay) delay.disabled = !myName || !socket.connected || recordState !== 'idle';
-    for (const field of ['settingsAutoDuck', 'settingsAutoDuckAmount']) { const control = document.querySelector(`#${field}`); if (control) control.disabled = !canMix(); }
+    for (const field of ['settingsAutoDuck', 'settingsAutoDuckAmount']) { const control = document.querySelector(`#${field}`); if (control) { control.disabled = !canMix(); control.title = canMix() ? '' : t('studio.mixLocked'); } }
     const own = document.getElementById('settingsLocalDuck');
     if (own) {
       own.checked = localDuck.enabled;
@@ -321,7 +340,11 @@
   };
   document.body.classList.toggle('lobby-compact', localStorage.getItem('dubline_lobby_compact') === '1');
   document.addEventListener('click', event => {
-    const control = event.target.closest('[data-audio-field], [data-studio-action]'); if (!control || control.disabled) return;
+    const control = event.target.closest('[data-project-field], [data-audio-field], [data-studio-action]'); if (!control || control.disabled) return;
+    if (control.dataset.projectField && control.tagName === 'BUTTON') {
+      const channel = control.closest('[data-project-channel]').dataset.projectChannel, field = control.dataset.projectField;
+      return window.updateProjectAudio(channel, field, !projectIntent(channel, field));
+    }
     if (control.dataset.audioField && control.tagName === 'BUTTON') {
       const channel = control.closest('[data-audio-channel]').dataset.audioChannel, field = control.dataset.audioField;
       update(channel, field, !(mixMode === 'monitor' ? personal()[channel][field] : projectIntent(channel, field)));
@@ -346,9 +369,15 @@
   });
   document.addEventListener('change', event => {
     const control = event.target, field = control.dataset.audioField;
+    if (control.dataset.projectField && control.value.trim() !== '' && control.validity.valid) window.updateProjectAudio(control.closest('[data-project-channel]').dataset.projectChannel, control.dataset.projectField, Number(control.value) / (control.dataset.projectField === 'volume' ? 100 : 1));
     if (field && control.value.trim() !== '' && control.validity.valid) update(control.closest('[data-audio-channel]').dataset.audioChannel, field, Number(control.value) / (field === 'volume' ? 100 : 1));
     if (control.hasAttribute('data-studio-mix')) { mixMode = control.value; localStorage.setItem('dubline_mix_mode', mixMode); applyVolumes(); refreshControls(); }
-    if (control.dataset.studioSetting === 'adr') localStorage.setItem('dubline_adr', control.value);
+    if (control.dataset.studioSetting === 'adr') {
+      localStorage.setItem('dubline_adr', control.value);
+      preRollSeconds = DublineAdr.preparation(preRollSeconds, control.value === 'three');
+      localStorage.setItem('dubline_pre_roll', String(preRollSeconds));
+      syncSettingsUi();
+    }
     if (control.id === 'settingsLocalDuck') window.setStudioLocalDuck({ enabled: control.checked });
     if (control.id === 'settingsLocalDuckOn') window.setStudioLocalDuck({ autoDuckEnabled: control.checked });
     if (control.id === 'settingsLocalDuckAmount') window.setStudioLocalDuck({ autoDuckAmount: Number(control.value) / 100 });

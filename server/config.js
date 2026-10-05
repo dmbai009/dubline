@@ -12,6 +12,7 @@ const PACKS_DIR = path.resolve(process.env.DUBLINE_PACKS_DIR || path.join(PUBLIC
 const DATA_DIR = path.resolve(process.env.DUBLINE_DATA_DIR || path.join(ROOT_DIR, 'data'));
 const ROOMS_FILE = path.join(DATA_DIR, 'rooms.json');
 
+const MAX_VIDEO_MB = 300;      // uploaded video; project archives have no aggregate size ceiling
 const MAX_PACK_MB = 300;       // size of a pack .zip
 const MAX_PACK_EXPORT_MB = 384; // estimated uncompressed inputs buffered while exporting
 const MAX_EXPORT_LINE_SECONDS = 10 * 60;
@@ -52,7 +53,9 @@ module.exports = {
   PUBLIC_DIR,
   UPLOAD_DIR,
   PACKS_DIR,
+  DATA_DIR,
   ROOMS_FILE,
+  MAX_VIDEO_MB,
   MAX_PACK_MB,
   MAX_PACK_EXPORT_MB,
   MAX_EXPORT_LINE_SECONDS,

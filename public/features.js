@@ -6,6 +6,7 @@ function renderBlindSettings() {
   if (!session) return;
   settingsBlindMode.checked = !!session.blindMode;
   settingsBlindMode.disabled = !amHost();
+  settingsBlindMode.title = amHost() ? '' : t('onlyHost');
   settingsHideMyTakes.checked = (session.blindPlayers || []).includes(myName);
 }
 
@@ -20,9 +21,9 @@ settingsHideMyTakes.addEventListener('change', () => {
 
 socket.on('session_updated', renderBlindSettings);
 
-window.randomCast = function() {
+window.randomCast = async function() {
   if (!amHost() || !session || session.mode !== 'dub') return;
-  if (confirm(t('randomCast.confirm'))) socket.emit('random_cast');
+  if (await askConfirm(t('randomCast.confirm'))) socket.emit('random_cast');
 };
 
 window.revealAllTakes = function() {
