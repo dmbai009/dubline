@@ -93,7 +93,12 @@ describe('audit: actual editor controls and recording queue', { skip: skipReason
   test('double-click accounts for zoom and horizontal scrolling and never extends past video end', async () => {
     await edit(); await guest.click('.track-add-btn'); await answerTextPrompt(guest, 'Empty');
     await waitFor(guest, () => session.trackOrder.includes('Empty'));
-    await guest.evaluate(() => { setTimelineZoom(220, 0); timelineContainer.scrollLeft = 900; });
+    await guest.evaluate(async () => {
+      setTimelineZoom(220, 0);
+      // Zoom renders and restores its anchor on the next frame, before manual scroll.
+      await new Promise(resolve => requestAnimationFrame(resolve));
+      timelineContainer.scrollLeft = 900;
+    });
     await blankClick(guest, 'Empty', 6);
     const created = await waitFor(host, () => session.lines.find(line => line.id > 4));
     assert.ok(Math.abs(created.start - 6) < 0.025, JSON.stringify(created));
