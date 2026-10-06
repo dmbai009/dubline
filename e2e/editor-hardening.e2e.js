@@ -29,7 +29,12 @@ describe('Collaborative editor hardening', { skip: skipReason }, () => {
     return page.$eval(`#line-block-${id}`, block => { const box = block.getBoundingClientRect(); return { x: box.left + box.width / 2, y: box.top + box.height / 2 }; });
   }
   const move = (other, id, changes) => other.evaluate((id, changes) => updateEditorLine(session.lines.find(line => line.id === id), changes), id, changes);
-  const resetEvent = selector => page.$eval(selector, input => input.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })));
+  const resetEvent = selector => page.evaluate(selector => {
+    // Timeline redraws can detach a handle between Puppeteer's lookup and $eval.
+    const input = document.querySelector(selector);
+    if (!input) throw new Error(`Slider not found: ${selector}`);
+    input.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+  }, selector);
 
   test('lost acknowledgement of A preserves queued B/C/D and never reapplies A', async () => {
     await page.evaluate(() => {
