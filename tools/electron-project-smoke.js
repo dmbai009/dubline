@@ -85,16 +85,17 @@ if (!process.versions.electron) {
         await until(()=>evaluate("session.trackOrder.includes('Native role')"));
         await evaluate("createEditorLineAt('Native role',1); void 0;");await until(()=>evaluate('session.lines.length===1'));
         await evaluate("setStudioMode('dub');");await until(()=>evaluate("session.mode==='dub'"));
-        await evaluate("localStorage.setItem('dubline_help_seen','1');preRollSeconds=0;handleStudioRecord(1); void 0;");
+        await evaluate("localStorage.setItem('dubline_help_seen','1');preRollSeconds=0;selectLine(session.lines[0]);recordSelectedLine(); void 0;");
         await until(()=>evaluate("session.lines[0].audioUrl && recordState==='idle' && pendingTakeLines.size===0"),30000);
         if (process.env.DUBLINE_NATIVE_CLIP_MIX_TEST) {
           await evaluate('selectLine(session.lines[0]);');
+          assert.equal(await evaluate("!document.querySelector('[data-clip-field=effectAmount]')"), true);
+          await evaluate("(()=>{const select=document.querySelector('[data-clip-field=effect]');select.value='behindDoor';select.dispatchEvent(new Event('change',{bubbles:true}));})()");
+          await until(()=>evaluate("session.lines[0].effect==='behindDoor' && !!document.querySelector('[data-clip-field=effectAmount]')"));
           for (const [field,value] of [['volume',67],['pan',-35],['effectAmount',45]]) {
             await evaluate("(()=>{const input=document.querySelector('[data-clip-field="+field+"]');input.value='"+value+"';input.dispatchEvent(new Event('change',{bubbles:true}));})()");
             await until(()=>evaluate('session.lines[0].'+field+'==='+value/100));
           }
-          await evaluate("(()=>{const select=document.querySelector('.take-panel select');select.value='behindDoor';select.dispatchEvent(new Event('change',{bubbles:true}));})()");
-          await until(()=>evaluate("session.lines[0].effect==='behindDoor'"));
           const stereo = await evaluate("(async()=>{const line=session.lines[0],buffer=await renderCharacterStem([line],12);const rms=channel=>{const data=buffer.getChannelData(channel);return Math.sqrt(data.reduce((sum,x)=>sum+x*x,0)/data.length);};return {channels:buffer.numberOfChannels,left:rms(0),right:rms(1)};})()");
           assert.equal(stereo.channels,2);assert.ok(stereo.left>stereo.right && stereo.right>0,JSON.stringify(stereo));
           console.log('Native clip controls and stereo stem render passed.');

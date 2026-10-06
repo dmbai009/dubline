@@ -288,4 +288,51 @@ describe('clip mixing: real sockets, inspector and audio', { skip: skipReason, t
     assert.equal((await lines(host))[0].pan, expected[0].pan);
     assert.equal((await lines(host))[0].effectAmount, expected[0].effectAmount);
   });
+
+  test('single effect strength follows its selector, preserves hidden amount, and active clip/pitch sliders reset once', async () => {
+    assert.equal((await update(host, [1], { effect: 'none', effectAmount: 0.37, volume: 0.43, pan: -0.6, pitch: 5 })).ok, true);
+    await waitFor(host, () => session.lines[0].effect === 'none' && session.lines[0].effectAmount === 0.37);
+    await host.evaluate(() => { clearMultiSelection(); selectLine(session.lines[0]); });
+    assert.equal(await host.$('[data-clip-field=effectAmount]'), null);
+    await change(host, 'effect', 'radio');
+    await waitFor(host, () => !!document.querySelector('[data-clip-field=effectAmount]'));
+    assert.equal(await host.$eval('[data-clip-field=effectAmount]', input => input.closest('label').previousElementSibling.querySelector('select').dataset.clipField), 'effect');
+    await change(host, 'effectAmount', 25);
+    await waitFor(guest, () => session.lines[0].effectAmount === 0.25);
+    await change(host, 'effect', 'none');
+    await waitFor(host, () => !document.querySelector('[data-clip-field=effectAmount]'));
+    assert.equal((await lines(host))[0].effectAmount, 0.25);
+    await change(host, 'effect', 'radio');
+    await waitFor(host, () => !!document.querySelector('[data-clip-field=effectAmount]'));
+    await host.evaluate(() => {
+      const emit = socket.emit; window.resetWrites = 0;
+      socket.emit = function(event, ...args) { if (event === 'set_takes_props') resetWrites++; return emit.call(this, event, ...args); };
+    });
+    for (const [selector, field, value] of [['[data-clip-field=volume]', 'volume', 1], ['[data-clip-field=pan]', 'pan', 0], ['[data-clip-field=effectAmount]', 'effectAmount', 1], ['.pitch-range', 'pitch', 0]]) {
+      const before = await host.evaluate(() => resetWrites);
+      await host.$eval(selector, input => input.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })));
+      await waitFor(guest, (field, value) => session.lines[0][field] === value, 5000, field, value);
+      await waitFor(host, selector => !document.querySelector(selector).disabled, 5000, selector);
+      assert.equal(await host.evaluate(() => resetWrites), before + 1);
+    }
+    await other.evaluate(() => selectLine(session.lines[0]));
+    const disabled = await other.$eval('[data-clip-field=volume]', input => { const value = input.value; input.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); return input.disabled && input.value === value; });
+    assert.equal(disabled, true);
+  });
+
+  test('bulk strength is hidden for mixed/none presets, shown for one concrete effect, and stays atomic', async () => {
+    await update(host, [1], { effect: 'radio', effectAmount: 0.2 });
+    await update(host, [2], { effect: 'none', effectAmount: 0.8 });
+    await waitFor(host, () => session.lines[0].effect === 'radio' && session.lines[1].effect === 'none');
+    await host.evaluate(() => { selectLine(session.lines[0]); toggleMultiSelect(2); });
+    assert.equal(await host.$('[data-clip-field=effectAmount]'), null);
+    await change(host, 'effect', 'radio');
+    await waitFor(host, () => !!document.querySelector('[data-clip-field=effectAmount]'));
+    assert.equal(await host.$eval('[data-clip-field=effectAmount]', input => input.nextElementSibling.textContent), 'Mixed');
+    await change(host, 'effectAmount', 55);
+    await waitFor(guest, () => session.lines[0].effectAmount === 0.55 && session.lines[1].effectAmount === 0.55);
+    await change(host, 'effect', 'none');
+    await waitFor(host, () => !document.querySelector('[data-clip-field=effectAmount]'));
+    assert.equal((await lines(host))[0].effectAmount, 0.55); assert.equal((await lines(host))[1].effectAmount, 0.55);
+  });
 });

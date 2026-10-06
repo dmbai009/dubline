@@ -409,13 +409,14 @@ describe('studio', { skip: skipReason }, () => {
     await imposter.close();
   });
 
-  test('hints instead of silence for R', async () => {
+  test('R explains missing selection and claims a free selected line before recording', async () => {
     await alice.evaluate(() => { selectedLine = null; });
     await alice.keyboard.press('KeyR');
     await waitFor(alice, () => document.getElementById('toast').textContent.length > 0);
     await alice.evaluate(() => selectLine(session.lines[0]));
     await alice.keyboard.press('KeyR');
-    await waitFor(alice, () => document.getElementById('toast').textContent.includes(t('toast.claimFirst')));
+    await waitFor(alice, () => recordState === 'preparing' && session.lines[0].claimedBy === myName);
+    await alice.evaluate(() => finishRecording({ discard: true }));
   });
 
   test('recording: configurable 1 s preparation, "Speak!" on the line start, auto-trim', async () => {
@@ -1144,7 +1145,7 @@ describe('studio', { skip: skipReason }, () => {
     }, resolve)), created.line.id);
   });
 
-  test('editor regressions: lost reply waits for resync and cancels dependent mutations', async () => {
+  test('editor regressions: lost reply resyncs, retries once and preserves dependent mutations', async () => {
     const result = await bob.evaluate(async () => {
       const originalTimeout = socket.timeout;
       let writes = 0;
@@ -1155,7 +1156,8 @@ describe('studio', { skip: skipReason }, () => {
           emit(event, payload, ack) {
             if (event === 'editor_add_track') {
               writes++;
-              setTimeout(() => ack(new Error('Simulated lost reply')), 0);
+              if (writes === 1) setTimeout(() => ack(new Error('Simulated lost reply')), 0);
+              else target.emit(event, payload, ack);
               return;
             }
             if (event === 'editor_resync') {
@@ -1174,12 +1176,12 @@ describe('studio', { skip: skipReason }, () => {
         const dependent = queueEditorRequest(() => ['editor_undo', {}]);
         const answer = await first;
         const next = await dependent;
-        return { first: answer.reason, next: next.reason, writes, resynced };
+        return { first: answer.ok, next: next.ok, writes, resynced };
       } finally {
         socket.timeout = originalTimeout;
       }
     });
-    assert.deepEqual(result, { first: 'timeout', next: 'cancelled', writes: 1, resynced: true });
+    assert.deepEqual(result, { first: true, next: true, writes: 3, resynced: true });
   });
 
   test('Random Cast, Blind Mode, download status and visual themes', async () => {
@@ -1380,7 +1382,8 @@ describe('studio', { skip: skipReason }, () => {
         status: document.getElementById('customUploadStatus').style.display
       };
     });
-    assert.deepEqual(form, { video: 0, subs: 0, title: '', status: 'none' });
+    assert.deepEqual(form, { video: 0, subs: 0, title: '', status: 'block' });
+    assert.match(await alice.$eval('#customUploadStatus', status => status.textContent), /uploaded|done|created|ready/i);
     await alice.evaluate(() => closeFilesModal());
   });
 

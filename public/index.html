@@ -652,7 +652,7 @@
             </div>
             <span id="settingsMicGainVal" style="font-weight: 700; color: var(--accent-2); font-size: 12px; font-variant-numeric: tabular-nums;">100%</span>
           </div>
-          <input type="range" id="settingsMicGain" min="30" max="300" step="5" value="100" style="width: 100%; cursor: pointer;">
+          <input type="range" id="settingsMicGain" data-reset-value="100" data-reset-event="input" min="30" max="300" step="5" value="100" style="width: 100%; cursor: pointer;">
         </div>
 
         <div class="setting-card">
@@ -678,7 +678,7 @@
               <span style="color: var(--muted);" data-i18n="preRoll">Preparation time:</span>
               <span id="settingsPreRollVal" style="font-weight: 700; color: var(--accent-2);">1.0 s</span>
             </div>
-            <input type="range" id="settingsPreRoll" min="0" max="5" step="0.1" value="1" style="width: 100%; cursor: pointer;">
+            <input type="range" id="settingsPreRoll" data-reset-resolver="pre-roll" data-reset-event="input" min="0" max="5" step="0.1" value="1" style="width: 100%; cursor: pointer;">
           </div>
         </div>
 
@@ -688,7 +688,7 @@
             <select data-studio-setting="adr" class="text-input"><option value="off" data-i18n="studio.off">Off</option><option value="three" data-i18n="studio.three">3 beeps</option></select>
           </div>
         </div>
-        <div class="setting-card"><label class="setting-label" for="settingsAdrVolume" data-i18n="adr.volume"></label><input id="settingsAdrVolume" type="range" min="0" max="100" step="1" value="100"><output id="settingsAdrVolumeVal">100%</output></div>
+        <div class="setting-card"><label class="setting-label" for="settingsAdrVolume" data-i18n="adr.volume"></label><input id="settingsAdrVolume" type="range" data-reset-value="100" data-reset-event="input" min="0" max="100" step="1" value="100"><output id="settingsAdrVolumeVal">100%</output></div>
 <div class="setting-card">
           <div class="setting-label" data-i18n="latency.label">Microphone delay</div>
           <div class="setting-sub" data-i18n="latency.help"></div>
@@ -756,7 +756,7 @@
               <span style="color: var(--muted);" data-i18n="duckAmount">Background reduction:</span>
               <span id="settingsAutoDuckVal" style="font-weight: 700; color: var(--accent-2);">40%</span>
             </div>
-            <input type="range" id="settingsAutoDuckAmount" min="0" max="80" step="5" value="40" style="width: 100%; cursor: pointer;">
+            <input type="range" id="settingsAutoDuckAmount" data-reset-value="40" min="0" max="80" step="5" value="40" style="width: 100%; cursor: pointer;">
           </div>
           <div class="setting-card-row" style="margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border);">
             <div>
@@ -773,7 +773,7 @@
               <span style="color: var(--muted);" data-i18n="duckAmount">Background reduction:</span>
               <span id="settingsLocalDuckVal" style="font-weight: 700; color: var(--accent-2);">40%</span>
             </div>
-            <input type="range" id="settingsLocalDuckAmount" min="0" max="80" step="5" value="40" style="width: 100%; cursor: pointer;">
+            <input type="range" id="settingsLocalDuckAmount" data-reset-value="40" min="0" max="80" step="5" value="40" style="width: 100%; cursor: pointer;">
           </div>
         </div>
 
@@ -790,7 +790,7 @@
               <span style="color: var(--muted);" data-i18n="prompterSize">Subtitle font size:</span>
               <span id="settingsPrompterSizeVal" style="font-weight: 700; color: var(--accent-2);">20px</span>
             </div>
-            <input type="range" id="settingsPrompterSize" min="14" max="36" step="1" value="20" style="width: 100%; cursor: pointer;">
+            <input type="range" id="settingsPrompterSize" data-reset-value="20" data-reset-event="input" min="14" max="36" step="1" value="20" style="width: 100%; cursor: pointer;">
           </div>
         </div>
 
@@ -959,13 +959,13 @@
               <div style="display:flex; justify-content:space-between; font-size:11px; font-weight:700;">
                 <span data-i18n="dubTrack">🎙️ Recorded dubbing:</span><span id="renderDubVal">100%</span>
               </div>
-              <input type="range" id="renderDubVol" min="0" max="150" value="100" style="width:100%; accent-color: var(--success);">
+              <input type="range" id="renderDubVol" min="0" max="150" value="100" disabled style="width:100%; accent-color: var(--success);">
             </div>
             <div>
               <div style="display:flex; justify-content:space-between; font-size:11px; font-weight:700;">
                 <span data-i18n="backingTrack">🎵 Background / ambience:</span><span id="renderBackingVal">100%</span>
               </div>
-              <input type="range" id="renderBackingVol" min="0" max="150" value="100" style="width:100%;">
+              <input type="range" id="renderBackingVol" min="0" max="150" value="100" disabled style="width:100%;">
             </div>
             <div>
               <div style="display:flex; justify-content:space-between; font-size:11px; font-weight:700;">
@@ -1264,6 +1264,8 @@
             <button class="btn-icon" type="button" onclick="createLineAtPlayhead()" data-i18n="editor.addLine">＋ Line</button>
             <button class="btn-icon" type="button" onclick="editorUndo()" data-i18n="editor.undo" data-i18n-title="editor.undoTitle" title="Undo your last edit (Ctrl+Z)">↶ Undo</button>
           </div>
+          <button id="editorSyncState" class="btn-icon" hidden onclick="reviewEditorConflicts()" aria-live="polite"></button>
+          <div id="editorConflictPanel" class="editor-conflict-panel" hidden></div>
           <div class="scene-progress">
             <span data-i18n="progress.scene">Dubbed</span>
             <b id="sceneProgressText">0 / 0</b>
@@ -1303,10 +1305,12 @@
   <script src="export.js"></script>
   <script src="room.js"></script>
   <script src="editor.js"></script>
+  <script src="selection-presence.js"></script>
   <script src="studio.js"></script>
   <script src="features.js"></script>
   <script src="p2p.js"></script>
   <script src="chat.js"></script>
   <script src="ui.js"></script>
+  <script src="slider-reset.js"></script>
 </body>
 </html>

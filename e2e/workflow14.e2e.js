@@ -1,4 +1,4 @@
-﻿const { describe, test, before, after } = require('node:test');
+const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs'), os = require('node:os'), path = require('node:path'), crypto = require('node:crypto');
 const { skipReason, startServer, launchBrowser, openPlayer, loadFixture, waitFor, waitUntil, answerTextPrompt, recordTake, fixtureVideoPath, buildVoiceFile, buildFixturePack } = require('./helpers');
@@ -98,18 +98,21 @@ describe('1.4 dialogs, settings and bounded timeline', { skip: skipReason, timeo
   });
   test('vertical pointer drag locks time; deliberate horizontal movement releases it', async () => {
     await host.evaluate(() => { pxPerSec = 60; timelineContainer.scrollLeft = 0; renderTimeline(); clearMultiSelection(); selectLine(session.lines[0]); });
-    const positions = await host.evaluate(() => { const line = session.lines[0], block = document.getElementById('line-block-' + line.id).getBoundingClientRect(), row = document.querySelector('[data-character=Friend] .track-timeline').getBoundingClientRect(); return { x:block.left + 15, y:block.top + 15, targetY:row.top + 20, start:line.start }; });
+    let positions = await host.evaluate(() => { const line = session.lines[0], block = document.getElementById('line-block-' + line.id).getBoundingClientRect(), row = document.querySelector('[data-character=Friend] .track-timeline').getBoundingClientRect(); return { x:block.left + 15, y:block.top + 15, targetY:row.top + 20, start:line.start }; });
     await host.mouse.move(positions.x, positions.y); await host.mouse.down(); await host.mouse.move(positions.x + 3, positions.targetY, { steps:6 });
     assert.equal(await host.$eval('#line-block-1', node => node.classList.contains('axis-locked')), true);
     await host.mouse.up(); await waitFor(host, () => session.lines[0].character === 'Friend');
     assert.equal(await host.evaluate(() => session.lines[0].start), positions.start);
     await host.evaluate(() => editorUndo()); await waitFor(host, () => session.lines[0].character === 'Hero');
+    // Moving the selected clip reveals its destination; Undo can therefore change
+    // viewport geometry. Hit the current clip rather than stale screen coordinates.
+    positions = await host.evaluate(() => { const line = session.lines[0], block = document.getElementById('line-block-' + line.id).getBoundingClientRect(), row = document.querySelector('[data-character=Friend] .track-timeline').getBoundingClientRect(); return { x:block.left + 15, y:block.top + 15, targetY:row.top + 20, start:line.start }; });
     await host.mouse.move(positions.x, positions.y); await host.mouse.down(); await host.mouse.move(positions.x + 25, positions.targetY, { steps:6 });
     assert.equal(await host.$eval('#line-block-1', node => node.classList.contains('axis-locked')), false);
     await host.mouse.up(); await waitFor(host, start => session.lines[0].start > start, 10000, positions.start);
   });
   test('individual track height changes locally, persists and resets without changing lines', async () => {
-    await host.evaluate(() => editorQueue);
+    await waitFor(host, () => editorQueue.length === 0);
     const old = await host.evaluate(() => JSON.stringify(session.lines));
     await host.evaluate(() => { timelineContainer.scrollTop=0; renderTimeline(); });
     const handle = await host.$('[data-character=Hero] .role-height-handle'); await handle.scrollIntoView(); const box = await handle.boundingBox();
@@ -126,25 +129,25 @@ describe('1.4 dialogs, settings and bounded timeline', { skip: skipReason, timeo
     await loadFixture(host); await host.evaluate(() => setStudioMode('edit')); await waitFor(host, () => session.mode === 'edit');
     await host.evaluate(() => { pxPerSec=60; timelineContainer.scrollLeft=0;timelineContainer.scrollTop=0;renderTimeline(); });
     const point = await host.$eval('#line-block-1', node => { const r=node.getBoundingClientRect();return {x:r.left+30,y:r.top+20}; });
-    await host.mouse.move(point.x,point.y);await host.mouse.down();await host.mouse.move(point.x-700,point.y,{steps:5});await host.mouse.up();await host.evaluate(()=>editorQueue);
+    await host.mouse.move(point.x,point.y);await host.mouse.down();await host.mouse.move(point.x-700,point.y,{steps:5});await host.mouse.up();await waitFor(host,()=>editorQueue.length===0);
     assert.equal(await host.evaluate(()=>session.lines[0].start),0);
     const end = await host.$eval('#line-block-1 .line-resize-handle.end',node=>{const r=node.getBoundingClientRect();return{x:r.left+2,y:r.top+20};});
-    await host.mouse.move(end.x,end.y);await host.mouse.down();await host.mouse.move(end.x+1400,end.y,{steps:5});await host.mouse.up();await host.evaluate(()=>editorQueue);
+    await host.mouse.move(end.x,end.y);await host.mouse.down();await host.mouse.move(end.x+1400,end.y,{steps:5});await host.mouse.up();await waitFor(host,()=>editorQueue.length===0);
     assert.equal(await host.evaluate(()=>session.lines[0].end),12);
     const start = await host.$eval('#line-block-1 .line-resize-handle.start',node=>{const r=node.getBoundingClientRect();return{x:r.left+2,y:r.top+20};});
-    await host.mouse.move(start.x,start.y);await host.mouse.down();await host.mouse.move(start.x-300,start.y,{steps:5});await host.mouse.up();await host.evaluate(()=>editorQueue);
-    await host.evaluate(()=>{selectLine(session.lines[0]);handleEditorKey({code:'ArrowRight',shiftKey:true,preventDefault(){}});});await host.evaluate(()=>editorQueue);
+    await host.mouse.move(start.x,start.y);await host.mouse.down();await host.mouse.move(start.x-300,start.y,{steps:5});await host.mouse.up();await waitFor(host,()=>editorQueue.length===0);
+    await host.evaluate(()=>{selectLine(session.lines[0]);handleEditorKey({code:'ArrowRight',shiftKey:true,preventDefault(){}});});await waitFor(host,()=>editorQueue.length===0);
     assert.deepEqual(await host.evaluate(()=>[session.lines[0].start,session.lines[0].end]),[0,12]);
   });
   test('mixed-track mouse movement stays relative and cancels the whole group at the final role', async () => {
     await loadFixture(host);await host.evaluate(()=>setStudioMode('edit'));await waitFor(host,()=>session.mode==='edit');
     await host.evaluate(async()=>{await queueEditorRequest(()=>['editor_add_track',{character:'Third'}]);pxPerSec=60;timelineContainer.scrollLeft=0;timelineContainer.scrollTop=0;renderTimeline();multiSelection.clear();multiSelection.add(1);multiSelection.add(2);});
     const points=await host.evaluate(()=>{const r=document.getElementById('line-block-1').getBoundingClientRect(),a=document.querySelector('[data-character=Friend]').getBoundingClientRect(),b=document.querySelector('[data-character=Third]').getBoundingClientRect();return{x:r.left+30,y:r.top+20,a:a.top+20,b:b.top+20};});
-    await host.mouse.move(points.x,points.y);await host.mouse.down();await host.mouse.move(points.x+3,points.a,{steps:5});await host.mouse.up();await host.evaluate(()=>editorQueue);
+    await host.mouse.move(points.x,points.y);await host.mouse.down();await host.mouse.move(points.x+3,points.a,{steps:5});await host.mouse.up();await waitFor(host,()=>editorQueue.length===0);
     assert.deepEqual(await host.evaluate(()=>session.lines.slice(0,2).map(line=>line.character)),['Friend','Third']);
     await host.evaluate(()=>editorUndo());await waitFor(host,()=>session.lines[0].character==='Hero');
     const original=await host.evaluate(()=>session.lines.slice(0,2).map(({character,start,end})=>({character,start,end})));
-    await host.mouse.move(points.x,points.y);await host.mouse.down();await host.mouse.move(points.x+25,points.b,{steps:5});await host.mouse.up();await host.evaluate(()=>editorQueue);
+    await host.mouse.move(points.x,points.y);await host.mouse.down();await host.mouse.move(points.x+25,points.b,{steps:5});await host.mouse.up();await waitFor(host,()=>editorQueue.length===0);
     assert.deepEqual(await host.evaluate(()=>session.lines.slice(0,2).map(({character,start,end})=>({character,start,end}))),original);
   });
 

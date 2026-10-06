@@ -259,6 +259,11 @@ async function main() {
     }, created.line.id);
     await guest.waitForFunction(id => session.lines.find(line => line.id === id)?.pan === -0.35, {}, created.line.id);
     await host.evaluate(() => {
+      const select = document.querySelector('[data-clip-field=effect]');
+      select.value = 'radio'; select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await host.waitForFunction(() => !!document.querySelector('[data-clip-field=effectAmount]'));
+    await host.evaluate(() => {
       const input = document.querySelector('[data-clip-field=effectAmount]');
       input.value = '45'; input.dispatchEvent(new Event('change', { bubbles: true }));
     });

@@ -362,6 +362,7 @@ let visibleLineNumbers = new Map();
 function lineNumber(line) { return visibleLineNumbers.get(line.id) ?? line.id; }
 
 function renderTimeline() {
+  if (window.activeEditorGesture) { cancelEditorGesture(); }
   visibleLineNumbers = window.DublineTimeline.numbers(session.lines || []);
   const savedScrollLeft = timelineContainer.scrollLeft;
   const savedScrollTop = timelineContainer.scrollTop;
@@ -412,120 +413,7 @@ function renderTimeline() {
   timeline.appendChild(rulerRow);
   if (window.renderStudioAudio) window.renderStudioAudio(trackWidth);
 
-  characters.forEach(char => {
-    const row = document.createElement('div');
-    row.className = 'track-row';
-    row.dataset.character = char; // drop target when dragging lines between roles
-
-    const label = document.createElement('div');
-    label.className = 'track-label';
-
-    const charClaimedBy = session.characterClaims ? session.characterClaims[char] : null;
-
-    let roleHtml = '';
-    const hasLines = session.lines.some(l => l.character === char);
-    if (allowCharacterClaims && !editing && hasLines && !session.singlePlayer) {
-      if (!charClaimedBy) {
-        roleHtml = `<button class="role-btn" onclick="claimCharacter(${jsArg(char)})">${t('claimRoleShort')}</button>`;
-      } else if (charClaimedBy === myName) {
-        roleHtml = `<span class="role-badge me">🎭 ${t('you')} <button class="role-btn" style="margin-left:4px" onclick="unclaimCharacter(${jsArg(char)})">✖</button></span>`;
-      } else {
-        const kickBtn = amHost()
-          ? `<button class="role-btn" style="margin-left:4px" title="${t('host.releaseRole', { owner: esc(charClaimedBy) })}" onclick="unclaimCharacter(${jsArg(char)})">✖</button>`
-          : '';
-        roleHtml = `<span class="role-badge other">🔒 ${esc(charClaimedBy)}${kickBtn}</span>`;
-      }
-    }
-
-    // Track structure belongs to the shared editor, so every collaborator may rename it.
-    const canRenameTrack = editing;
-    const renameTrackBtn = canRenameTrack ? `<button class="track-rename" title="${esc(t('char.renameTrack', { name: char }))}" onclick="renameCharacterTrack(${jsArg(char)})">✎</button>` : '';
-    label.innerHTML = `
-      <div class="track-label-inner">
-        <span class="char-name-row"><span class="char-name" title="${esc(char)}">${esc(char)}</span>${renameTrackBtn}</span>
-        ${roleHtml}
-      </div>
-    `;
-
-    const trackArea = document.createElement('div');
-    trackArea.className = 'track-timeline';
-    trackArea.style.width = `${trackWidth}px`;
-    const duration = editorVideoDuration();
-    if (duration < 43200) {
-      const outside = document.createElement('div');
-      outside.className = 'timeline-outside';
-      outside.style.left = `${duration * pxPerSec}px`;
-      outside.title = t('timeline.outside');
-      trackArea.appendChild(outside);
-    }
-    const emptyTarget = event => event.target === trackArea || event.target.classList.contains('timeline-outside');
-    trackArea.onclick = event => {
-      if (event.button !== 0 || !emptyTarget(event) || !window.studioCanTransport()) return;
-      video.currentTime = Math.max(0, Math.min(duration, window.DublineTimeline.coordinate(event.clientX, trackArea.getBoundingClientRect().left, pxPerSec)));
-    };
-    trackArea.ondblclick = event => {
-      if (session.mode !== 'edit' || event.button !== 0 || !emptyTarget(event)) return;
-      event.preventDefault();
-      event.stopPropagation();
-      createEditorLineAt(char, window.DublineTimeline.coordinate(event.clientX, trackArea.getBoundingClientRect().left, pxPerSec));
-    };
-
-    const charLines = session.lines.filter(l => l.character === char);
-    // Lines overlapping in time are placed into sub-lanes (like clips on neighboring tracks),
-    // otherwise they are drawn on top of each other. Uses real time, so the layout doesn't jump when zooming.
-    const laneOf = assignLanes(charLines);
-    const laneCount = laneOf.size ? Math.max(...laneOf.values()) + 1 : 1;
-    const minimumHeight = ROW_PADDING + laneCount * LANE_HEIGHT;
-    const heightKey = roleHeightKey(char);
-    row.style.height = Math.max(minimumHeight, Math.min(600, Number(roleHeights[heightKey]) || 0)) + 'px';
-    const resize = document.createElement('button'); resize.className = 'role-height-handle'; resize.type = 'button'; resize.title = t('splitter.hint'); resize.setAttribute('aria-label', t('splitter.hint'));
-    resize.ondblclick = event => { event.stopPropagation(); delete roleHeights[heightKey]; localStorage.setItem('dubline_role_heights', JSON.stringify(roleHeights)); renderTimeline(); };
-    resize.onpointerdown = event => {
-      if (event.button !== 0) return; event.stopPropagation();
-      const origin = event.clientY, height = row.getBoundingClientRect().height;
-      const move = next => { row.style.height = Math.max(minimumHeight, Math.min(600, height + next.clientY - origin)) + 'px'; };
-      const finish = () => {
-        window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', finish); window.removeEventListener('pointercancel', finish);
-        roleHeights[heightKey] = row.getBoundingClientRect().height;
-        for (const key of Object.keys(roleHeights).slice(0, -200)) delete roleHeights[key];
-        localStorage.setItem('dubline_role_heights', JSON.stringify(roleHeights));
-      };
-      window.addEventListener('pointermove', move); window.addEventListener('pointerup', finish); window.addEventListener('pointercancel', finish);
-    };
-    label.appendChild(resize);
-    charLines.forEach(line => {
-      const block = document.createElement('div');
-      block.className = 'line-block';
-      block.id = `line-block-${line.id}`;
-      block.style.left = `${line.start * pxPerSec}px`;
-      block.style.top = `${ROW_PADDING + (laneOf.get(line.id) || 0) * LANE_HEIGHT}px`;
-      block.style.width = `${Math.max((line.end - line.start) * pxPerSec, MIN_TILE_PX)}px`;
-
-      updateLineBlockVisual(block, line);
-
-      block.onclick = (e) => {
-        if (block.dataset.justDragged) {
-          delete block.dataset.justDragged;
-          return;
-        }
-        if (e.ctrlKey || e.metaKey) toggleMultiSelect(line.id);
-        else if (e.shiftKey && lastClickedLineId != null) selectLineRange(lastClickedLineId, line.id);
-        else {
-          clearMultiSelection();
-          selectLine(session.lines.find(l => l.id === line.id) || line);
-        }
-        lastClickedLineId = line.id;
-      };
-      trackArea.appendChild(block);
-
-      // Bounds come from the server (pack import or an editor update). The voice
-      // file's duration must not overwrite an explicitly edited line length.
-    });
-
-    row.appendChild(label);
-    row.appendChild(trackArea);
-    timeline.appendChild(row);
-  });
+  characters.forEach(char => timeline.appendChild(buildRoleRow(char, trackWidth, allowCharacterClaims, editing)));
 
   // "Add role" under the last track: anyone in Edit Mode, only the host while dubbing
   if (typeof canAddTrack === 'function' && canAddTrack()) {
@@ -594,6 +482,7 @@ function updateLineBlockVisual(el, line) {
   }
   if (session.mode === 'edit') window.enableLineEditDrag?.(el, line.id);
   else if (line.audioUrl && owner === myName) enableTakeDrag(el, line.id);
+  window.renderRemoteSelection?.(el);
 }
 
 // ==========================================
@@ -804,6 +693,7 @@ function drawWaveform(canvas, peaks, offsetSec, isTake, bounds = { from: 0, to: 
 }
 
 function updateLineBlock(line) {
+  if (window.activeEditorGesture?.lineIds.has(line.id)) return;
   const el = document.getElementById(`line-block-${line.id}`);
   if (!el) return;
   updateLineBlockVisual(el, line);
@@ -816,6 +706,7 @@ function selectLine(line) {
   selectedLine = line;
   video.currentTime = line.start;
   showInspector(line);
+  window.publishSelection?.();
 }
 
 window.playAudio = function(url) {
@@ -955,6 +846,7 @@ function refreshMultiSelection() {
     multiSelection.clear();
     if (only) selectLine(only);
   }
+  window.publishSelection?.();
 }
 
 function toggleMultiSelect(lineId) {
@@ -980,18 +872,27 @@ window.clearMultiSelection = function() {
   document.querySelectorAll('.line-block.multi-selected').forEach(el => el.classList.remove('multi-selected'));
   if (selectedLine) showInspector(selectedLine);
   else inspector.innerHTML = `<h3>${t('inspector.title')}</h3><p>${t('inspector.empty')}</p>`;
+  window.publishSelection?.();
 };
 
 window.renameCharacterTrack = async function(name) {
   const sessionId = session.activeSessionId;
+  const binding = captureEditorTargets(session.lines.filter(line => line.character === name).map(line => line.id));
+  const tracks = JSON.stringify(session.trackOrder);
   const next = await askText(t('char.renameTrack', { name }), name);
   if (session.activeSessionId !== sessionId) return;
   if (!next || next === name) return;
-  // The track's lines and their revisions are read when the request leaves the edit queue
+  const targetBinding = captureEditorTargets(session.lines.filter(line => line.character === next.trim()).map(line => line.id));
+  const claims = { from: session.characterClaims[name] || null, to: session.characterClaims[next.trim()] || null };
+  if (sessionCharacters().includes(next.trim()) && !await askConfirm(t('editor.mergeTrack', { from: name, to: next.trim() }))) return;
+  if (!editorTargetsMatch(binding) || !editorTargetsMatch(targetBinding) || JSON.stringify(session.trackOrder) !== tracks ||
+      (session.characterClaims[name] || null) !== claims.from || (session.characterClaims[next.trim()] || null) !== claims.to ||
+      session.lines.filter(line => line.character === next.trim()).length !== targetBinding.lines.length ||
+      session.lines.filter(line => line.character === name).length !== binding.lines.length) return showToast(t('editor.dialogChanged'));
   return queueEditorRequest(() => ['rename_character', {
     from: name,
     to: next,
-    lines: session.lines.filter(line => line.character === name).map(line => ({ lineId: line.id, revision: line.revision || 0 }))
+    lines: binding.lines, targetLines: targetBinding.lines, trackOrder: JSON.parse(tracks), expectedClaims: claims
   }]).then(result => {
     if (result && result.ok) showToast(t('char.trackRenamed', { from: name, to: next, n: result.moved }));
     else if (result && result.reason === 'denied') showToast(t('char.trackDenied'));
@@ -1015,3 +916,157 @@ function refreshAudioLoadingStatus() {
 }
 for (const element of [originalTrackAudio, backing]) for (const event of ['loadstart', 'loadedmetadata', 'waiting', 'stalled', 'canplay', 'playing', 'error', 'emptied']) element.addEventListener(event, refreshAudioLoadingStatus);
 window.addEventListener('dubline-language-changed', refreshAudioLoadingStatus);
+
+// The same builder is used for structural full render and affected-row updates.
+function buildRoleRow(char, trackWidth, allowCharacterClaims, editing) {
+    const row = document.createElement('div');
+    row.className = 'track-row';
+    row.dataset.character = char; // drop target when dragging lines between roles
+
+    const label = document.createElement('div');
+    label.className = 'track-label';
+
+    const charClaimedBy = session.characterClaims ? session.characterClaims[char] : null;
+
+    let roleHtml = '';
+    const hasLines = session.lines.some(l => l.character === char);
+    if (allowCharacterClaims && !editing && hasLines && !session.singlePlayer) {
+      if (!charClaimedBy) {
+        roleHtml = `<button class="role-btn" onclick="claimCharacter(${jsArg(char)})">${t('claimRoleShort')}</button>`;
+      } else if (charClaimedBy === myName) {
+        roleHtml = `<span class="role-badge me">🎭 ${t('you')} <button class="role-btn" style="margin-left:4px" onclick="unclaimCharacter(${jsArg(char)})">✖</button></span>`;
+      } else {
+        const kickBtn = amHost()
+          ? `<button class="role-btn" style="margin-left:4px" title="${t('host.releaseRole', { owner: esc(charClaimedBy) })}" onclick="unclaimCharacter(${jsArg(char)})">✖</button>`
+          : '';
+        roleHtml = `<span class="role-badge other">🔒 ${esc(charClaimedBy)}${kickBtn}</span>`;
+      }
+    }
+
+    // Track structure belongs to the shared editor, so every collaborator may rename it.
+    const canRenameTrack = editing;
+    const renameTrackBtn = canRenameTrack ? `<button class="track-rename" title="${esc(t('char.renameTrack', { name: char }))}" onclick="renameCharacterTrack(${jsArg(char)})">✎</button>` : '';
+    label.innerHTML = `
+      <div class="track-label-inner">
+        <span class="char-name-row"><span class="char-name" title="${esc(char)}">${esc(char)}</span>${renameTrackBtn}</span>
+        ${roleHtml}
+      </div>
+    `;
+
+    const trackArea = document.createElement('div');
+    trackArea.className = 'track-timeline';
+    trackArea.style.width = `${trackWidth}px`;
+    const duration = editorVideoDuration();
+    if (duration < 43200) {
+      const outside = document.createElement('div');
+      outside.className = 'timeline-outside';
+      outside.style.left = `${duration * pxPerSec}px`;
+      outside.title = t('timeline.outside');
+      trackArea.appendChild(outside);
+    }
+    const emptyTarget = event => event.target === trackArea || event.target.classList.contains('timeline-outside');
+    trackArea.onclick = event => {
+      if (event.button !== 0 || !emptyTarget(event) || !window.studioCanTransport()) return;
+      video.currentTime = Math.max(0, Math.min(duration, window.DublineTimeline.coordinate(event.clientX, trackArea.getBoundingClientRect().left, pxPerSec)));
+    };
+    trackArea.ondblclick = event => {
+      if (session.mode !== 'edit' || event.button !== 0 || !emptyTarget(event)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      createEditorLineAt(char, window.DublineTimeline.coordinate(event.clientX, trackArea.getBoundingClientRect().left, pxPerSec));
+    };
+
+    const charLines = session.lines.filter(l => l.character === char);
+    // Lines overlapping in time are placed into sub-lanes (like clips on neighboring tracks),
+    // otherwise they are drawn on top of each other. Uses real time, so the layout doesn't jump when zooming.
+    const laneOf = assignLanes(charLines);
+    const laneCount = laneOf.size ? Math.max(...laneOf.values()) + 1 : 1;
+    const minimumHeight = ROW_PADDING + laneCount * LANE_HEIGHT;
+    const heightKey = roleHeightKey(char);
+    row.style.height = Math.max(minimumHeight, Math.min(600, Number(roleHeights[heightKey]) || 0)) + 'px';
+    const resize = document.createElement('button'); resize.className = 'role-height-handle'; resize.type = 'button'; resize.title = t('splitter.hint'); resize.setAttribute('aria-label', t('splitter.hint'));
+    resize.ondblclick = event => { event.stopPropagation(); delete roleHeights[heightKey]; localStorage.setItem('dubline_role_heights', JSON.stringify(roleHeights)); renderTimeline(); };
+    resize.onpointerdown = event => {
+      if (event.button !== 0) return; event.stopPropagation();
+      const origin = event.clientY, height = row.getBoundingClientRect().height;
+      const move = next => { row.style.height = Math.max(minimumHeight, Math.min(600, height + next.clientY - origin)) + 'px'; };
+      const finish = () => {
+        window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', finish); window.removeEventListener('pointercancel', finish);
+        roleHeights[heightKey] = row.getBoundingClientRect().height;
+        for (const key of Object.keys(roleHeights).slice(0, -200)) delete roleHeights[key];
+        localStorage.setItem('dubline_role_heights', JSON.stringify(roleHeights));
+      };
+      window.addEventListener('pointermove', move); window.addEventListener('pointerup', finish); window.addEventListener('pointercancel', finish);
+    };
+    label.appendChild(resize);
+    charLines.forEach(line => {
+      const block = document.createElement('div');
+      block.className = 'line-block';
+      block.id = `line-block-${line.id}`;
+      block.style.left = `${line.start * pxPerSec}px`;
+      block.style.top = `${ROW_PADDING + (laneOf.get(line.id) || 0) * LANE_HEIGHT}px`;
+      block.style.width = `${Math.max((line.end - line.start) * pxPerSec, MIN_TILE_PX)}px`;
+
+      updateLineBlockVisual(block, line);
+
+      block.onclick = (e) => {
+        if (block.dataset.justDragged) {
+          delete block.dataset.justDragged;
+          return;
+        }
+        if (e.ctrlKey || e.metaKey) toggleMultiSelect(line.id);
+        else if (e.shiftKey && lastClickedLineId != null) selectLineRange(lastClickedLineId, line.id);
+        else {
+          clearMultiSelection();
+          selectLine(session.lines.find(l => l.id === line.id) || line);
+        }
+        lastClickedLineId = line.id;
+      };
+      trackArea.appendChild(block);
+
+      // Bounds come from the server (pack import or an editor update). The voice
+      // file's duration must not overwrite an explicitly edited line length.
+    });
+
+    row.appendChild(label);
+    row.appendChild(trackArea);
+
+  return row;
+}
+
+window.refreshEditorRows = function(lines) {
+  if (!session?.loaded || !lines.length) return;
+  visibleLineNumbers = window.DublineTimeline.numbers(session.lines || []);
+  const characters = sessionCharacters();
+  const rows = [...timeline.querySelectorAll('.track-row')];
+  if (rows.length !== characters.length || rows.some((row, i) => row.dataset.character !== characters[i])) return renderTimeline();
+  const affected = new Set(lines.map(line => line.character));
+  for (const line of lines) {
+    const block = document.getElementById('line-block-' + line.id);
+    if (!block) return renderTimeline();
+    affected.add(block.closest('.track-row').dataset.character);
+  }
+  for (const row of rows) {
+    const character = row.dataset.character;
+    if (!affected.has(character)) continue;
+    const cues = session.lines.filter(line => line.character === character);
+    const blocks = [...row.querySelectorAll('.line-block')];
+    const sameSet = cues.length === blocks.length && cues.every(line => blocks.some(block => block.id === 'line-block-' + line.id));
+    if (!sameSet) { row.replaceWith(buildRoleRow(character, (timelineSeconds() + TIMELINE_TAIL) * pxPerSec, characters.length > 1, session.mode === 'edit')); continue; }
+    const lanes = assignLanes(cues);
+    const minimum = ROW_PADDING + (lanes.size ? Math.max(...lanes.values()) + 1 : 1) * LANE_HEIGHT;
+    row.style.height = Math.max(minimum, Math.min(600, Number(roleHeights[roleHeightKey(character)]) || 0)) + 'px';
+    for (const line of cues) {
+      const block = document.getElementById('line-block-' + line.id);
+      block.style.left = line.start * pxPerSec + 'px';
+      block.style.width = Math.max((line.end - line.start) * pxPerSec, MIN_TILE_PX) + 'px';
+      block.style.top = ROW_PADDING + (lanes.get(line.id) || 0) * LANE_HEIGHT + 'px';
+      if (lines.some(update => update.id === line.id)) updateLineBlockVisual(block, line);
+    }
+  }
+  for (const line of session.lines) {
+    const label = document.querySelector('#line-block-' + line.id + ' strong');
+    if (label) label.textContent = '#' + lineNumber(line);
+  }
+  window.refreshStudioWaves?.();
+};

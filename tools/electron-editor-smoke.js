@@ -80,7 +80,21 @@ if (!process.versions.electron) {
       await key('Down', ['alt']);
       await waitFor("session.lines.find(line => line.id === 1).character === 'Friend'");
       await key('Up', ['alt']);
-      await waitFor("session.lines.find(line => line.id === 1).character === 'Hero'");
+      await waitFor("session.lines.find(line => line.id === 1).character === 'Hero' && editorQueue.length === 0");
+      const recovery = await evaluate(`(async () => {
+        const emit = socket.emit, before = session.lines.find(line => line.id === 1).revision || 0;
+        let lose = true;
+        socket.emit = function(event, ...args) {
+          if (event === 'editor_update_line' && lose) { lose = false; const ack = args.pop(); args.push(() => ack(new Error('Native lost ACK'))); }
+          return emit.call(this, event, ...args);
+        };
+        try {
+          const results = await Promise.all(['Native A', 'Native B'].map(caption => updateEditorLine(session.lines.find(line => line.id === 1), { caption })));
+          return { ok: results.every(result => result.ok), caption: session.lines.find(line => line.id === 1).caption, revisions: session.lines.find(line => line.id === 1).revision - before };
+        } finally { socket.emit = emit; }
+      })()`);
+      assert.deepEqual(recovery, { ok: true, caption: 'Native B', revisions: 2 });
+      assert.equal(await evaluate("(() => { const slider=document.getElementById('settingsMicGain'); slider.value='150'; slider.dispatchEvent(new Event('input',{bubbles:true})); slider.dispatchEvent(new MouseEvent('dblclick',{bubbles:true})); return userMicGain===1 && slider.value==='100'; })()"), true);
       await evaluate("document.querySelector('.track-add-btn').click();"); await key('Escape');
       await waitFor("!document.querySelector('dialog[open]')");
       const roomUrl = win.webContents.getURL();
@@ -102,7 +116,7 @@ if (!process.versions.electron) {
       await new Promise(resolve => setTimeout(resolve, 100));
       assert.deepEqual(openedLinks, [WORKSHOP_URL], 'An unrelated URL reached the external browser');
       assert.equal(BrowserWindow.getAllWindows().length, 1, 'An unrelated popup was allowed');
-      console.log(JSON.stringify({ electron: process.versions.electron, checks: ['add role', 'rename role', 'rename session', 'Alt+arrows', 'Escape', 'Workshop external link'], passed: true }));
+      console.log(JSON.stringify({ electron: process.versions.electron, checks: ['add role', 'rename role', 'rename session', 'Alt+arrows', 'lost ACK/pending queue', 'slider reset', 'Escape', 'Workshop external link'], passed: true }));
       win.destroy(); app.exit(0);
     } catch (error) { console.error(error); win.destroy(); app.exit(1); }
   }).catch(error => { console.error(error); app.exit(1); });

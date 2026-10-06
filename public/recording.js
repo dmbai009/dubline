@@ -66,6 +66,33 @@ function reserveTake(lineId, sessionId) {
   });
 }
 
+let recordShortcutPending = false;
+window.recordSelectedLine = async function() {
+  if (!selectedLine) return showToast(t('toast.selectLine'));
+  if (recordShortcutPending) return;
+  if (recordState !== 'idle') return handleStudioRecord(selectedLine.id);
+  if (!socket.connected) return showToast(t('record.connectionRequired'));
+  if (renderInProgress || watchMode || session?.mode === 'edit') return handleStudioRecord(selectedLine.id);
+  const lineId = selectedLine.id, sessionId = session.activeSessionId, nick = myName, room = currentRoom;
+  const line = session.lines.find(item => item.id === lineId);
+  const owner = line && getLineOwner(line);
+  if (!line) return;
+  if (owner === myName) return handleStudioRecord(lineId);
+  if (owner) return showToast(t('record.owned', { owner }));
+  recordShortcutPending = true;
+  try {
+    const identity = line.audioUrl;
+    if (line.audioUrl && line.recordedBy && line.recordedBy !== myName && !await askConfirm(t('record.replaceForeign', { owner: line.recordedBy }))) return;
+    const current = session?.lines.find(item => item.id === lineId);
+    if (!socket.connected || session?.activeSessionId !== sessionId || currentRoom !== room || myName !== nick || selectedLine?.id !== lineId || current?.audioUrl !== identity || session.mode !== 'dub' || recordState !== 'idle' || renderInProgress || watchMode) return;
+    const result = await new Promise(resolve => socket.volatile.timeout(5000).emit('claim_line', { lineId, sessionId, audioUrl: identity }, (error, value) => resolve(error ? null : value)));
+    if (!result?.ok) return showToast(t(result?.owner ? 'record.owned' : 'record.connectionRequired', { owner: result?.owner }));
+    if (!socket.connected || session?.activeSessionId !== sessionId || currentRoom !== room || myName !== nick || selectedLine?.id !== lineId || session.mode !== 'dub' || recordState !== 'idle' || renderInProgress || watchMode) return;
+    applyTakeUpdates([result.line]);
+    if (getLineOwner(session.lines.find(item => item.id === lineId)) === myName) return await handleStudioRecord(lineId);
+  } finally { recordShortcutPending = false; }
+};
+
 window.handleStudioRecord = async function(lineId) {
   if (renderInProgress) return showToast(t('studio.mediaBusy'));
   if (!socket.connected && recordState === 'idle') return showToast(t('record.connectionRequired'));

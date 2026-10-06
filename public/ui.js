@@ -19,7 +19,7 @@
   card.innerHTML = '<div class="setting-label" data-i18n="studio.projectMix"></div><div class="setting-sub" data-i18n="studio.projectHelp"></div>';
   for (const channel of ['original', 'backing', 'dub']) {
     const row = document.createElement('div'); row.className = 'setting-card-row'; row.dataset.projectChannel = channel;
-    row.innerHTML = '<span data-i18n="studio.' + channel + '"></span><label><input type="range" min="0" max="150" step="1" data-project-field="volume"><output></output></label><button class="btn-outline" data-project-field="muted" data-i18n="studio.mute"></button><button class="btn-outline" data-project-field="solo" data-i18n="studio.solo"></button>' + (channel === 'dub' ? '' : '<label><span data-i18n="studio.offset"></span><input class="text-input" type="number" min="-43200" max="43200" step="0.01" data-project-field="offset"></label>');
+    row.innerHTML = '<span data-i18n="studio.' + channel + '"></span><label><input type="range" min="0" max="150" step="1" data-project-field="volume" data-reset-resolver="project-volume" data-reset-event="change"><output></output></label><button class="btn-outline" data-project-field="muted" data-i18n="studio.mute"></button><button class="btn-outline" data-project-field="solo" data-i18n="studio.solo"></button>' + (channel === 'dub' ? '' : '<label><span data-i18n="studio.offset"></span><input class="text-input" type="number" min="-43200" max="43200" step="0.01" data-project-field="offset"></label>');
     card.appendChild(row);
   }
   shared.prepend(card);
@@ -387,7 +387,7 @@ settingsTheme.addEventListener('change', () => {
 });
 
 window.openFilesModal = function() {
-  document.getElementById('customUploadStatus').style.display = 'none'; filesModal.style.display = 'flex'; switchFilesTab('import'); };
+  filesModal.style.display = 'flex'; switchFilesTab('import'); renderCustomImportStatus(); };
 window.closeFilesModal = function() { filesModal.style.display = 'none'; };
 window.switchFilesTab = function(tab) {
   const names = ['import', 'library', 'export'];
@@ -398,6 +398,7 @@ window.switchFilesTab = function(tab) {
   });
   if (tab === 'library') loadServerPacks();
   if (tab === 'export') updateExportDurationWarning();
+  if (tab === 'import') renderCustomImportStatus();
 };
 
 window.addEventListener('dubline-language-changed', () => {
@@ -447,8 +448,7 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'KeyR') {
     e.preventDefault();
     if (session && session.mode === 'edit') return showToast(t('editor.recordDisabled'));
-    if (selectedLine) handleStudioRecord(selectedLine.id);
-    else showToast(t('toast.selectLine'));
+    recordSelectedLine();
   }
 
   // Arrows: seek 3 seconds
@@ -543,7 +543,7 @@ function showInspector(line) {
   const micRow = isOwnedByMe ? `
     <div class="insp-row" title="${esc(t('micLevel'))}">
       <span class="insp-label">🎙</span>
-      <input type="range" min="30" max="300" step="10" value="${Math.round(userMicGain * 100)}" oninput="updateUserMicGain(this.value)">
+      <input type="range" data-reset-value="100" data-reset-event="input" min="30" max="300" step="10" value="${Math.round(userMicGain * 100)}" oninput="updateUserMicGain(this.value)">
       <span id="gainDisplay" class="take-val">${Math.round(userMicGain * 100)}%</span>
     </div>` : '';
 
@@ -668,7 +668,7 @@ function takePanelHtml(line, editable) {
     const parts = [t(`effect.${effect}`) || effect];
     if (pitch) parts.push(`${t('pitch')} ${signed(pitch, 0)}`);
     if (Math.abs(shift) >= 0.005) parts.push(`${t('shift')} ${signed(shift, 2)}s`);
-    return `${takeMixPanelHtml([line])}<div class="insp-meta">${t('voice')} ${esc(parts.join(', '))}</div>`;
+    return `${takeMixPanelHtml([line])}<div class="insp-meta">${t('voice')} ${esc(parts.join(', '))}</div>${effect !== 'none' ? clipSliderHtml([line], 'effectAmount', 0, 100, 1, 'disabled') : ''}`;
   }
 
   const options = Object.entries(VOICE_EFFECTS)
@@ -678,12 +678,15 @@ function takePanelHtml(line, editable) {
   return `
     ${takeMixPanelHtml([line])}
     <div class="take-panel" data-take-mix data-session="${esc(session.activeSessionId)}" data-takes="${esc(JSON.stringify([{ lineId: line.id, audioUrl: line.audioUrl, takeMixRevision: line.takeMixRevision || 0 }]))}" title="${esc(t('dragHint'))}">
+      <label class="clip-mix-row"><span>${esc(t('voice'))}</span>
+        <select data-clip-field="effect" aria-label="${esc(t('voice'))}" title="${esc(t('voice'))}" onchange="setTakeControlProps(this, { effect: this.value })">${options}</select>
+      </label>
+      ${effect !== 'none' ? clipSliderHtml([line], 'effectAmount', 0, 100, 1, '') : ''}
       <div class="take-row">
-        <select title="${esc(t('voice'))}" onchange="setTakeControlProps(this, { effect: this.value })">${options}</select>
         <span class="insp-label" title="${esc(t('pitch'))}">♯</span>
-        <input type="range" min="-12" max="12" step="1" value="${pitch}" class="pitch-range" title="${esc(t('pitch'))}"
+        <input type="range" data-reset-value="0" data-reset-event="change" min="-12" max="12" step="1" value="${pitch}" class="pitch-range" title="${esc(t('pitch'))}"
           oninput="document.getElementById('pitchVal').innerText = (this.value > 0 ? '+' : '') + this.value"
-          onchange="setTakeControlProps(this, { pitch: Number(this.value) })">
+          onchange="this.oninput(); setTakeControlProps(this, { pitch: Number(this.value) })">
         <span id="pitchVal" class="take-val narrow">${signed(pitch, 0)}</span>
       </div>
       <div class="take-row">
@@ -915,6 +918,16 @@ function canEditTake(line) {
   return window.DublineTakeMix.canEdit(line, myName, amHost(), getLineOwner(line));
 }
 
+function clipSliderHtml(lines, field, min, max, fallback, disabled) {
+  const valueOf = line => window.DublineTakeMix.normalize(line)[field];
+  const mixed = !lines.every(line => valueOf(line) === valueOf(lines[0]));
+  const value = Math.round((mixed ? fallback : valueOf(lines[0])) * 100);
+  return '<label class="clip-mix-row"><span>' + esc(t(`clip.${field}`)) + '</span>' +
+    '<input data-clip-field="' + field + '" data-reset-value="' + fallback * 100 + '" data-reset-event="change" aria-label="' + esc(t(`clip.${field}`)) + '" type="range" min="' + min + '" max="' + max + '" step="1" value="' + value + '" ' + disabled +
+    ' oninput="updateTakeMixLabel(this)" onchange="updateTakeMixLabel(this); setTakeControlProps(this, { ' + field + ': Number(this.value) / 100 })">' +
+    '<output>' + esc(mixed ? t('clip.mixed') : takeMixLabel(field, value)) + '</output></label>';
+}
+
 function takeMixPanelHtml(selection, bulk = false) {
   const recorded = selection.filter(line => line.audioUrl);
   if (!recorded.length) return '';
@@ -922,15 +935,7 @@ function takeMixPanelHtml(selection, bulk = false) {
   const lines = editable.length ? editable : recorded;
   const disabled = editable.length ? '' : 'disabled';
   const targets = editable.map(line => ({ lineId: line.id, audioUrl: line.audioUrl, takeMixRevision: line.takeMixRevision || 0 }));
-  const fieldValue = (line, field) => window.DublineTakeMix.normalize(line)[field];
-  const common = field => lines.every(line => fieldValue(line, field) === fieldValue(lines[0], field));
-  const slider = (field, min, max, fallback) => {
-    const mixed = !common(field), value = Math.round((mixed ? fallback : fieldValue(lines[0], field)) * 100);
-    return '<label class="clip-mix-row"><span>' + esc(t(`clip.${field}`)) + '</span>' +
-      '<input data-clip-field="' + field + '" aria-label="' + esc(t(`clip.${field}`)) + '" type="range" min="' + min + '" max="' + max + '" step="1" value="' + value + '" ' + disabled +
-      ' oninput="updateTakeMixLabel(this)" onchange="setTakeControlProps(this, { ' + field + ': Number(this.value) / 100 })">' +
-      '<output>' + esc(mixed ? t('clip.mixed') : takeMixLabel(field, value)) + '</output></label>';
-  };
+  const slider = (field, min, max, fallback) => clipSliderHtml(lines, field, min, max, fallback, disabled);
   const effectsMatch = lines.every(line => (line.effect || 'none') === (lines[0].effect || 'none'));
   const effect = effectsMatch ? lines[0].effect || 'none' : '';
   const options = (!effectsMatch ? '<option value="" disabled selected>' + esc(t('clip.mixed')) + '</option>' : '') +
@@ -940,7 +945,7 @@ function takeMixPanelHtml(selection, bulk = false) {
     (bulk ? '<p class="take-hint">' + esc(t('clip.bulk', { n: editable.length, total: recorded.length })) + '</p>' : '') +
     slider('volume', 0, 300, 1) + slider('pan', -100, 100, 0) +
     (bulk ? '<label class="clip-mix-row"><span>' + esc(t('voice')) + '</span><select class="text-input" data-clip-field="effect" aria-label="' + esc(t('voice')) + '" ' + disabled + ' onchange="setTakeControlProps(this, { effect: this.value })">' + options + '</select></label>' : '') +
-    slider('effectAmount', 0, 100, 1) + '<p class="take-hint">' + esc(t('clip.effectHelp')) + '</p>' +
+    (bulk && effect && effect !== 'none' ? slider('effectAmount', 0, 100, 1) + '<p class="take-hint">' + esc(t('clip.effectHelp')) + '</p>' : '') +
     (!editable.length ? '<p class="take-hint">' + esc(t('clip.readOnly')) + '</p>' : '') + '</section>';
 }
 

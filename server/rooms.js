@@ -310,6 +310,7 @@ function publicRoom(room) {
   const { hostClientId, nickOwners, chat, sessions, passwordHash, passwordSalt, admitted, banned, deletedLines, originalVideoUrl, ...rest } = room;
   return {
     ...rest,
+    editorProtocol: require('./editorOperations').snapshotProtocol(room),
     hasOriginalVideo: !!originalVideoUrl,
     originalVideoSize: fileSizeForUrl(originalVideoUrl),
     audioTracksPending: room.audioTracksPending === room.videoUrl,
@@ -328,6 +329,7 @@ function publicRoom(room) {
 
 function emitSession(roomId) {
   io.to(roomId).emit('session_updated', publicRoom(getRoom(roomId)));
+  require('./selectionPresence').broadcast(roomId);
 }
 
 // A video whose tracks could not be read is tried again later, not on every room event

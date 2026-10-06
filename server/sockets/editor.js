@@ -11,6 +11,7 @@ const { isHost } = require('../auth');
 const { endWatch, broadcastRecording, addSystemMessage } = require('../presence');
 const history = require('../editHistory');
 const timelineModel = require('../../public/timeline-model');
+const { registerMutation, patchMatches } = require('../editorOperations');
 
 const MIN_LINE_SECONDS = 0.1;
 
@@ -129,7 +130,7 @@ module.exports = function registerEditorHandlers(socket, conn) {
     else socket.emit('session_updated', session);
   });
 
-  socket.on('editor_add_track', ({ character, sessionId } = {}, ack) => {
+  registerMutation(socket, conn, 'editor_add_track', ({ character, sessionId } = {}, ack) => {
     const reply = typeof ack === 'function' ? ack : () => {};
     if (!conn.roomId) return reply({ ok: false, reason: 'room' });
     const room = getRoom(conn.roomId);
@@ -149,7 +150,7 @@ module.exports = function registerEditorHandlers(socket, conn) {
     reply({ ok: true, character: name });
   });
 
-  socket.on('editor_create_line', (data = {}, ack) => {
+  registerMutation(socket, conn, 'editor_create_line', (data = {}, ack) => {
     const reply = typeof ack === 'function' ? ack : () => {};
     if (!conn.roomId) return reply({ ok: false, reason: 'room' });
     const room = getRoom(conn.roomId);
@@ -186,7 +187,7 @@ module.exports = function registerEditorHandlers(socket, conn) {
 
   // One line (Inspector, drag) or several dragged together. All or nothing: if any
   // line changed meanwhile, nothing is applied and the client gets the current versions.
-  function updateLines(updates, reply, sessionId) {
+  function updateLines(updates, reply, sessionId, operationId) {
     if (!conn.roomId) return reply({ ok: false, reason: 'room' });
     const room = getRoom(conn.roomId);
     if (!editorAllowed(conn, room)) return reply({ ok: false, reason: 'mode' });
@@ -202,7 +203,7 @@ module.exports = function registerEditorHandlers(socket, conn) {
       ids.add(id);
       const line = room.lines.find(item => item.id === id);
       if (!line) return reply({ ok: false, reason: 'missing' });
-      if (Number(data.revision) !== Number(line.revision || 0)) { conflicts.push(line); continue; }
+      if (!patchMatches(line, data)) { conflicts.push(line); continue; }
       // Preserve short imported cues: changing their caption or moving them must
       // not force a longer duration. Newly created cues still require 100 ms.
       const bounds = validBounds(data.start ?? line.start, data.end ?? line.end, Math.min(MIN_LINE_SECONDS, line.end - line.start), room.videoDuration);
@@ -252,19 +253,19 @@ module.exports = function registerEditorHandlers(socket, conn) {
     const lines = planned.map(item => item.line);
     // Ownership, roles or tracks changed: everyone needs the whole scene, not just the lines
     if (moved || room.trackOrder.length !== tracksBefore || JSON.stringify(room.characterClaims) !== claimsBefore) emitSession(conn.roomId);
-    else io.to(conn.roomId).emit('editor_lines_updated', lines);
+    else io.to(conn.roomId).emit('editor_lines_updated', lines, { sessionId: room.activeSessionId, editorProtocol: require('../editorOperations').snapshotProtocol(room), operationId, actorClientId: conn.clientId });
     reply({ ok: true, line: lines[0], lines });
   }
 
-  socket.on('editor_update_line', (data = {}, ack) => {
-    updateLines([data], typeof ack === 'function' ? ack : () => {}, data.sessionId);
+  registerMutation(socket, conn, 'editor_update_line', (data = {}, ack) => {
+    updateLines([data], typeof ack === 'function' ? ack : () => {}, data.sessionId, data.operationId);
   });
 
-  socket.on('editor_update_lines', ({ updates, sessionId } = {}, ack) => {
-    updateLines(updates, typeof ack === 'function' ? ack : () => {}, sessionId);
+  registerMutation(socket, conn, 'editor_update_lines', ({ updates, sessionId, operationId } = {}, ack) => {
+    updateLines(updates, typeof ack === 'function' ? ack : () => {}, sessionId, operationId);
   });
 
-  socket.on('editor_delete_lines', ({ lines, sessionId } = {}, ack) => {
+  registerMutation(socket, conn, 'editor_delete_lines', ({ lines, sessionId } = {}, ack) => {
     const reply = typeof ack === 'function' ? ack : () => {};
     if (!conn.roomId) return reply({ ok: false, reason: 'room' });
     const room = getRoom(conn.roomId);
@@ -297,7 +298,7 @@ module.exports = function registerEditorHandlers(socket, conn) {
   });
   // Ctrl+Z in Edit Mode: undo this player's own last edit. Lines someone else changed
   // afterwards are left alone and counted as skipped.
-  socket.on('editor_undo', (payload, ack) => {
+  registerMutation(socket, conn, 'editor_undo', (payload, ack) => {
     const reply = typeof ack === 'function' ? ack : (typeof payload === 'function' ? payload : () => {});
     if (!conn.roomId) return reply({ ok: false, reason: 'room' });
     const room = getRoom(conn.roomId);
@@ -310,11 +311,14 @@ module.exports = function registerEditorHandlers(socket, conn) {
     let undone = 0;
     let skipped = 0;
     if (entry.type === 'lines') {
+      // A group undo is atomic. Never restore only part of its geometry.
+      const unsafe = entry.lines.some(item => !history.canUndoLine(room.lines.find(line => line.id === item.id), item));
+      if (unsafe) return reply({ ok: true, type: entry.type, undone: 0, skipped: entry.lines.length, more: history.hasFor(conn.roomId, room, conn.clientId) });
       const trackOrderUntouched = entry.tracksBefore && entry.tracksAfter &&
         JSON.stringify(room.trackOrder) === JSON.stringify(entry.tracksAfter);
       for (const item of entry.lines) {
         const line = room.lines.find(l => l.id === item.id);
-        if (!line || Number(line.revision || 0) !== item.revAfter) { skipped++; continue; }
+        if (!history.canUndoLine(line, item)) { skipped++; continue; }
         // Field by field: a value someone changed since (a claim while dubbing) stays as it is
         for (const [field, [before, after]] of Object.entries(item.changes)) {
           if ((line[field] === undefined ? null : line[field]) === after) line[field] = before;
@@ -326,6 +330,7 @@ module.exports = function registerEditorHandlers(socket, conn) {
           if (line.recordedStart !== null && line.recordedStart !== undefined) line.recordedStart = Number((line.recordedStart + delta).toFixed(3));
         }
         line.revision = Number(line.revision || 0) + 1;
+        history.noteUndo(conn.roomId, room, conn.clientId, line, item);
         history.rebase(conn.roomId, room, conn.clientId, line.id, item.revBefore, line.revision);
         undone++;
       }

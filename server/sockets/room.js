@@ -19,6 +19,7 @@ module.exports = function registerRoomHandlers(socket, conn) {
       const room = getRoom(conn.roomId);
       const wasHost = isHost(room, conn.clientId);
       delete roomSockets[conn.roomId][socket.id];
+      require('../selectionPresence').clear(socket.id, conn.roomId);
       socket.leave(conn.roomId);
       if (clearSocketRecordings(conn.roomId, socket.id)) broadcastRecording(conn.roomId);
       if (clearSocketSeeds(conn.roomId, socket.id)) broadcastSeeders(conn.roomId);
@@ -138,6 +139,7 @@ module.exports = function registerRoomHandlers(socket, conn) {
     socket.emit('nick_state', { nick: conn.nick, error, errorKey, errorParams });
     ensureAudioTracks(conn.roomId);
     socket.emit('session_updated', publicRoom(room));
+    socket.emit('selection_presence', require('../selectionPresence').snapshot(conn.roomId));
     socket.emit('chat_history', room.chat);
     socket.emit('recording_state', recordingList(conn.roomId));
     socket.emit('p2p_seeders', seedersSummary(conn.roomId));

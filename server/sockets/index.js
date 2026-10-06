@@ -20,4 +20,5 @@ io.on('connection', socket => {
   registerEditorHandlers(socket, conn);
   registerFeatureHandlers(socket, conn);
   registerProjectAudio(socket, conn);
+  require('../selectionPresence').register(socket, conn);
 });

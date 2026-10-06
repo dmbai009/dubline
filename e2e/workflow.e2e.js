@@ -57,6 +57,7 @@ describe('Studio Workflow 1.3', { skip: skipReason }, () => {
         await waitFor(guest, () => session.lines.length === 0);
       }
     }
+    await host.evaluate(() => closeFilesModal());
     assert.deepEqual(host.dialogs, [], 'valid imports never show an error');
   });
 

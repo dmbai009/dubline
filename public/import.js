@@ -155,10 +155,25 @@ window.addEventListener('dubline-language-changed', refreshFilePickers);
 refreshFilePickers();
 
 let customImportRequest = null;
+let customImportStatus = null;
+window.renderCustomImportStatus = () => {
+  const status = document.getElementById('customUploadStatus');
+  const state = customImportStatus;
+  status.style.display = state ? 'block' : 'none';
+  document.getElementById('customCancelBtn').style.display = state?.active && state.canCancel ? 'block' : 'none';
+  document.getElementById('customUploadBtn').disabled = !!state?.active || !amHost();
+  if (!state) return;
+  const key = { upload: state.optimizing ? 'proxy.uploading' : 'uploading', compress: 'proxy.compressing', audio: 'proxy.audio', done: 'upload.done', cancel: 'proxy.cancelled', network: 'upload.networkFailed', error: 'error.generic' }[state.phase];
+  status.textContent = t(key, { percent: state.percent, message: state.error }) +
+    (state.completed && state.skipped ? ' ' + t('import.skippedTimings', { n: state.skipped }) : '');
+  status.style.color = state.error || state.phase === 'cancel' ? 'var(--danger)' : state.completed ? state.skipped ? 'var(--warning)' : 'var(--success)' : 'var(--accent)';
+};
+window.addEventListener('dubline-language-changed', renderCustomImportStatus);
 window.cancelCustomImport = () => customImportRequest?.abort.abort();
 window.addEventListener('DOMContentLoaded',()=>socket.on('video_import_progress',event => {
   if(event.requestId!==customImportRequest?.id)return;
-  document.getElementById('customUploadStatus').textContent=t(event.stage==='audio'?'proxy.audio':'proxy.compressing',{percent:event.percent});
+  Object.assign(customImportStatus, { phase: event.stage === 'audio' ? 'audio' : 'compress', percent: event.percent });
+  renderCustomImportStatus();
 }));
 window.uploadCustomScene = async function() {
   if (!amHost()) return alert(t('onlyHost'));
@@ -167,8 +182,6 @@ window.uploadCustomScene = async function() {
   const subtitleFile = document.getElementById('customSubInput').files[0];
   const originalFile = document.getElementById('customOriginalInput').files[0];
   const intershumFile = document.getElementById('customIntershumInput').files[0];
-  const status = document.getElementById('customUploadStatus');
-  const button = document.getElementById('customUploadBtn');
   if (!videoFile) return alert(t('error.generic', { message: t('videoFile') }));
   const optimize=videoFile.size > 300 * 1024 * 1024;
   const tooBig = tunnelUploadError([videoFile, subtitleFile, originalFile, intershumFile]);
@@ -177,38 +190,33 @@ window.uploadCustomScene = async function() {
   const form = new FormData();
   form.append('clientId', clientId);
   const abort=new AbortController(),id=Date.now().toString(36)+'-'+Math.random().toString(36).slice(2);customImportRequest={abort,id};
+  customImportStatus = { requestId: id, active: true, phase: 'upload', percent: 0, error: '', optimizing: optimize, canCancel: true, completed: false };
   form.append('requestId',id);
   form.append('title', document.getElementById('customSceneTitle').value.trim());
   form.append('video', videoFile);
   if (subtitleFile) form.append('subtitles', subtitleFile);
   if (originalFile) form.append('original', originalFile);
   if (intershumFile) form.append('intershum', intershumFile);
-  status.textContent = t(optimize?'proxy.uploading':'uploading');
-  document.getElementById('customCancelBtn').style.display='block';
-  status.style.cssText = 'display:block;color:#a78bfa;font-size:11px;';
-  button.disabled = true;
+  renderCustomImportStatus();
   try {
     const res = await fetch(`/api/upload-custom?room=${encodeURIComponent(currentRoom)}${optimize?'&optimize=1':''}`, { method: 'POST', body: form, signal:abort.signal });
     if (!res.ok) throw new Error(await readError(res));
     const result = await res.json().catch(() => ({}));
     const skipped = Number(result.skippedTimings) || 0;
-    status.textContent = t('upload.done') + (skipped ? ' ' + t('import.skippedTimings', { n: skipped }) : '');
+    Object.assign(customImportStatus, { phase: 'done', percent: 100, completed: true, skipped });
     // The next import starts with an empty form (old subtitles won't be attached to a new video)
     ['customVideoInput', 'customSubInput', 'customOriginalInput', 'customIntershumInput', 'customSceneTitle'].forEach(id => { document.getElementById(id).value = ''; });
     refreshFilePickers();
     updateMkvCompatibilityWarning();
-    status.style.color = skipped ? 'var(--warning)' : '#10b981';
     if (skipped) showToast(t('import.skippedTimings', { n: skipped }));
-    // Leave a warning on screen long enough to read
-    setTimeout(closeFilesModal, skipped ? 4000 : 700);
+    // Final status remains reviewable; no timer may close a newly reopened Files UI.
   } catch (err) {
     // fetch throws a TypeError when the tunnel drops the connection mid-upload
-    status.textContent = err.name==='AbortError'?t('proxy.cancelled'):err instanceof TypeError ? t('upload.networkFailed') : t('error.generic', { message: err.message });
-    status.style.color = '#ef4444';
+    Object.assign(customImportStatus, { phase: err.name === 'AbortError' ? 'cancel' : err instanceof TypeError ? 'network' : 'error', error: err.name === 'AbortError' ? '' : err.message });
   } finally {
-    button.disabled = false;
     customImportRequest=null;
-    document.getElementById('customCancelBtn').style.display='none';
+    Object.assign(customImportStatus, { active: false, canCancel: false });
+    renderCustomImportStatus();
   }
 };
 

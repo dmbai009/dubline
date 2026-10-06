@@ -58,6 +58,8 @@ module.exports = function registerTrashHandlers(socket, conn) {
     const list = [];
     (room.deletedLines || []).forEach(batch => batch.lines.forEach(entry => list.push({
       lineId: entry.line.id,
+      revision: entry.line.revision || 0,
+      audioUrl: entry.line.audioUrl || null,
       character: entry.line.character,
       caption: String(entry.line.caption || '').slice(0, 300),
       start: entry.line.start,
@@ -114,10 +116,15 @@ module.exports = function registerTrashHandlers(socket, conn) {
   });
 
   // Permanent deletion from the trash: only then are take files erased
-  socket.on('host_trash_purge', ({ lineIds } = {}) => {
+  socket.on('host_trash_purge', ({ lineIds, sessionId, entries } = {}) => {
     if (!conn.roomId || !Array.isArray(lineIds)) return;
     const room = getRoom(conn.roomId);
     if (!isHost(room, conn.clientId) || room.mode !== 'edit') return;
+    if (sessionId !== undefined && sessionId !== room.activeSessionId) return;
+    if (entries !== undefined) {
+      const current = trashEntries(room);
+      if (!Array.isArray(entries) || entries.length !== lineIds.length || entries.some(expected => !current.some(item => item.lineId === expected.lineId && item.at === expected.at && item.revision === expected.revision && item.audioUrl === expected.audioUrl))) return;
+    }
     const taken = takeFromTrash(room, lineIds);
     if (!taken.length) return;
     taken.forEach(item => deleteTakeFile(item.entry.line.audioUrl));

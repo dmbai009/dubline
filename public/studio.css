@@ -102,3 +102,15 @@ html[data-theme=light] .line-block.selected { outline-color:var(--accent); }
 #audioLoadingStatus[hidden] { display:none; }
 #audioLoadingStatus.audio-loading::before { content:''; display:inline-block; width:10px; height:10px; margin-right:6px; border:2px solid var(--border); border-top-color:var(--accent); border-radius:50%; vertical-align:middle; animation:audioPreparing .9s linear infinite; }
 @keyframes audioPreparing { to { transform:rotate(360deg); } }
+/* Runtime editor status and gesture anchors. Presence never changes clip colours. */
+.editor-conflict-panel { position: fixed; z-index: 1100; right: 20px; bottom: 70px; width: min(440px, 90vw); max-height: 65vh; overflow: auto; background: var(--bg-panel, #202024); border: 1px solid var(--danger); border-radius: 10px; padding: 12px; }
+.editor-conflict-panel[hidden], #editorSyncState[hidden] { display: none; }
+.editor-conflict-item { margin-bottom: 12px; }
+.editor-conflict-item pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; }
+#editorSyncState.conflict { color: var(--danger); }
+.editor-drag-guides { position: absolute; inset: 0; pointer-events: none; z-index: 18; }
+.editor-drag-guides i { position: absolute; top: 0; bottom: 0; border-left: 1px dotted var(--accent); opacity: .5; }
+.editor-drag-guides.locked i { opacity: 1; border-left-width: 2px; }
+.line-block.editor-dragging { transition: none; }
+.remote-selection-markers { position: absolute; left: 3px; top: -9px; display: flex; gap: 2px; pointer-events: none; z-index: 4; max-width: 100%; }
+.remote-selection-markers span { border-top: 2px solid var(--player-color); background: var(--bg-panel, #202024); padding: 0 3px; font-size: 9px; max-width: 65px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

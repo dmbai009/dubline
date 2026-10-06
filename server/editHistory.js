@@ -2,6 +2,12 @@
 // Kept in memory per room session; a server restart starts a fresh history.
 const MAX_ENTRIES = 200;
 const histories = new Map(); // `${roomId}:${sessionId}` -> [{ by, type, ... }]
+const fieldVersions = new WeakMap(); // per live line; runtime only, protects same-field ABA
+const groupOf = field => ['start', 'end'].includes(field) ? 'timing' : ['character', 'claimedBy'].includes(field) ? 'assignment' : field;
+function versions(line) {
+  if (!fieldVersions.has(line)) fieldVersions.set(line, { caption: 0, timing: 0, assignment: 0 });
+  return fieldVersions.get(line);
+}
 
 // Fields an editor operation may change. Take placement (audioStart, recordedStart) is not
 // stored: it follows the line's start on undo, so a take recorded later stays where it was put.
@@ -39,7 +45,12 @@ function recordLines(roomId, room, by, before, claimsBefore, trackOrderBefore) {
     }
     if (Object.keys(changes).length) {
       const revAfter = Number(line.revision || 0);
-      lines.push({ id, revBefore: revAfter - 1, revAfter, changes });
+      const groups = [...new Set(Object.keys(changes).map(groupOf))];
+      const clock = versions(line), groupBefore = {}, groupAfter = {};
+      for (const group of groups) { groupBefore[group] = clock[group]; groupAfter[group] = ++clock[group]; }
+      // Include both timing edges in preflight even if just one changed.
+      lines.push({ id, revBefore: revAfter - 1, revAfter, changes, groupBefore, groupAfter,
+        timingAfter: groups.includes('timing') ? [line.start, line.end] : null });
     }
   }
   const claims = Object.create(null);
@@ -78,6 +89,26 @@ function hasFor(roomId, room, actorId) {
   return (histories.get(keyOf(roomId, room)) || []).some(entry => entry.by === actorId);
 }
 
+function canUndoLine(line, item) {
+  if (!line) return false;
+  if (item.groupAfter && Object.entries(item.groupAfter).some(([group, version]) => versions(line)[group] !== version)) return false;
+  if (item.timingAfter && (line.start !== item.timingAfter[0] || line.end !== item.timingAfter[1])) return false;
+  return Object.entries(item.changes).every(([field, [, after]]) => (line[field] ?? null) === after);
+}
+
+function noteUndo(roomId, room, actorId, line, item) {
+  const clock = versions(line);
+  for (const [group, previousVersion] of Object.entries(item.groupBefore || {})) {
+    const nextVersion = ++clock[group];
+    for (const entry of histories.get(keyOf(roomId, room)) || []) {
+      if (entry.by !== actorId) continue;
+      for (const prior of entry.lines || []) {
+        if (prior.id === line.id && prior.groupAfter?.[group] === previousVersion) prior.groupAfter[group] = nextVersion;
+      }
+    }
+  }
+}
+
 function clear(roomId, sessionId) {
   histories.delete(`${roomId}:${sessionId || ''}`);
 }
@@ -96,4 +127,4 @@ function renameNick(roomId, oldName, newName) {
   }
 }
 
-module.exports = { lineBefore, record, recordLines, popFor, hasFor, rebase, clear, renameNick, LINE_FIELDS };
+module.exports = { lineBefore, record, recordLines, popFor, hasFor, rebase, clear, renameNick, LINE_FIELDS, canUndoLine, noteUndo };

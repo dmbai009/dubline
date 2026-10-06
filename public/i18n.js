@@ -1508,6 +1508,19 @@
     'single.defaultName': ['Me', 'Я', 'Я']
   });
   for (const [key, translations] of Object.entries(studioCopy)) ['en', 'ru', 'uk'].forEach((code, i) => { messages[code][key] = translations[i]; });
+  for (const [key, values] of Object.entries({
+    'editor.pending': ['{n} edits pending', 'Правок в очереди: {n}', 'Змін у черзі: {n}'],
+    'editor.otherScene': ['This edit belongs to another scene.', 'Эта правка относится к другой сцене.', 'Ця зміна стосується іншої сцени.'],
+    'editor.syncing': ['Syncing… ({n})', 'Синхронизация… ({n})', 'Синхронізація… ({n})'],
+    'editor.syncConflict': ['Review {n} unsaved edits', 'Проверить несохранённые правки: {n}', 'Перевірити незбережені зміни: {n}'],
+    'editor.discardPending': ['Discard', 'Отбросить', 'Відкинути'],
+    'editor.repeatAction': ['Repeat this action from its original control to confirm the current targets.', 'Повторите действие через исходную кнопку, чтобы подтвердить актуальные объекты.', 'Повторіть дію через початкову кнопку, щоб підтвердити актуальні об’єкти.'],
+    'editor.dialogChanged': ['The scene or targets changed. Review them and confirm again.', 'Сцена или объекты изменились. Проверьте их и подтвердите снова.', 'Сцена або об’єкти змінилися. Перевірте їх і підтвердьте знову.'],
+    'editor.gestureConflict': ['This clip changed remotely. The drag was cancelled.', 'Реплика изменена другим участником. Перетаскивание отменено.', 'Репліку змінив інший учасник. Перетягування скасовано.'],
+    'editor.mergeTrack': ['{to} already exists. Merge {from} into {to}?', 'Дорожка {to} уже существует. Объединить {from} с {to}?', 'Доріжка {to} вже існує. Об’єднати {from} з {to}?'],
+    'record.owned': ['This line belongs to {owner}.', 'Реплика принадлежит {owner}.', 'Репліка належить {owner}.'],
+    'record.replaceForeign': ['Replace the current recording by {owner}?', 'Перезаписать текущую запись автора {owner}?', 'Перезаписати поточний запис автора {owner}?']
+  })) ['en', 'ru', 'uk'].forEach((code, i) => { messages[code][key] = values[i]; });
 
   for (const [key, values] of Object.entries({
   "storage.title": [

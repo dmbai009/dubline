@@ -17,3 +17,6 @@ resources/cloudflared.exe.download
 /docs/large-projects-plan.md
 /docs/qa/
 /tools/prepare-main-push.js
+
+# Local hardening reports and manual QA notes
+/docs/editor-hardening-*.md

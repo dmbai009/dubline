@@ -394,9 +394,13 @@ window.restoreTrashAll = function() {
 
 window.purgeTrashSelected = async function() {
   if (!trashSelected.size) return;
+  const sessionId = session.activeSessionId;
+  const lineIds = [...trashSelected];
+  const entries = trashItems.filter(item => lineIds.includes(item.lineId)).map(item => ({ lineId: item.lineId, at: item.at, revision: item.revision, audioUrl: item.audioUrl }));
   const takes = trashItems.filter(item => trashSelected.has(item.lineId) && item.hasTake).length;
   if (!await askConfirm(t('trash.purgeConfirm', { n: trashSelected.size, takes }))) return;
-  socket.emit('host_trash_purge', { lineIds: [...trashSelected] });
+  if (session.activeSessionId !== sessionId || entries.some(entry => !trashItems.some(item => item.lineId === entry.lineId && item.at === entry.at && item.revision === entry.revision && item.audioUrl === entry.audioUrl))) return showToast(t('editor.dialogChanged'));
+  socket.emit('host_trash_purge', { lineIds, sessionId, entries });
   trashSelected.clear();
 };
 
@@ -586,7 +590,20 @@ socket.on('force_pause', () => {
   video.pause();
 });
 
+let latestSessionProtocol = null;
+const previousEditorEpochs = new Set();
+function acceptSessionProtocol(protocol) {
+  if (!protocol) return true; // compatibility with existing snapshots/tests
+  if (latestSessionProtocol?.room !== currentRoom) { latestSessionProtocol = null; previousEditorEpochs.clear(); }
+  if (previousEditorEpochs.has(protocol.epoch)) return false;
+  if (latestSessionProtocol?.epoch === protocol.epoch && protocol.version < latestSessionProtocol.version) return false;
+  if (latestSessionProtocol && latestSessionProtocol.epoch !== protocol.epoch) previousEditorEpochs.add(latestSessionProtocol.epoch);
+  while (previousEditorEpochs.size > 8) previousEditorEpochs.delete(previousEditorEpochs.values().next().value);
+  latestSessionProtocol = { room: currentRoom, epoch: protocol.epoch, version: protocol.version };
+  return true;
+}
 function applySessionUpdate(data) {
+  if (!acceptSessionProtocol(data.editorProtocol)) return;
   data.characterClaims = Object.assign(Object.create(null), data.characterClaims);
   data.latency = Object.assign(Object.create(null), data.latency);
   const sessionChanged = !session || session.activeSessionId !== data.activeSessionId;
@@ -596,6 +613,7 @@ function applySessionUpdate(data) {
     selectedLine = null;
   }
   session = data;
+  window.acceptEditorSnapshot?.(data);
   if (!session || !session.loaded) {
     // The room has no session (e.g. the last one was deleted): clear the studio
     cancelMediaDownload();
@@ -663,10 +681,12 @@ function applyTakeUpdates(lines) {
     if (idx === -1) continue;
     audio.updateLine(session.lines[idx], updatedLine);
     session.lines[idx] = updatedLine;
-    updateLineBlock(updatedLine);
+    window.acceptEditorTake?.(updatedLine);
+    const visibleLine = session.lines.find(line => line.id === updatedLine.id) || updatedLine;
+    updateLineBlock(visibleLine);
     if (updatedLine.audioUrl) getProcessedTake(updatedLine);
     changed = true;
-    if (selectedLine?.id === updatedLine.id) { selectedLine = updatedLine; selectedChanged = true; }
+    if (selectedLine?.id === updatedLine.id) { selectedLine = visibleLine; selectedChanged = true; }
   }
   if (!changed) return;
   if (window.refreshStudioWaves) window.refreshStudioWaves();

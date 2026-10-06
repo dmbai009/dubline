@@ -4,6 +4,8 @@
   const model = window.DublineProjectAudio;
   const pending = new Map(), waves = new Map();
   const sourcePositions = new WeakMap();
+  const waveWindows = new WeakMap();
+  let coverageDirty = true, coverage = [], coverageVersion = 0;
   let busy = false, inFlight = null, generation = 0, sceneId = '', waveFrame = 0;
   let mixMode = localStorage.getItem('dubline_mix_mode') === 'monitor' ? 'monitor' : 'project';
   let monitors = {};
@@ -186,7 +188,7 @@
       const ids = { original: 'volOriginal', backing: 'volBacking', dub: 'volRecorded' };
       row.innerHTML = `<div class="track-label"><div class="studio-channel-head"><b>${names[channel]}</b>
         <button class="btn-icon" data-audio-field="muted" title="${esc(t('studio.mute'))}">M</button><button class="btn-icon" data-audio-field="solo" title="${esc(t('studio.solo'))}">S</button></div>
-        <label class="studio-channel-volume"><input type="range" id="${ids[channel]}" min="0" max="${model.MAX_VOLUME * 100}" data-audio-field="volume" aria-label="${names[channel]} volume"><output></output></label>
+        <label class="studio-channel-volume"><input type="range" id="${ids[channel]}" min="0" max="${model.MAX_VOLUME * 100}" data-audio-field="volume" data-reset-resolver="audio-volume" aria-label="${names[channel]} volume"><output></output></label>
         ${channel !== 'dub' ? `<label class="studio-channel-offset"><span>${esc(t('studio.offset'))}</span><input class="text-input" type="number" min="-43200" max="43200" step="0.001" data-audio-field="offset" aria-label="${names[channel]} offset"><span>s</span></label>` : ''}
         </div><div class="studio-wave-area" style="width:${trackWidth}px"><canvas></canvas><span class="studio-wave-status"></span><div class="studio-wave-source"></div></div>`;
       timeline.appendChild(row);
@@ -271,34 +273,62 @@
     return session.audioMetadata?.[channel]?.name || t('studio.separateAudio');
   }
   function drawWaves() {
-    if (!session || !session.loaded) return;
+    if (!session || !session.loaded || audioCollapsed()) return;
     const sources = model.sources(session), mix = project();
     const viewport = timelineContainer.clientWidth;
     const padding = Math.ceil(viewport / 2);
     const left = Math.max(0, timelineContainer.scrollLeft - labelWidth - padding);
     const width = Math.max(1, Math.ceil(viewport * 2));
     const scale = window.devicePixelRatio || 1;
+    const visibleLeft = Math.max(0, timelineContainer.scrollLeft - labelWidth);
+    const visibleRight = visibleLeft + viewport;
+    const theme = document.documentElement.dataset.theme || '';
+    let colors = null;
+    if (coverageDirty) {
+      coverage = session.lines.filter(canHearLine).map(line => {
+        const start = takeStartTime(line) + (line.trimEnabled !== false ? line.trimStart || 0 : 0);
+        const length = line.trimEnabled !== false && line.trimEnd != null ? line.trimEnd - (line.trimStart || 0) : Math.max(0.1, line.end - line.start);
+        return { id: line.id, number: lineNumber(line), start, end: start + length };
+      });
+      coverageDirty = false; coverageVersion++;
+    }
     for (const row of document.querySelectorAll('.studio-audio-row')) {
       const channel = row.dataset.audioChannel, canvas = row.querySelector('canvas');
-      canvas.width = Math.ceil(width * scale); canvas.height = Math.ceil(88 * scale); canvas.style.width = `${width}px`; canvas.style.left = `${left}px`;
+      const url = sources[channel], wave = channel !== 'dub' && url ? requestWave(channel, url) : null;
+      const key = JSON.stringify([session.activeSessionId, pxPerSec, viewport, scale, theme, document.documentElement.getAttribute('style'), url, mix[channel].offset, wave?.loading, wave?.unavailable, wave?.peaks?.length, channel === 'dub' ? coverageVersion : 0]);
+      const cached = waveWindows.get(canvas);
+      // The guard band avoids thrashing at the overscan edge. Ordinary scrolling
+      // moves through the existing bitmap without resizing or painting it again.
+      const guard = Math.ceil(viewport / 8);
+      if (cached?.key === key && cached.peaks === wave?.peaks &&
+          visibleLeft >= (cached.left === 0 ? 0 : cached.left + guard) && visibleRight <= cached.right - guard) continue;
+      waveWindows.set(canvas, { key, peaks: wave?.peaks, left, right: left + width });
+      const bitmapWidth = Math.ceil(width * scale), bitmapHeight = Math.ceil(88 * scale);
+      if (canvas.width !== bitmapWidth) canvas.width = bitmapWidth;
+      if (canvas.height !== bitmapHeight) canvas.height = bitmapHeight;
+      canvas.style.width = `${width}px`; canvas.style.left = `${left}px`;
+      canvas.dataset.waveRender = String(Number(canvas.dataset.waveRender || 0) + 1);
       const ctx = canvas.getContext('2d'); ctx.setTransform(scale, 0, 0, scale, 0, 0);
-      ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#8b5cf6'; ctx.fillStyle = ctx.strokeStyle;
+      ctx.clearRect(0, 0, width, 88);
+      if (!colors) {
+        const style = getComputedStyle(document.documentElement);
+        colors = { accent: style.getPropertyValue('--accent').trim() || '#8b5cf6', success: style.getPropertyValue('--success').trim() || '#34d399' };
+      }
+      ctx.strokeStyle = colors.accent; ctx.fillStyle = ctx.strokeStyle;
       const status = row.querySelector('.studio-wave-status');
       if (channel === 'dub') {
         status.textContent = '';
         row.querySelector('.studio-wave-source').textContent = t('studio.coverage');
-        for (const line of session.lines.filter(canHearLine)) {
-          const start = takeStartTime(line) + (line.trimEnabled !== false ? line.trimStart || 0 : 0);
-          const length = line.trimEnabled !== false && line.trimEnd != null ? line.trimEnd - (line.trimStart || 0) : Math.max(0.1, line.end - line.start);
-          const x = start * pxPerSec - left, w = Math.max(2, length * pxPerSec);
-          ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--success').trim() || '#34d399';
+        ctx.fillStyle = colors.success;
+        for (const line of coverage) {
+          if (line.end * pxPerSec < left || line.start * pxPerSec > left + width) continue;
+          const x = line.start * pxPerSec - left, w = Math.max(2, (line.end - line.start) * pxPerSec);
           ctx.globalAlpha = 0.25; ctx.beginPath(); ctx.roundRect(x, 35, w, 18, 4); ctx.fill();
           ctx.globalAlpha = 1; ctx.fillRect(x, 35, Math.min(3, w), 18);
-          if (w > 35) { ctx.font = '10px sans-serif'; ctx.fillText('#' + lineNumber(line), x + 6, 47, w - 9); }
+          if (w > 35) { ctx.font = '10px sans-serif'; ctx.fillText('#' + line.number, x + 6, 47, w - 9); }
         }
         continue;
       }
-      const url = sources[channel], wave = url && requestWave(channel, url);
       status.textContent = !url ? t('studio.noSource') : wave.loading ? t('studio.waveLoading') : wave.unavailable ? t('studio.noWave') : '';
       const caption = row.querySelector('.studio-wave-source');
       caption.textContent = sourceCaption(channel, url); caption.title = caption.textContent;
@@ -320,7 +350,10 @@
   };
   if (window.ResizeObserver) new ResizeObserver(() => { fitAudioHeader(); drawWaves(); }).observe(timelineContainer);
   timelineContainer.addEventListener('scroll', () => { cancelAnimationFrame(waveFrame); waveFrame = requestAnimationFrame(drawWaves); });
-  window.refreshStudioWaves = drawWaves;
+  window.refreshStudioWaves = () => { coverageDirty = true; drawWaves(); };
+  socket.on('session_updated', () => { coverageDirty = true; drawWaves(); });
+  window.addEventListener('dubline-language-changed', () => { document.querySelectorAll('.studio-audio-row canvas').forEach(canvas => waveWindows.delete(canvas)); drawWaves(); });
+  new MutationObserver(drawWaves).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'style'] });
   window.addEventListener('resize', drawWaves);
   window.syncStudioSettings = () => {
     const adr = document.querySelector('[data-studio-setting=adr]'); if (adr) adr.value = localStorage.getItem('dubline_adr') === 'three' ? 'three' : 'off';
@@ -338,6 +371,15 @@
       for (const id of ['settingsLocalDuckOn', 'settingsLocalDuckAmount']) document.getElementById(id).disabled = !localDuck.enabled;
     }
   };
+  const resetResolvers = {
+    'pre-roll': () => DublineAdr.preparation(1, localStorage.getItem('dubline_adr') === 'three'),
+    'project-volume': control => model.normalize({ ...session, projectAudio: {} })[control.closest('[data-project-channel]').dataset.projectChannel].volume * 100,
+    'audio-volume': control => {
+      const channel = control.closest('[data-audio-channel]').dataset.audioChannel;
+      return (mixMode === 'monitor' || !canMix() ? project() : model.normalize({ ...session, projectAudio: {} }))[channel].volume * 100;
+    }
+  };
+  window.resolveSliderReset = (name, control) => resetResolvers[name]?.(control);
   document.body.classList.toggle('lobby-compact', localStorage.getItem('dubline_lobby_compact') === '1');
   document.addEventListener('click', event => {
     const control = event.target.closest('[data-project-field], [data-audio-field], [data-studio-action]'); if (!control || control.disabled) return;
@@ -369,6 +411,7 @@
   });
   document.addEventListener('change', event => {
     const control = event.target, field = control.dataset.audioField;
+    if ((field === 'volume' || control.dataset.projectField === 'volume') && control.nextElementSibling?.tagName === 'OUTPUT') control.nextElementSibling.textContent = `${control.value}%`;
     if (control.dataset.projectField && control.value.trim() !== '' && control.validity.valid) window.updateProjectAudio(control.closest('[data-project-channel]').dataset.projectChannel, control.dataset.projectField, Number(control.value) / (control.dataset.projectField === 'volume' ? 100 : 1));
     if (field && control.value.trim() !== '' && control.validity.valid) update(control.closest('[data-audio-channel]').dataset.audioChannel, field, Number(control.value) / (field === 'volume' ? 100 : 1));
     if (control.hasAttribute('data-studio-mix')) { mixMode = control.value; localStorage.setItem('dubline_mix_mode', mixMode); applyVolumes(); refreshControls(); }
