@@ -3,7 +3,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs'), path = require('node:path'), os = require('node:os'), crypto = require('node:crypto');
 const { DesktopStorage } = require('./electron-storage');
 async function fixture(t) {
-  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'dubline-storage-'));
+  // Windows TEMP may use an 8.3 alias; migration returns canonical real paths.
+  const dir = await fs.promises.realpath(await fs.promises.mkdtemp(path.join(os.tmpdir(), 'dubline-storage-')));
   t.after(() => fs.promises.rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
   const profile = path.join(dir, 'Профиль'), parent = path.join(dir, 'Другой диск');
   await fs.promises.mkdir(parent); await fs.promises.mkdir(profile);
