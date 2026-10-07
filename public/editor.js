@@ -16,9 +16,13 @@ function updateModeUi() {
   document.querySelector('.toolbar-hint').textContent = t(editing ? 'timeline.editHint' : 'timeline.hint');
 }
 
-window.setStudioMode = function(mode) {
+window.setStudioMode = async function(mode) {
   if (!amHost() || !['edit', 'dub'].includes(mode) || !session || session.mode === mode) return;
-  socket.emit('set_session_mode', { mode });
+  const sessionId = session.activeSessionId, deadline = Date.now() + 8000;
+  while (editorQueue.length && socket.connected && session?.activeSessionId === sessionId && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 25));
+  if (!socket.connected || session?.activeSessionId !== sessionId) return;
+  if (editorQueue.length || editorConflicts.some(entry => entry.sessionId === sessionId)) return showToast(t('editor.rejected'));
+  socket.emit('set_session_mode', { mode, sessionId });
 };
 
 // Edit Mode opened during a recording: stop it and keep the take. The server accepts it
@@ -44,7 +48,11 @@ socket.on('session_updated', () => {
 function applyEditorLines(lines, ownConfirmation = false) {
   if (!session || !Array.isArray(session.lines) || !Array.isArray(lines)) return;
   const gesture = window.activeEditorGesture;
-  const touchesGesture = gesture && lines.some(line => gesture.lineIds.has(line.id));
+  const touchesGesture = gesture && lines.some(line => {
+    if (!gesture.lineIds.has(line.id)) return false;
+    const previous = editorAuthoritative.get(line.id);
+    return !previous || ['start', 'end', ...(gesture.type === 'move' ? ['character'] : [])].some(field => previous[field] !== line[field]);
+  });
   for (const operation of editorQueue) operation.coalesce = null; // incoming authoritative boundary
   lines.forEach(line => {
     const previous = editorAuthoritative.get(line.id);
@@ -55,7 +63,7 @@ function applyEditorLines(lines, ownConfirmation = false) {
   // Preserve it only when replayed visible semantic bases still match exactly.
   if (touchesGesture && (!ownConfirmation || [...gesture.baseFields].some(([id, base]) => {
     const visible = session.lines.find(line => line.id === id);
-    return !visible || Object.entries(base).some(([field, value]) => visible[field] !== value);
+    return !visible || ['start', 'end', ...(gesture.type === 'move' ? ['character'] : [])].some(field => visible[field] !== base[field]);
   }))) cancelEditorGesture('conflict');
   refreshEditorTimeline(lines);
   updatePrompter();
@@ -63,7 +71,11 @@ function applyEditorLines(lines, ownConfirmation = false) {
 }
 
 socket.on('editor_lines_updated', (lines, metadata) => {
-  if (metadata?.sessionId && metadata.sessionId !== session?.activeSessionId) return;
+  if (metadata?.actorClientId === clientId && metadata.sessionId === session?.activeSessionId) {
+    const applied = editorQueue.find(operation => operation.id === metadata.operationId);
+    if (applied?.mutationLease) { window.releaseEditLease(applied.mutationLease); applied.mutationLease = null; }
+  }
+  if (!window.acceptSceneDelta(metadata?.sessionId, lines)) return;
   if (!acceptSessionProtocol(metadata?.editorProtocol)) return;
   const ownConfirmation = metadata?.actorClientId === clientId && editorQueue.some(operation => operation.id === metadata.operationId);
   applyEditorLines(lines, ownConfirmation);
@@ -103,6 +115,50 @@ let editorPumping = false;
 let editorRetryTimer = null;
 let editorNeedsResync = false;
 const EDITOR_ACK_TIMEOUT_MS = 10000;
+const editorIntentStore = window.DublineLocalDatabase.store('pendingEditorOperations');
+let editorPersistence = Promise.resolve();
+let restoredEditorRecords = null;
+let editorRecoveryLoading = false;
+function persistEditorOperation(operation, remove = false) {
+  const record = remove ? null : structuredClone({ id: operation.id, event: operation.event, payload: operation.payload,
+    request: operation.request, sessionId: operation.sessionId, roomId: operation.roomId, clientId: operation.clientId,
+    status: operation.status, sent: !!operation.sent, targetBases: [...operation.targetBases], createdAt: operation.createdAt || Date.now() });
+  // Serialize writes so a late put cannot resurrect a confirmed/discarded record.
+  editorPersistence = editorPersistence.then(() => remove ? editorIntentStore.remove(operation.id) : editorIntentStore.put(record))
+    .catch(error => { console.warn('[DubLine] Editor recovery is memory-only:', error); });
+  return editorPersistence;
+}
+async function restoreEditorOperations() {
+  if (editorRecoveryLoading || !myName || !session?.editorProtocol || !socket.connected) return;
+  editorRecoveryLoading = true;
+  try {
+    if (!restoredEditorRecords) restoredEditorRecords = await editorIntentStore.all();
+    for (const record of [...restoredEditorRecords]) {
+      if (record.clientId !== clientId || record.roomId !== currentRoom) continue;
+      restoredEditorRecords.splice(restoredEditorRecords.indexOf(record), 1);
+      if (editorQueue.some(item => item.id === record.id) || editorConflicts.some(item => item.id === record.id)) continue;
+      const operation = { ...record, targetBases: new Map(record.targetBases || []), coalesce: null };
+      operation.promise = new Promise(resolve => { operation.resolve = resolve; });
+      const patches = editorUpdates(operation);
+      const currentScene = operation.sessionId === session.activeSessionId;
+      const expired = record.request?.operationEpoch !== session.editorProtocol.epoch ||
+        session.editorProtocol.serverTime - Number(record.request?.operationTime) > 30 * 60 * 1000;
+      // Only an already-satisfied semantic patch may complete after receipt expiry.
+      const satisfied = currentScene && patches.length && patches.every(patch => {
+        const line = editorAuthoritative.get(patch.lineId);
+        return line && ['caption', 'start', 'end', 'character'].every(field => patch[field] === undefined || line[field] === patch[field]);
+      });
+      if (expired && satisfied) { persistEditorOperation(operation, true); continue; }
+      if (!currentScene || expired || operation.status === 'conflict' || (session.mode !== 'edit' && operation.event !== 'editor_add_track')) {
+        operation.status = 'conflict'; editorConflicts.push(operation); persistEditorOperation(operation); continue;
+      }
+      operation.status = 'queued'; editorQueue.push(operation);
+    }
+    rebuildEditorOverlay(); renderEditorSyncState();
+    if (editorQueue.length) scheduleEditorPump(0);
+  } catch (error) { console.warn('[DubLine] Could not load editor recovery:', error); }
+  finally { editorRecoveryLoading = false; }
+}
 
 function lineRevision(lineId) {
   const line = session.lines.find(item => item.id === lineId);
@@ -152,9 +208,10 @@ window.acceptEditorSnapshot = function(data) {
   }
   for (const operation of [...editorQueue]) {
     operation.coalesce = null;
-    if (!operation.sent && data.editorProtocol) {
-      operation.request.operationEpoch = data.editorProtocol.epoch;
-      operation.request.operationTime = data.editorProtocol.serverTime;
+    // Captured requests retain identity and epoch. A new server cannot blindly
+    // replay a structural operation whose old receipt may already have applied.
+    if (operation.request.operationEpoch !== data.editorProtocol?.epoch) {
+      finishEditorOperation(operation, { ok: false, reason: 'expired' }); continue;
     }
     if (operation.roomId !== currentRoom || operation.clientId !== clientId || operation.sessionId !== editorScene || (data.mode !== 'edit' && operation.event !== 'editor_add_track')) {
       finishEditorOperation(operation, { ok: false, reason: operation.sessionId !== editorScene ? 'session' : 'mode' });
@@ -164,6 +221,7 @@ window.acceptEditorSnapshot = function(data) {
   renderEditorSyncState();
   // session_updated on reconnect arrives only after join_room has succeeded.
   if (socket.connected) { editorNeedsResync = false; scheduleEditorPump(0); }
+  restoreEditorOperations();
 };
 
 function renderEditorSyncState() {
@@ -215,6 +273,7 @@ document.addEventListener('click', event => {
     queueEditorRequest(() => [operation.event, payload]).then(editorResult);
   }
   editorConflicts.splice(editorConflicts.indexOf(operation), 1);
+  persistEditorOperation(operation, true);
   renderEditorSyncState();
   document.getElementById('editorConflictPanel').hidden = true;
 });
@@ -258,15 +317,18 @@ function finishEditorOperation(operation, result) {
         if (line && base && Object.entries(base).every(([field, value]) => line[field] === value)) patch.revision = line.revision || 0;
       }
       next.request = { ...next.request, ...next.payload };
+      persistEditorOperation(next);
     }
   }
   if (!result?.ok) { operation.status = 'conflict'; editorConflicts.push(operation); }
+  persistEditorOperation(operation, !!result?.ok);
   operation.resolve(result);
 }
 
 async function pumpEditorQueue() {
   if (editorPumping || !editorQueue.length || !socket.connected) return;
   editorPumping = true;
+  let mutationLease = null;
   try {
     if (editorNeedsResync && !await resyncEditor()) return;
     const operation = editorQueue[0];
@@ -274,8 +336,18 @@ async function pumpEditorQueue() {
     if (operation.roomId !== currentRoom || operation.clientId !== clientId || operation.sessionId !== session?.activeSessionId || (session.mode !== 'edit' && operation.event !== 'editor_add_track')) {
       finishEditorOperation(operation, { ok: false, reason: 'session' }); return;
     }
+    if (!operation.sent && session.mode === 'edit' && window.editorLeaseTargets) {
+      const targets = window.editorLeaseTargets(operation.event, operation.payload);
+      if (targets.length) {
+        mutationLease = await window.acquireEditLease(targets);
+        operation.mutationLease = mutationLease;
+        if (!editorQueue.includes(operation)) return;
+        if (!mutationLease) { finishEditorOperation(operation, { ok: false, reason: 'locked' }); return; }
+      }
+    }
     operation.status = 'in-flight';
     operation.sent = true;
+    await persistEditorOperation(operation);
     const result = await new Promise(resolve => {
       socket.volatile.timeout(EDITOR_ACK_TIMEOUT_MS).emit(operation.event, operation.request, (err, value) => resolve(err ? null : value));
     });
@@ -286,6 +358,7 @@ async function pumpEditorQueue() {
     if (lines.length && acceptSessionProtocol(result.editorProtocol)) applyEditorLines(lines, !!result.ok);
     else { rebuildEditorOverlay(); if (!result.ok || editorQueue.length) refreshEditorTimeline(session.lines); }
   } finally {
+    window.releaseEditLease?.(mutationLease);
     editorPumping = false;
     renderEditorSyncState();
     if (editorQueue.length && socket.connected) scheduleEditorPump(editorNeedsResync ? 1000 : 0);
@@ -293,6 +366,7 @@ async function pumpEditorQueue() {
 }
 
 function queueEditorRequest(build, options = {}) {
+  if (window.snapshotFrozen) return Promise.resolve({ ok: false, reason: 'snapshot' });
   const [event, original] = build();
   const payload = structuredClone(original);
   const sessionId = session?.activeSessionId;
@@ -304,6 +378,7 @@ function queueEditorRequest(build, options = {}) {
     if (updates.length === previous.length && updates.every((patch, i) => patch.lineId === previous[i].lineId)) {
       updates.forEach((patch, i) => { previous[i].start = patch.start; previous[i].end = patch.end; });
       last.request = { ...last.request, ...last.payload };
+      persistEditorOperation(last);
       rebuildEditorOverlay(); renderTimeline(); scheduleEditorPump(80);
       return last.promise;
     }
@@ -317,7 +392,9 @@ function queueEditorRequest(build, options = {}) {
   operation.request = { ...payload, sessionId, operationId: operation.id, operationEpoch: session?.editorProtocol?.epoch,
     operationTime: session?.editorProtocol?.serverTime ? session.editorProtocol.serverTime + performance.now() - editorProtocolReceivedAt : Date.now() };
   operation.promise = new Promise(resolve => { operation.resolve = resolve; });
+  operation.createdAt = Date.now();
   editorQueue.push(operation);
+  persistEditorOperation(operation);
   // A selected clip moved into another role must remain visible after overlay redraw.
   if (selectedLine && editorUpdates(operation).some(patch => patch.lineId === selectedLine.id && patch.character !== undefined && patch.character !== selectedLine.character)) revealLineId = selectedLine.id;
   rebuildEditorOverlay(); renderTimeline(); renderEditorSyncState();
@@ -399,7 +476,7 @@ function rememberEditorDraft(form) {
   if (!key?.startsWith(`${session.activeSessionId}:`) || !editorAuthoritative.has(Number(key.split(':').pop()))) return null;
   const previous = editorDrafts.get(key);
   if (previous && previous.pending) { previous.values = values; return previous; }
-  if (EDITOR_FORM_FIELDS.every(field => values[field] === String(form.editorBase[field] ?? ''))) {
+  if (EDITOR_FORM_FIELDS.every(field => sameEditorValue(field, values[field], form.editorBase[field] ?? ''))) {
     editorDrafts.delete(key);
     return null;
   }
@@ -525,6 +602,7 @@ window.showEditorInspector = function(line, capture = true) {
         <button class="btn-delete" type="button" onclick="deleteEditorLines([${line.id}])">${t('editor.delete')}</button>
       </div>
     </form>
+    ${retakeControlHtml(line)}
     <div data-editor-take>${takePanelHtml(line, canEditTake(line))}</div>
     <p class="take-hint">${t('editor.dragHint')}</p>
   `;
@@ -533,6 +611,7 @@ window.showEditorInspector = function(line, capture = true) {
   form.dataset.revision = String(line.revision || 0);
   form.dataset.tracks = JSON.stringify(tracks);
   form.editorBase = draft ? draft.base : { ...line };
+  window.bindEditorLeases?.(form);
   form.addEventListener('input', () => { rememberEditorDraft(form); validateEditorForm(form, line); });
   validateEditorForm(form, line);
   if (focusState) {
@@ -640,7 +719,7 @@ window.enableLineEditDrag = function(el, lineId) {
   endHandle.className = 'line-resize-handle end';
   el.append(startHandle, endHandle);
 
-  const begin = (event, edge = null) => {
+  const begin = async (event, edge = null) => {
     if (event.button !== 0) return;
     // The timeline's own mouse handlers stay out of Edit Mode (this also suppresses their mousedown)
     event.preventDefault();
@@ -653,6 +732,26 @@ window.enableLineEditDrag = function(el, lineId) {
     const group = !edge && multiSelection.size >= 2 && multiSelection.has(lineId)
       ? session.lines.filter(item => multiSelection.has(item.id))
       : [line];
+    const sessionId = session.activeSessionId;
+    const identities = group.map(item => [item.id, item.revision || 0]);
+    let released = false;
+    let pendingPointer = null;
+    const earlyMove = next => { pendingPointer = { clientX: next.clientX, clientY: next.clientY }; };
+    const earlyRelease = () => { released = true; };
+    window.addEventListener('pointerup', earlyRelease, { once: true });
+    window.addEventListener('pointercancel', earlyRelease, { once: true });
+    window.addEventListener('blur', earlyRelease, { once: true });
+    window.addEventListener('pointermove', earlyMove);
+    const targets = group.length > 64 ? [{ type: 'session', key: '*', group: 'structural' }] : group.flatMap(item =>
+      [{ type: 'line', key: item.id, group: 'timing' }, ...(!edge ? [{ type: 'line', key: item.id, group: 'assignment' }] : [])]);
+    const leaseToken = await acquireEditLease(targets);
+    window.removeEventListener('pointerup', earlyRelease);
+    window.removeEventListener('pointercancel', earlyRelease);
+    window.removeEventListener('blur', earlyRelease);
+    window.removeEventListener('pointermove', earlyMove);
+    if (!leaseToken || released || !el.isConnected || session.activeSessionId !== sessionId || identities.some(([id, revision]) => (session.lines.find(item => item.id === id)?.revision || 0) !== revision)) {
+      releaseEditLease(leaseToken); return;
+    }
     const blocks = group.map(item => ({ line: item, el: document.getElementById(`line-block-${item.id}`) })).filter(item => item.el);
     const tracks = sessionCharacters();
     const originX = event.clientX;
@@ -731,7 +830,8 @@ window.enableLineEditDrag = function(el, lineId) {
       });
     };
 
-    const cleanup = () => {
+    const cleanup = (keepLease = false) => {
+      if (!keepLease) releaseEditLease(leaseToken);
       clearInterval(edgeScroll);
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
@@ -749,11 +849,11 @@ window.enableLineEditDrag = function(el, lineId) {
     const onCancel = () => { cleanup(); renderTimeline(); };
     const onUp = () => {
       const character = targetRow ? targetRow.dataset.character : null;
-      cleanup();
+      cleanup(true);
       if (deferredEditorRender) { deferredEditorRender = false; renderTimeline(); }
-      if (!moved) return;
+      if (!moved) { releaseEditLease(leaseToken); return; }
       el.dataset.justDragged = '1';
-      if (character && !roleChanges) { renderTimeline(); showToast(t('timeline.trackBoundary')); return; }
+      if (character && !roleChanges) { releaseEditLease(leaseToken); renderTimeline(); showToast(t('timeline.trackBoundary')); return; }
       const changes = new Map();
       if (edge) {
         if (start !== line.start || end !== line.end) changes.set(line.id, { start, end });
@@ -766,14 +866,15 @@ window.enableLineEditDrag = function(el, lineId) {
           if (Object.keys(update).length) changes.set(item.id, update);
         });
       }
-      if (changes.size) sendLineUpdates(changes);
-      else renderTimeline();
+      if (changes.size) sendLineUpdates(changes).finally(() => releaseEditLease(leaseToken));
+      else { releaseEditLease(leaseToken); renderTimeline(); }
     };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
     window.addEventListener('pointercancel', onCancel);
     window.activeEditorGesture = { sessionId: session.activeSessionId, lineIds: new Set(group.map(item => item.id)),
       baseFields: new Map(group.map(item => [item.id, editorBase(item)])), baseRevisions: new Map(group.map(item => [item.id, item.revision || 0])), type: edge ? `resize-${edge}` : 'move', cleanup };
+    if (pendingPointer) onMove(pendingPointer);
   };
 
   el.onpointerdown = event => begin(event, null);

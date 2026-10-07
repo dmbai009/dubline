@@ -103,12 +103,14 @@ describe('Collaborative editor hardening', { skip: skipReason }, () => {
       await page.evaluate(() => {
         const emit = socket.emit;
         socket.emit = function(event, ...args) {
-          if (event === 'editor_update_line') { window.releaseLocalRequest = () => emit.call(this, event, ...args); return this; }
+          if (event === 'editor_update_line') { const flags = { ...this.flags }; this.flags = {}; window.releaseLocalRequest = () => { this.flags = flags; return emit.call(this, event, ...args); }; return this; }
           return emit.call(this, event, ...args);
         };
         updateEditorLine(session.lines[0], { caption: 'Mine pending' });
       });
       await waitFor(page, () => typeof releaseLocalRequest === 'function');
+      await page.evaluate(() => releaseEditLease(editorQueue[0].mutationLease));
+      await waitFor(bob, () => !document.querySelector('#line-block-1 .remote-edit-lease'));
       assert.equal((await move(bob, 1, { caption: 'Bob saved' })).ok, true);
       await page.evaluate(() => releaseLocalRequest());
       await waitFor(page, () => editorConflicts.length === 1 && !editorQueue.length);
@@ -152,15 +154,20 @@ describe('Collaborative editor hardening', { skip: skipReason }, () => {
     } finally { await bob.browserContext().close(); }
   });
 
-  test('same-line remote edit cancels active drag and preserves the remote work', async () => {
+  test('foreign timing edit is blocked during a leased drag while caption may change in parallel', async () => {
     const bob = await collaborator();
     try {
       const origin = await point();
       await page.mouse.move(origin.x, origin.y); await page.mouse.down(); await page.mouse.move(origin.x + 40, origin.y + 10);
-      await move(bob, 1, { start: 3.6, end: 5.1 });
-      await waitFor(page, () => !activeEditorGesture);
+      await waitFor(page, () => !!activeEditorGesture);
+      const refused = await move(bob, 1, { start: 3.6, end: 5.1 });
+      assert.equal(refused.reason, 'locked');
+      const accepted = await move(bob, 1, { caption: 'Parallel caption' });
+      assert.equal(accepted.ok, true);
+      await waitFor(page, () => session.lines[0].caption === 'Parallel caption' && !!activeEditorGesture);
       await page.mouse.up();
-      assert.equal(await page.evaluate(() => session.lines.find(line => line.id === 1).start), 3.6);
+      await waitFor(page, () => !activeEditorGesture && !editorQueue.length);
+      assert.equal(await page.evaluate(() => session.lines.find(line => line.id === 1).caption), 'Parallel caption');
       assert.equal(await page.evaluate(() => document.querySelectorAll('.editor-drag-guides,.drop-target,.editor-dragging').length), 0);
     } finally { await bob.browserContext().close(); }
   });
@@ -310,7 +317,7 @@ describe('Collaborative editor hardening', { skip: skipReason }, () => {
     await resetEvent('#volOriginal');
     assert.equal(await page.$eval('#volOriginal', input => Number(input.value)), 60);
     assert.equal(await page.evaluate(() => session.projectAudio.original.volume), 0.6);
-    assert.equal(await page.$$eval('input[type=range]:not(:disabled)', inputs => inputs.every(input => input.dataset.resetValue !== undefined || !!input.dataset.resetResolver)), true);
+    assert.equal(await page.$$eval('input[type=range]:not(:disabled):not(#transportSeek)', inputs => inputs.every(input => input.dataset.resetValue !== undefined || !!input.dataset.resetResolver)), true);
   });
 
   test('R auto-claims a free line and records, refuses other ownership and offline starts', async () => {

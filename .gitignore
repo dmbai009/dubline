@@ -8,6 +8,7 @@ Thumbs.db
 data/
 dist/
 /build/third-party-licenses/
+/build/update-qa/
 /audit/
 resources/cloudflared.exe
 resources/cloudflared.exe.download
@@ -21,3 +22,9 @@ resources/cloudflared.exe.download
 
 # Local hardening reports and manual QA notes
 /docs/editor-hardening-*.md
+
+# Private implementation reports and local ADR draft
+/docs/media-presence-hardening-plan.md
+/docs/windows-ci.md
+/docs/ui-cleanup-report.md
+/docs/adr/0002-idempotent-editor-operations.md

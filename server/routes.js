@@ -29,6 +29,27 @@ const projectExports = new Set();
 const projectImports = new Set();
 const customImports = new Set();
 const projectDownloads = new Map();
+let activeMediaRequests = 0;
+app.use((req, res, next) => {
+  activeMediaRequests++; let completed = false;
+  const finish = () => { if (!completed) { completed = true; activeMediaRequests--; } };
+  res.once('finish', finish); res.once('close', finish); next();
+});
+module.exports.isMediaBusy = () => activeMediaRequests > 0 || workshopDownloads.size > 0 || packExports.size > 0 || projectExports.size > 0 || projectImports.size > 0 || customImports.size > 0;
+
+app.get('/api/media-manifest', async (req, res) => {
+  const roomId = resolveRoomId(req.query.room), member = Object.values(roomSockets[roomId] || {}).find(item => item.clientId === req.query.clientId && item.nick);
+  if (!member || !rooms[roomId]) return res.status(403).json({ error: 'Confirmed membership required' });
+  const room = getRoom(roomId), sessionId = req.query.sessionId, url = req.query.url;
+  if (sessionId !== room.activeSessionId) return res.status(409).json({ error: 'Scene changed' });
+  const sources = require('../public/project-audio').sources(room);
+  if (![room.videoUrl, room.backingUrl, sources.original, sources.backing].filter(Boolean).includes(url)) return res.status(400).json({ error: 'Unknown scene media' });
+  try {
+    const manifest = await require('./mediaManifest').build(url);
+    if (room.activeSessionId !== sessionId || !Object.values(roomSockets[roomId] || {}).some(item => item.clientId === req.query.clientId && item.nick)) return res.status(409).json({ error: 'Scene changed' });
+    res.setHeader('Cache-Control', 'no-store'); res.json({ ...manifest, sessionId, url });
+  } catch { res.status(404).json({ error: 'Media unavailable' }); }
+});
 
 app.get('/api/audio-waveform', async (req, res) => {
   // Look the room up without creating it: a GET with a made-up name must not add rooms
@@ -304,7 +325,8 @@ app.post('/api/export-project', async (req,res)=>{
     if(req.body.sessionId!==room.activeSessionId)throw new HttpError(409,'The scene changed','error.importSceneChanged');
     if(projectExports.has(roomId)||projectExports.size>=2)throw new HttpError(409,'A project save is in progress','project.busy');
     projectExports.add(roomId);ownsSlot=roomId;
-    saved=await exportProjectDisk(room,undefined,{signal:abort.signal});
+    const snapshot=require('./snapshotBarrier').capture(roomId,req.body.clientId,req.body.barrierToken,'project',req.body.forceSnapshot===true);
+    saved=await exportProjectDisk(snapshot,undefined,{signal:abort.signal});
     if(!isHost(room,req.body.clientId))throw new HttpError(403,'Host rights changed','onlyHost');
     if(res.destroyed)return;
     const filename=projectFilename(saved.title);
@@ -391,7 +413,8 @@ app.post('/api/export-voxalike-pack', async (req, res) => {
     const backingPath = diskPathForUrl(room.backingUrl);
     // Export one snapshot: collaborative edits during FFmpeg awaits must not
     // mix old audio cuts with new captions, roles or timestamps in the archive.
-    const ordered = room.lines.map(line => ({ ...line })).sort((a, b) => a.start - b.start || a.id - b.id);
+    const snapshot = require('./snapshotBarrier').capture(roomId,req.body.clientId,req.body.barrierToken,'voxalike',req.body.forceSnapshot===true);
+    const ordered = snapshot.lines.map(line => ({ ...line })).sort((a, b) => a.start - b.start || a.id - b.id);
     let estimatedBytes = fs.statSync(videoPath).size;
     if (backingPath && fs.existsSync(backingPath)) estimatedBytes += fs.statSync(backingPath).size;
     for (const line of ordered) {
@@ -721,6 +744,7 @@ app.post('/api/upload-line-audio', acceptFile('audio', MAX_TAKE_MB, requireConfi
       return res.json({ success: true, audioUrl: line.audioUrl, audioStart: line.audioStart, duplicate, superseded: !duplicate });
     }
 
+    if (require('./snapshotBarrier').frozenClient(roomId, sessionId, req.body.clientId)) throw new HttpError(409, 'A scene snapshot is being captured', 'snapshot.frozen');
     const fileName = `line_${roomId}_${lineId}_${crypto.randomUUID()}.webm`;
     fs.writeFileSync(path.join(UPLOAD_DIR, fileName), req.file.buffer);
 
@@ -733,6 +757,7 @@ app.post('/api/upload-line-audio', acceptFile('audio', MAX_TAKE_MB, requireConfi
     line.uploadId = uploadId || null;
     line.takeSequence = takeSequence;
     line.blindRevealed = false;
+    line.needsRetake = false;
     target.updatedAt = Date.now();
     // The chosen voice (effect/pitch) survives re-recording the take
     const hasTrim = trimStart !== null && trimEnd !== null && trimStart >= 0 && trimEnd > trimStart;
@@ -743,7 +768,7 @@ app.post('/api/upload-line-audio', acceptFile('audio', MAX_TAKE_MB, requireConfi
     if (!line.pitch) line.pitch = 0;
 
     flushRooms();
-    if (isActiveSession) io.to(roomId).emit('line_updated', line);
+    if (isActiveSession) require('./sessionScope').emitLines(roomId, [line]);
     else emitSession(roomId); // the take went to an inactive session: only refresh its progress in the list
     logEvent(roomId, `💾 ${userName} saved a take for line #${lineId} (${Math.round(req.file.size / 1024)} KB)${isActiveSession ? '' : ` to session "${target.title}"`}`);
     res.json({ success: true, audioUrl: line.audioUrl, audioStart: line.audioStart });
@@ -770,12 +795,13 @@ app.post('/api/delete-line-audio', (req, res) => {
     }
     if (!Object.hasOwn(req.body, 'audioUrl') || req.body.audioUrl !== line.audioUrl) throw new HttpError(409, 'The take changed', 'error.takeChanged');
 
+    if (require('./snapshotBarrier').frozenClient(roomId, room.activeSessionId, clientId)) throw new HttpError(409, 'A scene snapshot is being captured', 'snapshot.frozen');
     deleteTakeFile(line.audioUrl);
     const { effect, pitch, trimEnabled, volume = 1, pan = 0, effectAmount = 1 } = line;
     Object.assign(line, emptyTake(), { effect: effect || 'none', pitch: pitch || 0, trimEnabled: trimEnabled !== false, volume, pan, effectAmount });
 
     flushRooms();
-    io.to(roomId).emit('line_updated', line);
+    require('./sessionScope').emitLines(roomId, [line]);
     logEvent(roomId, `🗑 ${nick} deleted the take for line #${line.id}`);
     res.json({ success: true });
   } catch (err) {

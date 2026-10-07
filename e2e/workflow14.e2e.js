@@ -12,7 +12,7 @@ function parentRequest(server, type, fields = {}) {
 }
 async function snapshotFile(page, file) {
   const bytes = await page.evaluate(async () => {
-    const response = await fetch('/api/export-project', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ room: currentRoom, clientId, sessionId: session.activeSessionId }) });
+    const response = await fetch('/api/export-project', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...await window.prepareSafeSnapshot('project'),  room: currentRoom, clientId, sessionId: session.activeSessionId }) });
     if (!response.ok) throw Error(await response.text());
     const array = new Uint8Array(await response.arrayBuffer()); let text = '';
     for (let i = 0; i < array.length; i += 32768) text += String.fromCharCode(...array.subarray(i, i + 32768));
@@ -35,7 +35,7 @@ describe('1.4 dialogs, settings and bounded timeline', { skip: skipReason, timeo
     assert.equal(await host.evaluate(() => document.activeElement.id), 'editModeBtn');
     await host.evaluate(() => { askConfirm('Confirm').then(value => window.dialogAnswer = value); }); await host.keyboard.press('Enter'); await waitFor(host, () => window.dialogAnswer === true);
     for (const [language, text] of [['ru', 'Подтвердить'], ['uk', 'Підтвердити'], ['en', 'Confirm']]) {
-      await host.evaluate(language => { DublineI18n.setLanguage(language); askConfirm('Action'); }, language);
+      await host.evaluate(async language => { await DublineI18n.setLanguage(language); askConfirm('Action'); }, language);
       assert.equal(await host.$eval('#textPromptSave', node => node.textContent), text); await host.keyboard.press('Escape');
     }
     await host.evaluate(() => { askText('Role', 'Old').then(value => window.textAnswer = value); });
@@ -140,6 +140,7 @@ describe('1.4 dialogs, settings and bounded timeline', { skip: skipReason, timeo
     assert.deepEqual(await host.evaluate(()=>[session.lines[0].start,session.lines[0].end]),[0,12]);
   });
   test('mixed-track mouse movement stays relative and cancels the whole group at the final role', async () => {
+    const viewport = host.viewport(); await host.setViewport({ ...viewport, height: 1200 });
     await loadFixture(host);await host.evaluate(()=>setStudioMode('edit'));await waitFor(host,()=>session.mode==='edit');
     await host.evaluate(async()=>{await queueEditorRequest(()=>['editor_add_track',{character:'Third'}]);pxPerSec=60;timelineContainer.scrollLeft=0;timelineContainer.scrollTop=0;renderTimeline();multiSelection.clear();multiSelection.add(1);multiSelection.add(2);});
     const points=await host.evaluate(()=>{const r=document.getElementById('line-block-1').getBoundingClientRect(),a=document.querySelector('[data-character=Friend]').getBoundingClientRect(),b=document.querySelector('[data-character=Third]').getBoundingClientRect();return{x:r.left+30,y:r.top+20,a:a.top+20,b:b.top+20};});
@@ -147,8 +148,11 @@ describe('1.4 dialogs, settings and bounded timeline', { skip: skipReason, timeo
     assert.deepEqual(await host.evaluate(()=>session.lines.slice(0,2).map(line=>line.character)),['Friend','Third']);
     await host.evaluate(()=>editorUndo());await waitFor(host,()=>session.lines[0].character==='Hero');
     const original=await host.evaluate(()=>session.lines.slice(0,2).map(({character,start,end})=>({character,start,end})));
-    await host.mouse.move(points.x,points.y);await host.mouse.down();await host.mouse.move(points.x+25,points.b,{steps:5});await host.mouse.up();await waitFor(host,()=>editorQueue.length===0);
+    const finalPoints=await host.evaluate(()=>{const r=document.getElementById('line-block-1').getBoundingClientRect(),b=document.querySelector('[data-character=Third]').getBoundingClientRect();return{x:r.left+30,y:r.top+20,b:b.top+20,hit:document.elementFromPoint(r.left+55,b.top+20)?.closest('.track-row')?.dataset.character};});
+    assert.equal(finalPoints.hit, 'Third', JSON.stringify(finalPoints));
+    await host.mouse.move(finalPoints.x,finalPoints.y);await host.mouse.down();await host.mouse.move(finalPoints.x+25,finalPoints.b,{steps:5});await host.mouse.up();await waitFor(host,()=>editorQueue.length===0);
     assert.deepEqual(await host.evaluate(()=>session.lines.slice(0,2).map(({character,start,end})=>({character,start,end}))),original);
+    await host.setViewport(viewport);
   });
 
 });

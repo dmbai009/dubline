@@ -18,10 +18,15 @@
 
     const duck = global.DublineProjectAudio?.DUCK || {attack:0.3,hold:0.15,release:0.85};
     const TAKE_LOOKAHEAD = duck.attack;
+    const playbackRate = () => [1, 1.25, 1.5, 2, 3, 4].includes(video?.playbackRate) ? video.playbackRate : 1;
     const gainTargets = new WeakMap();
     let duckReleaseTimer = null;
-    const rawTakeCache = new Map();
-    const processedTakeCache = new Map();
+    const pinnedUrls = new Set();
+    const pinned = key => [...pinnedUrls, previewPendingLine?.audioUrl, previewGraph?.audioUrl].filter(Boolean).some(url => key === url || key.includes('|' + url + '|') || key.startsWith(url + '|'));
+    const rawTakeCache = global.DublineAudioMemory ? new global.DublineAudioMemory.ByteCache(128 * 1024 ** 2, pinned) : new Map();
+    const processedTakeCache = global.DublineAudioMemory ? new global.DublineAudioMemory.ByteCache(256 * 1024 ** 2, pinned) : new Map();
+    let takeIndex = null, indexedLines = null, indexedSession = null, prefetchAt = -Infinity;
+    const prefetching = new Set();
     let playCtx = null;
     let takesBus = null;
     let videoSourceNode = null;
@@ -98,7 +103,7 @@
       duckingActive = !!active && settings.autoDuckEnabled && volumes.recorded > 0;
       if (!playCtx || !videoGain || !backingGain) return;
       const factor = duckingActive ? 1 - settings.autoDuckAmount : 1;
-      const seconds = duckingActive ? duck.attack : duck.release;
+      const seconds = (duckingActive ? duck.attack : duck.release) / playbackRate();
       rampGain(videoGain.gain, volumes.isMuted ? 0 : effectiveOriginalVolume() * factor, seconds, immediate);
       rampGain(
         backingGain.gain,
@@ -111,7 +116,7 @@
     function updateDuckingState() {
       clearTimeout(duckReleaseTimer); duckReleaseTimer=null;
       if(duckingTakes.size) setDucking(true);
-      else duckReleaseTimer=setTimeout(()=>{duckReleaseTimer=null;setDucking(false);},duck.hold*1000);
+      else duckReleaseTimer=setTimeout(()=>{duckReleaseTimer=null;setDucking(false);},duck.hold*1000/playbackRate());
     }
 
     function applyVolumes() {
@@ -158,6 +163,7 @@
       if (!rawTakeCache.has(url)) {
         const job = Promise.resolve().then(() => fx.fetchAndDecode(url)).catch(() => null).then(buffer => {
           if (!buffer && rawTakeCache.get(url) === job) rawTakeCache.delete(url);
+          if (buffer) takeIndex = null; // Decoded duration replaces a conservative unknown-length bound.
           return buffer;
         });
         rawTakeCache.set(url, job);
@@ -179,7 +185,7 @@
             global.DublineTakeMix.normalize(line).effectAmount
           ))
           .catch(error => {
-            console.error('[Dubline] Failed to process take:', error);
+            if (error.message !== 'Stale CPU job') console.error('[Dubline] Failed to process take:', error);
             return null;
           }).then(buffer => {
             if (!buffer && processedTakeCache.get(key) === job) processedTakeCache.delete(key);
@@ -190,34 +196,76 @@
       return processedTakeCache.get(key);
     }
 
+    function indexedTakes() {
+      const session = getSession();
+      if (!session?.lines) return null;
+      if (indexedLines !== session.lines || indexedSession !== session || !takeIndex) {
+        indexedLines = session.lines; indexedSession = session;
+        takeIndex = global.DublineAudioMemory ? new global.DublineAudioMemory.IntervalIndex(session.lines.filter(line => line.audioUrl).map(line => {
+          const start = takeStartTime(line), duration = rawTakeCache.duration?.(line.audioUrl) || Infinity, bounds = takeBounds(line, duration);
+          return { start: start + bounds.from, end: Number.isFinite(bounds.to) ? start + bounds.to : start + Math.max(60, Number(line.end - line.start) || 0), value: line };
+        })) : null;
+      }
+      return takeIndex;
+    }
     function precacheTakes() {
       const session = getSession();
       if (!session || !session.lines) return;
-      session.lines.forEach(line => { if (line.audioUrl) getProcessedTake(line); });
+      const current = video?.currentTime || 0;
+      const index = indexedTakes(), nearby = index ? index.query(current - 5, current + 30) : session.lines.filter(line => line.audioUrl && line.end >= current - 5 && line.start <= current + 30);
+      pinnedUrls.clear(); nearby.forEach(line => pinnedUrls.add(line.audioUrl));
+      for (const id of activeTakeSources.keys()) { const line = session.lines.find(item => item.id === id); if (line?.audioUrl) pinnedUrls.add(line.audioUrl); }
+      if (previewPendingLine?.audioUrl) pinnedUrls.add(previewPendingLine.audioUrl);
+      rawTakeCache.trim?.(); processedTakeCache.trim?.();
+      for (const line of nearby) {
+        if (prefetching.size >= 4) break;
+        const baseKey = `${line.audioUrl}|${line.effect || 'none'}|${line.pitch || 0}|${global.DublineTakeMix.normalize(line).effectAmount}|${line.trimEnabled !== false}|${line.trimStart}|${line.trimEnd}`;
+        const key = playbackRate() === 1 ? baseKey : `rate:${playbackRate()}|${baseKey}`;
+        if (processedTakeCache.has(key)) continue;
+        if (prefetching.has(key)) continue;
+        prefetching.add(key); getPlaybackTake(line).finally(() => prefetching.delete(key));
+      }
+    }
+
+    function getPlaybackTake(line, rate = playbackRate()) {
+      if (rate === 1) return getProcessedTake(line);
+      const key = `rate:${rate}|${line.audioUrl}|${line.effect || 'none'}|${line.pitch || 0}|${global.DublineTakeMix.normalize(line).effectAmount}|${line.trimEnabled !== false}|${line.trimStart}|${line.trimEnd}`;
+      if (!processedTakeCache.has(key)) {
+        const scope = getSession()?.activeSessionId;
+        const job = getProcessedTake(line).then(buffer => buffer && fx.stretchPreview(buffer, rate, scope)).catch(error => {
+          console.error('[DubLine] Preview rate processing failed:', error); return null;
+        }).then(buffer => { if (!buffer && processedTakeCache.get(key) === job) processedTakeCache.delete(key); return buffer; });
+        processedTakeCache.set(key, job);
+      }
+      return processedTakeCache.get(key);
     }
 
     function scheduleTakes(current) {
       const session = getSession();
       if (!session || !session.lines) return;
-      session.lines.forEach(line => {
+      if (Math.abs(current - prefetchAt) >= 1) { prefetchAt = current; precacheTakes(); }
+      const index = indexedTakes();
+      (index ? index.query(current, current + TAKE_LOOKAHEAD * playbackRate()) : session.lines).forEach(line => {
         if (!line.audioUrl || startedTakes.has(line.id) || line.id === getRecordingLineId()) return;
         const start = takeStartTime(line);
         const { from, to } = takeBounds(line);
-        const end = Number.isFinite(to) ? start + to : start + 60;
-        if (current >= start + from - TAKE_LOOKAHEAD && current < end) startTake(line);
+        const end = Number.isFinite(to) ? start + to : start + (rawTakeCache.duration?.(line.audioUrl) || Math.max(60, Number(line.end - line.start) || 0));
+        if (current >= start + from - TAKE_LOOKAHEAD * playbackRate() && current < end) startTake(line);
       });
     }
 
     async function startTake(line) {
       startedTakes.add(line.id);
       const generation = playGeneration, lineGeneration = lineGenerations.get(line.id);
+      const rate = playbackRate();
       line = { ...line };
-      const buffer = await getProcessedTake(line);
-      if (!buffer || generation !== playGeneration || lineGeneration !== lineGenerations.get(line.id) || video.paused) return;
+      const normal = await getProcessedTake(line);
+      const buffer = normal && await getPlaybackTake(line, rate);
+      if (!buffer || generation !== playGeneration || lineGeneration !== lineGenerations.get(line.id) || video.paused || playbackRate() !== rate) return;
 
       const ctx = ensurePlayCtx();
       const start = takeStartTime(line);
-      const { from, to } = takeBounds(line, buffer.duration);
+      const { from, to } = takeBounds(line, normal.duration);
       const now = video.currentTime;
       const when = start + from;
       const offset = from + Math.max(0, now - when);
@@ -226,19 +274,19 @@
       const source = ctx.createBufferSource();
       source.buffer = buffer;
       const fade = ctx.createGain();
-      const at = ctx.currentTime + Math.max(0, when - now);
+      const at = ctx.currentTime + Math.max(0, when - now) / rate;
       fade.gain.setValueAtTime(0, at);
       fade.gain.linearRampToValueAtTime(1, at + 0.012);
       const graph = fx.connectTake(ctx, source, fade, line);
       graph.volume = global.DublineTakeMix.normalize(line).volume;
       graph.fade = fade;
       fade.connect(takesBus);
-      source.start(at, offset, to - offset);
+      source.start(at, offset / rate, (to - offset) / rate);
 
       stopTake(line.id);
       activeTakeSources.set(line.id, source);
       activeTakeGraphs.set(line.id, graph);
-      const delay = Math.max(0, (at - ctx.currentTime - duck.attack) * 1000);
+      const delay = Math.max(0, (at - ctx.currentTime - duck.attack / rate) * 1000);
       const timer = setTimeout(() => {
         duckStartTimers.delete(line.id);
         if (activeTakeSources.get(line.id) === source && graph.volume > 0) {
@@ -319,21 +367,25 @@
       const generation = previewGeneration;
       line = { ...line };
       previewPendingLine = line;
+      const rate = playbackRate();
       const ctx = ensurePlayCtx();
-      const buffer = await getProcessedTake(line);
+      const normal = await getProcessedTake(line);
+      const buffer = normal && await getPlaybackTake(line, rate);
       if (!buffer || generation !== previewGeneration) return false;
-      const { from, to } = takeBounds(line, buffer.duration);
+      const { from, to } = takeBounds(line, normal.duration);
       const source = ctx.createBufferSource();
       source.buffer = buffer;
       previewGraph = fx.connectTake(ctx, source, takesBus, line);
-      previewGraph.lineId = line.id;
+      previewGraph.lineId = line.id; previewGraph.audioUrl = line.audioUrl;
       previewPendingLine = null;
-      source.start(0, from, Math.max(0.05, to - from));
+      source.start(0, from / rate, Math.max(0.05, to - from) / rate);
       previewSource = source;
       return true;
     }
 
     function updateLine(before, after) {
+      takeIndex = null;
+      global.invalidatePrompterIndex?.();
       const processing = ['audioUrl', 'audioStart', 'start', 'recordedBy', 'blindRevealed', 'effect', 'pitch', 'effectAmount', 'trimEnabled', 'trimStart', 'trimEnd'];
       const defaults = { effect: 'none', pitch: 0, effectAmount: 1, trimEnabled: true };
       const changed = processing.some(key => (before[key] ?? defaults[key]) !== (after[key] ?? defaults[key]));
@@ -362,6 +414,7 @@
     }
 
     return Object.freeze({
+      cacheStats: () => ({ raw: rawTakeCache.stats?.(), processed: processedTakeCache.stats?.(), prefetching: prefetching.size, indexVisited: takeIndex?.visited || 0 }),
       updateLine,
       applyVolumes,
       ensurePlayCtx,

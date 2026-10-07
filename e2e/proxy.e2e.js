@@ -35,7 +35,7 @@ describe('optimized video and original-quality export',{skip:skipReason,timeout:
   assert.match(await guest.$eval('#renderOriginalNotice',notice=>notice.textContent),/on the host/);
  });
  test('recording and final render through UI preserve source video packets and attach the project mix',async()=>{
-  const id=await host.evaluate(()=>session.lines[0].id);await host.evaluate(id=>socket.emit('claim_line',{lineId:id}),id);await waitFor(host,()=>session.lines[0].claimedBy===myName);await recordTake(host,id);
+  const id=await host.evaluate(()=>session.lines[0].id);await host.evaluate(id=>socket.emit('claim_line',{ sessionId: session.activeSessionId, lineId:id}),id);await waitFor(host,()=>session.lines[0].claimedBy===myName);await recordTake(host,id);
   await host.evaluate(()=>{openFilesModal();switchFilesTab('export');});assert.match(await host.$eval('#renderOriginalNotice',notice=>notice.textContent),/original resolution and quality/);
   const response=host.waitForResponse(response=>response.url().includes('/api/export-original-video'),{timeout:60000});await host.click('#startRenderBtn');const rendered=await response;assert.equal(rendered.status(),200,await rendered.text());
   await waitUntil(()=>fs.readdirSync(dir).some(name=>name.endsWith('_export.mp4')),30000);const output=path.join(dir,fs.readdirSync(dir).find(name=>name.endsWith('_export.mp4')));await waitUntil(()=>!fs.readdirSync(dir).some(name=>name.endsWith('.crdownload')),30000);

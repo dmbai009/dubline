@@ -14,21 +14,26 @@
     "prepare:icons": "node tools/build-icons.js",
     "prepare:cloudflared": "node tools/download-cloudflared.js",
     "prepare:licenses": "node tools/prepare-license-resources.js",
-    "dist": "npm run prepare:icons && npm run prepare:cloudflared && electron-builder --win portable --x64",
+    "dist": "node tools/build-distributions.js all",
+    "dist:win:unpacked": "node tools/build-distributions.js unpacked",
+    "dist:win:setup": "node tools/build-distributions.js setup",
+    "dist:win:portable": "node tools/build-distributions.js portable",
     "test:electron": "node tools/electron-smoke.js",
     "test:electron:editor": "node tools/electron-editor-smoke.js",
     "test:electron:guest": "node tools/electron-guest-smoke.js",
     "test:electron:cloudflare": "node tools/electron-smoke.js cloudflare",
     "test": "node --test",
-    "test:e2e": "node --test --test-concurrency=1 e2e/launcher.e2e.js e2e/desktop.e2e.js e2e/studio.e2e.js e2e/room.e2e.js e2e/media.e2e.js e2e/security.e2e.js e2e/workflow.e2e.js e2e/reliability.e2e.js e2e/audit-fixes.e2e.js e2e/projects.e2e.js e2e/workflow14.e2e.js e2e/direct-media.e2e.js e2e/solo-feedback.e2e.js e2e/proxy.e2e.js e2e/take-mix.e2e.js e2e/editor-hardening.e2e.js",
+    "test:e2e": "node --test --test-concurrency=1 e2e/launcher.e2e.js e2e/desktop.e2e.js e2e/studio.e2e.js e2e/room.e2e.js e2e/media.e2e.js e2e/security.e2e.js e2e/workflow.e2e.js e2e/reliability.e2e.js e2e/audit-fixes.e2e.js e2e/projects.e2e.js e2e/workflow14.e2e.js e2e/direct-media.e2e.js e2e/solo-feedback.e2e.js e2e/proxy.e2e.js e2e/take-mix.e2e.js e2e/editor-hardening.e2e.js e2e/media-presence-hardening.e2e.js",
     "check": "node tools/check.js",
     "test:electron:take-mix": "node tools/electron-take-mix-smoke.js",
     "test:electron:storage": "node tools/electron-storage-smoke.js",
     "test:electron:projects": "node tools/electron-project-smoke.js",
-    "test:electron:portable": "node tools/electron-portable-smoke.js"
+    "test:electron:portable": "node tools/electron-portable-smoke.js",
+    "test:hardening": "node --test --test-concurrency=1 e2e/editor-hardening.e2e.js e2e/media-presence-hardening.e2e.js"
   },
   "dependencies": {
     "adm-zip": "^0.6.1",
+    "electron-updater": "6.8.10",
     "express": "^4.19.2",
     "ffmpeg-static": "^5.3.0",
     "jszip": "^3.10.2",
@@ -43,8 +48,8 @@
     "electron@44.5.0": true
   },
   "devDependencies": {
-    "electron": "^44.5.0",
-    "electron-builder": "^26.15.3",
+    "electron": "44.5.0",
+    "electron-builder": "26.17.0",
     "puppeteer-core": "^25.12.0",
     "socket.io-client": "^4.8.4"
   },
@@ -53,8 +58,15 @@
     "appId": "io.github.dmbai009.dubline",
     "productName": "Dubline",
     "asar": true,
-    "portable": {
-      "unpackDirName": true
+    "publish": { "provider": "github", "owner": "dmbai009", "repo": "dubline", "releaseType": "release" },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowElevation": false,
+      "deleteAppDataOnUninstall": false,
+      "differentialPackage": "store-asar",
+      "include": "tools/installer.nsh",
+      "artifactName": "Dubline-${version}-win-${arch}-Setup.${ext}"
     },
     "directories": {
       "output": "dist"
@@ -79,13 +91,28 @@
       "LICENSE",
       "LICENSE-MIT-LEGACY",
       "CONTRIBUTING.md",
-      "THIRD_PARTY_NOTICES"
+      "THIRD_PARTY_NOTICES",
+      "electron-project-open.js",
+      "electron-distribution.js",
+      "electron-managed-files.js",
+      "electron-installed-update.js",
+      "electron-portable-update.js",
+      "electron-update-http.js",
+      "electron-update-log.js",
+      "electron-project-association.js"
     ],
     "extraResources": [
+      { "from": "resources/portable-update-helper.ps1", "to": "updater/apply-update.ps1" },
+      { "from": "resources/project-association.ps1", "to": "project-association.ps1" },
       {
         "from": ".",
         "to": "licenses/DubLine",
-        "filter": ["LICENSE", "LICENSE-MIT-LEGACY", "CONTRIBUTING.md", "THIRD_PARTY_NOTICES"]
+        "filter": [
+          "LICENSE",
+          "LICENSE-MIT-LEGACY",
+          "CONTRIBUTING.md",
+          "THIRD_PARTY_NOTICES"
+        ]
       },
       {
         "from": "build/third-party-licenses",
@@ -104,13 +131,13 @@
       "icon": "build/icon.ico",
       "target": [
         {
-          "target": "portable",
+          "target": "nsis",
           "arch": [
             "x64"
           ]
         }
       ],
-      "artifactName": "Dubline.exe"
+      "artifactName": "Dubline-${version}-win-${arch}-Setup.${ext}"
     }
   }
 }

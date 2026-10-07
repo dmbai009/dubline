@@ -19,6 +19,17 @@ async function fixture(t) {
   return { dir, profile, parent, contents, storage: new DesktopStorage(profile) };
 }
 async function verify(root, contents) { for (const [relative, bytes] of contents) assert.deepEqual(await fs.promises.readFile(path.join(root, relative)), bytes, relative); }
+
+test('project storage refuses the installed application tree and preserves existing data', async t => {
+  const { profile, parent, contents } = await fixture(t);
+  const application = path.join(parent, 'Application'); await fs.promises.mkdir(application);
+  const storage = new DesktopStorage(profile, [application]);
+  await assert.rejects(storage.choose(application, false), { code: 'overlap' });
+  await verify(profile, contents);
+  await storage.save({ root: path.join(application, 'Projects') });
+  await assert.rejects(storage.prepare(), { code: 'overlap' });
+  await verify(profile, contents);
+});
 test('storage migration preserves original/proxy/takes/packs/URLs, persists choice, retains profile preferences', async t => {
   const { profile, parent, contents, storage } = await fixture(t), progress = [];
   const info = await storage.choose(parent, false, item => progress.push(item));

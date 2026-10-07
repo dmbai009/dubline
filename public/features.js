@@ -12,30 +12,24 @@ function renderBlindSettings() {
 
 settingsBlindMode.addEventListener('change', () => {
   if (!amHost()) return renderBlindSettings();
-  socket.emit('set_blind_mode', { enabled: settingsBlindMode.checked });
+  socket.emit('set_blind_mode', { enabled: settingsBlindMode.checked, sessionId: session?.activeSessionId });
 });
 
 settingsHideMyTakes.addEventListener('change', () => {
-  socket.emit('set_blind_preference', { enabled: settingsHideMyTakes.checked });
+  socket.emit('set_blind_preference', { enabled: settingsHideMyTakes.checked, sessionId: session?.activeSessionId });
 });
 
 socket.on('session_updated', renderBlindSettings);
 
 window.randomCast = async function() {
   if (!amHost() || !session || session.mode !== 'dub') return;
-  if (await askConfirm(t('randomCast.confirm'))) socket.emit('random_cast');
+  const sessionId = session.activeSessionId;
+  if (await askConfirm(t('randomCast.confirm')) && session?.activeSessionId === sessionId) socket.emit('random_cast', { sessionId });
 };
 
 window.revealAllTakes = function() {
-  if (amHost()) socket.emit('host_reveal_takes');
+  if (amHost()) socket.emit('host_reveal_takes', { sessionId: session?.activeSessionId });
 };
-
-socket.on('player_activity_update', activity => {
-  if (!activity || !activity.nick) return;
-  if (activity.state === 'idle') playerActivities.delete(activity.nick);
-  else playerActivities.set(activity.nick, activity);
-  renderLobby();
-});
 
 let lastActivityReport = 0;
 let lastActivityValue = '';
@@ -46,7 +40,7 @@ window.reportPlayerActivity = function(stateName, pct = 0, force = false) {
   if (!force && now - lastActivityReport < 400) return;
   lastActivityReport = now;
   lastActivityValue = value;
-  socket.emit('player_activity', { state: stateName, pct });
+  window.updateMediaTransfer?.({ downloading: stateName === 'downloading', pct });
 };
 
 renderBlindSettings();

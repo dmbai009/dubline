@@ -14,7 +14,7 @@ const root = path.join(__dirname, '..');
 const executable = process.env.DUBLINE_SMOKE_EXE
   ? path.resolve(root, process.env.DUBLINE_SMOKE_EXE)
   : process.argv.includes('--portable')
-    ? path.join(root, 'dist', 'Dubline.exe')
+    ? path.join(root, 'dist', 'portable', 'Dubline.exe')
     : path.join(root, 'dist', 'win-unpacked', 'Dubline.exe');
 if (!fs.existsSync(executable)) throw new Error('Build the app with npm run dist first.');
 
@@ -271,7 +271,7 @@ async function main() {
     const channels = await host.evaluate(async id => (await renderCharacterStem([session.lines.find(line => line.id === id)], 12)).numberOfChannels, created.line.id);
     assert.equal(channels, 2);
     process.stdout.write('Packaged clip author/host controls and stereo stem render passed.\n');
-    await host.evaluate(() => socket.emit('set_blind_mode', { enabled: true }));
+    await host.evaluate(() => socket.emit('set_blind_mode', { sessionId: session.activeSessionId,  enabled: true }));
     await host.waitForFunction(id => session.blindMode && !canHearLine(session.lines.find(line => line.id === id)), {}, created.line.id);
     await host.evaluate(() => revealAllTakes());
     await host.waitForFunction(id => canHearLine(session.lines.find(line => line.id === id)), {}, created.line.id);
@@ -281,7 +281,7 @@ async function main() {
     const archive = await host.evaluate(async () => {
       const response = await fetch('/api/export-voxalike-pack', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ room: currentRoom, clientId })
+        body: JSON.stringify({ ...await window.prepareSafeSnapshot('voxalike'),  room: currentRoom, clientId })
       });
       if (!response.ok) throw new Error(await response.text());
       const bytes = new Uint8Array(await response.arrayBuffer());
@@ -298,7 +298,7 @@ async function main() {
     await host.evaluate(() => toggleExpandedVideo());
     const portable = await host.evaluate(async () => {
       const before = { id:session.activeSessionId, title:session.title, lines:session.lines.length, takes:session.lines.filter(line=>line.audioUrl).length, clip:session.lines.find(line=>line.audioUrl) };
-      const saved = await fetch('/api/export-project',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({room:currentRoom,clientId,sessionId:before.id})});
+      const saved = await fetch('/api/export-project',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ ...await window.prepareSafeSnapshot('project'), room:currentRoom,clientId,sessionId:before.id})});
       if(!saved.ok)throw Error(await saved.text());
       const form=new FormData();form.append('clientId',clientId);form.append('sessionId',before.id);form.append('project',await saved.blob(),'portable.dubline');
       const opened=await fetch('/api/import-project?room='+currentRoom,{method:'POST',body:form});if(!opened.ok)throw Error(await opened.text());

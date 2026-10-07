@@ -88,12 +88,13 @@ window.recordSelectedLine = async function() {
     const result = await new Promise(resolve => socket.volatile.timeout(5000).emit('claim_line', { lineId, sessionId, audioUrl: identity }, (error, value) => resolve(error ? null : value)));
     if (!result?.ok) return showToast(t(result?.owner ? 'record.owned' : 'record.connectionRequired', { owner: result?.owner }));
     if (!socket.connected || session?.activeSessionId !== sessionId || currentRoom !== room || myName !== nick || selectedLine?.id !== lineId || session.mode !== 'dub' || recordState !== 'idle' || renderInProgress || watchMode) return;
-    applyTakeUpdates([result.line]);
+    applyTakeUpdates(sessionId, [result.line], result.editorProtocol);
     if (getLineOwner(session.lines.find(item => item.id === lineId)) === myName) return await handleStudioRecord(lineId);
   } finally { recordShortcutPending = false; }
 };
 
 window.handleStudioRecord = async function(lineId) {
+  if (window.snapshotFrozen && recordState === 'idle') return showToast(t('snapshot.frozen'));
   if (renderInProgress) return showToast(t('studio.mediaBusy'));
   if (!socket.connected && recordState === 'idle') return showToast(t('record.connectionRequired'));
   let line = session.lines.find(l => l.id === lineId);
@@ -111,6 +112,7 @@ window.handleStudioRecord = async function(lineId) {
 
   const btn = document.getElementById('recBtn');
   if (!btn) return;
+  if (recordState === 'idle' && video.playbackRate !== 1) window.setPreviewRate?.(1);
 
   if (watchMode && recordState === 'idle') {
     showToast(t('watch.noRecord'));
@@ -188,7 +190,7 @@ window.handleStudioRecord = async function(lineId) {
   const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : '';
   const recorder = mimeType ? new MediaRecorder(audioDest.stream, { mimeType }) : new MediaRecorder(audioDest.stream);
   mediaRecorder = recorder;
-  const operation = { recorder, stream: recordingMic, discarded: false, nick: recordingNick, room: recordingRoom };
+  const operation = { recorder, stream: recordingMic, discarded: false, nick: recordingNick, room: recordingRoom, sessionId: recordingSessionId };
   processingRecordings.add(operation);
   activeRecording = operation;
   const mayUpdateUi = () => !activeRecording && mediaRecorder === recorder && recordState === 'idle' &&
@@ -263,7 +265,7 @@ window.handleStudioRecord = async function(lineId) {
     if (mediaRecorder !== recorder || recordState === 'idle') return;
     try { video.play().catch(playbackFailed); } catch { playbackFailed(); }
   };
-  socket.emit('recording_status', { lineId, recording: true });
+  socket.emit('recording_status', { lineId, recording: true, sessionId: recordingSessionId });
   btn.className = 'btn-prep';
   btn.innerText = t('record.preparing');
   startRecordCue(line, wantedPreRoll, holdSeconds, adrEnabled);
@@ -358,7 +360,7 @@ function finishRecording({ discard = false } = {}) {
   clearInterval(recordSpeechInterval);
   recordPlayTimeout = null;
   recordSpeechInterval = null;
-  if (recordingLineId != null) socket.emit('recording_status', { lineId: recordingLineId, recording: false });
+  if (recordingLineId != null) socket.emit('recording_status', { lineId: recordingLineId, recording: false, sessionId: operation.sessionId });
   recordState = 'idle';
   if (window.refreshStudioTransport) window.refreshStudioTransport();
   operation.discarded = operation.discarded || discard;
@@ -471,21 +473,9 @@ function newUploadId() {
 }
 
 const takeStore = (() => {
-  let dbPromise = null;
-  function db() {
-    if (!dbPromise) {
-      dbPromise = new Promise((resolve, reject) => {
-        const request = indexedDB.open('dubline', 1);
-        request.onupgradeneeded = () => request.result.createObjectStore('pendingTakes', { keyPath: 'uploadId' });
-        request.onsuccess = () => resolve(request.result);
-        request.onerror = () => reject(request.error);
-      });
-    }
-    return dbPromise;
-  }
   async function run(mode, action) {
     try {
-      const database = await db();
+      const database = await window.DublineLocalDatabase.open();
       return await new Promise((resolve, reject) => {
         const tx = database.transaction('pendingTakes', mode);
         const request = action(tx.objectStore('pendingTakes'));

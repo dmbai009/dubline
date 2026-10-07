@@ -25,7 +25,7 @@ describe('portable project browser workflow', { skip: skipReason, timeout: 90000
   });
 
   test('save through the actual Files UI, reopen with the file input, and retain a real recording after reload', async () => {
-    await host.evaluate(() => { socket.emit('claim_line', { lineId: 1 }); });
+    await host.evaluate(() => { socket.emit('claim_line', { sessionId: session.activeSessionId,  lineId: 1 }); });
     await waitFor(host, () => session.lines[0].claimedBy === myName);
     await recordTake(host, 1);
     await waitFor(host, () => session.lines[0].audioUrl && pendingTakeLines.size === 0);
@@ -77,7 +77,7 @@ describe('portable project browser workflow', { skip: skipReason, timeout: 90000
   test('limits and automatic optimization are visible in EN/RU/UK',async()=>{
     await host.evaluate(()=>{openFilesModal();switchFilesTab('import');});
     for(const language of ['en','ru','uk']){
-      const labels=await host.evaluate(language=>{DublineI18n.setLanguage(language);return ['customImport.limits','project.openHelp','project.saveHelp'].map(key=>document.querySelector('[data-i18n="'+key+'"]').textContent);},language);
+      const labels=await host.evaluate(async language=>{await DublineI18n.setLanguage(language);return ['customImport.limits','project.openHelp','project.saveHelp'].map(key=>document.querySelector('[data-i18n="'+key+'"]').textContent);},language);
       for(const text of labels){assert.match(text,/300/);assert.doesNotMatch(text,/384/);}
     }
     await host.evaluate(()=>DublineI18n.setLanguage('en'));

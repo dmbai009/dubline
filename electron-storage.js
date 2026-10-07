@@ -14,8 +14,9 @@ const contains = (parent, child) => {
 
 // Preferences stay in userData. Only server-owned directories belong to this storage root.
 class DesktopStorage {
-  constructor(userData) {
+  constructor(userData, protectedRoots = []) {
     this.userData = path.resolve(userData);
+    this.protectedRoots = protectedRoots.map(root => path.resolve(root));
     this.file = path.join(this.userData, 'storage.json');
     this.config = {};
     this.busy = false;
@@ -42,8 +43,10 @@ class DesktopStorage {
   async root() {
     if (this.configError) fail('config', 'The storage setting is damaged.');
     const root = this.info().root;
+    this.assertOutsideApplication(root);
     if (this.config.root && !fs.existsSync(root)) fail('missing', 'The storage folder is unavailable. Connect the drive and retry.');
     await fs.promises.mkdir(root, { recursive: true });
+    this.assertOutsideApplication(await fs.promises.realpath(root));
     await fs.promises.access(root, fs.constants.R_OK | fs.constants.W_OK);
     return root;
   }
@@ -51,6 +54,7 @@ class DesktopStorage {
     const source = await fs.promises.realpath(await this.root());
     const parent = await fs.promises.realpath(selected);
     const target = path.join(parent, 'Dubline');
+    this.assertOutsideApplication(target);
     if (target === source) return target;
     if (contains(source, target) || contains(target, source)) fail('overlap', 'Choose a folder outside the current storage folder.');
     // Do not let a junction redirect migration into another project or a user's unrelated files.
@@ -60,6 +64,9 @@ class DesktopStorage {
     }
     await fs.promises.access(parent, fs.constants.W_OK);
     return target;
+  }
+  assertOutsideApplication(target) {
+    if (this.protectedRoots.some(root => contains(root, target) || contains(target, root))) fail('overlap', 'Choose project storage outside the application folder.');
   }
   async choose(selected, defer, progress = () => {}) {
     if (this.busy) fail('busy', 'Storage migration is already running.');

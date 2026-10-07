@@ -1,5 +1,6 @@
 // Dubline entry point: wires the modules from server/ together and starts the HTTP server
 const { PORT } = require('./server/config');
+const nativeProjectSaves = new Map();
 const { app, server, io } = require('./server/app');
 const { flushRooms } = require('./server/rooms'); // loads saved rooms
 const { configureDesktopRoom } = require('./server/desktop');
@@ -22,6 +23,7 @@ function openBrowser() {
 
 if (require.main === module) {
   configureDesktopRoom();
+  require('./server/orphanGc').start();
 
   // An error in one handler must not take the game down for everyone: log it and keep running
   process.on('uncaughtException', err => logEvent(null, `💥 Unhandled error (the server keeps running): ${err.stack || err}`, 'error'));
@@ -49,6 +51,31 @@ if (require.main === module) {
   });
 
   process.on('message', message => {
+    if (message?.type === 'desktop-busy') {
+      const busy = require('./server/routes').isMediaBusy() || require('./server/project-save').isBusy() || require('./server/snapshotBarrier').isBusy() || Object.values(require('./server/state').recordingNow).some(lines => Object.keys(lines).length > 0);
+      process.send?.({ requestId: message.requestId, ok: true, busy }); return;
+    }
+    if (message?.type === 'cancel-project-save') {
+      const job=nativeProjectSaves.get(message.ticket);
+      const canceled=!!job && job.stage!=='committing';
+      if(canceled)job.controller.abort();
+      process.send?.({requestId:message.requestId,ok:true,canceled});return;
+    }
+    if (message?.type === 'save-project-file') {
+      const job={controller:new AbortController(),stage:'preparing'};
+      nativeProjectSaves.set(message.ticket,job);
+      (async () => {
+        const roomId = require('./server/desktop').desktopRoomId, room = require('./server/rooms').getRoom(roomId);
+        if (!require('./server/auth').isHost(room, message.clientId) || message.sessionId !== room.activeSessionId) throw new Error('The scene or host rights changed.');
+        const snapshot = require('./server/snapshotBarrier').capture(roomId, message.clientId, message.barrierToken, 'project', message.forceSnapshot === true);
+        const saved = await require('./server/project-save').saveProjectFile(snapshot, message.destination, {
+          signal:job.controller.signal, onProgress:progress=>{ job.stage=progress.stage;process.send?.({type:'project-save-progress',requestId:message.requestId,progress}); }
+        });
+        process.send?.({ requestId: message.requestId, ok: true, ...saved });
+      })().catch(error => process.send?.({ requestId: message.requestId, ok: false, canceled:error.name==='AbortError', error:error.name==='AbortError'?'Project saving canceled.':'Project could not be saved. Check the destination and free disk space.' }))
+        .finally(()=>nativeProjectSaves.delete(message.ticket));
+      return;
+    }
     if (message?.type === 'new-single-project' || message?.type === 'enable-multiplayer' || message?.type === 'open-project-file') {
       (async () => {
         if (message.type === 'new-single-project') {

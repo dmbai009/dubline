@@ -64,3 +64,41 @@ Native clip mixing smoke: npm run test:electron:take-mix uses hidden Electron wi
 
 After the clip-mixing changes, npm test passed 153/153 and npm run test:e2e passed 192/192 across 22 browser suites, with zero failures/skips. npm run check and Git whitespace checks passed. Native Electron clip smoke passed real recording, inspector controls, stereo WAV rendering, format-3 save/open in Single Player and Multiplayer, and source video packet preservation. npm run dist built the updated Windows portable EXE. QA screenshots are local-only under docs/qa.
 The exact dist/Dubline.exe passed the isolated Porthole/PIN guest smoke, author/host clip controls, stereo stem rendering, format-3 project save/open, shared editor/Undo, recording, Blind Mode and original-video mux/download. SHA-256: 996686d89c6a7291b80fc8b62acc24691128dd05b681f8d5e33cb26cb10b9c2e. No GitHub release was created.
+
+## Media / presence hardening validation
+
+The commands below cover the current media/presence and desktop implementation.
+Historical build/layout and pending-editor statements above describe earlier revisions.
+The old self-extracting dist/Dubline.exe is a legacy baseline, not evidence for the
+new Portable ZIP. The exact executable is now dist/portable/Dubline.exe; Setup is
+dist/Dubline-VERSION-win-x64-Setup.exe. Never publish an unverified partial asset set.
+
+| Command | Additional coverage |
+| --- | --- |
+| npm run test:hardening | Durable editor recovery, session torture, leases, verified media/resume, cursors, preview controls and timeline geometry |
+| node tools/electron-shell-smoke.js | Real second-process Unicode document opening, cancel/busy deferral, multiplayer shared switch and guest-to-local routing |
+| node tools/electron-portable-helper-smoke.js | Actual helper continues after Electron exits |
+| node tools/verify-release-artifacts.js | Distribution markers, hashes, manifests, blockmap/latest.yml and Setup/Portable ASAR parity |
+| node tools/build-update-qa.js | Isolated unpublished B artifacts from the same source, with unchanged Electron runtime |
+| node tools/electron-portable-update-smoke.js | Exact A-to-B patch/full/locked-file rollback, byte accounting, profile/history and unknown-file preservation |
+| node tools/electron-setup-update-smoke.js | Real NSIS/electron-updater differential A-to-B, installer SHA, same-profile Setup/Portable exclusion and HKCU ownership |
+
+Update tests use only isolated test folders/profiles and substitute network feeds
+and OS confirmation/relaunch delivery. The updater, installer, packaged main,
+preloads and native apply/rollback remain real. Setup QA refuses an existing
+production installation/handler. Native tests hide windows and use fake microphones;
+they do not establish subjective audio quality or physical picker/device UX.
+
+CI verifies an exact stable tag/package/commit, runs source and exact-artifact
+checks, verifies the previous stable managed Portable base, builds one core and
+tests a local B. It uploads the complete asset inventory to a draft only. Legacy
+releases without a managed manifest require full-download migration; old tags and
+published releases are untouched. Optional hardware proxy acceleration and transfer
+graphs are deferred. Physical microphone/headphone checks, real WAN/VPN behavior,
+subjective visual/gesture/audio quality and physical >4 GiB archives remain manual.
+
+Native project smoke also exercises real ticket-bound progress/cancel IPC and
+verifies the previous destination bytes survive cancellation before commit.
+Waveform-prewarm tests cover asynchronous cache creation, duplicate job reuse,
+stale/busy/failure isolation and the two-process bound. Update-log tests enforce
+bounded persistence and the absence of credentials/private paths.

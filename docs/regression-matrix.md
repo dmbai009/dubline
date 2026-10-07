@@ -30,3 +30,25 @@ Proxy/source + smoother ducking: video-proxy.test.js and e2e/proxy.e2e.js cover 
 Storage folder: electron-storage.test.js and native/storage launcher checks cover immediate/deferred copy, persistence, large-file memory bounds, actual disk-boundary migration, source retention on failure, destination/junction safety and final original-video export after migration.
 
 Clip mixing: author/host permissions after release/reclaim; atomic bulk across roles; mixed values and absolute assignment; invalid/session/revision/URL conflicts; non-destructive rerecord/delete; effect dry/wet endpoints and user pitch; real gain/pan in preview, playback, stereo stems and final mix; live ramps, muted ducking and pending-processing cancellation; format-3 save/open/restart with legacy 1/2 defaults. Covered by take-mix.test.js, e2e/take-mix.e2e.js and tools/electron-take-mix-smoke.js.
+
+## Media / presence hardening additions
+
+| Requirement family | Implementation / behavioral coverage | Limits |
+| --- | --- | --- |
+| Scene isolation / identity | sessionScope; nickname ACK and same-client recovery; stale dialog/audio/recording/delta torture in editor-hardening and media-presence-hardening suites | Real WAN varies |
+| Durable edit intent / leases | IndexedDB reload recovery, epoch/receipt review, atomic caption/timing/assignment/structural leases; server idempotency tests | IndexedDB-unavailable mode is RAM-only |
+| Verified delivery | Manifest/chunk hashing, corruption/resume, partial seeding/ranges, aggregate limits, playback/rarest scheduler and terminal readiness; transfer-utils + browser suites | External public-service CORS is uncontrolled |
+| Cursor / navigation | Semantic scoped presence with bounded direct/fallback channels, local visibility and jump; Ctrl/Cmd+F, filters, minimap/footer and pointer capture | No full timeline virtualization |
+| Audio / wave performance | Actual sample WSOLA checks, raw/processed byte budgets, interval indexes, workers/fallback, visible cue jobs, dynamic lanes/DPR/playhead | Generated scenes are not episode benchmarks |
+| Snapshot / project save | One-use bounded barrier, freeze/force/cancel, shared stream serializer, destination-side verified commit, format-4 retake and old-format defaults | OS picker UX / physical huge archives are manual |
+| Desktop routing | Real secondary process; host shared switch and remote guest local import; existing history kept; host-only narrow preload | Automated confirmation is substituted |
+| Distribution / updater | One core; explicit marker/manifest; Setup differential and Portable patch/full/locked-file rollback/crash journal; strict managed scope and hashes | Local B is never a public release |
+| Associations / coexistence | HKCU ownership, UserChoice unchanged, uninstall preserves foreign/Portable; same-profile Setup/Portable request handoff | Windows default selection remains OS UX |
+| Loading / cleanup | EN/RU/UK split/lazy retry, lazy ZIP, text compression, hidden rendering cadence, diagnostics and conservative orphan GC | Optional hardware acceleration/transfer graph deferred |
+
+Durable editor intent now survives reload; the earlier page-memory limitation above
+is historical. Run/results distinction and physical/manual limitations are in the
+[testing guide](../TESTING.md).
+
+Native snapshot delivery additionally tests real preparing/writing/finalizing/commit
+progress, safe cancellation and preservation of an existing destination.

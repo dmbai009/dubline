@@ -1,0 +1,10 @@
+lazy-val 1.0.5
+Author: Vladimir Krivosheev
+Repository: https://github.com/develar/lazy-val
+License declaration: MIT, in the published package.json.
+
+The published package and upstream repository do not contain a separate
+license file. The accompanying LICENSE reproduces the standard MIT terms
+and attributes the author named in package.json; it is not represented as
+an upstream license-file copy. The original package metadata and README
+are also retained in the distribution notices.

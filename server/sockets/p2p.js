@@ -7,28 +7,29 @@ const { clearSocketSeeds, broadcastSeeders } = require('../presence');
 module.exports = function registerP2pHandlers(socket, conn) {
   // ---------- P2P video sharing between players ----------
   // The server only introduces players: video pieces go directly browser to browser (WebRTC)
-  socket.on('p2p_have', ({ urls } = {}) => {
-    if (!conn.roomId || !Array.isArray(urls)) return;
+  socket.on('p2p_have', async (data = {}) => {
+    if (!conn.roomId) return;
     const room = getRoom(conn.roomId);
-    const allowed = new Set([room.videoUrl, room.backingUrl].filter(Boolean));
+    try { if (!await require('../mediaAvailability').update(socket, conn, data)) return; } catch { return; }
     const byUrl = p2pSeeders[conn.roomId] || (p2pSeeders[conn.roomId] = {});
     clearSocketSeeds(conn.roomId, socket.id);
-    urls.filter(url => allowed.has(url)).forEach(url => {
+    data.files.filter(file => file.ranges.length && require('../mediaAvailability').allowed(room).has(file.url)).forEach(({ url }) => {
       (byUrl[url] || (byUrl[url] = new Set())).add(socket.id);
     });
     broadcastSeeders(conn.roomId);
   });
 
-  socket.on('p2p_find', ({ url } = {}, ack) => {
+  socket.on('p2p_find', ({ url, detailed } = {}, ack) => {
     if (typeof ack !== 'function') return;
     if (!conn.roomId) return ack([]);
-    const ids = [...((p2pSeeders[conn.roomId] || {})[url] || [])].filter(id => id !== socket.id);
-    ack(ids);
+    const peers = require('../mediaAvailability').peers(conn.roomId, url, socket.id);
+    ack(detailed === true ? peers.slice(0, 32) : peers.map(peer => peer.socketId));
   });
 
   socket.on('p2p_signal', ({ to, data } = {}) => {
     if (!conn.roomId || typeof to !== 'string' || !roomSockets[conn.roomId] || !roomSockets[conn.roomId][to]) return;
-    io.to(to).emit('p2p_signal', { from: socket.id, data });
+    if (!data || !['offer', 'answer', 'candidate'].includes(data.kind) || JSON.stringify(data).length > 32768) return;
+    io.to(to).emit('p2p_signal', { from: socket.id, sessionId: getRoom(conn.roomId).activeSessionId, data });
   });
 
   socket.on('p2p_report', ({ url, p2pBytes, httpBytes, peers } = {}) => {

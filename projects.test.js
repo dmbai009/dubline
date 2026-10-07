@@ -56,6 +56,25 @@ function archive(snapshot, change = () => {}) {
   return zip.toBuffer();
 }
 
+test('retake markers emit format 4, preserve clip mixes and reset to false in legacy projects', async t => {
+  const f = fixture(t);
+  f.session.lines[0].needsRetake = true;
+  f.session.lines[0].volume = 1.4;
+  const snapshot = captureProject(f.session, f.resolve);
+  assert.equal(snapshot.manifest.formatVersion, 4);
+  assert.equal(snapshot.manifest.project.lines[0].needsRetake, true);
+  const staged = stageProject(archive(snapshot), f.dir);
+  assert.equal(staged.fields.lines[0].needsRetake, true);
+  assert.equal(staged.fields.lines[0].volume, 1.4);
+  staged.rollback();
+  assert.throws(() => readProject(archive(snapshot, m => { delete m.project.lines[0].take.volume; })), /clip mix/);
+  assert.throws(() => readProject(archive(snapshot, m => { m.project.lines[0].needsRetake = 'yes'; })), /retake/);
+  assert.throws(() => readProject(archive(snapshot, m => { m.formatVersion = 3; })), /retake/);
+  f.session.lines[0].needsRetake = false;
+  const legacy = stageProject((await exportProject(f.session, f.resolve)).buffer, f.dir);
+  assert.equal(legacy.fields.lines[0].needsRetake, false); legacy.rollback();
+});
+
 test('project round-trip preserves portable state, Unicode, media bytes, sources, tracks, mix and take processing', async t => {
   const f = fixture(t);
   const saved = await exportProject(f.session, f.resolve);
@@ -222,7 +241,9 @@ describe('projects: real server and media', () => {
     return state(player);
   }
   async function save(player, sessionId) {
-    return post(player, 'export-project', { sessionId: sessionId ?? (await state(player)).activeSessionId });
+    const active = sessionId ?? (await state(player)).activeSessionId;
+    const barrier = await ack(player, 'snapshot_request', { purpose: 'project', sessionId: active });
+    return post(player, 'export-project', { sessionId: active, barrierToken: barrier.token, forceSnapshot: true });
   }
   async function open(player, bytes, sessionId) {
     const form = new FormData(); form.append('clientId', player.clientId);
@@ -235,7 +256,7 @@ describe('projects: real server and media', () => {
   test('HTTP save/open keeps takes, sources and previous sessions, serves exact bytes, and persists after restart', async () => {
     const host = await join(`project_${++serial}`, 'Host');
     const initial = await load(host);
-    host.socket.emit('claim_line', { lineId: 1 });
+    host.socket.emit('claim_line', { lineId: 1, sessionId: initial.activeSessionId });
     await waitUntil(async () => (await state(host)).lines[0].claimedBy === 'Host');
     const reservation = await ack(host, 'reserve_take', { lineId: 1, sessionId: initial.activeSessionId });
     const takeBytes = await media(initial.lines[0].originalAudioUrl);

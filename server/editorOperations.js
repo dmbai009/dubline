@@ -27,7 +27,10 @@ function registerMutation(socket, conn, event, handler) {
     if (typeof data === 'function') { ack = data; data = {}; }
     const reply = typeof ack === 'function' ? ack : () => {};
     // Legacy callers still receive the existing revision-bound behavior.
-    if (!data?.operationId) return handler(data, reply);
+    if (!data?.operationId) {
+      const blocked = require('./snapshotBarrier').blocked(socket, conn) || require('./editLeases').checkMutation(socket, conn, event, data);
+      return blocked ? reply(blocked) : handler(data, reply);
+    }
     if (!conn.roomId || !conn.nick || roomSockets[conn.roomId]?.[socket.id]?.clientId !== conn.clientId) return reply({ ok: false, reason: 'room' });
     if (typeof data.operationId !== 'string' || !/^[a-zA-Z0-9_-]{1,96}$/.test(data.operationId)) return reply({ ok: false, reason: 'invalid' });
     const room = require('./rooms').getRoom(conn.roomId);
@@ -37,6 +40,8 @@ function registerMutation(socket, conn, event, handler) {
     const fingerprint = createHash('sha256').update(JSON.stringify([event, data])).digest('hex');
     const cached = receipts.get(key);
     if (cached) return reply(cached.fingerprint === fingerprint ? JSON.parse(cached.result) : { ok: false, reason: 'operation' });
+    const blocked = require('./snapshotBarrier').blocked(socket, conn) || require('./editLeases').checkMutation(socket, conn, event, data);
+    if (blocked) return reply(blocked);
     if (data.operationEpoch !== epoch || !Number.isFinite(data.operationTime) || now - data.operationTime >= TTL_MS || data.operationTime > now + 60000) return reply({ ok: false, reason: 'expired' });
     if (receipts.size >= MAX_RECEIPTS) return reply({ ok: false, reason: 'capacity' });
     handler(data, result => {

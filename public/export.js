@@ -264,7 +264,8 @@ window.downloadReaperStems = async function() {
     }
     assertExportScene(snapshot);
     const duration = Math.max(Number(video.duration) || 0, ...takes.map(line => exportTakeStart(line, snapshot.scene) + Math.max(1, line.end - line.start) + 1));
-    const zip = new JSZip();
+    const Zip = await DublineLazyScripts.jszip();
+    const zip = new Zip();
     const manifest = [];
     let index = 0;
     for (const [character, lines] of grouped) {
@@ -310,10 +311,33 @@ window.saveDublineProject = async function() {
   status.style.color = 'var(--accent-2)';
   const knownBytes = Number(session.videoSize || 0) + Number(session.backingSize || 0);
   status.textContent = t(knownBytes >= 100 * 1024 * 1024 ? 'project.savingLarge' : 'project.saving');
+  let snapshot = null,removeProgress=null,cancelButton=null;
   try {
+    const destination = window.dublineDesktop?.chooseProjectDestination ? await window.dublineDesktop.chooseProjectDestination({ sessionId: session.activeSessionId, title: session.title }) : null;
+    if (destination?.canceled) { status.style.display = 'none'; return; }
+    if (destination && !destination.ok) throw new Error(destination.error);
+    snapshot = await window.prepareSafeSnapshot('project');
+    if (!snapshot) { status.style.display = 'none'; return; }
+    if (destination) {
+      if(window.dublineDesktop.onProjectSaveProgress){
+        cancelButton=document.createElement('button');cancelButton.className='btn-outline';cancelButton.textContent=t('project.cancelSaving');
+        status.after(cancelButton);
+        cancelButton.onclick=async()=>{cancelButton.disabled=true;await window.dublineDesktop.cancelProjectSave({ticket:destination.ticket}).catch(()=>{});};
+        removeProgress=window.dublineDesktop.onProjectSaveProgress(progress=>{
+          if(progress.ticket!==destination.ticket)return;
+          const key={preparing:'project.preparing',writing:'project.writing',finalizing:'project.finalizing',committing:'project.finalizing'}[progress.stage];
+          if(key)status.textContent=t(key,{mb:(progress.bytes/1048576).toFixed(1)});
+          if(progress.stage==='committing')cancelButton.disabled=true;
+        });
+      }
+      const saved = await window.dublineDesktop.saveProject({ ticket: destination.ticket, clientId, ...snapshot });
+      if(saved.canceled){status.textContent=t('project.cancelled');return;}
+      if (!saved.ok) throw new Error(saved.error);
+      status.style.color = 'var(--success)'; status.textContent = t('snapshot.saved'); return;
+    }
     const response = await fetch('/api/export-project', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ room: currentRoom, clientId, sessionId: session.activeSessionId, download: true })
+      body: JSON.stringify({ room: currentRoom, clientId, ...snapshot, download: true })
     });
     if (!response.ok) throw new Error(await readError(response));
     const prepared = await response.json();
@@ -327,6 +351,8 @@ window.saveDublineProject = async function() {
     status.style.color = 'var(--danger)';
     status.textContent = error instanceof TypeError ? t('upload.networkFailed') : error.message;
   } finally {
+    removeProgress?.();cancelButton?.remove();
+    if (snapshot) socket.emit('snapshot_cancel', { token: snapshot.barrierToken });
     projectExportBusy = false;
     button.disabled = !amHost();
   }
@@ -348,11 +374,14 @@ window.exportVoxalikePack = async function() {
   status.style.display = 'block';
   status.style.color = 'var(--accent-2)';
   status.textContent = t('packExport.progress');
+  let snapshot = null;
   try {
+    snapshot = await window.prepareSafeSnapshot('voxalike');
+    if (!snapshot) { status.style.display = 'none'; return; }
     const response = await fetch('/api/export-voxalike-pack', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ room: currentRoom, clientId, requestId })
+      body: JSON.stringify({ room: currentRoom, clientId, requestId, ...snapshot })
     });
     if (!response.ok) throw new Error(await readError(response));
     const blob = await response.blob();
@@ -370,6 +399,7 @@ window.exportVoxalikePack = async function() {
     status.style.color = 'var(--danger)';
     status.textContent = t('error.generic', { message: err.message });
   } finally {
+    if (snapshot) socket.emit('snapshot_cancel', { token: snapshot.barrierToken });
     socket.off('pack_export_progress', onProgress);
     button.disabled = false;
   }

@@ -53,7 +53,8 @@
   };
   window.studioPlaybackVolumes = () => {
     const gain = model.gains(mixMode === 'monitor' ? personal() : project());
-    return { original: gain.original, backing: gain.backing, recorded: gain.dub, isMuted: volumes.isMuted };
+    const master = window.localMasterVolume?.() ?? 1;
+    return { original: gain.original * master, backing: gain.backing * master, recorded: gain.dub * master, isMuted: volumes.isMuted };
   };
   function applyMix(result) {
     if (!session || result.sessionId !== session.activeSessionId || !result.mix || result.mix.revision < project().revision) return;

@@ -30,7 +30,7 @@ describe('Editor operation protocol and semantic history', () => {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filename: 'test-scene.zip', clientId: alice.clientId, room: alice.room })
     });
     assert.equal(response.status, 200);
-    alice.socket.emit('set_session_mode', { mode: 'edit' });
+    alice.socket.emit('set_session_mode', { mode: 'edit', sessionId: (await state(alice)).activeSessionId });
     await waitUntil(async () => (await state(alice)).mode === 'edit');
     return alice;
   }
@@ -150,7 +150,7 @@ describe('Editor operation protocol and semantic history', () => {
 
   test('confirmed claim is scene-bound, atomic under two actor race, and preserves take authors', async () => {
     const alice = await scene(), bob = await join(alice.room, 'Bob');
-    alice.socket.emit('set_session_mode', { mode: 'dub' });
+    alice.socket.emit('set_session_mode', { mode: 'dub', sessionId: (await state(alice)).activeSessionId });
     await waitUntil(async () => (await state(alice)).mode === 'dub');
     const snapshot = await state(alice);
     const data = { lineId: 1, sessionId: snapshot.activeSessionId };
@@ -161,5 +161,92 @@ describe('Editor operation protocol and semantic history', () => {
     assert.equal(claimed.recordedBy, snapshot.lines[0].recordedBy);
     assert.equal(claimed.audioUrl, snapshot.lines[0].audioUrl);
     assert.equal((await ack(bob, 'reserve_take', { ...data })).ok, claimed.claimedBy === 'Bob');
+  });
+
+  test('stale scene actions cannot mutate matching line IDs or roles in a new scene', async () => {
+    const alice = await scene(), bob = await join(alice.room, 'Bob');
+    const old = await state(alice);
+    const response = await fetch(`http://localhost:${server.port}/api/load-server-pack?room=${alice.room}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename: 'test-scene.zip', clientId: alice.clientId, room: alice.room })
+    });
+    assert.equal(response.status, 200);
+    const current = await state(alice);
+    assert.notEqual(current.activeSessionId, old.activeSessionId);
+    assert.equal(current.lines[0].id, old.lines[0].id);
+    for (const [event, data] of [
+      ['claim_character', { character: 'Hero' }],
+      ['unclaim_character', { character: 'Hero' }],
+      ['claim_line', { lineId: 1 }], ['unclaim_line', { lineId: 1 }],
+      ['recording_status', { lineId: 1, recording: true }],
+      ['host_release_lines', { lineIds: [1] }], ['host_reset_claims', {}]
+    ]) {
+      const actor = event.startsWith('host_') ? alice : bob;
+      actor.socket.emit(event, { ...data, sessionId: old.activeSessionId });
+      await wait(30);
+      const after = await state(alice);
+      assert.deepEqual(after.lines, current.lines, event);
+      assert.deepEqual(after.characterClaims, current.characterClaims, event);
+    }
+  });
+
+  test('single-line delta contains its scene identity, including claim and release', async () => {
+    const alice = await scene();
+    alice.socket.emit('set_session_mode', { mode: 'dub', sessionId: (await state(alice)).activeSessionId });
+    await waitUntil(async () => (await state(alice)).mode === 'dub');
+    const snapshot = await state(alice);
+    const receive = new Promise(resolve => alice.socket.once('line_updated', resolve));
+    assert.equal((await ack(alice, 'claim_line', { lineId: 1, sessionId: snapshot.activeSessionId })).ok, true);
+    const update = await receive;
+    assert.equal(update.sessionId, snapshot.activeSessionId);
+    assert.equal(update.line.id, 1);
+  });
+
+  test('nickname ACK rejects an online owner and allows same-client correction to an offline name', async () => {
+    const alice = await scene(), bob = await join(alice.room, 'Bob');
+    const rejected = await ack(alice, 'rename_user', { newName: 'Bob' });
+    assert.equal(rejected.ok, false); assert.equal(rejected.nick, 'Alice');
+    assert.equal((await state(alice)).host, 'Alice');
+    assert.equal((await ack(bob, 'rename_user', { newName: 'Bobby' })).ok, true);
+    assert.equal((await ack(bob, 'rename_user', { newName: 'Bobi' })).ok, true);
+    const corrected = await ack(bob, 'rename_user', { newName: 'Bobby' });
+    assert.equal(corrected.ok, true); assert.equal(corrected.nick, 'Bobby');
+  });
+
+  test('unscoped scene mutations are rejected without changing confirmed state', async () => {
+    const alice = await scene(), snapshot = await state(alice);
+    for (const [event, data] of [['editor_create_line', { character: 'Hero', start: 0, end: 1 }], ['claim_character', { character: 'Hero' }], ['set_session_mode', { mode: 'dub' }]]) {
+      assert.equal((await ack(alice, event, data)).reason, 'session');
+      assert.deepEqual((await state(alice)).lines, snapshot.lines);
+      assert.equal((await state(alice)).mode, snapshot.mode);
+    }
+  });
+
+  test('leases exclude matching groups, preserve parallel caption/timing edits and bind duplicate receipts', async () => {
+    const alice = await scene(), bob = await join(alice.room, 'Bob'), initial = await state(alice);
+    const target = group => ({ type: 'line', key: 1, group });
+    const acquire = (player, targets) => ack(player, 'edit_lease_acquire', { sessionId: initial.activeSessionId, targets });
+    const caption = await acquire(alice, [target('caption')]); assert.equal(caption.ok, true);
+    assert.equal((await acquire(bob, [target('caption')])).reason, 'locked');
+    const timing = await acquire(bob, [target('timing')]); assert.equal(timing.ok, true);
+    assert.equal((await ack(bob, 'editor_update_line', operation(initial, patch(initial.lines[0], { caption: 'Intrusion' })))).reason, 'locked');
+    const request = operation(initial, patch(initial.lines[0], { caption: 'Safe caption' }));
+    const receipt = await ack(alice, 'editor_update_line', request); assert.equal(receipt.ok, true);
+    assert.equal((await ack(bob, 'editor_update_line', operation(initial, patch(initial.lines[0], { start: 3.1, end: 4.6 })))).ok, true);
+    alice.socket.emit('edit_lease_release', { token: caption.token }); await state(alice);
+    assert.equal((await acquire(bob, [target('caption')])).ok, true);
+    assert.deepEqual(await ack(alice, 'editor_update_line', request), receipt, 'frozen receipt survives a later foreign lease');
+    assert.equal((await acquire(alice, [target('structural')])).reason, 'locked');
+    assert.equal((await acquire(alice, [{ type: 'line', key: 2, group: 'caption' }, target('caption')])).reason, 'locked');
+    assert.equal((await acquire(bob, [{ type: 'line', key: 2, group: 'caption' }])).ok, true, 'failed batch acquired no partial lock');
+  });
+
+  test('lease disconnect cleanup affects only the owning socket and leaves no persisted locks', async () => {
+    const alice = await scene(), bob = await join(alice.room, 'Bob'), initial = await state(alice);
+    const targets = [{ type: 'line', key: 1, group: 'caption' }];
+    assert.equal((await ack(bob, 'edit_lease_acquire', { sessionId: initial.activeSessionId, targets })).ok, true);
+    bob.socket.disconnect(); await wait(50);
+    assert.equal((await ack(alice, 'edit_lease_acquire', { sessionId: initial.activeSessionId, targets })).ok, true);
+    assert.equal((await state(alice)).editLeases, undefined);
   });
 });

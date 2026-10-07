@@ -19,7 +19,7 @@ const WATCH_COUNTDOWN_MS = 3000;
 function endWatch(roomId, by, reason) {
   if (!watchState[roomId]) return false;
   delete watchState[roomId];
-  io.to(roomId).emit('watch_stop', { by });
+  io.to(roomId).emit('watch_stop', { by, sessionId: getRoom(roomId).activeSessionId });
   if (reason) logEvent(roomId, reason);
   return true;
 }
@@ -29,7 +29,7 @@ function recordingList(roomId) {
 }
 
 function broadcastRecording(roomId) {
-  io.to(roomId).emit('recording_state', recordingList(roomId));
+  io.to(roomId).emit('recording_state', { sessionId: getRoom(roomId).activeSessionId, recordings: recordingList(roomId) });
 }
 
 function clearSocketSeeds(roomId, socketId) {
@@ -78,6 +78,7 @@ function isHostOnline(roomId) {
 }
 
 function broadcastRoomUsers(roomId) {
+  require('./cursorPresence').broadcast(roomId);
   const room = getRoom(roomId);
   const users = [...new Set(onlineMembers(roomId).map(m => m.nick).filter(Boolean))];
   io.to(roomId).emit('room_users_updated', { users, host: room.host, hostOnline: isHostOnline(roomId) });

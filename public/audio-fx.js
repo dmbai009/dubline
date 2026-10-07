@@ -129,10 +129,9 @@ function wsolaStretch(input, factor, rate) {
   return out.subarray(0, outLength);
 }
 
-function pitchShiftBuffer(buffer, semitones) {
+function pitchShiftSamples(input, semitones, sampleRate) {
   const ratio = Math.pow(2, semitones / 12);
-  const input = toMono(buffer);
-  const stretched = wsolaStretch(input, ratio, buffer.sampleRate);
+  const stretched = wsolaStretch(input, ratio, sampleRate);
 
   const out = new Float32Array(input.length);
   for (let i = 0; i < out.length; i++) {
@@ -143,9 +142,19 @@ function pitchShiftBuffer(buffer, semitones) {
     out[i] = stretched[i0] * (1 - frac) + stretched[i0 + 1] * frac;
   }
 
+  return out;
+}
+
+async function pitchShiftBuffer(buffer, semitones) {
+  const input = new Float32Array(toMono(buffer));
+  let out;
+  if (window.DublineCpuJobs) {
+    try { [out] = await window.DublineCpuJobs.run({ kind: 'pitch', channels: [input], semitones, sampleRate: buffer.sampleRate }, [input.buffer]); }
+    catch (error) { if (error.message === 'Stale CPU job') throw error; window.DublineCpuJobs.noteFallback(); }
+  }
+  if (!out) out = pitchShiftSamples(toMono(buffer), semitones, buffer.sampleRate);
   const result = new AudioBuffer({ length: out.length, numberOfChannels: 1, sampleRate: buffer.sampleRate });
-  result.copyToChannel(out, 0);
-  return result;
+  result.copyToChannel(out, 0); return result;
 }
 
 // ---------- Effects ----------
@@ -314,10 +323,10 @@ const EFFECT_PITCH = { monster: -6 };
 // Applies the effect and pitch to a take, keeping delay and reverb tails.
 async function renderVoice(buffer, effect = 'none', pitch = 0, bounds = null, effectAmount = 1) {
   const amount = window.DublineTakeMix.normalize({ effectAmount }).effectAmount;
-  const dry = pitch ? pitchShiftBuffer(buffer, pitch) : buffer;
+  const dry = pitch ? await pitchShiftBuffer(buffer, pitch) : buffer;
   if (!amount || !effect || effect === 'none' || !VOICE_EFFECTS[effect]) return dry;
   const totalPitch = (pitch || 0) + (EFFECT_PITCH[effect] || 0);
-  const wet = totalPitch === pitch ? dry : pitchShiftBuffer(buffer, totalPitch);
+  const wet = totalPitch === pitch ? dry : await pitchShiftBuffer(buffer, totalPitch);
   const tail = effectTailSeconds(effect, amount);
   const ctx = new OfflineAudioContext(1, wet.length + Math.ceil(tail * wet.sampleRate), wet.sampleRate);
   const from = bounds ? Math.max(0, Math.min(wet.duration, bounds.from || 0)) : 0;
@@ -359,4 +368,18 @@ function limitPeak(buffer, maxPeak = 0.95) {
   return buffer;
 }
 
-window.DublineAudioFx = { VOICE_EFFECTS, effectTailSeconds, fetchAndDecode, renderVoice, connectTake };
+async function stretchPreview(buffer, rate, scope) {
+  if (rate === 1) return buffer;
+  if (![1.25, 1.5, 2, 3, 4].includes(rate)) throw new Error('Invalid preview rate');
+  const result = new AudioBuffer({ length: Math.max(1, Math.ceil(buffer.length / rate)), numberOfChannels: buffer.numberOfChannels, sampleRate: buffer.sampleRate });
+  if (window.DublineCpuJobs) {
+    const channels = Array.from({ length: buffer.numberOfChannels }, (_, channel) => new Float32Array(buffer.getChannelData(channel)));
+    try {
+      const stretched = await window.DublineCpuJobs.run({ kind: 'stretch', channels, rate, sampleRate: buffer.sampleRate }, channels.map(channel => channel.buffer), scope);
+      stretched.forEach((channel, index) => result.copyToChannel(channel, index)); return result;
+    } catch (error) { if (error.message === 'Stale CPU job') throw error; window.DublineCpuJobs.noteFallback(); }
+  }
+  for (let channel = 0; channel < buffer.numberOfChannels; channel++) result.copyToChannel(wsolaStretch(buffer.getChannelData(channel), 1 / rate, buffer.sampleRate), channel);
+  return result;
+}
+window.DublineAudioFx = { VOICE_EFFECTS, effectTailSeconds, fetchAndDecode, renderVoice, connectTake, stretchPreview };

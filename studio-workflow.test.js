@@ -42,14 +42,15 @@ test('positive and negative offsets describe the same placement for waveform, pl
   }
   assert.equal(model.placement(-8, 4).duration, 0);
 });
-test('first visit uses English even on a Russian system; choice persists and invalid preferences reset', () => {
+test('first visit uses English even on a Russian system; choice persists and invalid preferences reset', async () => {
   const values = new Map();
   const context = { window: { dispatchEvent() {} }, navigator: { language: 'ru-RU' }, document: { documentElement: {}, querySelectorAll: () => [] },
     localStorage: { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value) }, CustomEvent: function() {} };
   const source = fs.readFileSync('public/i18n.js', 'utf8');
+  for (const language of ['en', 'uk']) vm.runInNewContext(fs.readFileSync('public/locale/' + language + '.js', 'utf8'), context);
   vm.runInNewContext(source, context);
   assert.equal(context.window.DublineI18n.getLanguage(), 'en');
-  context.window.DublineI18n.setLanguage('uk'); vm.runInNewContext(source, context);
+  await context.window.DublineI18n.setLanguage('uk'); vm.runInNewContext(source, context);
   assert.equal(context.window.DublineI18n.getLanguage(), 'uk');
   values.set('dubline_language', 'invalid'); vm.runInNewContext(source, context);
   assert.equal(context.window.DublineI18n.getLanguage(), 'en');

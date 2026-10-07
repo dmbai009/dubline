@@ -39,3 +39,11 @@ The launcher and My Settings let the desktop host select a parent folder on anot
 ## Clip mixing in development main
 
 The inspector supports per-recording volume, stereo pan and effect blend, individually or across a multi-selection. Authors control their own recordings; hosts control every recording, in Dub and Edit Mode. Bulk changes set an absolute value and preserve unrelated settings. Processing stays non-destructive; project files, previews, final videos and stereo character stems retain these settings. Changed clip mixes use portable format 3; formats 1/2 remain readable.
+
+## Media / presence hardening
+
+The development build implements durable editor intent and scoped collaboration, atomic semantic leases, decoder-aware media readiness, verified resumable partial seeding and configurable upload/cache budgets. Timeline search/filter/minimap, semantic collaborator cursors, pitch-preserving preview rates, personal master/subtitle controls, Needs Retake and atomic bulk Pitch reuse the existing session, audio and clip editor architecture.
+
+A bounded safe snapshot barrier protects project/Voxalike/archive snapshots. Desktop Save Project uses a fresh native destination each time, the existing streamed serializer and destination-side atomic commit. Workspace autosave/history remains the recovery authority; opening a project imports one scene, and multiplayer host confirms a shared scene switch. A remote guest leaves and imports locally after confirmation.
+
+Windows distribution now builds one core for a per-user NSIS Setup and an extracted Portable ZIP. Explicit channel markers select installed/Portable/Steam behavior. Background downloads never silently install during recording/import/export/pending work. Portable patches and full fallback use verified managed files, an external helper, rollback and crash recovery. Unknown projects/profile/storage are excluded. Setup/Portable use one product identity and single-instance coordinator, with independent owned HKCU document handlers and no UserChoice override. Optional hardware proxy acceleration and transfer graphs remain outside this pass.

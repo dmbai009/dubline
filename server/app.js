@@ -10,6 +10,13 @@ const app = express();
 const server = http.createServer(app);
 // The page and the socket always share one origin, so other sites are not allowed to connect
 const io = new Server(server);
+let activeHttpRequests = 0;
+app.use((req, res, next) => {
+  activeHttpRequests++; let finished = false;
+  const done = () => { if (!finished) { finished = true; activeHttpRequests--; } };
+  res.once('finish', done); res.once('close', done); next();
+});
+app.use(require('./textCompression').textCompression);
 
 // Browsers must not guess a script or page out of an uploaded file
 app.use((req, res, next) => {
@@ -45,5 +52,6 @@ app.get('/favicon.ico', (req, res) => res.status(204).end());
 module.exports = {
   app,
   server,
-  io
+  io,
+  isHttpBusy: () => activeHttpRequests > 0
 };

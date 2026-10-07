@@ -214,6 +214,7 @@ function playerCardHtml(nick, stats, online) {
 
   const tags = [
     nick === roomHost ? `<span class="tag host">👑 ${t('lobby.host')}</span>` : '',
+    online && !isMe && session?.mode === 'edit' ? `<button class="btn-icon" title="${esc(t('cursor.jump'))}" onclick="jumpToCollaborator(${jsArg(nick)})">↗</button>` : '',
     isMe ? `<span class="tag you">${t('lobby.you')}</span>` : '',
     online && !isMe && amHost() ? `<button class="kick-btn" title="${esc(t('kick.button'))}" onclick="kickPlayer(${jsArg(nick)})">✖</button>` : ''
   ].join('');
@@ -221,10 +222,11 @@ function playerCardHtml(nick, stats, online) {
   const extra = [
     recordingLine ? `<span class="tag rec">${t('lobby.recording', { id: recordingLine[0] })}</span>` : '',
     seedingNicks.has(nick) ? `<span class="tag seed">${t('lobby.seeding')}</span>` : '',
-    activity && activity.state === 'downloading' ? `<span class="tag seed">${t('lobby.downloading', { pct: activity.pct })}</span>` : ''
+    activity ? `<span class="tag seed">${t('media.' + activity.state, { pct: Math.round(activity.pct) })}</span>` : ''
   ].filter(Boolean).join(' ');
   const activityProgress = activity && activity.state === 'downloading'
-    ? `<div class="progress"><div style="width:${activity.pct}%;background:var(--accent)"></div></div>` : '';
+    ? `<div class="progress"><div style="width:${activity.pct}%;background:var(--accent)"></div></div>` +
+      (activity.buckets?.length ? '<div class="media-chunk-map">' + activity.buckets.map(value => `<i style="opacity:${.2 + value / 125}"></i>`).join('') + '</div>' : '') : '';
 
   let latencyHtml = '';
   if (isMe) {
@@ -292,7 +294,7 @@ function renderLobby() {
 // UNDOING LINE DELETION
 // ==========================================
 window.undoDelete = function() {
-  socket.emit('host_undo_delete');
+  socket.emit('host_undo_delete', { sessionId: session?.activeSessionId });
 };
 
 function updateUndoButton() {
@@ -328,7 +330,9 @@ window.closeTrashModal = function() {
 };
 
 function loadTrash() {
+  const sessionId = session?.activeSessionId;
   socket.emit('host_trash_list', {}, list => {
+    if (session?.activeSessionId !== sessionId) return;
     trashItems = Array.isArray(list) ? list : [];
     const alive = new Set(trashItems.map(item => item.lineId));
     [...trashSelected].forEach(id => { if (!alive.has(id)) trashSelected.delete(id); });
@@ -382,13 +386,13 @@ trashFilter.addEventListener('input', renderTrash);
 
 window.restoreTrashSelected = function() {
   if (!trashSelected.size) return;
-  socket.emit('host_trash_restore', { lineIds: [...trashSelected] });
+  socket.emit('host_trash_restore', { lineIds: [...trashSelected], sessionId: session?.activeSessionId });
   trashSelected.clear();
 };
 
 window.restoreTrashAll = function() {
   if (!trashItems.length) return;
-  socket.emit('host_trash_restore', { lineIds: trashItems.map(item => item.lineId) });
+  socket.emit('host_trash_restore', { lineIds: trashItems.map(item => item.lineId), sessionId: session?.activeSessionId });
   trashSelected.clear();
 };
 
@@ -476,7 +480,9 @@ socket.on('room_users_updated', ({ users, host, hostOnline: online }) => {
 });
 
 // Who is recording right now: highlight tiles and nicks
-socket.on('recording_state', (list) => {
+socket.on('recording_state', (payload) => {
+  if (!session || payload?.sessionId !== session.activeSessionId || !Array.isArray(payload.recordings)) return;
+  const list = payload.recordings;
   const changed = new Set([...liveRecordings.keys(), ...list.map(item => item.lineId)]);
   liveRecordings.clear();
   list.forEach(item => liveRecordings.set(item.lineId, item.nick));
@@ -575,17 +581,22 @@ function updateHostUi() {
 }
 
 window.hostForcePause = async function() {
+  const sessionId = session?.activeSessionId;
   const others = [...new Set(liveRecordings.values())].filter(nick => nick !== myName);
   if (others.length && !await askConfirm(t('host.pauseConfirm', { names: others.join(', ') }))) return;
-  socket.emit('host_force_pause');
+  if (session?.activeSessionId !== sessionId) return;
+  socket.emit('host_force_pause', { sessionId });
 };
 window.claimHost = function() { socket.emit('claim_host'); };
 window.hostResetClaims = async function() {
+  const sessionId = session?.activeSessionId;
   if (!await askConfirm(t('confirm.reset'))) return;
-  socket.emit('host_reset_claims');
+  if (session?.activeSessionId !== sessionId) return showToast(t('editor.dialogChanged'));
+  socket.emit('host_reset_claims', { sessionId });
 };
 
-socket.on('force_pause', () => {
+socket.on('force_pause', ({ sessionId } = {}) => {
+  if (sessionId !== session?.activeSessionId) return;
   if (recordState !== 'idle') finishRecording({ discard: true });
   video.pause();
 });
@@ -602,17 +613,35 @@ function acceptSessionProtocol(protocol) {
   latestSessionProtocol = { room: currentRoom, epoch: protocol.epoch, version: protocol.version };
   return true;
 }
+let sceneResyncJob = null;
+window.requestSceneResync = () => {
+  if (sceneResyncJob || !socket.connected) return;
+  sceneResyncJob = Promise.resolve().then(() => resyncEditor()).finally(() => { sceneResyncJob = null; });
+  if (window.DublineDiagnostics) window.DublineDiagnostics.counters.lastResyncAt = Date.now();
+};
+window.acceptSceneDelta = (sessionId, lines) => {
+  if (!session || sessionId !== session.activeSessionId || !Array.isArray(lines)) return false;
+  if (lines.some(line => { const current = session.lines.find(item => item.id === line.id); return !current || Number(line.revision || 0) > Number(current.revision || 0) + 1; })) { window.requestSceneResync(); return false; }
+  return true;
+};
 function applySessionUpdate(data) {
   if (!acceptSessionProtocol(data.editorProtocol)) return;
   data.characterClaims = Object.assign(Object.create(null), data.characterClaims);
   data.latency = Object.assign(Object.create(null), data.latency);
   const sessionChanged = !session || session.activeSessionId !== data.activeSessionId;
   if (sessionChanged) {
+    audio.stopAllTakes();
+    audio.stopPreview();
+    if (watchMode) exitWatchMode();
+    cancelMediaDownload();
+    loadedVideoUrl = null;
+    liveRecordings.clear();
     if (recordState !== 'idle') finishRecording({ discard: true });
     multiSelection.clear();
     selectedLine = null;
   }
   session = data;
+  window.DublineCpuJobs?.cancelStale();
   window.acceptEditorSnapshot?.(data);
   if (!session || !session.loaded) {
     // The room has no session (e.g. the last one was deleted): clear the studio
@@ -637,8 +666,10 @@ function applySessionUpdate(data) {
   }
 
   // Don't reload the video if the pack hasn't changed (e.g. on role changes)
-  if (loadedVideoUrl !== session.videoUrl) {
+  const mediaSources = JSON.stringify([session.activeSessionId, session.videoUrl, window.DublineProjectAudio.sources(session)]);
+  if (loadedVideoUrl !== session.videoUrl || loadedMediaSources !== mediaSources) {
     loadedVideoUrl = session.videoUrl;
+    loadedMediaSources = mediaSources;
     // A new pack: watch-together of the old one is definitely over
     if (watchMode) exitWatchMode();
     forgetStaleLocalMedia();
@@ -673,8 +704,8 @@ function applySessionUpdate(data) {
 
 socket.on('session_updated', applySessionUpdate);
 
-function applyTakeUpdates(lines) {
-  if (!session || !session.lines) return;
+function applyTakeUpdates(sessionId, lines, protocol) {
+  if (!window.acceptSceneDelta(sessionId, lines) || !acceptSessionProtocol(protocol)) return;
   let changed = false, selectedChanged = false;
   for (const updatedLine of lines) {
     const idx = session.lines.findIndex(line => line.id === updatedLine.id);
@@ -694,15 +725,17 @@ function applyTakeUpdates(lines) {
   if (multiSelection.size >= 2 && lines.some(line => multiSelection.has(line.id))) showMultiInspector();
   else if (selectedChanged) showInspector(selectedLine);
 }
-socket.on('line_updated', line => applyTakeUpdates([line]));
+socket.on('line_updated', data => {
+  if (data?.line) applyTakeUpdates(data.sessionId, [data.line], data.editorProtocol);
+});
 socket.on('takes_updated', data => {
-  if (session && data.sessionId === session.activeSessionId) applyTakeUpdates(data.lines);
+  if (data) applyTakeUpdates(data.sessionId, data.lines, data.editorProtocol);
 });
 
-window.claimCharacter = function(char) { socket.emit('claim_character', { character: char }); };
-window.unclaimCharacter = function(char) { socket.emit('unclaim_character', { character: char }); };
-window.claimSingleLine = function(lineId) { socket.emit('claim_line', { lineId }); };
-window.unclaimSingleLine = function(lineId) { socket.emit('unclaim_line', { lineId }); };
+window.claimCharacter = function(char) { socket.emit('claim_character', { character: char, sessionId: session?.activeSessionId }); };
+window.unclaimCharacter = function(char) { socket.emit('unclaim_character', { character: char, sessionId: session?.activeSessionId }); };
+window.claimSingleLine = function(lineId) { socket.emit('claim_line', { lineId, sessionId: session?.activeSessionId }); };
+window.unclaimSingleLine = function(lineId) { socket.emit('unclaim_line', { lineId, sessionId: session?.activeSessionId }); };
 
 // ==========================================
 // WATCH TOGETHER: the host starts the video for everyone at once
@@ -744,7 +777,9 @@ function exitWatchMode() {
   updateHostUi();
 }
 
-socket.on('watch_start', ({ position, at }) => {
+socket.on('watch_start', ({ sessionId, position, at, rate = 1 }) => {
+  if (sessionId !== session?.activeSessionId) return;
+  window.setPreviewRate?.(rate, true);
   enterWatchMode();
   video.pause();
   video.currentTime = position;
@@ -768,25 +803,36 @@ socket.on('watch_start', ({ position, at }) => {
 });
 
 // Periodic check against the host: pause, seeking and time drift
-socket.on('watch_sync', ({ playing, position, at }) => {
+socket.on('watch_sync', ({ sessionId, playing, position, at, rate = 1 }) => {
+  if (sessionId !== session?.activeSessionId) return;
   if (amHost() || watchLeftLocally) return;
   if (!watchMode) enterWatchMode();
-  const expected = position + (playing ? Math.max(0, serverNow() - at) / 1000 : 0);
+  window.setPreviewRate?.(rate, true);
+  const expected = position + (playing ? Math.max(0, serverNow() - at) / 1000 * rate : 0);
   if (Math.abs(video.currentTime - expected) > WATCH_DRIFT_LIMIT) video.currentTime = expected;
   if (playing && video.paused) video.play().catch(() => {});
   if (!playing && !video.paused) video.pause();
 });
 
-socket.on('watch_stop', () => {
+socket.on('watch_stop', ({ sessionId } = {}) => {
+  if (sessionId !== session?.activeSessionId) return;
   const wasWatching = watchMode;
   exitWatchMode();
   if (wasWatching) video.pause();
 });
 
-function sendHostSync() {
+let lastHostScrubSync = 0, lastHostSync = null;
+function sendHostSync(transient = false) {
   if (!watchMode || !amHost()) return;
-  socket.emit('host_watch_sync', { playing: !video.paused, position: video.currentTime });
+  transient = transient === true || !!window.transportScrubbing;
+  const now = performance.now(), data = { playing: !video.paused, position: video.currentTime, rate: video.playbackRate, transient, sessionId: session?.activeSessionId };
+  if (transient && now - lastHostScrubSync < 100) return;
+  if (!transient && lastHostSync && !lastHostSync.data.transient && now - lastHostSync.at < 150 && JSON.stringify(data) === JSON.stringify(lastHostSync.data)) return;
+  if (transient) lastHostScrubSync = now;
+  lastHostSync = { at: now, data };
+  (transient ? socket.volatile : socket).emit('host_watch_sync', data);
 }
+window.sendHostSync = sendHostSync;
 
 function startHostSync() {
   clearInterval(hostSyncTimer);
@@ -797,17 +843,19 @@ video.addEventListener('play', sendHostSync);
 video.addEventListener('pause', sendHostSync);
 video.addEventListener('seeked', sendHostSync);
 video.addEventListener('ended', () => {
-  if (watchMode && amHost()) socket.emit('host_watch_stop');
+  if (watchMode && amHost()) socket.emit('host_watch_stop', { sessionId: session?.activeSessionId });
 });
 
 window.hostWatchStart = async function() {
   if (!session || !session.loaded) return alert(t('error.noScene'));
+  const sessionId = session.activeSessionId;
   if (!await askConfirm(t('host.watchConfirm'))) return;
-  socket.emit('host_watch_start', { position: 0 });
+  if (session?.activeSessionId !== sessionId) return;
+  socket.emit('host_watch_start', { position: 0, rate: video.playbackRate, sessionId });
 };
 
 window.hostWatchStop = function() {
-  socket.emit('host_watch_stop');
+  socket.emit('host_watch_stop', { sessionId: session?.activeSessionId });
 };
 
 window.leaveWatch = function() {

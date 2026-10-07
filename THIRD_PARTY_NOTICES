@@ -16,6 +16,7 @@ dependency updates.
 | Component | Version | License | Upstream |
 | --- | --- | --- | --- |
 | adm-zip | 0.6.1 | MIT | https://github.com/cthackers/adm-zip |
+| electron-updater | 6.8.10 | MIT | https://github.com/electron-userland/electron-builder |
 | express | 4.22.3 | MIT | https://github.com/expressjs/express |
 | ffmpeg-static (Node wrapper) | 5.3.0 | GPL-3.0-or-later | https://github.com/eugeneware/ffmpeg-static |
 | jszip | 3.10.2 | MIT OR GPL-3.0-or-later; used under MIT | https://github.com/Stuk/jszip |

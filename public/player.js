@@ -56,10 +56,12 @@ let revealLineId = null; // line to scroll the timeline to after a redraw (its c
 // Video/background picked from the player's own disk, so they don't go through the tunnel
 let localMedia = null; // { forVideoUrl, videoUrl, videoBlob, backingUrl, backingBlob, size }
 let loadedVideoUrl = null;
+let loadedMediaSources = null;
 
 function mediaUrl(serverUrl) {
   if (!serverUrl) return serverUrl;
   if (localMedia && localMedia.forVideoUrl === (state.session && state.session.videoUrl)) {
+    if (localMedia.assets?.[serverUrl]) return localMedia.assets[serverUrl].url;
     if (serverUrl === state.session.videoUrl) return localMedia.videoUrl;
     if (serverUrl === localMedia.backingSourceUrl && localMedia.backingUrl) return localMedia.backingUrl;
   }
@@ -212,12 +214,14 @@ const playhead = document.createElement('div');
 playhead.id = 'playhead';
 playhead.style.cssText = `
   position: absolute; top: 0; bottom: 0; width: 2px; background: #ef4444;
-  z-index: 22; pointer-events: none; left: ${labelWidth}px; display: none;
+  z-index: 16; pointer-events: none; left: ${labelWidth}px; display: none;
 `;
 timeline.appendChild(playhead);
 const videoPrompter = document.getElementById('videoPrompter');
 const PROMPTER_MAX_LINES = 4;
 let prompterKey = '';
+let prompterIndex = null, prompterLines = null, prompterById = new Map();
+window.invalidatePrompterIndex = () => { prompterLines = null; };
 
 function updatePrompter() {
   // Prompter font is at most ~4.5% of the video width so it doesn't cover the picture in a small window
@@ -229,9 +233,14 @@ function updatePrompter() {
   const current = video.currentTime || 0;
   // All lines playing right now (characters may speak at once);
   // while recording, your own line comes first and highlighted, the others dimmed
-  const recording = recordingLineId != null ? session.lines.find(line => line.id === recordingLineId) : null;
-  const active = session.lines
-    .filter(line => line !== recording && current >= line.start && current <= line.end)
+  if (prompterLines !== session.lines) {
+    prompterLines = session.lines;
+    prompterById = new Map(session.lines.map(line => [line.id, line]));
+    prompterIndex = new DublineAudioMemory.IntervalIndex(session.lines.map(line => ({ start: line.start, end: line.end, value: line })));
+  }
+  const recording = recordingLineId != null ? prompterById.get(recordingLineId) : null;
+  const active = prompterIndex.query(current)
+    .filter(line => line !== recording)
     .sort((a, b) => a.start - b.start || a.id - b.id);
   const shown = (recording ? [recording, ...active] : active).slice(0, PROMPTER_MAX_LINES);
   const hidden = (recording ? 1 : 0) + active.length - shown.length;
@@ -321,6 +330,21 @@ let roleHeights = {};
 try { roleHeights = JSON.parse(localStorage.getItem('dubline_role_heights') || '{}') || {}; } catch { /* invalid preference */ }
 if (typeof roleHeights !== 'object' || Array.isArray(roleHeights)) roleHeights = {};
 function roleHeightKey(character) { return JSON.stringify([currentRoom, session.activeSessionId, character]); }
+function applyRoleGeometry(row, lanes, preferredHeight, redraw = false) {
+  const count = lanes.size ? Math.max(...lanes.values()) + 1 : 1;
+  const geometry = window.DublineTimeline.laneGeometry(count, preferredHeight);
+  row.style.height = geometry.height + 'px';
+  for (const block of row.querySelectorAll('.line-block')) {
+    const id = Number(block.id.replace('line-block-', ''));
+    block.style.top = geometry.padding + (lanes.get(id) || 0) * geometry.stride + 'px';
+    block.style.height = geometry.cueHeight + 'px';
+    if (redraw) for (const canvas of block.querySelectorAll('.wave-canvas')) {
+      const wave = cueWaveDrawings.get(canvas);
+      if (wave) drawWaveform(canvas, wave.peaks, wave.offsetSec, wave.isTake, wave.bounds);
+    }
+  }
+  return geometry;
+}
 
 // Greedy lane layout: each line goes to the first lane where the previous one has already ended
 function assignLanes(lines) {
@@ -396,6 +420,7 @@ function renderTimeline() {
     const rect = rulerTicks.getBoundingClientRect();
     video.currentTime = Math.max(0, Math.min(editorVideoDuration(), window.DublineTimeline.coordinate(e.clientX, rect.left, pxPerSec)));
   };
+  window.bindTimelineScrub?.(rulerTicks);
 
   const tickStep = Math.max([1, 2, 5, 10, 15, 30, 60].find(step => step * pxPerSec >= 70) || 120, Math.ceil(maxTime / 1500));
   for (let sec = 0; sec <= maxTime + TIMELINE_TAIL; sec += tickStep) {
@@ -434,6 +459,7 @@ function renderTimeline() {
       setTimeout(() => tile.classList.remove('flash'), 1200);
     }
   }
+  window.refreshTimelineNavigation?.();
 }
 
 function updateLineBlockVisual(el, line) {
@@ -468,6 +494,7 @@ function updateLineBlockVisual(el, line) {
   el.innerHTML = `
     <div style="display:flex; justify-content:space-between; align-items:center; gap:4px;">
       <strong>#${lineNumber(line)}</strong>
+      ${line.audioUrl && line.needsRetake ? '<span class="retake-badge" title="' + esc(t('retake.label')) + '" style="color:var(--accent-2);font-size:11px">↻</span>' : ''}
       ${nickBadge}
     </div>
     <span style="white-space:nowrap; text-overflow:ellipsis; overflow:hidden; font-size:11px; opacity:0.9;">
@@ -483,6 +510,7 @@ function updateLineBlockVisual(el, line) {
   if (session.mode === 'edit') window.enableLineEditDrag?.(el, line.id);
   else if (line.audioUrl && owner === myName) enableTakeDrag(el, line.id);
   window.renderRemoteSelection?.(el);
+  window.renderEditLease?.(el);
 }
 
 // ==========================================
@@ -501,6 +529,7 @@ function enableTakeDrag(el, lineId) {
     if (e.shiftKey) return startLatencyDrag(e, el);
 
     const startX = e.clientX;
+    const identity = { sessionId: session.activeSessionId, audioUrl: line.audioUrl, takeMixRevision: line.takeMixRevision || 0 };
     const origRaw = rawTakeStart(line);
     const latency = latencyFor(line.recordedBy);
     let newRaw = origRaw;
@@ -523,23 +552,27 @@ function enableTakeDrag(el, lineId) {
       hint.innerText = `${shift >= 0 ? '+' : ''}${shift.toFixed(2)}s`;
     };
 
-    const onUp = () => {
+    const onUp = (event = {}) => {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp); window.removeEventListener('blur', onUp);
       el.classList.remove('dragging');
       hint.remove();
-      if (!moved) return;
+      const current = session?.activeSessionId === identity.sessionId && session.lines.find(item => item.id === lineId);
+      if (!moved || event.type !== 'pointerup' || !current || current.audioUrl !== identity.audioUrl || (current.takeMixRevision || 0) !== identity.takeMixRevision || !el.isConnected) return;
       el.dataset.justDragged = '1';
-      setTakeProps(lineId, { audioStart: Number(newRaw.toFixed(3)) });
+      socket.emit('set_take_props', { lineId, audioStart: Number(newRaw.toFixed(3)), ...identity });
     };
 
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp); window.addEventListener('blur', onUp);
   };
 }
 
 // Shift+drag: shifts all of the player's takes at once and saves it as their delay
 function startLatencyDrag(e, grabbed) {
+  const sessionId = session.activeSessionId, actor = myName;
   const startX = e.clientX;
   const origMs = Math.round(latencyFor(myName) * 1000);
   let newMs = origMs;
@@ -571,7 +604,7 @@ function startLatencyDrag(e, grabbed) {
     window.removeEventListener('pointerup', onUp);
     tiles.forEach(item => item.el.classList.remove('latency-drag'));
     hint.remove();
-    if (!moved) return;
+    if (!moved || session?.activeSessionId !== sessionId || myName !== actor || !grabbed.isConnected) return;
     grabbed.dataset.justDragged = '1';
     setMyLatency(newMs);
   };
@@ -607,7 +640,7 @@ window.resetTakeShift = function(lineId) {
 // WAVEFORM ON THE TIMELINE
 // ==========================================
 const PEAKS_PER_SEC = 100;
-const peaksCache = new Map(); // url -> Promise<Float32Array | null>
+const peaksCache = new DublineAudioMemory.ByteCache(8 * 1024 ** 2); // url -> Promise<Float32Array | null>
 
 function computePeaks(audio) {
   const bucket = Math.max(1, Math.floor(audio.sampleRate / PEAKS_PER_SEC));
@@ -639,12 +672,28 @@ function loadPeaks(url, isTake) {
   if (!peaksCache.has(url)) {
     // Takes are decoded once and reused for playback
     const decoded = isTake ? getRawTake(url) : fetchAndDecode(url);
-    const job = decoded.then(buf => (buf ? computePeaks(buf) : null)).catch(() => null);
+    const scope = session?.activeSessionId;
+    const job = decoded.then(async buf => {
+      if (!buf || scope !== session?.activeSessionId) return null;
+      if (window.DublineCpuJobs) {
+        try {
+          const channels = Array.from({ length: buf.numberOfChannels }, (_, index) => new Float32Array(buf.getChannelData(index)).buffer);
+          const output = await DublineCpuJobs.run({ kind: 'peaks', channels, sampleRate: buf.sampleRate }, channels, scope);
+          return output[0];
+        } catch (error) { if (scope !== session?.activeSessionId || /Stale/.test(error.message)) return null; DublineCpuJobs.noteFallback(); }
+      }
+      return computePeaks(buf);
+    }).catch(() => null).then(peaks => {
+      if (!peaks && peaksCache.get(url) === job) peaksCache.delete(url);
+      return peaks;
+    });
+    while (peaksCache.size >= 512) peaksCache.delete(peaksCache.keys().next().value);
     peaksCache.set(url, job);
   }
   return peaksCache.get(url);
 }
 
+const cueWaveDrawings = new WeakMap();
 function attachWaveform(block, line) {
   const url = line.audioUrl || line.originalAudioUrl;
   if (!url) return;
@@ -658,12 +707,16 @@ function attachWaveform(block, line) {
   canvas.className = 'wave-canvas';
   block.prepend(canvas);
 
-  loadPeaks(url, isTake).then(peaks => {
-    if (peaks && canvas.isConnected) drawWaveform(canvas, peaks, offsetSec, isTake, bounds);
+  const sceneId = session?.activeSessionId;
+  const paint = () => loadPeaks(url, isTake).then(peaks => {
+    if (peaks && canvas.isConnected && session?.activeSessionId === sceneId) drawWaveform(canvas, peaks, offsetSec, isTake, bounds);
   });
+  if (window.DublineCueWaves) DublineCueWaves.observe(canvas, paint); else paint();
 }
 
 function drawWaveform(canvas, peaks, offsetSec, isTake, bounds = { from: 0, to: Infinity }) {
+  if (!canvas.isConnected) return;
+  cueWaveDrawings.set(canvas, { peaks, offsetSec, isTake, bounds });
   const width = Math.max(1, Math.round((peaks.length / PEAKS_PER_SEC) * pxPerSec));
   const height = canvas.parentElement.clientHeight || 46;
   const dpr = window.devicePixelRatio || 1;
@@ -828,7 +881,7 @@ function renderTrackPicker() {
 }
 
 function sendTrackSelection() {
-  socket.emit('host_set_audio_tracks', { original: Number(originalTrackSelect.value), backing: Number(backingTrackSelect.value) });
+  socket.emit('host_set_audio_tracks', { original: Number(originalTrackSelect.value), backing: Number(backingTrackSelect.value), sessionId: session?.activeSessionId });
 }
 originalTrackSelect.addEventListener('change', sendTrackSelection);
 backingTrackSelect.addEventListener('change', sendTrackSelection);
@@ -965,6 +1018,7 @@ function buildRoleRow(char, trackWidth, allowCharacterClaims, editing) {
       trackArea.appendChild(outside);
     }
     const emptyTarget = event => event.target === trackArea || event.target.classList.contains('timeline-outside');
+    window.bindTimelineScrub?.(trackArea, emptyTarget);
     trackArea.onclick = event => {
       if (event.button !== 0 || !emptyTarget(event) || !window.studioCanTransport()) return;
       video.currentTime = Math.max(0, Math.min(duration, window.DublineTimeline.coordinate(event.clientX, trackArea.getBoundingClientRect().left, pxPerSec)));
@@ -981,22 +1035,32 @@ function buildRoleRow(char, trackWidth, allowCharacterClaims, editing) {
     // otherwise they are drawn on top of each other. Uses real time, so the layout doesn't jump when zooming.
     const laneOf = assignLanes(charLines);
     const laneCount = laneOf.size ? Math.max(...laneOf.values()) + 1 : 1;
-    const minimumHeight = ROW_PADDING + laneCount * LANE_HEIGHT;
+    const minimumHeight = window.DublineTimeline.laneGeometry(laneCount).minimum;
     const heightKey = roleHeightKey(char);
-    row.style.height = Math.max(minimumHeight, Math.min(600, Number(roleHeights[heightKey]) || 0)) + 'px';
+    const geometry = window.DublineTimeline.laneGeometry(laneCount, Number(roleHeights[heightKey]));
+    row.style.height = geometry.height + 'px';
     const resize = document.createElement('button'); resize.className = 'role-height-handle'; resize.type = 'button'; resize.title = t('splitter.hint'); resize.setAttribute('aria-label', t('splitter.hint'));
-    resize.ondblclick = event => { event.stopPropagation(); delete roleHeights[heightKey]; localStorage.setItem('dubline_role_heights', JSON.stringify(roleHeights)); renderTimeline(); };
+    resize.ondblclick = event => { event.stopPropagation(); delete roleHeights[heightKey]; localStorage.setItem('dubline_role_heights', JSON.stringify(roleHeights)); applyRoleGeometry(row, laneOf, undefined, true); };
     resize.onpointerdown = event => {
-      if (event.button !== 0) return; event.stopPropagation();
+      if (event.button !== 0) return; event.preventDefault(); event.stopPropagation();
       const origin = event.clientY, height = row.getBoundingClientRect().height;
-      const move = next => { row.style.height = Math.max(minimumHeight, Math.min(600, height + next.clientY - origin)) + 'px'; };
-      const finish = () => {
+      let frame = null, pendingHeight = height, done = false;
+      const paint = () => { frame = null; applyRoleGeometry(row, laneOf, pendingHeight); };
+      const move = next => { pendingHeight = Math.max(minimumHeight, Math.min(600, height + next.clientY - origin)); if (frame === null) frame = requestAnimationFrame(paint); };
+      const finish = endEvent => {
+        if (done) return; done = true;
+        if (frame !== null) { cancelAnimationFrame(frame); frame = null; }
         window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', finish); window.removeEventListener('pointercancel', finish);
-        roleHeights[heightKey] = row.getBoundingClientRect().height;
+        window.removeEventListener('blur', finish);
+        const cancelled = endEvent?.type === 'pointercancel' || endEvent?.type === 'blur';
+        applyRoleGeometry(row, laneOf, cancelled ? height : pendingHeight, true);
+        if (cancelled) return;
+        roleHeights[heightKey] = pendingHeight;
         for (const key of Object.keys(roleHeights).slice(0, -200)) delete roleHeights[key];
         localStorage.setItem('dubline_role_heights', JSON.stringify(roleHeights));
       };
       window.addEventListener('pointermove', move); window.addEventListener('pointerup', finish); window.addEventListener('pointercancel', finish);
+      window.addEventListener('blur', finish);
     };
     label.appendChild(resize);
     charLines.forEach(line => {
@@ -1004,7 +1068,8 @@ function buildRoleRow(char, trackWidth, allowCharacterClaims, editing) {
       block.className = 'line-block';
       block.id = `line-block-${line.id}`;
       block.style.left = `${line.start * pxPerSec}px`;
-      block.style.top = `${ROW_PADDING + (laneOf.get(line.id) || 0) * LANE_HEIGHT}px`;
+      block.style.top = `${geometry.padding + (laneOf.get(line.id) || 0) * geometry.stride}px`;
+      block.style.height = geometry.cueHeight + 'px';
       block.style.width = `${Math.max((line.end - line.start) * pxPerSec, MIN_TILE_PX)}px`;
 
       updateLineBlockVisual(block, line);
@@ -1054,13 +1119,13 @@ window.refreshEditorRows = function(lines) {
     const sameSet = cues.length === blocks.length && cues.every(line => blocks.some(block => block.id === 'line-block-' + line.id));
     if (!sameSet) { row.replaceWith(buildRoleRow(character, (timelineSeconds() + TIMELINE_TAIL) * pxPerSec, characters.length > 1, session.mode === 'edit')); continue; }
     const lanes = assignLanes(cues);
-    const minimum = ROW_PADDING + (lanes.size ? Math.max(...lanes.values()) + 1 : 1) * LANE_HEIGHT;
-    row.style.height = Math.max(minimum, Math.min(600, Number(roleHeights[roleHeightKey(character)]) || 0)) + 'px';
+    const geometry = applyRoleGeometry(row, lanes, Number(roleHeights[roleHeightKey(character)]), true);
     for (const line of cues) {
       const block = document.getElementById('line-block-' + line.id);
       block.style.left = line.start * pxPerSec + 'px';
       block.style.width = Math.max((line.end - line.start) * pxPerSec, MIN_TILE_PX) + 'px';
-      block.style.top = ROW_PADDING + (lanes.get(line.id) || 0) * LANE_HEIGHT + 'px';
+      block.style.top = geometry.padding + (lanes.get(line.id) || 0) * geometry.stride + 'px';
+      block.style.height = geometry.cueHeight + 'px';
       if (lines.some(update => update.id === line.id)) updateLineBlockVisual(block, line);
     }
   }

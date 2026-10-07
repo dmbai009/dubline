@@ -70,6 +70,10 @@ describe('millisecond timing', { skip: skipReason }, () => {
     const rejected = await page.evaluate(id => updateEditorLine(session.lines.find(line => line.id === id), { end: 1.199 }), created.line.id);
     assert.equal(rejected.reason, 'invalid');
     assert.equal(await page.evaluate(id => session.lines.find(line => line.id === id).end, created.line.id), 1.2);
+    await page.evaluate(() => {
+      if (document.getElementById('editorConflictPanel').hidden) reviewEditorConflicts();
+      [...document.querySelectorAll('[data-discard-operation]')].forEach(button => button.click());
+    });
   });
 
   test('preparation slider moves by 0.1 s and persists after reload', async () => {
@@ -94,7 +98,7 @@ describe('millisecond timing', { skip: skipReason }, () => {
       await page.focus('#editorCaption');
       await page.$eval('#editorCaption', input => input.select());
       await page.type('#editorCaption', 'Unsaved draft');
-      await bob.evaluate(() => socket.emit('claim_character', { character: 'Friend' }));
+      await bob.evaluate(() => socket.emit('claim_character', { sessionId: session.activeSessionId,  character: 'Friend' }));
       await waitFor(page, () => session.characterClaims.Friend === 'Bob');
       assert.deepEqual(await page.evaluate(() => ({ text: document.getElementById('editorCaption').value, focus: document.activeElement.id })), { text: 'Unsaved draft', focus: 'editorCaption' });
       await page.evaluate(() => {
@@ -102,6 +106,7 @@ describe('millisecond timing', { skip: skipReason }, () => {
         selectLine(session.lines.find(line => line.id === 1));
       });
       assert.equal(await page.$eval('#editorCaption', input => input.value), 'Unsaved draft');
+      await page.evaluate(() => document.activeElement.blur());
       assert.equal((await bob.evaluate(() => updateEditorLine(session.lines.find(line => line.id === 1), { caption: 'Remote version' }))).ok, true);
       await waitFor(page, () => session.lines.find(line => line.id === 1).caption === 'Remote version');
       assert.equal(await page.$eval('#editorCaption', input => input.value), 'Unsaved draft');
@@ -149,6 +154,10 @@ describe('millisecond timing', { skip: skipReason }, () => {
 
       // Both change the caption: a real conflict; "keep my version" saves mine over Bob's
       await typeCaption('Mine wins');
+      const locked = await bob.evaluate(() => updateEditorLine(session.lines.find(line => line.id === 1), { caption: 'Blocked while typing' }));
+      assert.equal(locked.reason, 'locked');
+      // A draft remains after focus leaves; the caption lease must be released first.
+      await page.evaluate(() => document.activeElement.blur());
       await bob.evaluate(() => updateEditorLine(session.lines.find(line => line.id === 1), { caption: 'Bob was first' }));
       await waitFor(page, () => document.getElementById('editorLineForm').textContent.includes(t('editor.draftConflict')));
       assert.equal(await page.$eval('#editorCaption', input => input.value), 'Mine wins');
@@ -222,7 +231,9 @@ describe('millisecond timing', { skip: skipReason }, () => {
         HTMLAnchorElement.prototype.click = function() { filename = this.download; };
         socket.on('pack_export_progress', collect);
         try {
+          const began = new Promise(resolve => socket.once('pack_export_progress', resolve));
           const exporting = exportVoxalikePack();
+          await began;
           session.title = 'Wrong scene';
           const busy = await fetch('/api/export-voxalike-pack', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -247,7 +258,7 @@ describe('millisecond timing', { skip: skipReason }, () => {
       assert.deepEqual(await bob.evaluate(() => exportNotifications), []);
       // The successful request must release the process-wide slot.
       const again = await page.evaluate(async () => (await fetch('/api/export-voxalike-pack', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ room: currentRoom, clientId })
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...await window.prepareSafeSnapshot('voxalike'),  room: currentRoom, clientId })
       })).status);
       assert.equal(again, 200);
     } finally { await bob.close(); }
@@ -276,7 +287,7 @@ describe('millisecond timing', { skip: skipReason }, () => {
     assert.equal((await page.evaluate(() => updateEditorLine(session.lines.find(line => line.id === 2), { start: 3, end: 3.05 }))).ok, true);
     const bytes = await page.evaluate(async () => {
       const response = await fetch('/api/export-voxalike-pack', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ room: currentRoom, clientId })
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...await window.prepareSafeSnapshot('voxalike'),  room: currentRoom, clientId })
       });
       if (!response.ok) throw new Error(await response.text());
       return Array.from(new Uint8Array(await response.arrayBuffer()));
@@ -680,7 +691,7 @@ describe('studio', { skip: skipReason }, () => {
   test('changing the character of a line moves it to that character track', async () => {
     const rejected = await bob.evaluate(() => {
       const line = session.lines[0];
-      return new Promise(resolve => socket.emit('editor_update_line', {
+      return new Promise(resolve => socket.emit('editor_update_line', { sessionId: session.activeSessionId,
         lineId: line.id, revision: line.revision || 0, caption: 'must not change in dub mode'
       }, resolve));
     });
@@ -717,7 +728,7 @@ describe('studio', { skip: skipReason }, () => {
       // The timeline scrolls inside its panel: bring the tile into its visible part first
       await page.$eval(`#line-block-${id}`, el => el.scrollIntoView({ block: 'center', inline: 'center' }));
       if (modifier) await page.keyboard.down(modifier);
-      await page.click(`#line-block-${id}`);
+      await page.locator(`#line-block-${id}`).click();
       if (modifier) await page.keyboard.up(modifier);
     };
 
@@ -784,7 +795,7 @@ describe('studio', { skip: skipReason }, () => {
   });
 
   test('collaborative editor creates, updates and conflict-checks source lines', async () => {
-    const created = await bob.evaluate(() => new Promise(resolve => socket.emit('editor_create_line', {
+    const created = await bob.evaluate(() => new Promise(resolve => socket.emit('editor_create_line', { sessionId: session.activeSessionId,
       character: 'Keiichi', caption: 'New shared line', start: 1.25, end: 2.75
     }, resolve)));
     assert.equal(created.ok, true);
@@ -799,7 +810,7 @@ describe('studio', { skip: skipReason }, () => {
       return line && line.caption === 'Edited together' && line.start === 1.5 && line.end === 3;
     }, 5000, created.line.id);
 
-    const stale = await alice.evaluate(id => new Promise(resolve => socket.emit('editor_update_line', {
+    const stale = await alice.evaluate(id => new Promise(resolve => socket.emit('editor_update_line', { sessionId: session.activeSessionId,
       lineId: id, revision: 0, caption: 'Stale overwrite'
     }, resolve)), created.line.id);
     assert.equal(stale.reason, 'conflict');
@@ -807,7 +818,7 @@ describe('studio', { skip: skipReason }, () => {
 
     const staleBulk = await alice.evaluate(id => {
       const line = session.lines.find(item => item.id === id);
-      return new Promise(resolve => socket.emit('set_lines_character', {
+      return new Promise(resolve => socket.emit('set_lines_character', { sessionId: session.activeSessionId,
         character: 'Stale bulk overwrite',
         lines: [{ lineId: id, revision: line.revision - 1 }]
       }, resolve));
@@ -815,14 +826,14 @@ describe('studio', { skip: skipReason }, () => {
     assert.equal(staleBulk.reason, 'conflict', 'bulk track assignment checks every line revision');
     assert.notEqual(await bob.evaluate(id => session.lines.find(line => line.id === id).character, created.line.id), 'Stale bulk overwrite');
 
-    const emptyTrack = await bob.evaluate(() => new Promise(resolve => socket.emit('editor_add_track', { character: 'Empty role' }, resolve)));
+    const emptyTrack = await bob.evaluate(() => new Promise(resolve => socket.emit('editor_add_track', { sessionId: session.activeSessionId,  character: 'Empty role' }, resolve)));
     assert.equal(emptyTrack.ok, true);
-    const emptyRenamed = await bob.evaluate(() => new Promise(resolve => socket.emit('rename_character', {
+    const emptyRenamed = await bob.evaluate(() => new Promise(resolve => socket.emit('rename_character', { sessionId: session.activeSessionId,
       from: 'Empty role', to: 'Empty role renamed', lines: []
     }, resolve)));
     assert.equal(emptyRenamed.ok, true, 'an empty track can be renamed');
     await waitFor(alice, () => sessionCharacters().includes('Empty role renamed'));
-    const emptyUndo = await bob.evaluate(() => new Promise(resolve => socket.emit('editor_undo', resolve)));
+    const emptyUndo = await bob.evaluate(() => new Promise(resolve => socket.emit('editor_undo', { sessionId: session.activeSessionId }, resolve)));
     assert.equal(emptyUndo.undone, 1);
     await waitFor(alice, () => sessionCharacters().includes('Empty role') && !sessionCharacters().includes('Empty role renamed'));
 
@@ -834,16 +845,16 @@ describe('studio', { skip: skipReason }, () => {
         lines: session.lines.filter(line => line.character === from).map(line => ({ lineId: line.id, revision: line.revision || 0 }))
       };
     });
-    const trackRenamed = await bob.evaluate(state => new Promise(resolve => socket.emit('rename_character', {
+    const trackRenamed = await bob.evaluate(state => new Promise(resolve => socket.emit('rename_character', { sessionId: session.activeSessionId,
       from: state.from, to: 'Track undo probe', lines: state.lines
     }, resolve)), trackBefore);
     assert.equal(trackRenamed.ok, true);
-    const trackUndo = await bob.evaluate(() => new Promise(resolve => socket.emit('editor_undo', resolve)));
+    const trackUndo = await bob.evaluate(() => new Promise(resolve => socket.emit('editor_undo', { sessionId: session.activeSessionId }, resolve)));
     assert.equal(trackUndo.skipped, 0);
     await waitFor(alice, state => JSON.stringify(session.trackOrder) === JSON.stringify(state.order)
       && session.lines.filter(line => state.lines.some(item => item.lineId === line.id)).every(line => line.character === state.from), 5000, trackBefore);
 
-    const removed = await bob.evaluate(id => new Promise(resolve => socket.emit('editor_delete_lines', {
+    const removed = await bob.evaluate(id => new Promise(resolve => socket.emit('editor_delete_lines', { sessionId: session.activeSessionId,
       lines: [{ lineId: id, revision: lineRevision(id) }]
     }, resolve)), created.line.id);
     assert.equal(removed.ok, true);
@@ -886,7 +897,7 @@ describe('studio', { skip: skipReason }, () => {
 
     // Alice owns the role: a line dropped onto it becomes hers
     const [first, second, third] = await bob.evaluate(() => [...session.lines].sort((a, b) => a.start - b.start).map(l => l.id));
-    await alice.evaluate(() => socket.emit('claim_character', { character: 'Shion' }));
+    await alice.evaluate(() => socket.emit('claim_character', { sessionId: session.activeSessionId,  character: 'Shion' }));
     await waitFor(bob, () => session.characterClaims['Shion'] === 'Alice');
     assert.equal(await dragTo(bob, first, 'Shion'), 'Shion', 'the target track is highlighted while dragging');
     await waitFor(alice, id => session.lines.find(l => l.id === id).character === 'Shion', 5000, first);
@@ -910,7 +921,7 @@ describe('studio', { skip: skipReason }, () => {
     await waitFor(bob, () => session.mode === 'dub');
     await waitFor(alice, () => !!document.querySelector('.track-add-btn'));
     assert.equal(await bob.evaluate(() => !!document.querySelector('.track-add-btn')), false);
-    const refused = await bob.evaluate(() => new Promise(resolve => socket.emit('editor_add_track', { character: 'Guest role' }, resolve)));
+    const refused = await bob.evaluate(() => new Promise(resolve => socket.emit('editor_add_track', { sessionId: session.activeSessionId,  character: 'Guest role' }, resolve)));
     assert.equal(refused.reason, 'mode');
     await alice.evaluate(() => document.querySelector('.track-add-btn').click());
     await answerTextPrompt(alice, 'Satoko');
@@ -947,7 +958,7 @@ describe('studio', { skip: skipReason }, () => {
 
     // Alice's Ctrl+Z undoes only her own edits, never Bob's
     const bobsLine = await alice.evaluate(lineId => JSON.stringify(session.lines.find(l => l.id === lineId)), id);
-    await alice.evaluate(() => new Promise(resolve => socket.emit('editor_undo', resolve)));
+    await alice.evaluate(() => new Promise(resolve => socket.emit('editor_undo', { sessionId: session.activeSessionId }, resolve)));
     await new Promise(resolve => setTimeout(resolve, 300));
     assert.equal(await alice.evaluate(lineId => JSON.stringify(session.lines.find(l => l.id === lineId)), id), bobsLine);
 
@@ -956,7 +967,7 @@ describe('studio', { skip: skipReason }, () => {
     await waitFor(alice, lineId => session.lines.find(l => l.id === lineId).caption === 'Bob was here', 5000, id);
     await alice.evaluate(lineId => updateEditorLine(session.lines.find(l => l.id === lineId), { caption: 'Alice fixed it' }), id);
     await waitFor(bob, lineId => session.lines.find(l => l.id === lineId).caption === 'Alice fixed it', 5000, id);
-    const skipped = await bob.evaluate(() => new Promise(resolve => socket.emit('editor_undo', resolve)));
+    const skipped = await bob.evaluate(() => new Promise(resolve => socket.emit('editor_undo', { sessionId: session.activeSessionId }, resolve)));
     assert.equal(skipped.undone, 0);
     assert.equal(skipped.skipped, 1);
     await alice.evaluate((lineId, caption) => updateEditorLine(session.lines.find(l => l.id === lineId), { caption }), id, original.caption);
@@ -967,7 +978,7 @@ describe('studio', { skip: skipReason }, () => {
     await waitFor(alice, lineId => session.lines.find(l => l.id === lineId).caption === 'Undo after rename', 5000, id);
     await bob.evaluate(() => socket.emit('rename_user', { newName: 'Bobby' }));
     await waitFor(bob, () => myName === 'Bobby');
-    const renamedUndo = await bob.evaluate(() => new Promise(resolve => socket.emit('editor_undo', resolve)));
+    const renamedUndo = await bob.evaluate(() => new Promise(resolve => socket.emit('editor_undo', { sessionId: session.activeSessionId }, resolve)));
     assert.equal(renamedUndo.undone, 1);
     await waitFor(alice, (lineId, caption) => session.lines.find(l => l.id === lineId).caption === caption, 5000, id, original.caption);
     await bob.evaluate(() => socket.emit('rename_user', { newName: 'Bob' }));
@@ -1003,9 +1014,9 @@ describe('studio', { skip: skipReason }, () => {
     const tracks = page => page.evaluate(() => [...session.trackOrder]);
 
     // An empty track renamed by Bob, then Alice adds a role: Bob's undo still renames it back
-    await bob.evaluate(() => new Promise(resolve => socket.emit('editor_add_track', { character: 'Empty one' }, resolve)));
-    await bob.evaluate(() => new Promise(resolve => socket.emit('rename_character', { from: 'Empty one', to: 'Empty two', lines: [] }, resolve)));
-    await alice.evaluate(() => new Promise(resolve => socket.emit('editor_add_track', { character: 'Alice role' }, resolve)));
+    await bob.evaluate(() => new Promise(resolve => socket.emit('editor_add_track', { sessionId: session.activeSessionId,  character: 'Empty one' }, resolve)));
+    await bob.evaluate(() => new Promise(resolve => socket.emit('rename_character', { sessionId: session.activeSessionId,  from: 'Empty one', to: 'Empty two', lines: [] }, resolve)));
+    await alice.evaluate(() => new Promise(resolve => socket.emit('editor_add_track', { sessionId: session.activeSessionId,  character: 'Alice role' }, resolve)));
     await waitFor(bob, () => session.trackOrder.includes('Alice role') && session.trackOrder.includes('Empty two'));
     const renamedAt = (await tracks(bob)).indexOf('Empty two');
     const result = await undo(bob);
@@ -1014,8 +1025,8 @@ describe('studio', { skip: skipReason }, () => {
     assert.equal((await tracks(bob)).indexOf('Empty one'), renamedAt, 'the old name comes back in place');
 
     // Nothing left to put back (Alice already renamed it): the undo reports a skip, not a success
-    await bob.evaluate(() => new Promise(resolve => socket.emit('rename_character', { from: 'Empty one', to: 'Empty three', lines: [] }, resolve)));
-    await alice.evaluate(() => new Promise(resolve => socket.emit('rename_character', { from: 'Empty three', to: 'Empty four', lines: [] }, resolve)));
+    await bob.evaluate(() => new Promise(resolve => socket.emit('rename_character', { sessionId: session.activeSessionId,  from: 'Empty one', to: 'Empty three', lines: [] }, resolve)));
+    await alice.evaluate(() => new Promise(resolve => socket.emit('rename_character', { sessionId: session.activeSessionId,  from: 'Empty three', to: 'Empty four', lines: [] }, resolve)));
     await waitFor(bob, () => session.trackOrder.includes('Empty four'));
     const skipped = await undo(bob);
     assert.equal(skipped.undone, 0);
@@ -1027,7 +1038,7 @@ describe('studio', { skip: skipReason }, () => {
     await bob.evaluate(() => { renameCharacterTrack('Shion'); });
     await answerTextPrompt(bob, 'Shion renamed');
     await waitFor(alice, () => session.trackOrder.includes('Shion renamed'));
-    await alice.evaluate(() => new Promise(resolve => socket.emit('editor_add_track', { character: 'Another role' }, resolve)));
+    await alice.evaluate(() => new Promise(resolve => socket.emit('editor_add_track', { sessionId: session.activeSessionId,  character: 'Another role' }, resolve)));
     await waitFor(bob, () => session.trackOrder.includes('Another role'));
     const back = await undo(bob);
     assert.equal(back.undone, lineIds.length, JSON.stringify(back));
@@ -1072,11 +1083,11 @@ describe('studio', { skip: skipReason }, () => {
     assert.equal(after.owner, take.owner, 'a claim made after the edit is left alone');
 
     // Bob merges an empty track into an existing one, Alice adds a role: undo brings it back in place
-    await bob.evaluate(() => new Promise(resolve => socket.emit('editor_add_track', { character: 'Merge me' }, resolve)));
+    await bob.evaluate(() => new Promise(resolve => socket.emit('editor_add_track', { sessionId: session.activeSessionId,  character: 'Merge me' }, resolve)));
     const tracksBefore = await bob.evaluate(() => [...session.trackOrder]);
     const target = tracksBefore[0];
-    await bob.evaluate(to => new Promise(resolve => socket.emit('rename_character', { from: 'Merge me', to, lines: [] }, resolve)), target);
-    await alice.evaluate(() => new Promise(resolve => socket.emit('editor_add_track', { character: 'Late role' }, resolve)));
+    await bob.evaluate(to => new Promise(resolve => socket.emit('rename_character', { sessionId: session.activeSessionId,  from: 'Merge me', to, lines: [] }, resolve)), target);
+    await alice.evaluate(() => new Promise(resolve => socket.emit('editor_add_track', { sessionId: session.activeSessionId,  character: 'Late role' }, resolve)));
     await waitFor(bob, () => session.trackOrder.includes('Late role') && !session.trackOrder.includes('Merge me'));
     const merged = await bob.evaluate(() => editorUndo());
     assert.equal(merged.undone, 1, JSON.stringify(merged));
@@ -1110,7 +1121,7 @@ describe('studio', { skip: skipReason }, () => {
       assert.equal(await bob.evaluate(id => session.lines.find(line => line.id === id).caption, id), caption);
     }
     const current = await bob.evaluate(id => lineRevision(id), id);
-    const stale = await bob.evaluate((id, revision) => new Promise(resolve => socket.emit('editor_delete_lines', {
+    const stale = await bob.evaluate((id, revision) => new Promise(resolve => socket.emit('editor_delete_lines', { sessionId: session.activeSessionId,
       lines: [{ lineId: id, revision }]
     }, resolve)), id, current - 1);
     assert.equal(stale.reason, 'conflict');
@@ -1119,7 +1130,7 @@ describe('studio', { skip: skipReason }, () => {
       sessionId: 'old-scene', lines: [{ lineId: id, revision: lineRevision(id) }]
     }, resolve)), id);
     assert.equal(wrongScene.reason, 'session');
-    assert.equal(await bob.evaluate(id => new Promise(resolve => socket.emit('editor_delete_lines', {
+    assert.equal(await bob.evaluate(id => new Promise(resolve => socket.emit('editor_delete_lines', { sessionId: session.activeSessionId,
       lines: [{ lineId: id, revision: lineRevision(id) }]
     }, resolve)), id).then(result => result.ok), true);
   });
@@ -1129,18 +1140,18 @@ describe('studio', { skip: skipReason }, () => {
       character: 'Claim before rename', start: 1, end: 2, caption: 'Claim regression'
     }]));
     assert.equal(created.ok, true);
-    await alice.evaluate(() => socket.emit('claim_character', { character: 'Claim before rename' }));
+    await alice.evaluate(() => socket.emit('claim_character', { sessionId: session.activeSessionId,  character: 'Claim before rename' }));
     await waitFor(alice, () => session.characterClaims['Claim before rename'] === 'Alice');
     const renamed = await alice.evaluate(() => queueEditorRequest(() => ['rename_character', {
       from: 'Claim before rename', to: 'Claim after rename',
       lines: session.lines.filter(line => line.character === 'Claim before rename').map(line => ({ lineId: line.id, revision: line.revision || 0 }))
     }]));
     assert.equal(renamed.ok, true);
-    await alice.evaluate(() => socket.emit('unclaim_character', { character: 'Claim after rename' }));
+    await alice.evaluate(() => socket.emit('unclaim_character', { sessionId: session.activeSessionId,  character: 'Claim after rename' }));
     await waitFor(alice, () => !session.characterClaims['Claim after rename']);
     assert.equal((await alice.evaluate(() => editorUndo())).undone, 1);
     assert.equal(await alice.evaluate(() => !!session.characterClaims['Claim before rename']), false);
-    await alice.evaluate(id => new Promise(resolve => socket.emit('editor_delete_lines', {
+    await alice.evaluate(id => new Promise(resolve => socket.emit('editor_delete_lines', { sessionId: session.activeSessionId,
       lines: [{ lineId: id, revision: lineRevision(id) }]
     }, resolve)), created.line.id);
   });
@@ -1166,7 +1177,7 @@ describe('studio', { skip: skipReason }, () => {
               });
               return;
             }
-            writes++;
+            if (event === 'editor_undo') writes++;
             target.emit(event, payload, ack);
           }
         };
@@ -1199,7 +1210,7 @@ describe('studio', { skip: skipReason }, () => {
       return Object.keys(session.characterClaims).length === roles.size && Object.keys(session.characterClaims).every(role => roles.has(role));
     }), true, 'empty editor tracks are not cast');
 
-    await alice.evaluate(() => socket.emit('set_blind_mode', { enabled: true }));
+    await alice.evaluate(() => socket.emit('set_blind_mode', { sessionId: session.activeSessionId,  enabled: true }));
     await waitFor(bob, () => session.blindMode === true);
     const hidden = await bob.evaluate(() => {
       const line = session.lines.find(item => item.audioUrl && item.recordedBy === 'Alice');
@@ -1210,8 +1221,8 @@ describe('studio', { skip: skipReason }, () => {
     await waitFor(bob, id => canHearLine(session.lines.find(line => line.id === id)), 5000, hidden.id);
 
     await alice.evaluate(() => {
-      socket.emit('set_blind_mode', { enabled: false });
-      socket.emit('set_blind_preference', { enabled: true });
+      socket.emit('set_blind_mode', { sessionId: session.activeSessionId,  enabled: false });
+      socket.emit('set_blind_preference', { sessionId: session.activeSessionId,  enabled: true });
     });
     await waitFor(bob, id => !canHearLine(session.lines.find(line => line.id === id)), 5000, hidden.id);
     await alice.evaluate(() => socket.emit('rename_user', { newName: 'Alice renamed' }));
@@ -1219,11 +1230,13 @@ describe('studio', { skip: skipReason }, () => {
     assert.equal(await bob.evaluate(id => canHearLine(session.lines.find(line => line.id === id)), hidden.id), false, 'personal Blind Mode survives a nickname change');
     await alice.evaluate(() => socket.emit('rename_user', { newName: 'Alice' }));
     await waitFor(bob, () => session.blindPlayers.includes('Alice') && !session.blindPlayers.includes('Alice renamed'));
-    await alice.evaluate(() => socket.emit('set_blind_preference', { enabled: false }));
+    await alice.evaluate(() => socket.emit('set_blind_preference', { sessionId: session.activeSessionId,  enabled: false }));
 
-    await bob.evaluate(() => socket.emit('player_activity', { state: 'downloading', pct: 42 }));
+    await bob.evaluate(() => window.updateMediaTransfer({ downloading: true, pct: 42 }));
     await waitFor(alice, () => playerActivities.get('Bob')?.pct === 42);
+    await waitFor(alice, () => [...document.querySelectorAll('.player-card')].some(card => card.innerText.includes('Bob') && card.innerText.includes('42%')));
     assert.match(await alice.evaluate(() => [...document.querySelectorAll('.player-card')].find(card => card.innerText.includes('Bob')).innerText), /42%/);
+    await bob.evaluate(() => window.updateMediaTransfer({ downloading: false, pct: 100 }));
 
     await alice.evaluate(() => {
       document.getElementById('settingsTheme').value = 'ocean';

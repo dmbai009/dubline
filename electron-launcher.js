@@ -212,12 +212,14 @@ function workspaceError(result) {
 function renderUpdate() {
   const banner = document.getElementById('updateBanner');
   if (updateStatus?.currentVersion) document.getElementById('launcherVersion').textContent = `Dubline v${updateStatus.currentVersion}`;
-  const available = !updateDismissed && !updateStatus?.dismissed && updateStatus?.state === 'available';
+  const view = window.DublineUpdatePresentation(updateStatus, language);
+  const available = !updateDismissed && !updateStatus?.dismissed && view.visible;
   banner.classList.toggle('show', available);
   if (!available) return;
-  document.getElementById('updateTitle').textContent = tr('updateTitle');
-  document.getElementById('updateVersion').textContent = tr('updateVersion', { version:updateStatus.version });
-  document.getElementById('updateDownload').textContent = tr('updateDownload');
+  document.getElementById('updateTitle').textContent = view.title;
+  document.getElementById('updateVersion').textContent = view.text;
+  document.getElementById('updateDownload').textContent = view.action;
+  document.getElementById('updateDownload').disabled = view.disabled;
   document.getElementById('updateLater').textContent = tr('updateLater');
 }
 

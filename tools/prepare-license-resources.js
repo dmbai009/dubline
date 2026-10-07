@@ -27,7 +27,13 @@ function prepareLicenseResources() {
     const hasReadmeLicense = files.some(file => /^readme([._-]|$)/i.test(file)
       && /permission is hereby granted|redistribution and use|licensed under/i.test(fs.readFileSync(path.join(directory, file), 'utf8')));
     if (!hasLicenseFile && !hasReadmeLicense) {
-      throw new Error(`No upstream license or notice found for ${packagePath}.`);
+      if (metadata.name !== 'lazy-val' || metadata.version !== '1.0.5' || metadata.license !== 'MIT') {
+        throw new Error(`No upstream license or notice found for ${packagePath}.`);
+      }
+      for (const file of ['LICENSE', 'NOTICE']) {
+        copyFile(path.join(root, 'resources', 'licenses', 'lazy-val', file), path.join(destination, 'npm', packagePath, file));
+      }
+      copyFile(path.join(directory, 'package.json'), path.join(destination, 'npm', packagePath, 'package.json'));
     }
     for (const file of files) {
       copyFile(path.join(directory, file), path.join(destination, 'npm', packagePath, file));

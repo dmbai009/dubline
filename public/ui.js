@@ -39,6 +39,7 @@ function refreshViews() {
 let desktopInviteState = null;
 let desktopHostingRequest = 0;
 let desktopHostingRequestedMode = null;
+let desktopFutureHostingMode = 'cloudflare', desktopMultiplayerStarting = false;
 let desktopCopyTimer = null;
 let desktopInviteCollapsed = localStorage.getItem('dubline_invite_collapsed') !== '0';
 let desktopFailureNotice = '';
@@ -93,7 +94,7 @@ function renderDesktopInvite() {
 
 function renderDesktopHostingModal() {
   if (!desktopInviteState) return;
-  const mode = desktopHostingRequestedMode || (desktopMode() === 'single' ? 'cloudflare' : desktopMode());
+  const mode = desktopHostingRequestedMode || (desktopMode() === 'single' ? desktopFutureHostingMode : desktopMode());
   document.querySelectorAll('[data-hosting-mode]').forEach(button => button.classList.toggle('active', button.dataset.hostingMode === mode));
   document.getElementById('desktopHostingModeTitle').textContent = desktopModeName(mode);
   const status = document.getElementById('desktopHostingStatus');
@@ -109,7 +110,10 @@ function renderDesktopHostingModal() {
   openTool.style.display = mode === 'cloudflare' ? 'none' : '';
   openTool.textContent = mode === 'vpn' ? t('desktop.openRadmin') : t('desktop.openTool');
   document.getElementById('desktopOpenHamachiBtn').style.display = mode === 'vpn' ? '' : 'none';
-  document.getElementById('desktopRetryHostingBtn').style.display = mode === 'cloudflare' ? '' : 'none';
+  document.getElementById('desktopRetryHostingBtn').style.display = mode === 'cloudflare' && !session?.singlePlayer ? '' : 'none';
+  const start = document.getElementById('desktopStartMultiplayerBtn');
+  start.style.display = session?.singlePlayer ? '' : 'none';
+  start.disabled = desktopMultiplayerStarting || desktopTransitionBusy();
 }
 
 function handleDesktopStatus(nextStatus) {
@@ -184,7 +188,17 @@ window.closeHostingModal = function() {
 };
 
 window.selectDesktopHostingMode = async function(mode) {
-  if (session?.singlePlayer && (recordState !== 'idle' || pendingTakeLines.size || renderInProgress)) return showToast(t('project.pendingTakes'));
+  if (session?.singlePlayer) { if (DESKTOP_MODES.includes(mode) && !desktopMultiplayerStarting) { desktopFutureHostingMode = mode; renderDesktopHostingModal(); } return; }
+  return applyDesktopHostingMode(mode);
+};
+function desktopTransitionBusy() { return recordState !== 'idle' || pendingTakeLines.size > 0 || renderInProgress || projectImportBusy || projectExportBusy || window.snapshotFrozen; }
+window.startDesktopMultiplayer = async function() {
+  if (!session?.singlePlayer || desktopMultiplayerStarting || desktopTransitionBusy()) return;
+  desktopMultiplayerStarting = true; renderDesktopHostingModal();
+  try { await applyDesktopHostingMode(desktopFutureHostingMode); }
+  finally { desktopMultiplayerStarting = false; renderDesktopHostingModal(); }
+};
+async function applyDesktopHostingMode(mode) {
   if (!DESKTOP_MODES.includes(mode) || (mode === desktopMode() && !desktopHostingRequestedMode)) return;
   const request = ++desktopHostingRequest;
   desktopHostingRequestedMode = mode;
@@ -197,7 +211,7 @@ window.selectDesktopHostingMode = async function(mode) {
   } finally {
     if (request === desktopHostingRequest) { desktopHostingRequestedMode = null; renderDesktopHostingModal(); }
   }
-};
+}
 
 window.retryDesktopHosting = async function() {
   try { handleDesktopStatus(await window.dublineDesktop.retryHosting()); }
@@ -212,9 +226,14 @@ window.openDesktopNetworkTool = function(tool = '') {
 function renderAppUpdate() {
   const banner = document.getElementById('appUpdateBanner');
   if (appUpdateState?.currentVersion) document.getElementById('desktopAboutVersion').textContent = `Dubline v${appUpdateState.currentVersion}`;
-  const available = !appUpdateDismissed && !appUpdateState?.dismissed && appUpdateState?.state === 'available';
+  const view = window.DublineUpdatePresentation(appUpdateState, window.DublineI18n.getLanguage());
+  const available = !appUpdateDismissed && !appUpdateState?.dismissed && view.visible;
   banner.classList.toggle('show', available);
-  if (available) document.getElementById('appUpdateVersion').textContent = t('desktop.update.version', { version: appUpdateState.version });
+  if (available) {
+    banner.querySelector('strong').textContent = view.title;
+    document.getElementById('appUpdateVersion').textContent = view.text;
+    const action = banner.querySelector('.btn-play'); action.textContent = view.action; action.disabled = view.disabled;
+  }
 }
 
 async function initAppUpdate() {
@@ -223,8 +242,10 @@ async function initAppUpdate() {
   window.dublineDesktop.onUpdateStatus?.(status => { appUpdateState = status; renderAppUpdate(); });
 }
 
-window.openAppUpdate = function() {
-  return window.dublineDesktop?.openUpdate?.();
+window.openAppUpdate = async function() {
+  const result = await window.dublineDesktop?.openUpdate?.();
+  if (result?.code === 'busy') showToast(window.DublineUpdatePresentation(appUpdateState, window.DublineI18n.getLanguage()).busy);
+  return result;
 };
 
 window.openProjectPage = function() {
@@ -344,13 +365,34 @@ window.switchSettingsTab = function(tab) {
   });
 };
 
+let nickSaveGeneration = 0;
+let nickSavePending = false;
+let nickSaveStatusTimer = null;
 window.saveNickFromSettings = function() {
   const next = settingsNickInput.value.trim();
-  if (!next || next === myName) return;
-  socket.emit('rename_user', { newName: next });
-  settingsNickStatus.textContent = t('nick.saved');
+  if (nickSavePending || !next || next === myName || !socket.connected) return;
+  const generation = ++nickSaveGeneration;
+  const roomId = currentRoom;
+  nickSavePending = true;
+  const button = document.getElementById('settingsNickSave');
+  button.disabled = true;
+  settingsNickInput.disabled = true;
+  clearTimeout(nickSaveStatusTimer);
+  settingsNickStatus.textContent = t('nick.saving');
+  settingsNickStatus.style.color = 'var(--text-secondary)';
   settingsNickStatus.style.display = 'block';
-  setTimeout(() => { settingsNickStatus.style.display = 'none'; }, 1800);
+  socket.timeout(5000).emit('rename_user', { newName: next }, (error, result) => {
+    if (generation !== nickSaveGeneration) return;
+    nickSavePending = false;
+    button.disabled = false;
+    settingsNickInput.disabled = false;
+    if (roomId !== currentRoom) return;
+    settingsNickInput.value = myName;
+    const ok = !error && result?.ok === true && result.nick === myName;
+    settingsNickStatus.textContent = ok ? t('nick.saved') : result?.errorKey ? t(result.errorKey, result.errorParams || {}) : t('nick.failed');
+    settingsNickStatus.style.color = ok ? 'var(--success)' : 'var(--danger)';
+    nickSaveStatusTimer = setTimeout(() => { if (generation === nickSaveGeneration) settingsNickStatus.style.display = 'none'; }, 3000);
+  });
 };
 
 settingsMicGain.addEventListener('input', () => {
@@ -423,7 +465,9 @@ window.addEventListener('dubline-language-changed', () => {
 // HOTKEYS
 // ==========================================
 window.addEventListener('keydown', (e) => {
+  if (e.code === 'KeyF' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); window.openTimelineSearch?.(); return; }
   if (e.code === 'Escape') {
+    if (window.closeTimelineSearch?.()) return;
     if (closeTextPrompt()) return;
     if (document.body.classList.contains('video-expanded')) toggleExpandedVideo();
     closeHostingModal(); closeSettingsModal(); closeFilesModal(); closeSessionsModal();
@@ -566,6 +610,7 @@ function showInspector(line) {
     </div>
     <div class="insp-meta">${line.start}–${line.end} s · ${duration} s${line.audioUrl && author ? ` · ${t('recordedBy', { owner: esc(author) })}` : ''}</div>
     <div class="insp-caption">${esc(line.caption || '…')}</div>
+    ${retakeControlHtml(line)}
     ${characterRow}
     ${pendingNotice}
     <div class="insp-actions">${primary}</div>
@@ -618,7 +663,7 @@ window.assignSelectedCharacter = function(e) {
 };
 
 window.releaseSelectedLines = function() {
-  socket.emit('host_release_lines', { lineIds: [...multiSelection] });
+  socket.emit('host_release_lines', { lineIds: [...multiSelection], sessionId: session?.activeSessionId });
 };
 
 // Changing a line's character moves it to that character's track
@@ -650,8 +695,10 @@ window.saveLineCharacter = function(e, lineId) {
 // The host deletes lines (e.g. on-screen signs that shouldn't be dubbed)
 window.deleteLines = async function(lineIds) {
   if (session && session.mode === 'edit') return deleteEditorLines(lineIds);
+  const sessionId = session?.activeSessionId;
   if (!lineIds.length || !await askConfirm(t('line.deleteConfirm', { n: lineIds.length }))) return;
-  socket.emit('host_delete_lines', { lineIds });
+  if (session?.activeSessionId !== sessionId) return showToast(t('editor.dialogChanged'));
+  socket.emit('host_delete_lines', { lineIds, sessionId });
   if (lineIds.length > 1) clearMultiSelection();
 };
 
@@ -679,7 +726,7 @@ function takePanelHtml(line, editable) {
     ${takeMixPanelHtml([line])}
     <div class="take-panel" data-take-mix data-session="${esc(session.activeSessionId)}" data-takes="${esc(JSON.stringify([{ lineId: line.id, audioUrl: line.audioUrl, takeMixRevision: line.takeMixRevision || 0 }]))}" title="${esc(t('dragHint'))}">
       <label class="clip-mix-row"><span>${esc(t('voice'))}</span>
-        <select data-clip-field="effect" aria-label="${esc(t('voice'))}" title="${esc(t('voice'))}" onchange="setTakeControlProps(this, { effect: this.value })">${options}</select>
+        <select class="text-input" data-clip-field="effect" aria-label="${esc(t('voice'))}" title="${esc(t('voice'))}" onchange="setTakeControlProps(this, { effect: this.value })">${options}</select>
       </label>
       ${effect !== 'none' ? clipSliderHtml([line], 'effectAmount', 0, 100, 1, '') : ''}
       <div class="take-row">
@@ -917,6 +964,26 @@ if (!isChromiumBrowser()) {
 function canEditTake(line) {
   return window.DublineTakeMix.canEdit(line, myName, amHost(), getLineOwner(line));
 }
+function retakeControlHtml(line) {
+  if (!line.audioUrl) return '';
+  const allowed = session.mode === 'edit' || canEditTake(line);
+  return '<label class="insp-check"><input type="checkbox" ' + (line.needsRetake ? 'checked ' : '') + (allowed ? '' : 'disabled ') +
+    'data-retake-line="' + line.id + '" data-retake-session="' + esc(session.activeSessionId) + '" data-retake-url="' + esc(line.audioUrl) +
+    '" data-retake-revision="' + (line.takeMixRevision || 0) + '">' + esc(t('retake.label')) + '</label>';
+}
+document.addEventListener('change', event => {
+  const input = event.target.closest('[data-retake-line]');
+  if (!input || input.dataset.retakeSession !== session?.activeSessionId) return;
+  input.disabled = true;
+  socket.timeout(5000).emit('set_needs_retake', { sessionId: input.dataset.retakeSession,
+    lineId: Number(input.dataset.retakeLine), audioUrl: input.dataset.retakeUrl,
+    takeMixRevision: Number(input.dataset.retakeRevision), value: input.checked }, (error, result) => {
+    if (error || !result?.ok) {
+      showToast(t('clip.changed'));
+      if (input.isConnected && selectedLine) showInspector(selectedLine);
+    }
+  });
+});
 
 function clipSliderHtml(lines, field, min, max, fallback, disabled) {
   const valueOf = line => window.DublineTakeMix.normalize(line)[field];
@@ -945,12 +1012,21 @@ function takeMixPanelHtml(selection, bulk = false) {
     (bulk ? '<p class="take-hint">' + esc(t('clip.bulk', { n: editable.length, total: recorded.length })) + '</p>' : '') +
     slider('volume', 0, 300, 1) + slider('pan', -100, 100, 0) +
     (bulk ? '<label class="clip-mix-row"><span>' + esc(t('voice')) + '</span><select class="text-input" data-clip-field="effect" aria-label="' + esc(t('voice')) + '" ' + disabled + ' onchange="setTakeControlProps(this, { effect: this.value })">' + options + '</select></label>' : '') +
+    (bulk ? bulkPitchSliderHtml(lines, disabled) : '') +
     (bulk && effect && effect !== 'none' ? slider('effectAmount', 0, 100, 1) + '<p class="take-hint">' + esc(t('clip.effectHelp')) + '</p>' : '') +
     (!editable.length ? '<p class="take-hint">' + esc(t('clip.readOnly')) + '</p>' : '') + '</section>';
 }
 
 function takeMixLabel(field, value) {
   return field === 'pan' ? (value === 0 ? t('clip.center') : t(value < 0 ? 'clip.left' : 'clip.right', { n: Math.abs(value) })) : value + '%';
+}
+function bulkPitchSliderHtml(lines, disabled) {
+  const value = lines[0].pitch || 0;
+  const mixed = lines.some(line => (line.pitch || 0) !== value);
+  return '<label class="clip-mix-row"><span>' + esc(t('pitch')) + '</span>' +
+    '<input type="range" data-clip-field="pitch" data-reset-value="0" data-reset-event="change" min="-12" max="12" step="1" value="' + (mixed ? 0 : value) + '" ' + disabled +
+    ' oninput="this.parentElement.querySelector(\'output\').textContent = (Number(this.value) > 0 ? \'+\' : \'\') + this.value" onchange="this.oninput(); setTakeControlProps(this, { pitch: Number(this.value) })">' +
+    '<output>' + esc(mixed ? t('clip.mixed') : (value > 0 ? '+' : '') + value) + '</output></label>';
 }
 window.updateTakeMixLabel = function(input) {
   input.parentElement.querySelector('output').textContent = takeMixLabel(input.dataset.clipField, Number(input.value));

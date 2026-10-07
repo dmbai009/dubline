@@ -12,6 +12,18 @@ const history = require('../editHistory');
 const { registerMutation } = require('../editorOperations');
 
 module.exports = function registerRoleHandlers(socket, conn) {
+  socket.on('set_needs_retake', ({ lineId, audioUrl, takeMixRevision, value } = {}, ack) => {
+    const reply = typeof ack === 'function' ? ack : () => {};
+    const room = getRoom(conn.roomId), line = room.lines.find(item => item.id === lineId);
+    if (!line?.audioUrl || typeof value !== 'boolean') return reply({ ok: false, reason: 'invalid' });
+    if (!(isHost(room, conn.clientId) || room.mode === 'edit' || line.recordedBy === conn.nick || getLineOwner(room, line) === conn.nick)) return reply({ ok: false, reason: 'owner' });
+    if (audioUrl !== line.audioUrl || takeMixRevision !== (line.takeMixRevision || 0)) return reply({ ok: false, reason: 'conflict' });
+    line.needsRetake = value;
+    line.takeMixRevision = (line.takeMixRevision || 0) + 1;
+    flushRooms();
+    require('../sessionScope').emitLines(conn.roomId, [line]);
+    reply({ ok: true });
+  });
   // Allocate order before recording starts, not when its asynchronous processing finishes.
   socket.on('reserve_take', ({ lineId, sessionId } = {}, ack) => {
     if (typeof ack !== 'function') return;
@@ -71,7 +83,7 @@ module.exports = function registerRoleHandlers(socket, conn) {
     if (!line.claimedBy || line.claimedBy === conn.nick) {
       line.claimedBy = conn.nick;
       saveRooms();
-      io.to(conn.roomId).emit('line_updated', line);
+      require('../sessionScope').emitLines(conn.roomId, [line]);
       return reply({ ok: true, line, sessionId: room.activeSessionId });
     }
     reply({ ok: false, reason: 'owner', owner: line.claimedBy });
@@ -89,7 +101,7 @@ module.exports = function registerRoleHandlers(socket, conn) {
 
     line.claimedBy = null;
     saveRooms();
-    io.to(conn.roomId).emit('line_updated', line);
+    require('../sessionScope').emitLines(conn.roomId, [line]);
     if (owner !== conn.nick) addSystemMessage(conn.roomId, 'system.lineReleased', { id: line.id, owner }, `👑 The host released line #${line.id} from ${owner}`);
   });
 
@@ -149,8 +161,7 @@ module.exports = function registerRoleHandlers(socket, conn) {
       line.takeMixRevision = (line.takeMixRevision || 0) + 1;
     }
     saveRooms();
-    if (bulk) io.to(conn.roomId).emit('takes_updated', { sessionId: room.activeSessionId, lines });
-    else io.to(conn.roomId).emit('line_updated', lines[0]);
+    require('../sessionScope').emitLines(conn.roomId, lines, bulk);
     reply({ ok: true, updated: lines.length });
   }
   socket.on('set_take_props', (data, ack) => updateTakes(data, ack, false));

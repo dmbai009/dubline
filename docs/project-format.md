@@ -1,6 +1,6 @@
-# Dubline Project formats 1, 2 and 3
+# Dubline Project formats 1, 2, 3 and 4
 
-An archive uses the `.dubline` extension and a standard ZIP container. `project.json` is UTF-8 JSON with `format: "dubline-project"`, required `formatVersion: 1`, `2` or `3`, `project`, and `assets`. The serializer is `server/projects.js`; it never exports raw room persistence.
+An archive uses the `.dubline` extension and a standard ZIP container. `project.json` is UTF-8 JSON with `format: "dubline-project"`, required `formatVersion: 1`, `2`, `3` or `4`, `project`, and `assets`. The serializer is `server/projects.js`; it never exports raw room persistence.
 
 ## Manifest
 
@@ -18,7 +18,7 @@ Saving captures metadata and immutable disk copies synchronously before asynchro
 
 Opening validates ZIP entry paths/count/sizes/types, the format/version, bounded schema, references, CRC and SHA-256 before staging files. FFmpeg then checks the staged video and audio can be read. The server rechecks session identity and host rights before committing generated paths and starting a fresh session. Failed validation removes staging and leaves existing sessions untouched. Imported recordings get fresh session/sequence identities; old queued requests cannot target them.
 
-Runtime credentials, PIN/passwords, host/client IDs, online players, sockets, chat, P2P progress, waveform caches, editor Undo/trash history, and pending browser upload queues are excluded. Each archive contains the active scene; other room sessions can be saved separately. Save waits for the requesting user's queued takes to finish uploading; recordings still pending on another participant's device are not part of server state.
+Runtime credentials, PIN/passwords, host/client IDs, online players, sockets, chat, P2P progress, waveform caches, editor Undo/trash history, and pending browser upload queues are excluded. Each archive contains the active scene; other room sessions can be saved separately. Save uses a bounded participant-readiness barrier and freezes mutations during capture. Pending editor/take queues and unsaved inspector drafts are considered. Retry/Cancel preserve drafts; explicit Force snapshots current server state and reports unavailable/pending participants. Device-only recordings are never invented as server state.
 
 ## Current limits and compatibility
 
@@ -38,3 +38,7 @@ The original is staged/probed as video and must match the working duration withi
 ## Clip mix in version 3
 
 When any clip has non-default volume, pan or effectAmount, the writer emits format 3. Each take then requires finite numeric volume (0–3), pan (−1–1) and effectAmount (0–1). Defaults are 1, 0, 1. Fields describe non-destructive gain, stereo pan and dry/wet preset blend; user pitch stays separate. Original/proxy media can be present using the version-2 source rules, but a source original is optional in version 3. Runtime takeMixRevision is excluded and starts fresh on import. Format-1/2 manifests import missing mix fields as defaults; non-default clip mixes may not masquerade as those older versions. Default mixes still emit format 1 (no original) or 2 (original embedded). Older apps explicitly reject format 3.
+
+## Retake marker in version 4
+
+When a recorded line has Needs Retake, the writer emits format 4 and includes its boolean needsRetake flag. The flag requires a recorded take. Format 4 retains format-3 clip fields and optional original/proxy assets. Formats 1/2/3 import missing markers as false; they cannot silently contain a true marker. Archives without retake markers keep the lowest applicable version 1/2/3. Older readers explicitly reject format 4. Runtime locks, cursors, readiness, pending operations and update state remain excluded.

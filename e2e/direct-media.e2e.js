@@ -28,6 +28,7 @@ describe('verified Voxalike direct media with safe fallback', { skip:skipReason,
         return nativeFetch(url,options);
       };
       try {
+        await DublineLocalDatabase.clearMedia();
         revokeLocalMedia(); await loadSceneMedia();
         const media=localMedia?.videoBlob;
         return { directCalls, hostMediaCalls, same:session.videoUrl===before, hash:media ? await sha256Hex(media) : null, expected:session.videoHash, source:localMedia?.source, cancelled:!mediaDownload };

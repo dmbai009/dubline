@@ -8,7 +8,7 @@ const { spawn } = require('node:child_process');
 const puppeteer = require('puppeteer-core');
 const { startServer, wait } = require('../e2e/helpers');
 const root = path.join(__dirname, '..');
-const executable = path.join(root, 'dist', process.argv.includes('--portable') ? '' : 'win-unpacked', 'Dubline.exe');
+const executable = process.env.DUBLINE_SMOKE_EXE ? path.resolve(root, process.env.DUBLINE_SMOKE_EXE) : path.join(root, 'dist', process.argv.includes('--portable') ? 'portable' : 'win-unpacked', 'Dubline.exe');
 
 async function freePort() {
   const listener = net.createServer();
@@ -41,7 +41,7 @@ async function guest(url, userData, expected, next) {
       requireType: typeof require, desktopUi: document.body.classList.contains('desktop-mode') }));
     assert.deepEqual(state, { language: expected, preferences: ['language', 'setLanguage'], hostBridge: false, requireType: 'undefined', desktopUi: false });
     if (next) {
-      await page.evaluate(async code => { DublineI18n.setLanguage(code); await dublinePreferences.setLanguage(code); }, next);
+      await page.evaluate(async code => { await DublineI18n.setLanguage(code); await dublinePreferences.setLanguage(code); }, next);
       assert.equal(JSON.parse(fs.readFileSync(path.join(userData, 'language.json'), 'utf8')), next);
     }
   } finally {

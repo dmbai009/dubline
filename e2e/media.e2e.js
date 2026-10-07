@@ -110,7 +110,7 @@ describe('media', { skip: skipReason }, () => {
     const AdmZip = require('adm-zip');
     const base64 = await host.evaluate(async () => {
       const res = await fetch('/api/export-voxalike-pack', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ room: currentRoom, clientId })
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...await window.prepareSafeSnapshot('voxalike'),  room: currentRoom, clientId })
       });
       if (!res.ok) throw new Error(await res.text());
       const bytes = new Uint8Array(await res.arrayBuffer());
@@ -153,7 +153,7 @@ describe('media', { skip: skipReason }, () => {
     assert.equal(restored.end, state.start + 3);
     assert.equal(restored.durationChecked, true, 'legacy repair must not override edited three-second lines');
     await server.restart();
-    await waitFor(host, data => socket.connected && session && session.lines.find(line => line.id === data.id).end === data.start + 3, 10000, state);
+    await waitFor(host, data => socket.connected && !editorNeedsResync && session && session.lines.find(line => line.id === data.id).end === data.start + 3, 10000, state);
     await host.evaluate(async data => {
       const result = await updateEditorLine(session.lines.find(line => line.id === data.id), { end: data.end });
       if (!result.ok) throw new Error(JSON.stringify(result));
@@ -169,7 +169,7 @@ describe('media', { skip: skipReason }, () => {
     const originalEnd = await host.evaluate(id => session.lines.find(line => line.id === id).end, lineId);
     const changed = await host.evaluate(id => {
       const line = session.lines.find(item => item.id === id);
-      return new Promise(resolve => socket.emit('editor_update_line', {
+      return new Promise(resolve => socket.emit('editor_update_line', { sessionId: session.activeSessionId,
         lineId: id, revision: line.revision || 0, end: line.start + 601
       }, resolve));
     }, lineId);
@@ -185,11 +185,11 @@ describe('media', { skip: skipReason }, () => {
       form.append('subtitles',new Blob(['1\n00:00:00,000 --> 00:10:01,000\n[Hero] Long line\n']),'long.srt');
       const response = await fetch('/api/upload-custom?room='+currentRoom,{method:'POST',body:form});
       if (!response.ok) throw Error(await response.text());
-    },encoded);
+    },encoded).catch(error => { throw new Error(error.message + '\nServer log:\n' + server.log); });
     await waitFor(host, () => session.lines.length === 1 && session.lines[0].end === 601);
     const rejected = await host.evaluate(async () => {
       const res = await fetch('/api/export-voxalike-pack', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ room: currentRoom, clientId })
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...await window.prepareSafeSnapshot('voxalike'),  room: currentRoom, clientId })
       });
       return { status: res.status, body: await res.json() };
     });
@@ -215,7 +215,7 @@ describe('media', { skip: skipReason }, () => {
       return ids;
     });
     const logBefore = server.log.length;
-    const progress = await host.evaluate(() => new Promise(resolve => {
+    const progress = await host.evaluate(async () => { const safe = await window.prepareSafeSnapshot('voxalike'); return new Promise(resolve => {
       const requestId = `cancel-${Date.now()}`;
       const abort = new AbortController();
       const seen = [];
@@ -226,20 +226,22 @@ describe('media', { skip: skipReason }, () => {
       });
       fetch('/api/export-voxalike-pack', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: abort.signal,
-        body: JSON.stringify({ room: currentRoom, clientId, requestId })
+        body: JSON.stringify({ ...safe, room: currentRoom, clientId, requestId })
       }).catch(() => {});
       setTimeout(() => resolve({ last: Math.max(...seen), total: 0 }), 4000);
-    }));
+    }); });
     assert.ok(progress.last < 120, `the export stopped early (last line ${progress.last})`);
     await waitUntil(() => server.log.slice(logBefore).includes('export cancelled'), 10000);
 
     // The room's export slot is free again
-    const status = await host.evaluate(async () => (await fetch('/api/export-voxalike-pack', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ room: currentRoom, clientId })
-    })).status);
+    const status = await host.evaluate(async () => { const response = await fetch('/api/export-voxalike-pack', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...await window.prepareSafeSnapshot('voxalike'),  room: currentRoom, clientId })
+    }); await response.arrayBuffer(); return response.status; });
     assert.equal(status, 200);
+    await waitFor(host, () => !window.snapshotFrozen);
 
-    await host.evaluate(ids => queueEditorRequest(() => ['editor_delete_lines', { lineIds: ids }]), created);
+    const removed = await host.evaluate(ids => queueEditorRequest(() => ['editor_delete_lines', { lines: ids.map(lineId => ({ lineId, revision: lineRevision(lineId) })) }]), created);
+    assert.equal(removed.ok, true, JSON.stringify(removed));
     await host.evaluate(() => setStudioMode('dub'));
     await waitFor(host, () => session.mode === 'dub');
   });
@@ -294,7 +296,7 @@ describe('audio tracks', { skip: skipReason }, () => {
 
   test('only the host can choose tracks', async () => {
     assert.ok(await player.evaluate(() => document.getElementById('originalTrackSelect').disabled));
-    await player.evaluate(() => socket.emit('host_set_audio_tracks', { original: 1, backing: 0 }));
+    await player.evaluate(() => socket.emit('host_set_audio_tracks', { sessionId: session.activeSessionId,  original: 1, backing: 0 }));
     await new Promise(r => setTimeout(r, 500));
     assert.equal(await host.evaluate(() => session.originalTrack), 0);
   });

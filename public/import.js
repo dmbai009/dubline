@@ -233,6 +233,7 @@ function revokeLocalMedia() {
   if (!localMedia) return;
   URL.revokeObjectURL(localMedia.videoUrl);
   if (localMedia.backingUrl) URL.revokeObjectURL(localMedia.backingUrl);
+  for (const asset of Object.values(localMedia.assets || {})) URL.revokeObjectURL(asset.url);
   localMedia = null;
 }
 
@@ -253,7 +254,7 @@ function updateLocalMediaStatus() {
 }
 
 // The video (and background) now play from browser memory: from the player's disk or received over P2P
-function setLocalMedia({ video: videoBlob, backing: backingBlob, source, videoSourceUrl = session.videoUrl, backingSourceUrl = session.backingUrl }) {
+function setLocalMedia({ video: videoBlob, backing: backingBlob, source, assets = {}, videoSourceUrl = session.videoUrl, backingSourceUrl = session.backingUrl }) {
   if (videoSourceUrl !== session.videoUrl) return;
   cancelMediaDownload();
   revokeLocalMedia();
@@ -267,6 +268,7 @@ function setLocalMedia({ video: videoBlob, backing: backingBlob, source, videoSo
     size: videoBlob.size,
     source
   };
+  localMedia.assets = Object.fromEntries(Object.entries(assets).map(([url, blob]) => [url, { blob, url: URL.createObjectURL(blob) }]));
   swapVideoSource();
   updateLocalMediaStatus();
 }
@@ -277,7 +279,7 @@ function baseName(url) {
 
 async function extractMediaFromZip(file) {
   const videoSourceUrl = session.videoUrl, backingSourceUrl = session.backingUrl;
-  const zip = await JSZip.loadAsync(file);
+  const zip = await (await DublineLazyScripts.jszip()).loadAsync(file);
   const entries = Object.values(zip.files).filter(entry => !entry.dir);
   const name = entry => entry.name.split('/').pop().toLowerCase();
   const wantedVideo = baseName(videoSourceUrl);

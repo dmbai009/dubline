@@ -6,7 +6,7 @@
 
 **Dub scenes with friends, all at the same time.**
 
-![Windows](https://img.shields.io/badge/Windows-portable%20.exe-0078D6)
+![Windows](https://img.shields.io/badge/Windows-Setup%20%7C%20Portable%20ZIP-0078D6)
 ![Browser](https://img.shields.io/badge/guests-Chrome%20%7C%20Edge-F4B400)
 ![Languages](https://img.shields.io/badge/UI-EN%20%7C%20RU%20%7C%20UK-8B5CF6)
 [![License](https://img.shields.io/badge/license-DubLine%20Source%201.0-2563EB)](LICENSE)
@@ -38,7 +38,7 @@ Dubline is a dubbing studio and party game for recording scenes together.
 
 ## Get started
 
-1. Download and run **Dubline.exe** from [GitHub Releases](https://github.com/dmbai009/dubline/releases).
+1. Download the Windows artifact from [GitHub Releases](https://github.com/dmbai009/dubline/releases). The next release provides the recommended **Setup.exe** and an optional **Portable.zip**; extract the entire ZIP before running its Dubline.exe. Older releases keep their original single-EXE layout.
 2. Create a room and choose **Cloudflare**, **Porthole** or **VPN**.
 3. Import a video or scene pack in **Files & Export**.
 4. Share the invitation and PIN. Friends join, claim roles and record their lines.
@@ -74,7 +74,7 @@ Trim and align takes without changing their original audio. Pitch shifting and r
 
 If an upload is interrupted, the take stays on that device and retries after reconnection, including after a page reload. A delayed upload belongs to the scene in which it was recorded.
 
-Clip mix controls in the inspector set volume (0–300%), stereo pan (1% steps), and effect amount (0–100%, original/processed blend). Actors can change their own recordings after releasing a role; the host can change any clip. Ctrl/Shift selection spans roles. Changing a bulk setting gives every editable recorded clip the same value and preserves unrelated settings. Preview, video export and stereo WAV stems use the same clip settings. Changed clip mixes are saved in `.dubline` format 3, requiring this development version or newer.
+Clip mix controls in the inspector set volume (0–300%), stereo pan (1% steps), and effect amount (0–100%, original/processed blend). Actors can change their own recordings after releasing a role; the host can change any clip. Ctrl/Shift selection spans roles. Changing a bulk setting gives every editable recorded clip the same value and preserves unrelated settings. Preview, video export and stereo WAV stems use the same clip settings. Changed clip mixes use `.dubline` format 3; Needs Retake markers use format 4. Older formats 1/2/3 remain readable. The retake marker and integer bulk Pitch follow the same author/host/collaborator permissions as clip mixing.
 
 ### Audio and playback
 
@@ -102,9 +102,21 @@ Resize the lobby, video, inspector and timeline panels; zoom the timeline around
 
 Project archives have no aggregate size ceiling. Working video is limited to **300 MB**. Larger local videos receive an H.264 working copy up to **720p**, with progress and cancellation. The original stays on the host, is included in the complete project archive, and supplies its unchanged video stream for final MP4/MKV export.
 
-Choose a storage folder in the launcher or **My Settings** to move existing project media, recordings, library and temporary exports to another drive. A change made during a session applies at the next workspace launch. Application preferences, Chromium cache and portable EXE extraction keep their standard system locations.
+Choose a storage folder in the launcher or **My Settings** to move existing project media, recordings, library and temporary exports to another drive. A change made during a session applies at the next workspace launch. Application preferences, Chromium cache and client identity keep their standard per-user locations. Project storage cannot overlap the application folder managed by updates.
 
 Upcoming workflow improvements also include smoother audio ducking, loading indicators, timeline bounds and group movement, local role-track heights, and separate personal and shared settings. See [PRODUCT.md](PRODUCT.md) and the [project format guide](docs/project-format.md) for development details.
+
+## Development hardening and Windows updates
+
+The development build adds verified resumable media chunks and partial seeding, independent media readiness, durable pending editor recovery, semantic edit leases and collaborator cursors. Search, filters and the footer minimap aid timeline navigation; preview rates preserve pitch while recording/export stay at 1x. Local master volume and subtitle/prompter visibility are personal controls.
+
+**Setup** installs per user and offers verified background downloads with explicit install/restart when work is idle. **Portable** is an extracted folder, with direct patches when the installed manifest matches and a verified full ZIP fallback otherwise; apply uses a separate helper with rollback. Keep the entire Portable folder together. Project files, workspace history, chosen media storage and profile identity survive updates. Steam builds delegate updates to Steam. Legacy single-EXE users migrate by downloading a new artifact; old releases are not silently converted.
+
+Setup registers `.dubline` in Windows Open with. Portable registration/repair/removal is opt-in in its settings. Windows chooses the default app; each copy owns its own handler. Opening a file imports a snapshot as a new scene, preserving existing scenes. Multiplayer hosts confirm a shared switch; remote guests confirm leaving to open locally.
+
+**Save Project...** is one host-only command for an active-scene snapshot. The desktop chooses a destination every time and commits a verified temporary archive beside it; a browser host downloads the same archive. Ordinary edits use internal workspace autosave. A project file is not a live document and has no Ctrl+S/Save As link to the file originally opened. The safe snapshot dialog can retry, cancel or explicitly save current server state when a participant is not ready.
+
+Build information and advanced diagnostics are available in settings. Release CI prepares a complete verified draft; nothing is published automatically.
 
 ## Controls
 
@@ -116,6 +128,7 @@ Upcoming workflow improvements also include smoother audio ducking, loading indi
 | `F` | Toggle video fullscreen |
 | `Left` / `Right` | Seek; in Edit Mode, move lines by 0.1 s (`Shift`: 1 s) |
 | `Alt` + `Up` / `Down` | Move selected lines to an adjacent role track |
+| `Ctrl` / `Cmd` + `F` | Find captions, roles or chronological line numbers |
 | `Ctrl` + `Z` | Undo your last editor operation |
 | `Delete` / `Backspace` | Delete selected source lines in Edit Mode |
 | `Esc` | Close dialogs |
@@ -139,7 +152,7 @@ npm install
 npm start
 ```
 
-Build the portable Windows app with `npm run dist`; the result is `dist/Dubline.exe`. Development builds from `main` include the Coming Soon features.
+Build one Windows core with `npm run dist`; artifacts are `dist/Dubline-VERSION-win-x64-Setup.exe` and `dist/Dubline-VERSION-win-x64-Portable.zip`. Run the extracted Portable as `dist/portable/Dubline.exe`; `npm run dist:win:unpacked` builds the core alone. Development builds from `main` include the Coming Soon features.
 
 For a standalone browser server, run `npm run start:server` and open <http://localhost:3000>. On Windows, `start.bat` sets up and starts this server; `share.bat` creates a public link. The standalone server is intended for trusted groups and does not use the desktop app's PIN protection for media.
 

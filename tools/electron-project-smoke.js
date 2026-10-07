@@ -23,6 +23,7 @@ if (!process.versions.electron) {
   (async()=>{ try { await run('new'); assert.ok(fs.statSync(project).size>1000); await run('bad'); await run('open'); await run('multi'); console.log('Native Electron Single Player / save / close / launcher open / Multiplayer smoke passed.'); } finally { fs.rmSync(dir,{recursive:true,force:true,maxRetries:10,retryDelay:200}); } })().catch(error=>{console.error(error);process.exitCode=1;});
 } else {
   const { app, BrowserWindow, dialog, session:electronSession } = require('electron');
+  dialog.showSaveDialog = async () => ({ canceled: false, filePath: process.env.DUBLINE_NATIVE_PROJECT_FILE });
   // Mock only the OS picker response. IPC sender validation and project import are real.
   let storagePicker = 'Storage A';
   dialog.showOpenDialog = async (_window, options) => options.properties.includes('openDirectory')
@@ -100,14 +101,15 @@ if (!process.versions.electron) {
           assert.equal(stereo.channels,2);assert.ok(stereo.left>stereo.right && stereo.right>0,JSON.stringify(stereo));
           console.log('Native clip controls and stereo stem render passed.');
         }
-        const downloaded=new Promise((resolve,reject)=>{
-          electronSession.defaultSession.once('will-download',(event,item)=>{
-            item.setSavePath(process.env.DUBLINE_NATIVE_PROJECT_FILE);
-            item.once('done',(event,state)=>state==='completed'?resolve():reject(Error('Project download '+state)));
-          });
-        });
-        await evaluate('saveDublineProject(); void 0;');await downloaded;
+        fs.writeFileSync(process.env.DUBLINE_NATIVE_PROJECT_FILE,'previous destination');
+        await evaluate("window.nativeSavePhases=[];window.nativeSaveCancelSent=false;window.removeNativeProgress=window.dublineDesktop.onProjectSaveProgress(progress=>{window.nativeSavePhases.push(progress);if(progress.stage==='writing'&&!window.nativeSaveCancelSent){window.nativeSaveCancelSent=true;void window.dublineDesktop.cancelProjectSave({ticket:progress.ticket});}});saveDublineProject();void 0;");
+        await until(()=>evaluate("!projectExportBusy && document.getElementById('projectExportStatus').textContent===t('project.cancelled')"));
+        assert.equal(fs.readFileSync(process.env.DUBLINE_NATIVE_PROJECT_FILE,'utf8'),'previous destination');
+        assert.ok(await evaluate("nativeSavePhases.some(progress=>progress.stage==='writing') && nativeSavePhases.every(progress=>Object.keys(progress).sort().join(',')==='bytes,stage,ticket')"));
+        await evaluate('removeNativeProgress();saveDublineProject(); void 0;');
+        await until(()=>evaluate("!projectExportBusy && document.getElementById('projectExportStatus').textContent==='Project saved.'"));
         assert.ok(fs.statSync(process.env.DUBLINE_NATIVE_PROJECT_FILE).size>1000);
+        console.log('Native save progress, narrow IPC cancellation and preservation of the existing destination passed.');
         assert.equal(await evaluate('session.hasOriginalVideo'),true);
         const renderFile=path.join(path.dirname(process.env.DUBLINE_NATIVE_PROJECT_FILE),'Native-export.mp4');
         const rendered=new Promise((resolve,reject)=>{

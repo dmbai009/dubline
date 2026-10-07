@@ -101,6 +101,9 @@ function normalizeEditorState(session) {
   session.lines.forEach(line => {
     maxId = Math.max(maxId, Number(line.id) || 0);
     const mix = takeMix.normalize(line);
+    const needsRetake = !!line.audioUrl && line.needsRetake === true;
+    if (line.needsRetake !== needsRetake) repairedOnLoad = true;
+    line.needsRetake = needsRetake;
     if (Object.keys(mix).some(field => line[field] !== mix[field])) repairedOnLoad = true;
     Object.assign(line, mix);
     if (!Number.isSafeInteger(line.takeMixRevision) || line.takeMixRevision < 0) {
@@ -329,7 +332,10 @@ function publicRoom(room) {
 
 function emitSession(roomId) {
   io.to(roomId).emit('session_updated', publicRoom(getRoom(roomId)));
+  require('./waveform').prewarm(getRoom(roomId));
   require('./selectionPresence').broadcast(roomId);
+  require('./editLeases').broadcast(roomId);
+  require('./mediaPresence').broadcast(roomId);
 }
 
 // A video whose tracks could not be read is tried again later, not on every room event

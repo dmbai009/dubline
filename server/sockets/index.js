@@ -12,6 +12,7 @@ const registerProjectAudio = require('./project-audio');
 io.on('connection', socket => {
   // Changed on joining a room and on renaming; handlers read them at call time
   const conn = { roomId: null, nick: '', clientId: '' };
+  require('../sessionScope').register(socket, conn);
   registerRoomHandlers(socket, conn);
   registerRoleHandlers(socket, conn);
   registerHostHandlers(socket, conn);
@@ -21,4 +22,8 @@ io.on('connection', socket => {
   registerFeatureHandlers(socket, conn);
   registerProjectAudio(socket, conn);
   require('../selectionPresence').register(socket, conn);
+  require('../editLeases').register(socket, conn);
+  require('../mediaPresence').register(socket, conn);
+  require('../snapshotBarrier').register(socket, conn);
+  require('../cursorPresence').register(socket, conn);
 });

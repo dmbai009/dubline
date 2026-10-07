@@ -100,13 +100,16 @@ test('all interface translation keys exist in English, Russian and Ukrainian', (
     localStorage: { getItem: () => null, setItem() {} },
     CustomEvent: function CustomEvent() {}
   };
+  for (const language of ['en', 'ru', 'uk']) vm.runInNewContext(fs.readFileSync('public/locale/' + language + '.js', 'utf8'), context);
   vm.runInNewContext(fs.readFileSync('public/i18n.js', 'utf8'), context);
   const { messages } = context.window.DublineI18n;
   const markupKeys = [...html.matchAll(/data-i18n(?:-placeholder|-title)?=["']([^"']+)["']/g)].map(match => match[1]);
-  const appKeys = [...app.matchAll(/\bt\(['`]([^'`${}]+)['`]/g)].map(match => match[1]);
+  const appKeys = [...app.matchAll(/\bt\(['`]([^'`${}]+)['`](?!\s*\+)/g)].map(match => match[1]);
   const serverKeys = [...server.matchAll(/addSystemMessage\([^,]+,\s*['"]([^'"]+)['"]/g)].map(match => match[1]);
   const dynamicKeys = ['clip.volume', 'clip.pan', 'clip.effectAmount', 'effect.none', 'effect.robot', 'effect.radio', 'effect.monster',
-    'effect.thoughts', 'effect.cave', 'effect.behindDoor', 'effect.megaphone'];
+    'effect.thoughts', 'effect.cave', 'effect.behindDoor', 'effect.megaphone',
+    ...['downloading', 'preparing', 'ready', 'buffering', 'fallback', 'failed'].map(state => 'media.' + state),
+    ...['all', 'recorded', 'unrecorded', 'retake'].map(state => 'find.' + state)];
   for (const key of new Set([...markupKeys, ...appKeys, ...serverKeys, ...dynamicKeys])) {
     for (const language of ['en', 'ru', 'uk']) assert.ok(messages[language][key], `${language}.${key} is missing`);
   }

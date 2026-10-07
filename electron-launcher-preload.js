@@ -16,8 +16,11 @@ contextBridge.exposeInMainWorld('dublineLauncher', Object.freeze({
   openProjectFile: mode => ipcRenderer.invoke('launcher:open-project-file', mode),
   joinGuest: address => ipcRenderer.invoke('launcher:join-guest', address),
   openNetworkTool: tool => ipcRenderer.invoke('desktop:open-network-tool', tool),
+  getBuildInfo: () => ipcRenderer.invoke('app:get-build-info'),
   getUpdateStatus: () => ipcRenderer.invoke('app:get-update-status'),
   openUpdate: () => ipcRenderer.invoke('app:open-update'),
+  openUpdateDetails: () => ipcRenderer.invoke('app:open-update-details'),
+  projectAssociation: operation => ipcRenderer.invoke('app:project-association', operation),
   dismissUpdate: () => ipcRenderer.invoke('app:dismiss-update'),
   openProject: () => ipcRenderer.invoke('app:open-project'),
   onUpdateStatus: callback => {

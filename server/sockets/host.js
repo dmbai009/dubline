@@ -16,7 +16,7 @@ module.exports = function registerHostHandlers(socket, conn) {
     const room = getRoom(conn.roomId);
     if (!isHost(room, conn.clientId)) return;
 
-    io.to(conn.roomId).emit('force_pause', { by: conn.nick });
+    io.to(conn.roomId).emit('force_pause', { by: conn.nick, sessionId: room.activeSessionId });
     logEvent(conn.roomId, `⏸ ${conn.nick} paused for everyone`);
     addSystemMessage(conn.roomId, 'system.forcePause', { nick: conn.nick }, `⏸ Host ${conn.nick} paused the video for everyone`);
   });
@@ -163,24 +163,27 @@ module.exports = function registerHostHandlers(socket, conn) {
 
   // ---------- Watch-together ----------
 
-  socket.on('host_watch_start', ({ position } = {}) => {
+  socket.on('host_watch_start', ({ position, rate = 1 } = {}) => {
     if (!conn.roomId) return;
     const room = getRoom(conn.roomId);
     if (!isHost(room, conn.clientId) || !room.loaded) return;
 
-    const start = Math.max(0, Number(position) || 0);
-    const state = { active: true, playing: true, position: start, at: Date.now() + WATCH_COUNTDOWN_MS };
+    if (!Number.isFinite(position) || position < 0 || position > 43200 || ![1, 1.25, 1.5, 2, 3, 4].includes(rate)) return;
+    const start = position;
+    const state = { sessionId: room.activeSessionId, active: true, playing: true, position: start, rate, at: Date.now() + WATCH_COUNTDOWN_MS };
     watchState[conn.roomId] = state;
     io.to(conn.roomId).emit('watch_start', { ...state, by: conn.nick });
     addSystemMessage(conn.roomId, 'system.watchStart', { nick: conn.nick }, `🎬 ${conn.nick} started watch-together`);
     logEvent(conn.roomId, `🎬 ${conn.nick} started watch-together`);
   });
 
-  socket.on('host_watch_sync', ({ playing, position } = {}) => {
+  socket.on('host_watch_sync', ({ playing, position, rate = 1, transient = false } = {}) => {
     if (!conn.roomId || !watchState[conn.roomId]) return;
     if (!isHost(getRoom(conn.roomId), conn.clientId)) return;
-    Object.assign(watchState[conn.roomId], { playing: !!playing, position: Math.max(0, Number(position) || 0), at: Date.now() });
-    socket.to(conn.roomId).volatile.emit('watch_sync', watchState[conn.roomId]);
+    if (typeof playing !== 'boolean' || !Number.isFinite(position) || position < 0 || position > 43200 || ![1, 1.25, 1.5, 2, 3, 4].includes(rate)) return;
+    Object.assign(watchState[conn.roomId], { playing, position, rate, at: Date.now() });
+    const recipients = socket.to(conn.roomId);
+    (transient === true ? recipients.volatile : recipients).emit('watch_sync', watchState[conn.roomId]);
   });
 
   socket.on('host_watch_stop', () => {
@@ -189,7 +192,7 @@ module.exports = function registerHostHandlers(socket, conn) {
       addSystemMessage(conn.roomId, 'system.watchStop', { nick: conn.nick }, `⏹ ${conn.nick} stopped watch-together`);
     } else {
       // The server has no screening, but someone is stuck in one: reset it for everyone
-      io.to(conn.roomId).emit('watch_stop', { by: conn.nick });
+      io.to(conn.roomId).emit('watch_stop', { by: conn.nick, sessionId: getRoom(conn.roomId).activeSessionId });
     }
   });
 };

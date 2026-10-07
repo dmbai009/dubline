@@ -8,8 +8,9 @@ describe('solo feedback: numbering, fixed media controls, loading and QHD wavefo
  after(async()=>{await browser?.close();await server?.cleanup();});
  test('old nonchronological project IDs display chronologically and survive portable save with identity intact',async()=>{
   await page.evaluate(async()=>{
-   const response=await fetch('/api/export-project',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({room:currentRoom,clientId,sessionId:session.activeSessionId})});
+   const response=await fetch('/api/export-project',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ ...await window.prepareSafeSnapshot('project'), room:currentRoom,clientId,sessionId:session.activeSessionId})});
    if(!response.ok)throw Error(await response.text());
+   const JSZip = await DublineLazyScripts.jszip();
    const zip=await JSZip.loadAsync(await response.arrayBuffer()),manifest=JSON.parse(await zip.file('project.json').async('string'));
    for(const line of manifest.project.lines)line.id=({1:36,4:1})[line.id]||line.id;
    zip.file('project.json',JSON.stringify(manifest));const form=new FormData();form.append('clientId',clientId);form.append('sessionId',session.activeSessionId);form.append('project',await zip.generateAsync({type:'blob'}),'old.dubline');
@@ -22,7 +23,7 @@ describe('solo feedback: numbering, fixed media controls, loading and QHD wavefo
   assert.equal(await page.$eval('#inspector .insp-title span',el=>el.textContent),'#1');
   await page.evaluate(()=>setStudioMode('edit'));await waitFor(page,()=>session.mode==='edit');
   assert.equal(await page.$eval('#inspector .insp-title span',el=>el.textContent),'#1');
-  const ids=await page.evaluate(async()=>{const r=await fetch('/api/export-project',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({room:currentRoom,clientId,sessionId:session.activeSessionId})});const z=await JSZip.loadAsync(await r.arrayBuffer());return JSON.parse(await z.file('project.json').async('string')).project.lines.map(line=>line.id).sort((a,b)=>a-b);});
+  const ids=await page.evaluate(async()=>{const r=await fetch('/api/export-project',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ ...await window.prepareSafeSnapshot('project'), room:currentRoom,clientId,sessionId:session.activeSessionId})});const z=await JSZip.loadAsync(await r.arrayBuffer());return JSON.parse(await z.file('project.json').async('string')).project.lines.map(line=>line.id).sort((a,b)=>a-b);});
   assert.deepEqual(ids,[1,2,3,36]);
  });
  test('waveforms cover a 2560px viewport and immediate scrolled viewport without revealing an undrawn edge',async()=>{

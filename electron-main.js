@@ -8,10 +8,18 @@ const { ROOM_ID, PORT_MIN, PORT_MAX, normalizeGuestUrl, findFreePort } = require
 const { checkLatestRelease } = require('./electron-update');
 const { createWorkshopLinkHandler } = require('./electron-external-links');
 const { DesktopStorage, StorageError, FOLDERS } = require('./electron-storage');
+const { projectPathsFromArgs, ProjectOpenCoordinator, projectMessages } = require('./electron-project-open');
+const { readDistribution } = require('./electron-distribution');
+const { InstalledUpdater } = require('./electron-installed-update');
+const { PortableUpdater } = require('./electron-portable-update');
+const { UpdateLog } = require('./electron-update-log');
+const { associationOperation } = require('./electron-project-association');
 
 const PIN_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const HOSTING_MODES = new Set(['cloudflare', 'porthole', 'vpn']);
 const JOIN_ARG = '--dubline-join=';
+
+app.setName('Dubline');
 
 // Used by automated smoke tests; normal builds always use Electron's per-user %APPDATA% folder.
 if (process.env.DUBLINE_USER_DATA_DIR) app.setPath('userData', path.resolve(process.env.DUBLINE_USER_DATA_DIR));
@@ -40,6 +48,8 @@ let tunnelGeneration = 0;
 let shuttingDown = false;
 let shutdownComplete = false;
 let hostStarting = false;
+let projectSaving = false, projectChoosing = false, projectSaveJob = null, projectSaveTicket = null;
+const projectDestinations = new Map();
 let localPort = null;
 let hostingMode = null;
 let hostingModeRequest = 0;
@@ -48,8 +58,9 @@ let networkToolCache = null;
 let networkToolCheckedAt = 0;
 let firstGuestConnected = false;
 let serverFailure = '';
-let appUpdateStatus = { state: 'checking', currentVersion: app.getVersion(), version: '', url: '' };
+let appUpdateStatus = { state: 'idle', currentVersion: app.getVersion(), version: '', url: '' };
 let appUpdateDismissed = false;
+let distribution = { channel: 'development' }, updateAdapter = null;
 
 // The portable EXE unpacks every launch into its own %TEMP%/nsXXXX.tmp/app and removes it on exit.
 // After a crash or a killed process the folder (hundreds of MB) stays. Remove such leftovers:
@@ -78,7 +89,13 @@ function cleanupPortableLeftovers() {
 
 const desktopHostToken = crypto.randomBytes(32).toString('hex');
 const languageFile = path.join(app.getPath('userData'), 'language.json');
-const projectStorage = new DesktopStorage(app.getPath('userData'));
+const projectStorage = new DesktopStorage(app.getPath('userData'), app.isPackaged ? [path.dirname(process.execPath)] : []);
+const desktopOriginFile = path.join(app.getPath('userData'), 'desktop-origin.json');
+let preferredLocalPort = null;
+try { preferredLocalPort = JSON.parse(fs.readFileSync(desktopOriginFile, 'utf8')).port; } catch { /* first launch */ }
+const desktopIdentityFile = path.join(app.getPath('userData'), 'device-identity.json');
+let desktopClientId = null;
+try { const saved = JSON.parse(fs.readFileSync(desktopIdentityFile, 'utf8')); if (/^[a-zA-Z0-9_-]{16,64}$/.test(saved.clientId)) desktopClientId = saved.clientId; } catch { /* first launch or old profile */ }
 let storageSelecting = false;
 function publishStorageProgress(progress) {
   if (launcherWindow && !launcherWindow.isDestroyed()) launcherWindow.webContents.send('app:storage-progress', progress);
@@ -99,6 +116,8 @@ function publishAppUpdateStatus() {
 }
 
 async function checkForAppUpdate() {
+  if (updateAdapter) return updateAdapter.check();
+  if (distribution.channel === 'steam' || distribution.channel === 'development') return;
   try {
     const update = await checkLatestRelease(app.getVersion());
     appUpdateStatus = update
@@ -374,7 +393,11 @@ function startTunnel(port) {
 async function setHostingMode(mode) {
   if (!HOSTING_MODES.has(mode)) throw new Error('Unsupported hosting mode.');
   const request = ++hostingModeRequest;
-  if (hostingMode === 'single') await requestServer('enable-multiplayer');
+  if (hostingMode === 'single') {
+    if (await desktopOperationBusy()) throw new Error(projectMessages(interfaceLanguage).transitionBusy);
+    if (request !== hostingModeRequest) return getHostingStatus();
+    await requestServer('enable-multiplayer');
+  }
   if (request !== hostingModeRequest) return getHostingStatus();
   if (mode !== hostingMode) firstGuestConnected = false;
   hostingMode = mode;
@@ -470,7 +493,11 @@ function createGuestWindow(target) {
 
 async function shutdown() {
   if (shutdownComplete) return;
-  shuttingDown = true;
+  shuttingDown = true; shellProjects.dispose();
+  if (projectSaveJob) await projectSaveJob.catch(() => {});
+  if (mainWindow && !mainWindow.isDestroyed() && serverChild) {
+    try { await mainWindow.webContents.executeJavaScript("typeof editorPersistence === 'undefined' ? Promise.resolve() : editorPersistence"); } catch (_) { /* Durable records stay in the profile. */ }
+  }
   stopTunnel(false);
   if (serverChild && serverChild.connected) {
     try { serverChild.send({ type: 'shutdown' }); } catch (err) { /* process already stopped */ }
@@ -502,6 +529,23 @@ ipcMain.handle('launcher:detect-tools', event => {
   if (!isLauncherSender(event)) throw new Error('Untrusted launcher request.');
   return detectNetworkTools();
 });
+ipcMain.on('desktop:get-client-id', (event, previous) => {
+  if (!isHostSender(event) || event.senderFrame !== event.sender.mainFrame) { event.returnValue = null; return; }
+  if (!desktopClientId) {
+    let legacy = null;
+    try { const file = path.join(projectStorage.info().root, 'data', 'rooms.json'); if (fs.statSync(file).size <= 64 * 1024 ** 2) legacy = JSON.parse(fs.readFileSync(file, 'utf8'))?.[ROOM_ID]?.hostClientId; } catch { /* no legacy workspace */ }
+    desktopClientId = [previous, legacy].find(value => typeof value === 'string' && /^[a-zA-Z0-9_-]{16,64}$/.test(value)) || crypto.randomUUID();
+    fs.mkdirSync(app.getPath('userData'), { recursive: true });
+    const temporary = desktopIdentityFile + '.' + crypto.randomUUID() + '.tmp';
+    fs.writeFileSync(temporary, JSON.stringify({ schemaVersion: 1, clientId: desktopClientId }), { flag: 'wx' });
+    fs.renameSync(temporary, desktopIdentityFile);
+  }
+  event.returnValue = desktopClientId;
+});
+ipcMain.handle('app:get-build-info', event => {
+  if ((!isHostSender(event) && !isLauncherSender(event)) || event.senderFrame !== event.sender.mainFrame) throw Error('Untrusted build information request.');
+  return { version:app.getVersion(), commit:distribution.commit || '', channel:distribution.channel, electronVersion:process.versions.electron };
+});
 ipcMain.on('app:get-language', event => {
   event.returnValue = isHostSender(event) || isLauncherSender(event) || isGuestLanguageSender(event) ? interfaceLanguage : null;
 });
@@ -525,15 +569,35 @@ ipcMain.handle('app:dismiss-update', event => {
 });
 ipcMain.handle('app:open-update', async event => {
   if (!isHostSender(event) && !isLauncherSender(event)) throw new Error('Untrusted update request.');
+  if (event.senderFrame !== event.sender.mainFrame) throw new Error('Untrusted update frame.');
+  if (updateAdapter) {
+    if (appUpdateStatus.state === 'downloaded') return updateAdapter.installOrRestart();
+    if (appUpdateStatus.state === 'error') { await updateAdapter.check(); return { ok: true }; }
+    return { ok: false, code: 'not-ready' };
+  }
   if (appUpdateStatus.state !== 'available' || !appUpdateStatus.url.startsWith('https://github.com/dmbai009/dubline/releases/tag/')) return false;
   await shell.openExternal(appUpdateStatus.url);
   return true;
+});
+ipcMain.handle('app:project-association', async (event, operation) => {
+  if ((!isHostSender(event) && !isLauncherSender(event)) || event.senderFrame !== event.sender.mainFrame) throw Error('Untrusted association request.');
+  if (distribution.channel !== 'github-portable') return { supported: false };
+  return { supported: true, ...await associationOperation(operation, process.execPath, resourcePath('project-association.ps1')) };
+});
+ipcMain.handle('app:open-update-details', async event => {
+  if ((!isHostSender(event) && !isLauncherSender(event)) || event.senderFrame !== event.sender.mainFrame) throw Error('Untrusted update request.');
+  await shell.openExternal('https://github.com/dmbai009/dubline/releases/latest'); return true;
 });
 ipcMain.handle('app:open-project', async event => {
   if (!isHostSender(event) && !isLauncherSender(event)) throw new Error('Untrusted project-link request.');
   await shell.openExternal('https://github.com/dmbai009/dubline');
   return true;
 });
+async function startOriginPreference(port) {
+  const temporary = desktopOriginFile + '.' + crypto.randomUUID() + '.tmp';
+  await fs.promises.writeFile(temporary, JSON.stringify({ schemaVersion: 1, port }), { flag: 'wx' });
+  await fs.promises.rename(temporary, desktopOriginFile); preferredLocalPort = port;
+}
 async function launchWorkspace(mode, projectPath = '') {
   if (hostStarting || storageSelecting || projectStorage.busy) return { ok: false, error: 'Dubline is already starting or moving storage.' };
   if (mode !== 'single' && !HOSTING_MODES.has(mode)) return { ok: false, error: 'Choose a supported hosting mode.' };
@@ -541,7 +605,8 @@ async function launchWorkspace(mode, projectPath = '') {
   try {
     await projectStorage.prepare(publishStorageProgress);
     hostingMode = mode;
-    localPort = await findFreePort();
+    localPort = await findFreePort(preferredLocalPort);
+    await startOriginPreference(localPort);
     await startServer(localPort);
     if (projectPath) await requestServer('open-project-file', { path: projectPath });
     else if (mode === 'single') await requestServer('new-single-project');
@@ -557,18 +622,56 @@ async function launchWorkspace(mode, projectPath = '') {
     hostStarting = false;
   }
 }
-function requestServer(type, payload = {}) {
+function requestServer(type, payload = {}, onProgress) {
   return new Promise((resolve, reject) => {
     const child = serverChild, requestId = crypto.randomUUID();
     if (!child?.connected) return reject(new Error('The local server is unavailable.'));
     const finish = (error, value) => { clearTimeout(timer); child.off('message', listener); child.off('exit', exited); error ? reject(error) : resolve(value); };
-    const listener = message => { if (message?.requestId === requestId) finish(message.ok ? null : new Error(message.error || 'Project could not be opened.'), message); };
+    const listener = message => {
+      if(message?.requestId!==requestId)return;
+      if(message.type==='project-save-progress'){onProgress?.(message.progress);return;}
+      if(message.canceled)finish(null,message);
+      else finish(message.ok ? null : new Error(message.error || 'Project could not be opened.'), message);
+    };
     const exited = () => finish(new Error('The local server stopped.'));
-    const timer = type === 'open-project-file' ? null : setTimeout(() => finish(new Error('The local server did not respond.')), 120000);
+    const timer = ['open-project-file', 'save-project-file'].includes(type) ? null : setTimeout(() => finish(new Error('The local server did not respond.')), 120000);
     child.on('message', listener); child.once('exit', exited);
     child.send({ type, requestId, ...payload }, error => { if (error) finish(error); });
   });
 }
+ipcMain.handle('desktop:choose-project-destination', async (event, data = {}) => {
+  if (!isHostSender(event) || event.senderFrame !== event.sender.mainFrame) throw new Error('Untrusted project save request.');
+  if (projectSaving || projectChoosing || shuttingDown || storageSelecting || projectStorage.busy) return { ok: false, error: 'Wait for the current operation to finish.' };
+  if (typeof data.sessionId !== 'string' || data.sessionId.length > 128) throw new Error('Invalid project scene.');
+  projectChoosing = true;
+  try {
+    const filename = String(data.title || 'DubLine_project').replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').slice(0, 120) + '.dubline';
+    const selected = await dialog.showSaveDialog(mainWindow, { title: 'Save Project', defaultPath: filename, filters: [{ name: 'DubLine Project', extensions: ['dubline'] }] });
+    if (selected.canceled || !selected.filePath) return { ok: true, canceled: true };
+    const destination = path.extname(selected.filePath).toLowerCase() === '.dubline' ? selected.filePath : selected.filePath + '.dubline';
+    projectDestinations.clear();
+    const ticket = crypto.randomUUID(); projectDestinations.set(ticket, { destination, sessionId: data.sessionId, expires: Date.now() + 15 * 60 * 1000 });
+    return { ok: true, ticket };
+  } finally { projectChoosing = false; }
+});
+ipcMain.handle('desktop:save-project', async (event, data = {}) => {
+  if (!isHostSender(event) || event.senderFrame !== event.sender.mainFrame) throw new Error('Untrusted project save request.');
+  const destination = projectDestinations.get(data.ticket); projectDestinations.delete(data.ticket);
+  if (!destination || destination.expires < Date.now() || destination.sessionId !== data.sessionId) return { ok: false, error: 'Choose the project destination again.' };
+  if (projectSaving || projectChoosing || shuttingDown || storageSelecting || projectStorage.busy) return { ok: false, error: 'Wait for the current operation to finish.' };
+  if (typeof data.clientId !== 'string' || data.clientId.length > 64 || typeof data.barrierToken !== 'string' || data.barrierToken.length > 128) throw new Error('Invalid snapshot request.');
+  projectSaving = true;projectSaveTicket=data.ticket;
+  try { projectSaveJob = requestServer('save-project-file', { ticket:data.ticket, destination: destination.destination, clientId: data.clientId, sessionId: data.sessionId, barrierToken: data.barrierToken, forceSnapshot: data.forceSnapshot === true }, progress=>{
+    if(mainWindow&&!mainWindow.isDestroyed())mainWindow.webContents.send('desktop:project-save-progress',{ticket:data.ticket,stage:progress.stage,bytes:Math.max(0,Number(progress.bytes)||0)});
+  }); return await projectSaveJob; }
+  catch (error) { return { ok: false, error: error.message }; }
+  finally { projectSaving = false; projectSaveJob = null; projectSaveTicket=null; }
+});
+ipcMain.handle('desktop:cancel-project-save',async(event,data={})=>{
+  if(!isHostSender(event)||event.senderFrame!==event.sender.mainFrame)throw Error('Untrusted project save request.');
+  if(typeof data.ticket!=='string'||data.ticket!==projectSaveTicket)return {ok:false,canceled:false};
+  return requestServer('cancel-project-save',{ticket:data.ticket});
+});
 ipcMain.handle('launcher:start-host', (event, mode) => {
   if (!isLauncherSender(event)) throw new Error('Untrusted launcher request.');
   return launchWorkspace(mode);
@@ -674,36 +777,86 @@ ipcMain.handle('app:choose-storage', async event => {
   } finally { storageSelecting = false; }
 });
 
+async function desktopOperationBusy() {
+  if (hostStarting || storageSelecting || projectStorage.busy || projectSaving || projectChoosing || shuttingDown) return true;
+  if (serverChild) {
+    try { if ((await requestServer('desktop-busy')).busy) return true; } catch (_) { return true; }
+  }
+  if (!mainWindow || mainWindow.isDestroyed()) return false;
+  try {
+    return await mainWindow.webContents.executeJavaScript("typeof recordState === 'undefined' || recordState !== 'idle' || typeof renderInProgress !== 'undefined' && renderInProgress || typeof projectImportBusy !== 'undefined' && projectImportBusy || typeof projectExportBusy !== 'undefined' && projectExportBusy || typeof customImportStatus !== 'undefined' && !!customImportStatus?.active || typeof pendingTakeLines !== 'undefined' && pendingTakeLines.size > 0 || !!window.snapshotFrozen || !!window.activeEditorGesture || typeof editorQueue !== 'undefined' && editorQueue.length > 0 || typeof editorNeedsResync !== 'undefined' && editorNeedsResync");
+  } catch { return true; }
+}
+async function openShellProject(file) {
+  const text = projectMessages(interfaceLanguage);
+  if (!projectPathsFromArgs([file]).length) throw Error(projectMessages(interfaceLanguage).invalid);
+  if (!serverChild) {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      const choice = await dialog.showMessageBox(mainWindow, { type: 'question', title: text.title, message: text.guest, buttons: [text.cancel, text.local], defaultId: 0, cancelId: 0 });
+      if (choice.response !== 1) return;
+      createLauncherWindow(); mainWindow.destroy(); mainWindow = null;
+    }
+    if (!launcherWindow || launcherWindow.isDestroyed()) createLauncherWindow();
+    const result = await launchWorkspace('single', file); if (!result.ok) throw Error(result.error); return;
+  }
+  const choice = await dialog.showMessageBox(mainWindow, { type: 'question', title: text.title, message: hostingMode === 'single' ? text.single : text.multi, buttons: [text.cancel, text.open], defaultId: 0, cancelId: 0 });
+  if (choice.response !== 1) return;
+  if (await desktopOperationBusy()) throw Error(text.busy);
+  await requestServer('open-project-file', { path: file });
+}
+const shellProjects = new ProjectOpenCoordinator({ busy: desktopOperationBusy, open: openShellProject,
+  error: error => dialog.showErrorBox(projectMessages(interfaceLanguage).failed, error.message),
+  waiting: () => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('desktop:project-open-waiting'); } });
+function receiveProjectArgs(args, workingDirectory) {
+  for (const file of projectPathsFromArgs(args, workingDirectory, error => dialog.showErrorBox(projectMessages(interfaceLanguage).failed, error.message))) shellProjects.enqueue(file);
+}
 if (!app.requestSingleInstanceLock()) app.quit();
 else {
-  app.on('second-instance', () => {
+  app.on('second-instance', (_event, argv, workingDirectory) => {
+    receiveProjectArgs(argv, workingDirectory);
     const target = mainWindow || launcherWindow;
     if (target) {
       if (target.isMinimized()) target.restore();
       target.focus();
     }
   });
-  app.whenReady().then(() => {
+  app.whenReady().then(async () => {
     app.setAppUserModelId('io.github.dmbai009.dubline');
+    try { distribution = readDistribution(process.resourcesPath, app.isPackaged); }
+    catch (_) { appUpdateStatus = { ...appUpdateStatus, state: 'error', error: 'Distribution metadata is invalid. Update manually.' }; }
+    const updateLog = new UpdateLog(app.getPath('userData'), { ...distribution, version: app.getVersion() });
+    if (distribution.channel === 'github-setup') {
+      updateAdapter = new InstalledUpdater({ currentVersion: app.getVersion(), updater: require('electron-updater').autoUpdater, busy: desktopOperationBusy, shutdown });
+      updateAdapter.on('status', status => { appUpdateStatus = status; updateLog.record(status); publishAppUpdateStatus(); });
+      updateAdapter.on('apply-result', result => updateLog.record(result));
+    }
+    if (distribution.channel === 'github-portable') {
+      updateAdapter = new PortableUpdater({ current: distribution, root: path.dirname(process.execPath), stagingRoot: path.join(app.getPath('userData'), 'update-staging'), helper: resourcePath('updater', 'apply-update.ps1'), busy: desktopOperationBusy, shutdown, exit: () => app.exit(0), getProcesses: () => app.getAppMetrics().map(item => ({ id: item.pid, createdAt: Math.floor(item.creationTime) })) });
+      updateAdapter.on('status', status => { appUpdateStatus = status; updateLog.record(status); publishAppUpdateStatus(); });
+      updateAdapter.on('apply-result', result => updateLog.record(result));
+    }
+    if (distribution.channel === 'github-portable' && await updateAdapter.resumeInterrupted()) return;
+    if (!guestTargetUrl) setTimeout(checkForAppUpdate, 12000).unref();
     // Not at once: it must not slow down the start
     setTimeout(cleanupPortableLeftovers, 20000).unref?.();
     session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
       let allowed = false;
       try {
         const origin = new URL(webContents.getURL()).origin;
-        const expected = guestOrigin || (localPort ? `http://127.0.0.1:${localPort}` : '');
+        const expected = serverChild && localPort ? `http://127.0.0.1:${localPort}` : guestOrigin;
         const requester = new URL(details.requestingUrl || webContents.getURL()).origin;
         allowed = ['media', 'fullscreen'].includes(permission) && origin === expected && requester === expected;
       } catch (err) { /* invalid or not loaded yet */ }
       callback(allowed);
     });
-    if (guestTargetUrl) createGuestWindow(guestTargetUrl);
+    const initialProjects = projectPathsFromArgs(process.argv, process.cwd(), error => dialog.showErrorBox(projectMessages(interfaceLanguage).failed, error.message));
+    if (initialProjects.length) { createLauncherWindow(); for (const file of initialProjects) shellProjects.enqueue(file); }
+    else if (guestTargetUrl) createGuestWindow(guestTargetUrl);
     else {
       createLauncherWindow();
-      checkForAppUpdate();
     }
   }).catch(async err => {
-    dialog.showErrorBox('Dubline could not start', err.message);
+    dialog.showErrorBox(projectMessages(interfaceLanguage).startup, err.message);
     await shutdown();
     app.quit();
   });

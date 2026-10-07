@@ -164,7 +164,7 @@ describe('audit: actual editor controls and recording queue', { skip: skipReason
     const input = await guest.$('#localMediaInput'); await input.uploadFile(file);
     await waitFor(guest, () => localMedia?.backingBlob && mediaUrl(session.backingUrl).startsWith('blob:'));
     const old = await guest.evaluate(() => localMedia.backingUrl);
-    await host.evaluate(() => socket.emit('host_set_audio_tracks', { original: 0, backing: 1 }));
+    await host.evaluate(() => socket.emit('host_set_audio_tracks', { sessionId: session.activeSessionId,  original: 0, backing: 1 }));
     await waitFor(guest, () => session.backingTrack === 1 && backing.src.endsWith(session.backingUrl));
     const result = await guest.evaluate(async () => {
       const snapshot = createExportSnapshot();

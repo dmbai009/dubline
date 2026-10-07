@@ -308,16 +308,20 @@ describe('Studio Workflow 1.3', { skip: skipReason }, () => {
     assert.equal(alice.initials, 'AL'); assert.equal(bob.initials, 'BO');
     assert.equal(alice.avatarVisible && bob.avatarVisible, true); assert.equal(alice.nameVisible || bob.nameVisible, false);
     assert.ok(hasBadge(alice, alice.labels.host) && hasBadge(alice, alice.labels.you)); assert.ok(hasBadge(bob, bob.labels.you));
-    await guest.evaluate(() => socket.emit('recording_status', { lineId: 2, recording: true }));
+    await guest.evaluate(() => socket.emit('recording_status', { sessionId: session.activeSessionId,  lineId: 2, recording: true }));
     await waitFor(host, () => liveRecordings.get(2) === 'Bob');
     bob = await card(host, 'Bob'); assert.ok(hasBadge(bob, bob.labels.recording));
-    await guest.evaluate(() => socket.emit('recording_status', { lineId: 2, recording: false }));
+    await guest.evaluate(() => socket.emit('recording_status', { sessionId: session.activeSessionId,  lineId: 2, recording: false }));
     await waitFor(host, () => !liveRecordings.has(2));
-    await guest.evaluate(() => socket.emit('p2p_have', { urls: [session.videoUrl] }));
+    await guest.evaluate(async () => {
+      const manifest = await (await fetch(`/api/media-manifest?${new URLSearchParams({ room: currentRoom, sessionId: session.activeSessionId, clientId, url: session.videoUrl })}`)).json();
+      socket.emit('p2p_have', { sessionId: session.activeSessionId, sequence: ++availabilitySequence, files: [{ url: session.videoUrl, id: manifest.id, ranges: [[0, manifest.chunks.length - 1]] }] });
+    });
     await waitFor(host, () => seedingNicks.has('Bob'));
     // Download progress is deliberately volatile; report it independently of reliable state changes.
-    await guest.evaluate(() => socket.emit('player_activity', { state: 'downloading', pct: 42 }));
+    await guest.evaluate(() => window.updateMediaTransfer({ downloading: true, pct: 42 }));
     await waitFor(host, () => playerActivities.get('Bob')?.pct === 42);
+    await waitFor(host, () => [...document.querySelectorAll('#lobbyList .player-card')].some(card => card.querySelector('.player-name')?.textContent === 'Bob' && [...card.querySelectorAll('.progress > div')].some(bar => bar.style.width === '42%')));
     bob = await card(host, 'Bob');
     assert.ok(hasBadge(bob, bob.labels.seeding) && hasBadge(bob, bob.labels.downloading));
     assert.ok(bob.progress.some(progress => progress.width === '42%' && progress.visible));
@@ -327,7 +331,7 @@ describe('Studio Workflow 1.3', { skip: skipReason }, () => {
       for (let i = 0; i < data.length; i++) data[i] = 0.05 * Math.sin(2 * Math.PI * 330 * i / 48000);
       await submitTake({ uploadId: newUploadId(), room: currentRoom, sessionId: session.activeSessionId, lineId: 2, nick: myName,
         audioStart: session.lines.find(line => line.id === 2).start, blob: new Blob([audioBufferToWav(buffer)], { type: 'audio/wav' }), createdAt: Date.now() });
-      socket.emit('player_activity', { state: 'idle', pct: 0 }); await ctx.close();
+      window.updateMediaTransfer({ downloading: false, pct: 100 }); await ctx.close();
     });
     await waitFor(host, () => !!session.lines.find(line => line.id === 2).audioUrl);
     bob = await card(host, 'Bob'); assert.ok(hasBadge(bob, bob.labels.done));

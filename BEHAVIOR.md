@@ -56,3 +56,45 @@ Selection cancellation preserves the existing choice. Live workspace selection c
 Recording authors may change their own take settings after releasing a role; the host may change any take. Claiming another author's line does not transfer its mixing rights. Legacy unattributed takes use the current line owner. Volume (0–3), stereo pan (−1–1) and effect amount (0–1) are non-destructive shared project state. Amount zero bypasses the preset, including preset pitch and tails, while user pitch remains. Defaults preserve existing centre playback levels.
 
 Bulk controls operate on editable recorded clips in the current selection, across roles. Mixed values are shown explicitly; changing a parameter assigns one absolute value to every target and preserves unrelated settings. The server validates the complete batch, author/host rights, session, audio URL and clip revision before any mutation. A conflict, replacement recording, invalid value or unauthorized target rejects the entire batch. Preview/playback, offline soundtrack and stereo character stems share the clip gain/pan path. Live gain/pan changes ramp without restarting the take; muted clips do not duck the background. Audio processing/cache identity includes effect amount, excluding volume and pan. Portable version 3 stores clip mixes; versions 1/2 import defaults and remain emitted for default mixes. Runtime clip revisions are excluded.
+
+## Media / presence hardening
+
+- A stale scene request, delta, dialog, gesture or media job cannot alter or play
+  the current scene, even when numeric line IDs are reused.
+- Nickname UI accepts only the authoritative ACK. Same-client reconnect/reclaim
+  preserves recording ownership, latency and all stored scenes.
+- Pending editor intent now survives reload in shared IndexedDB; this supersedes
+  the earlier page-memory limitation. Recovery never blindly replays destructive
+  edits after identity/session/epoch/receipt changes. Pending take storage remains
+  independent and protected from cache cleanup.
+- Runtime leases protect caption/timing/assignment/structural work and acquire
+  group targets atomically. Cached successful operations remain idempotent after
+  a lease expires. Lease ownership, cursors and readiness are never project state.
+- Needs Retake is authorized like clip edits, resets on replacement/deletion and
+  uses project format 4 when set. Formats 1/2/3 remain readable with false defaults.
+  Bulk Pitch applies one integer semitone value atomically to authorized takes.
+- Preview rates preserve pitch; recording and export use 1x. Local master volume,
+  subtitles/prompter visibility, search/filter, cursor visibility and timeline
+  layout never change shared mix or archived metadata. Watch guests cannot seek.
+- Source/recorded media is declared ready only after decoder readiness. Lost
+  ephemeral statuses expire; reliable terminal updates and join snapshots reconcile
+  the lobby. Partial seeding advertises verified chunks only, and final files are
+  checked against full SHA-256 before use. Progress covers all required assets.
+- Snapshot exports wait for bounded readiness and freeze mutations. Cancel leaves
+  inspector drafts intact; Force is explicit and reports excluded pending work.
+- Workspace autosave is the working-state guarantee. A .dubline is one active
+  scene snapshot, not room history or a live document. Save Project is one host-only
+  command with a fresh destination picker, no Ctrl+S/Save As/source-file link.
+  Failed or canceled saves preserve the previous destination and current workspace.
+- Cold shell-open imports locally in Single Player. Warm Single Player asks first;
+  multiplayer host warns about switching the scene for everyone and guests receive
+  the ordinary session update. Remote guest confirms leaving and opens locally.
+  Existing scenes remain available. Critical work defers queued shell requests.
+- Setup and Portable share product/profile identity and single-instance exclusion.
+  Updates download in the background but install only after explicit action and
+  idle checks, with workspace flush and child shutdown. Full fallback/rollback
+  never delete unknown project files or project storage. Association changes are
+  per-user and ownership-safe; protected Windows defaults are never rewritten.
+
+Native Save Project reports actual stages/bytes and supports cancellation before
+commit. Atomic replacement finishes without offering an unsafe cancel action.

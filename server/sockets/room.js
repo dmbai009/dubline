@@ -20,6 +20,10 @@ module.exports = function registerRoomHandlers(socket, conn) {
       const wasHost = isHost(room, conn.clientId);
       delete roomSockets[conn.roomId][socket.id];
       require('../selectionPresence').clear(socket.id, conn.roomId);
+      require('../editLeases').clear(socket.id, conn.roomId);
+      require('../mediaPresence').clear(socket.id, conn.roomId);
+      require('../mediaAvailability').clear(socket.id);
+      require('../cursorPresence').clear(socket.id, conn.roomId);
       socket.leave(conn.roomId);
       if (clearSocketRecordings(conn.roomId, socket.id)) broadcastRecording(conn.roomId);
       if (clearSocketSeeds(conn.roomId, socket.id)) broadcastSeeders(conn.roomId);
@@ -60,8 +64,8 @@ module.exports = function registerRoomHandlers(socket, conn) {
       }
     }
     history.renameNick(conn.roomId, oldName, newName);
-    if (room.latency[oldName] !== undefined && room.latency[newName] === undefined) {
-      room.latency[newName] = room.latency[oldName];
+    if (room.latency[oldName] !== undefined) {
+      if (room.latency[newName] === undefined) room.latency[newName] = room.latency[oldName];
       delete room.latency[oldName];
     }
   }
@@ -140,12 +144,14 @@ module.exports = function registerRoomHandlers(socket, conn) {
     ensureAudioTracks(conn.roomId);
     socket.emit('session_updated', publicRoom(room));
     socket.emit('selection_presence', require('../selectionPresence').snapshot(conn.roomId));
+    socket.emit('edit_leases', require('../editLeases').snapshot(conn.roomId));
+    socket.emit('media_presence', require('../mediaPresence').snapshot(conn.roomId));
     socket.emit('chat_history', room.chat);
-    socket.emit('recording_state', recordingList(conn.roomId));
+    socket.emit('recording_state', { sessionId: room.activeSessionId, recordings: recordingList(conn.roomId) });
     socket.emit('p2p_seeders', seedersSummary(conn.roomId));
     // Current screening state: join a running one or reset a stuck one
     if (watchState[conn.roomId]) socket.emit('watch_sync', watchState[conn.roomId]);
-    else socket.emit('watch_stop', {});
+    else socket.emit('watch_stop', { sessionId: room.activeSessionId });
     broadcastRoomUsers(conn.roomId);
 
     const who = conn.nick || 'player without a nickname';
@@ -154,19 +160,24 @@ module.exports = function registerRoomHandlers(socket, conn) {
     logEvent(conn.roomId, `→ ${who} joined${returned}. Online: ${onlineCount(conn.roomId)}`);
   });
 
-  socket.on('rename_user', (data = {}) => {
-    if (!conn.roomId) return;
+  socket.on('rename_user', (data = {}, ack) => {
+    const reply = (state, ok) => {
+      socket.emit('nick_state', state);
+      if (typeof ack === 'function') ack({ ...state, ok });
+    };
+    if (!conn.roomId || !roomSockets[conn.roomId]?.[socket.id]) return reply({ nick: conn.nick, reason: 'room' }, false);
     const room = getRoom(conn.roomId);
     const newName = sanitizeNick(data.newName);
-    if (!newName || newName === conn.nick) return socket.emit('nick_state', { nick: conn.nick });
+    if (!newName) return reply({ nick: conn.nick, reason: 'invalid' }, false);
+    if (newName === conn.nick) return reply({ nick: conn.nick }, true);
 
     if (!isNickFree(room, conn.roomId, newName, conn.clientId, socket.id)) {
-      return socket.emit('nick_state', {
+      return reply({
         nick: conn.nick,
         error: `Nickname "${newName}" is already used by another player`,
         errorKey: 'error.nickTaken',
         errorParams: { nick: newName }
-      });
+      }, false);
     }
 
     const oldName = conn.nick;
@@ -180,7 +191,7 @@ module.exports = function registerRoomHandlers(socket, conn) {
     logEvent(conn.roomId, `✎ ${oldName || 'player without a nickname'} is now ${newName}`);
 
     flushRooms();
-    socket.emit('nick_state', { nick: conn.nick });
+    reply({ nick: conn.nick }, true);
     emitSession(conn.roomId);
     broadcastRoomUsers(conn.roomId);
   });

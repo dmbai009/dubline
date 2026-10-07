@@ -39,7 +39,7 @@ describe('audit: scene and take integrity', () => {
     return player;
   }
   async function claim(player, lineId = 1) {
-    player.socket.emit('claim_line', { lineId });
+    player.socket.emit('claim_line', { lineId, sessionId: (await state(player)).activeSessionId });
     await waitUntil(async () => (await state(player)).lines.find(line => line.id === lineId).claimedBy === player.nick);
   }
   async function reserve(player, lineId = 1, sessionId) {
@@ -157,7 +157,7 @@ describe('audit: scene and take integrity', () => {
   });
   test('an unrelated player cannot delete a released take; its author and the host can', async () => {
     const host = await scene(), bob = await join(host.room, 'Bob'), carol = await join(host.room, 'Carol');
-    await claim(bob); await upload(bob, await reserve(bob)); bob.socket.emit('unclaim_line', { lineId: 1 });
+    await claim(bob); await upload(bob, await reserve(bob)); bob.socket.emit('unclaim_line', { lineId: 1, sessionId: (await state(bob)).activeSessionId });
     await waitUntil(async () => !(await state(bob)).lines[0].claimedBy);
     const snapshot = await state(bob);
     assert.equal(await remove(carol, snapshot), 403); assert.equal(await remove(bob, snapshot), 200);
@@ -167,8 +167,8 @@ describe('audit: scene and take integrity', () => {
   test('renaming updates inactive scenes, take authors, latency and trash; persisted after restart', async () => {
     const host = await scene(), bob = await join(host.room, 'Bob');
     await claim(bob); await upload(bob, await reserve(bob));
-    bob.socket.emit('claim_line', { lineId: 2 }); bob.socket.emit('set_latency', { ms: 120 });
-    await state(bob); host.socket.emit('host_delete_lines', { lineIds: [2] }); await state(host);
+    bob.socket.emit('claim_line', { lineId: 2, sessionId: (await state(bob)).activeSessionId }); bob.socket.emit('set_latency', { ms: 120 });
+    await state(bob); host.socket.emit('host_delete_lines', { lineIds: [2], sessionId: (await state(host)).activeSessionId }); await state(host);
     const a = (await state(host)).activeSessionId;
     await pack(host, fs.readFileSync(buildFixturePack()));
     bob.socket.emit('rename_user', { newName: 'Bobby' });
@@ -178,7 +178,7 @@ describe('audit: scene and take integrity', () => {
     assert.equal((await state(host)).lines[0].recordedBy, 'Bobby');
     assert.equal((await state(host)).lines[0].claimedBy, 'Bobby');
     assert.equal((await state(host)).latency.Bobby, 120);
-    host.socket.emit('host_trash_restore', { lineIds: [2] }); await state(host);
+    host.socket.emit('host_trash_restore', { lineIds: [2], sessionId: (await state(host)).activeSessionId }); await state(host);
     assert.equal((await state(host)).lines.find(line => line.id === 2).claimedBy, 'Bobby');
     await server.restart(); await waitUntil(async () => host.socket.connected);
     await waitUntil(async () => { try { return (await state(host)).loaded; } catch { return false; } });
@@ -188,9 +188,9 @@ describe('audit: scene and take integrity', () => {
     const host = await scene(); await claim(host);
     const snapshot = await state(host);
     // Model a source line at 0:00 through the collaborative editor.
-    host.socket.emit('set_session_mode', { mode: 'edit' }); await state(host);
+    host.socket.emit('set_session_mode', { mode: 'edit', sessionId: (await state(host)).activeSessionId }); await state(host);
     await ack(host, 'editor_update_line', { lineId: 1, revision: 0, sessionId: snapshot.activeSessionId, start: 0, end: 1.5 });
-    host.socket.emit('set_session_mode', { mode: 'dub' }); await state(host);
+    host.socket.emit('set_session_mode', { mode: 'dub', sessionId: (await state(host)).activeSessionId }); await state(host);
     await upload(host, await reserve(host));
     const current = (await state(host)).lines[0];
     host.socket.emit('set_take_props', { lineId: 1, sessionId: snapshot.activeSessionId, audioUrl: current.audioUrl, audioStart: -3 });
@@ -201,7 +201,7 @@ describe('audit: scene and take integrity', () => {
     assert.equal((await state(host)).lines[0].audioStart, -3);
   });
   for (const length of [499, 500, 501, 2000, 2001]) test(`caption length ${length} is preserved or explicitly refused`, async () => {
-    const host = await scene(); host.socket.emit('set_session_mode', { mode: 'edit' });
+    const host = await scene(); host.socket.emit('set_session_mode', { mode: 'edit', sessionId: (await state(host)).activeSessionId });
     const snapshot = await state(host), caption = 'Я'.repeat(length);
     const result = await ack(host, 'editor_update_line', { lineId: 1, revision: 0, sessionId: snapshot.activeSessionId, caption });
     assert.equal(result.ok, length <= 2000);
@@ -216,8 +216,11 @@ describe('audit: scene and take integrity', () => {
     const result = await pack(host, zip.toBuffer()); assert.equal(result.status, 200);
     assert.equal(result.body.session.lines[0].caption, caption); assert.equal(result.body.session.lines[0].character, role);
     assert.equal(result.body.session.title, title);
+    const current = await state(host);
+    const barrier = await ack(host, 'snapshot_request', { purpose: 'voxalike', sessionId: current.activeSessionId });
+    assert.equal(barrier.ok, true);
     const exported = await fetch(`http://localhost:${server.port}/api/export-voxalike-pack`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ room: host.room, clientId: host.clientId })
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ room: host.room, clientId: host.clientId, barrierToken: barrier.token, forceSnapshot: true })
     });
     assert.equal(exported.status, 200, await exported.clone().text());
     const reimported = await pack(host, Buffer.from(await exported.arrayBuffer()), 'roundtrip.zip');
@@ -226,12 +229,12 @@ describe('audit: scene and take integrity', () => {
   });
   test('prototype-like room, nick and role names behave as ordinary user data across restart', async () => {
     const host = await join('__proto__', 'constructor');
-    await pack(host, fs.readFileSync(buildFixturePack())); host.socket.emit('set_session_mode', { mode: 'edit' });
+    await pack(host, fs.readFileSync(buildFixturePack())); host.socket.emit('set_session_mode', { mode: 'edit', sessionId: (await state(host)).activeSessionId });
     const sessionId = (await state(host)).activeSessionId;
     for (const character of ['constructor', '__proto__', 'toString', 'hasOwnProperty']) {
       const result = await ack(host, 'editor_create_line', { sessionId, character, caption: character, start: 0, end: 1 });
       assert.equal(result.ok, true);
-      host.socket.emit('claim_character', { character });
+      host.socket.emit('claim_character', { character, sessionId: (await state(host)).activeSessionId });
       assert.equal((await state(host)).characterClaims[character], 'constructor');
     }
     await server.restart(); await waitUntil(async () => host.socket.connected);

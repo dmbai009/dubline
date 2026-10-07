@@ -39,7 +39,8 @@ function checkPort(port) {
   });
 }
 
-async function findFreePort() {
+async function findFreePort(preferred) {
+  if (Number.isInteger(preferred) && preferred >= PORT_MIN && preferred <= PORT_MAX && await checkPort(preferred)) return preferred;
   const count = PORT_MAX - PORT_MIN + 1;
   const first = crypto.randomInt(count);
   for (let offset = 0; offset < count; offset++) {

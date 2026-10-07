@@ -11,11 +11,15 @@ const BIN = 1200; // full-band peaks every 25 ms, without losing high-frequency 
 const MAX_SAMPLES = RATE * 12 * 60 * 60;
 let active = 0;
 const waiting = [];
-async function slot() {
-  if (active >= 2) await new Promise(resolve => waiting.push(resolve));
+async function slot(background = false) {
+  if (active >= 2) await new Promise(resolve => {
+    const entry = { resolve, background };
+    const ahead = waiting.findIndex(item => item.background);
+    if (!background && ahead !== -1) waiting.splice(ahead, 0, entry); else waiting.push(entry);
+  });
   else active++;
 }
-function release() { const next = waiting.shift(); if (next) next(); else active--; }
+function release() { const next = waiting.shift(); if (next) next.resolve(); else active--; }
 function extract(full) {
   return new Promise((resolve, reject) => {
     const child = spawn(ffmpegPath, ['-hide_banner', '-loglevel', 'error', '-i', full,
@@ -43,7 +47,7 @@ function extract(full) {
     });
   });
 }
-async function waveform(url) {
+async function waveform(url, background = false) {
   const full = diskPathForUrl(url);
   if (!full) throw new Error('Invalid media source');
   const stat = await fs.promises.stat(full);
@@ -55,7 +59,7 @@ async function waveform(url) {
       const saved = JSON.parse(await fs.promises.readFile(cache, 'utf8'));
       if (saved.version === 2 && Array.isArray(saved.peaks)) return saved;
     } catch { /* missing/corrupt cache: rebuild */ }
-    await slot();
+    await slot(background);
     try {
       const result = await extract(full);
       await fs.promises.writeFile(cache, JSON.stringify(result)).catch(() => {});
@@ -65,4 +69,21 @@ async function waveform(url) {
   jobs.set(key, job);
   try { return await job; } finally { jobs.delete(key); }
 }
-module.exports = { waveform };
+const prewarmed = new WeakMap();
+function prewarm(room) {
+  if (!room.loaded) return;
+  const sources = require('../public/project-audio').sources(room);
+  const urls = [...new Set([sources.original, sources.backing].filter(Boolean))];
+  const signature = JSON.stringify([room.activeSessionId, urls]);
+  if (prewarmed.get(room) === signature) return;
+  prewarmed.set(room, signature);
+  setTimeout(async () => {
+    const idle = () => !require('./routes').isMediaBusy() && !require('./project-save').isBusy() &&
+      !Object.values(require('./state').recordingNow).some(recordings => Object.keys(recordings).length);
+    for (const url of urls) {
+      if (prewarmed.get(room) !== signature || active || waiting.length || !idle()) return;
+      try { await waveform(url, true); } catch { /* optional cache preparation never blocks a scene */ }
+    }
+  }, 1500).unref();
+}
+module.exports = { waveform, prewarm, stats: () => ({ active, waiting: waiting.length, jobs: jobs.size }) };

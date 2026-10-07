@@ -150,7 +150,8 @@ describe('room', { skip: skipReason }, () => {
     await host.evaluate(id => handleStudioRecord(id), line.id);
     await waitFor(host, id => document.getElementById(`line-block-${id}`).classList.contains('pending-upload'), 20000, line.id);
     await waitUntil(async () => (await host.evaluate(() => new Promise(resolve => {
-      const req = indexedDB.open('dubline', 1);
+      const req = indexedDB.open('dubline');
+      req.onerror = () => resolve(0);
       req.onsuccess = () => { const all = req.result.transaction('pendingTakes').objectStore('pendingTakes').getAll(); all.onsuccess = () => resolve(all.result.length); };
     }))) > 0, 5000);
 

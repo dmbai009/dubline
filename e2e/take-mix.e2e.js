@@ -110,7 +110,7 @@ describe('clip mixing: real sockets, inspector and audio', { skip: skipReason, t
     await change(host, 'pan', 100); await waitFor(guest, () => session.lines[0].pan === 1);
     assert.equal(await host.$eval('#editorCaption', node => node.value), caption, 'mix updates preserve unsaved editor drafts');
     await host.screenshot({ path: path.join(__dirname, '../docs/qa/clip-mix-editor.png') });
-    await host.evaluate(() => setStudioMode('dub')); await waitFor(host, () => session.mode === 'dub');
+    await host.evaluate(() => { reloadEditorDraft(1); setStudioMode('dub'); }); await waitFor(host, () => session.mode === 'dub');
   });
 
   test('effect blend has dry and wet endpoints, midpoint and no preset pitch/tail at zero', async () => {
@@ -224,7 +224,7 @@ describe('clip mixing: real sockets, inspector and audio', { skip: skipReason, t
       fx.fetchAndDecode = () => new Promise(resolve => { release = resolve; });
       fx.renderVoice = async b => b;
       fx.connectTake = (...args) => { connected++; return connect(...args); };
-      const line = { id: 99, audioUrl: '/pending-clip', audioStart: 0, start: 0, effect: 'none', pitch: 0, volume: 1 };
+      const line = { id: 99, audioUrl: '/pending-clip', audioStart: 0, start: 0, end: 1, effect: 'none', pitch: 0, volume: 1 };
       const v = document.createElement('video'), b = document.createElement('audio'); v.src = video.src;
       const playback = DublineAudio.createController({ video: v, backing: b, getSession: () => ({ lines: [line] }),
         getVolumes: () => ({ original: 0, backing: 0, recorded: 1, isMuted: false }), getSettings: () => ({ autoDuckEnabled: false }),
@@ -267,7 +267,7 @@ describe('clip mixing: real sockets, inspector and audio', { skip: skipReason, t
   test('save and reopen format 3 through production HTTP; persisted settings survive restart', async () => {
     const expected = await lines(host);
     const bytes = await host.evaluate(async () => {
-      const response = await fetch('/api/export-project', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ room: currentRoom, clientId, sessionId: session.activeSessionId }) });
+      const response = await fetch('/api/export-project', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...await window.prepareSafeSnapshot('project'),  room: currentRoom, clientId, sessionId: session.activeSessionId }) });
       if (!response.ok) throw new Error(await response.text());
       return Array.from(new Uint8Array(await response.arrayBuffer()));
     });

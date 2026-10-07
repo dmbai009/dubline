@@ -5,18 +5,8 @@ const vm = require('node:vm');
 const model = require('./public/project-audio');
 const adr = require('./public/adr-cues');
 
-test('portable builds use per-launch extraction with the installed packager', () => {
-  const options = require('./package.json').build.portable;
-  // The installed builder's implementation differs from its unpackDirName docs:
-  // false still sets a build-wide directory; true leaves NSIS $PLUGINSDIR in use.
-  const source = fs.readFileSync('node_modules/app-builder-lib/out/targets/nsis/NsisTarget.js', 'utf8');
-  const begin = source.indexOf('const { unpackDirName, requestExecutionLevel, splashImage } = options;');
-  const end = source.indexOf('if (splashImage != null)', begin);
-  assert.ok(begin >= 0 && end > begin, 'Review portable extraction semantics after upgrading electron-builder');
-  const context = { options, defines: {}, builder_util_1: { generateKsuid: () => 'shared-build-directory' } };
-  vm.runInNewContext(source.slice(begin, end), context);
-  assert.equal(Object.hasOwn(context.defines, 'UNPACK_DIR_NAME'), false, 'Concurrent launches must not delete one another\'s resources');
-});
+// Portable now runs from a ZIP directory. Exact packaged launch/update isolation
+// is covered by tools/electron-portable-update-smoke.js rather than NSIS internals.
 
 function audioController(fx) {
   const context = { window: { DublineAudioFx: fx, DublineTakeMix: require('./public/take-mix') }, console: { error() {} }, setTimeout, clearTimeout };
@@ -172,7 +162,7 @@ test('guest language IPC accepts only the configured origin and the main frame',
   assert.equal(c.isGuestLanguageSender({ sender: webContents, senderFrame: frame }), false);
 });
 
-test('guest language follows app preference across fresh origins without enabling host UI', () => {
+test('guest language follows app preference across fresh origins without enabling host UI', async () => {
   let saved = 'uk';
   const source = fs.readFileSync('public/i18n.js', 'utf8');
   const open = () => {
@@ -180,9 +170,10 @@ test('guest language follows app preference across fresh origins without enablin
     const c = { window: { dublinePreferences: { language: saved, setLanguage: async code => { saved = code; } }, dispatchEvent() {} },
       document: { documentElement: {}, querySelectorAll: () => [] }, CustomEvent: function() {},
       localStorage: { getItem: key => values.get(key), setItem: (key, value) => values.set(key, value) } };
+    for (const language of ['en', 'ru', 'uk']) vm.runInNewContext(fs.readFileSync('public/locale/' + language + '.js', 'utf8'), c);
     vm.runInNewContext(source, c); return c.window;
   };
   const first = open(); assert.equal(first.DublineI18n.getLanguage(), 'uk'); assert.equal(first.dublineDesktop, undefined);
-  first.DublineI18n.setLanguage('ru');
+  await first.DublineI18n.setLanguage('ru');
   assert.equal(open().DublineI18n.getLanguage(), 'ru');
 });

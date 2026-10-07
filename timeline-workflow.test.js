@@ -5,6 +5,19 @@ const vm = require('node:vm');
 const timeline = require('./public/timeline-model');
 const adr = require('./public/adr-cues');
 
+test('role lane geometry divides extra height, preserves padding and expands for new overlaps', () => {
+  for (const count of [1, 2, 4, 12]) {
+    for (const preference of [undefined, NaN, Infinity, -4, 100, 350, 600, 999]) {
+      const g = timeline.laneGeometry(count, preference);
+      assert.ok(g.cueHeight >= 48);
+      assert.ok(Math.abs(g.padding * 2 + g.cueHeight * count + g.gap * (count - 1) - g.height) < 1e-8);
+      assert.ok(g.height >= g.minimum);
+    }
+  }
+  assert.equal(timeline.laneGeometry(1, 210).cueHeight, 198);
+  assert.equal(timeline.laneGeometry(2, 210).cueHeight, 96);
+});
+
 test('timeline creation uses real duration, including the last fraction of a second', () => {
   assert.deepEqual(timeline.create(1.234, 8), { start: 1.234, end: 3.234 });
   assert.deepEqual(timeline.create(7.99, 8), { start: 7.9, end: 8 });

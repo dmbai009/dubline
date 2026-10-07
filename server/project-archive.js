@@ -20,7 +20,7 @@ function checkRequest(signal,authorize){
   signal?.throwIfAborted();
   if(authorize&&!authorize())throw new HttpError(409,'The scene changed','error.importSceneChanged');
 }
-async function exportProjectDisk(session,resolveAsset,{folder=DATA_DIR,signal,forceZip64=false}={}){
+async function exportProjectDisk(session,resolveAsset,{folder=DATA_DIR,signal,forceZip64=false,onProgress=()=>{}}={}){
   const dir=fs.mkdtempSync(path.join(folder,'.project-export-'));
   const streams=new Set();
   try{
@@ -38,7 +38,11 @@ async function exportProjectDisk(session,resolveAsset,{folder=DATA_DIR,signal,fo
       });
     }
     zip.end({forceZip64Format:forceZip64});
+    let bytes=0,lastProgress=0;
+    onProgress({stage:'writing',bytes});
+    zip.outputStream.on('data',chunk=>{bytes+=chunk.length;const now=Date.now();if(now-lastProgress>=200){lastProgress=now;onProgress({stage:'writing',bytes});}});
     await pipeline(zip.outputStream,fs.createWriteStream(archive,{flags:'wx'}),{signal});
+    onProgress({stage:'writing',bytes:fs.statSync(archive).size});
     return {path:archive,title:snapshot.manifest.project.title,bytes:fs.statSync(archive).size,cleanup:()=>remove(dir)};
   }catch(error){
     for(const stream of streams)stream.destroy();

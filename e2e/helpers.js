@@ -153,7 +153,7 @@ async function startServer(extraEnv = {}) {
 }
 
 // ---------- Players ----------
-async function openPlayer(browser, url, nick, { helpSeen = true, viewport = { width: 1600, height: 900 }, context = null, audioExpanded = true, autoConfirm = true } = {}) {
+async function openPlayer(browser, url, nick, { helpSeen = true, viewport = { width: 1600, height: 900 }, context = null, audioExpanded = true, autoConfirm = true, beforeLoad = null } = {}) {
   const ctx = context || await browser.createBrowserContext();
   const page = await ctx.newPage();
   await page.setViewport(viewport);
@@ -187,6 +187,7 @@ async function openPlayer(browser, url, nick, { helpSeen = true, viewport = { wi
     // (a later collapse by the test itself survives reloads)
     if (expanded && localStorage.getItem('dubline_audio_collapsed') === null) localStorage.setItem('dubline_audio_collapsed', '0');
   }, nick, helpSeen, audioExpanded, autoConfirm);
+  if (beforeLoad) await beforeLoad(page);
   await page.goto(url);
   await waitFor(page, () => typeof socket !== 'undefined' && socket.connected, 10000);
   return page;

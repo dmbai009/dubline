@@ -40,7 +40,15 @@
   }
   function numbers(lines) { return new Map([...lines].sort((a, b) => a.start - b.start || a.id - b.id).map((line, index) => [line.id, index + 1])); }
   function coordinate(clientX, originLeft, pixelsPerSecond) { return (clientX - originLeft) / pixelsPerSecond; }
-  const api = Object.freeze({ MAX_SECONDS, limit, valid, create, move, resize, roles, numbers, coordinate });
+  function laneGeometry(laneCount, preferredHeight) {
+    const count = Number.isSafeInteger(laneCount) && laneCount > 0 ? laneCount : 1;
+    const padding = 6, gap = 6, minimum = padding * 2 + count * 48 + (count - 1) * gap;
+    const preferred = Number.isFinite(preferredHeight) && preferredHeight > 0 ? Math.min(600, preferredHeight) : minimum;
+    const height = Math.max(minimum, preferred);
+    const cueHeight = (height - padding * 2 - (count - 1) * gap) / count;
+    return { height, minimum, cueHeight, stride: cueHeight + gap, padding, gap };
+  }
+  const api = Object.freeze({ MAX_SECONDS, limit, valid, create, move, resize, roles, numbers, coordinate, laneGeometry });
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else global.DublineTimeline = api;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -20,3 +20,12 @@ test('desktop host chooses a free port from the documented range', async () => {
   const port = await findFreePort();
   assert.ok(port >= PORT_MIN && port <= PORT_MAX);
 });
+
+test('desktop reuses the profile origin when free and falls back when busy', async t => {
+  const net = require('node:net'), port = await findFreePort();
+  assert.equal(await findFreePort(port), port);
+  const server = net.createServer(); await new Promise(resolve => server.listen(port, '0.0.0.0', resolve));
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const next = await findFreePort(port); assert.notEqual(next, port);
+  assert.ok(next >= PORT_MIN && next <= PORT_MAX);
+});

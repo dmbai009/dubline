@@ -1,0 +1,88 @@
+name: Verify Windows release artifacts
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Exact existing stable tag to verify
+        required: true
+        type: string
+permissions:
+  contents: write
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Verify exact tag and stable package version
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          if ($env:RELEASE_TAG -notmatch '^v\d+\.\d+\.\d+$') { throw 'Only stable tags are supported.' }
+          $packageVersion = node -p "require('./package.json').version"
+          if ($env:RELEASE_TAG -ne "v$packageVersion") { throw 'Tag/package version mismatch.' }
+          $tagCommit = git rev-parse "$($env:RELEASE_TAG)^{commit}"
+          $headCommit = git rev-parse HEAD
+          if ($tagCommit -ne $headCommit) { throw 'Checkout does not match the exact tag.' }
+          "DUBLINE_RELEASE_SHA=$headCommit" >> $env:GITHUB_ENV
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+      - run: npm run test:e2e
+      - run: npm run test:electron:projects
+      - run: npm run test:electron:editor
+      - run: npm run test:electron:take-mix
+      - run: node tools/electron-shell-smoke.js
+      - run: node tools/electron-portable-helper-smoke.js
+      - name: Verify previous stable Portable patch base
+        run: node tools/prepare-previous-release.js
+      - name: Build one core, Setup and Portable
+        run: npm run dist
+      - run: node tools/verify-release-artifacts.js
+      - name: Exact Portable host and guest smoke
+        run: npm run test:electron:portable
+      - name: Controlled local A-to-B artifacts (never published)
+        run: node tools/build-update-qa.js
+      - run: node tools/electron-portable-update-smoke.js
+      - run: node tools/electron-setup-update-smoke.js
+      - name: Retain verified release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: verified-windows-release
+          path: |
+            dist/Dubline-*-Setup.exe
+            dist/Dubline-*-Setup.exe.blockmap
+            dist/Dubline-*-Portable.zip
+            dist/Dubline-*-Patch.zip
+            dist/latest.yml
+            dist/portable-update.json
+            dist/release-artifacts.json
+            dist/SHA256SUMS.txt
+      - name: Upload complete artifact set to a draft
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          $existing = gh release view $env:RELEASE_TAG --json isDraft 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            if (!(($existing | ConvertFrom-Json).isDraft)) { throw 'Refusing to change an already published release.' }
+          } else {
+            gh release create $env:RELEASE_TAG --verify-tag --draft --title "Dubline $env:RELEASE_TAG" --generate-notes
+            if ($LASTEXITCODE -ne 0) { throw 'Could not create draft release.' }
+          }
+          $inventory = Get-Content dist/release-artifacts.json -Raw | ConvertFrom-Json
+          $assets = @($inventory.artifacts | ForEach-Object { Join-Path dist $_.asset }) + @('dist/release-artifacts.json', 'dist/SHA256SUMS.txt')
+          gh release upload $env:RELEASE_TAG @assets --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'Draft upload failed; it must remain unpublished.' }
+          # Publishing the complete draft remains an explicit maintainer action.

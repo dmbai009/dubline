@@ -54,3 +54,50 @@ Auto-duck timing and smooth gain automation are shared in public/project-audio.j
 electron-storage.js stores a version-1 storage.json preference in the unchanged Electron userData profile. Server data/uploads/packs are migrated with disk copies and an atomic preference switch before server startup. Paths within scenes remain relative URLs. Main-frame-only launcher/host IPC selects storage; guest preloads have no such capability. Server environment directories and native cleanup use the selected root. Voxalike temporary export files also use DATA_DIR.
 
 Clip mixing uses public/take-mix.js for shared bounds/defaults and author/host ownership policy. server/sockets/roles.js validates atomic set_takes_props batches against session, audio URL and takeMixRevision. public/audio-fx.js renders the dry/wet effect blend and provides connectTake for a shared gain/stereo-panner path used by public/audio.js and public/export.js. Volume/pan do not invalidate processed audio caches. Version-3 serialization in server/projects.js is explicit; runtime revisions are omitted.
+
+## Media / presence hardening
+
+All scene mutations and deltas carry the active session identity. Durable editor
+intent uses additive IndexedDB v2 stores shared with pending takes and verified
+media chunks. Recovery requires the same confirmed client, room, session and
+editor epoch; an expired receipt becomes a review action unless the authoritative
+state already satisfies it. Cached mutation receipts precede lease and snapshot
+freeze checks. Caption, timing, assignment and structural leases are runtime-only,
+bounded and atomic across the target group.
+
+Media manifests identify content by SHA-256, size, 256 KiB storage chunks and
+layout version. 64 KiB P2P transport frames remain separate. Verified partial
+availability, aggregate upload limits and playback-first/rarest-first scheduling
+share a decoder-aware readiness protocol. Presence snapshots expire independently
+of recording and seeding; terminal readiness is reliable. IndexedDB failure uses
+RAM without deleting pending edits/takes. Content cache is separate from canonical
+project storage and uses a pinned, byte-bounded LRU.
+
+Preview WSOLA and pitch/peak preparation use bounded workers, with synchronous
+fallback and stale-session cancellation. Raw/processed PCM caches count actual
+channel bytes, lookahead queries use interval indexes, and visible cue wave jobs
+are bounded. Timeline geometry is shared by cues, waves, hit testing, cursors and
+role resizing. Search, filters and the footer minimap are presentation state.
+Text assets support Brotli/gzip; media, ranges and ZIPs do not. Orphan collection
+protects every stored scene/source/reference and deletes only recognized old files.
+
+Semantic cursors use a distinct bounded unreliable WebRTC channel, with per-peer
+Socket.IO fallback and server-authenticated identity. Snapshot barriers gather
+bounded participant readiness, freeze mutations and issue a one-use purpose-bound
+token. Native Save Project uses the existing stream archive builder and a
+destination-volume verified temporary file before atomic replacement. Guest
+preloads expose language preferences only; native paths never enter room messages.
+
+The Windows core is packaged once. Per-user NSIS Setup and a real Portable folder
+ZIP share that ASAR/runtime and app/profile identity; channel markers live outside
+ASAR. Setup uses electron-updater with manual install. Portable validates an
+explicit managed-file manifest, downloads a direct patch or full ZIP, then exits
+cleanly for an independent hidden PowerShell helper. A durable replacement journal
+supports reverse rollback/crash recovery. Unknown project files, selected storage
+and userData are outside update scope. Steam/development adapters do not self-update.
+HKCU file handlers have separate Setup/Portable ownership and never forge UserChoice.
+OS file requests enter a bounded single-instance coordinator. Desktop clientId is
+stored independently of HTTP origin; the local port is reused when available.
+
+Native save progress/cancel uses ticket-bound trusted IPC. Writing reports actual
+ZIP bytes; commit disables cancellation, and app shutdown waits for the save.
