@@ -6,22 +6,49 @@ $job = Get-Content -LiteralPath $JobFile -Raw -Encoding UTF8 | ConvertFrom-Json
 if ($job.foreign -notmatch '^io\.github\.dmbai009\.Dubline\.QA\.[a-f0-9]{32}\.Project$') { throw 'Invalid QA owner.' }
 $classes = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey('Software\Classes')
 $setup = 'io.github.dmbai009.Dubline.Setup.Project'
+$shortcutName = 'Dubline'; $displayName = 'Dubline'
+if ($job.setup) {
+  if ($job.setup -cne 'io.github.dmbai009.Dubline.QASetup.Project' -or $job.shortcutName -cne 'Dubline Setup QA' -or $job.displayName -cne 'Dubline Setup QA') { throw 'Invalid isolated Setup identity.' }
+  $setup=[string]$job.setup; $shortcutName=[string]$job.shortcutName; $displayName=[string]$job.displayName
+}
 function Values([string]$location) {
   $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($location)
   $result = @{}
   if ($key) { try { foreach ($name in $key.GetValueNames()) { $result[$name] = $key.GetValue($name) } } finally { $key.Dispose() } }
   return $result
 }
+function ShortcutHash([string]$location) {
+  if (Test-Path -LiteralPath $location) { return (Get-FileHash -LiteralPath $location -Algorithm SHA256).Hash }
+  return ''
+}
 function Snapshot {
   $command = $classes.OpenSubKey($setup + '\shell\open\command')
   $openCommand = if ($command) { [string]$command.GetValue('', '') } else { '' }; if ($command) { $command.Dispose() }
+  $installLocation = ''
+  $uninstall = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Software\Microsoft\Windows\CurrentVersion\Uninstall')
+  if ($uninstall) {
+    try { foreach ($name in $uninstall.GetSubKeyNames()) {
+      $entry = $uninstall.OpenSubKey($name)
+      try { if ([string]$entry.GetValue('DisplayName', '') -ceq $displayName) {
+        $installation = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Software\' + $name)
+        if ($installation) { try { $installLocation = [string]$installation.GetValue('InstallLocation', '') } finally { $installation.Dispose() } }
+      } } finally { $entry.Dispose() }
+    } } finally { $uninstall.Dispose() }
+  }
   return @{ extension = (Values 'Software\Classes\.dubline'); openWith = (Values 'Software\Classes\.dubline\OpenWithProgids');
     userChoice = (Values 'Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.dubline\UserChoice');
-    setup = (Values ('Software\Classes\' + $setup)); command = $openCommand }
+    setup = (Values ('Software\Classes\' + $setup)); command = $openCommand;
+    installLocation=$installLocation;
+    productionSetup=(Values 'Software\Classes\io.github.dmbai009.Dubline.Setup.Project');
+    productionDesktop=(ShortcutHash (Join-Path ([Environment]::GetFolderPath('Desktop')) 'Dubline.lnk'));
+    productionStartMenu=(ShortcutHash (Join-Path ([Environment]::GetFolderPath('StartMenu')) 'Programs\Dubline.lnk'));
+    productionInstallerCache=(ShortcutHash (Join-Path $env:LOCALAPPDATA 'dubline-updater\installer.exe'));
+    desktopShortcut=(Test-Path -LiteralPath (Join-Path ([Environment]::GetFolderPath('Desktop')) ($shortcutName + '.lnk')));
+    startMenuShortcut=(Test-Path -LiteralPath (Join-Path ([Environment]::GetFolderPath('StartMenu')) ('Programs\' + $shortcutName + '.lnk'))) }
 }
 if ($Operation -eq 'preflight') {
   foreach ($location in @([Environment]::GetFolderPath('Desktop'), [IO.Path]::Combine([Environment]::GetFolderPath('StartMenu'), 'Programs'))) {
-    if ((Test-Path -LiteralPath (Join-Path $location 'Dubline.lnk')) -or (Test-Path -LiteralPath (Join-Path $location 'Dubline'))) { throw 'Existing Dubline shortcuts would be affected. Use a clean Windows user profile.' }
+    if ((Test-Path -LiteralPath (Join-Path $location ($shortcutName + '.lnk'))) -or (Test-Path -LiteralPath (Join-Path $location $shortcutName))) { throw 'Existing Dubline shortcuts would be affected. Use a clean Windows user profile.' }
   }
   if ((Snapshot).setup.Count) { throw 'A Setup handler already exists. Run this QA in a clean Windows user profile.' }
   $uninstall = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Software\Microsoft\Windows\CurrentVersion\Uninstall')
@@ -29,7 +56,7 @@ if ($Operation -eq 'preflight') {
     try {
       foreach ($name in $uninstall.GetSubKeyNames()) {
         $entry = $uninstall.OpenSubKey($name)
-        try { if ([string]$entry.GetValue('DisplayName', '') -match '(?i)dubline') { throw 'An existing Dubline installation would be affected. Use a clean Windows user profile.' } } finally { $entry.Dispose() }
+        try { if ([string]$entry.GetValue('DisplayName', '') -match ('^' + [regex]::Escape($displayName) + '(?: [0-9.]+)?$')) { throw 'An existing Dubline installation would be affected. Use a clean Windows user profile.' } } finally { $entry.Dispose() }
       }
     } finally { $uninstall.Dispose() }
   }

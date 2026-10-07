@@ -18,6 +18,7 @@ extraChecks.push('electron-project-open.js', 'electron-project-open.test.js', 't
   'electron-distribution.js', 'electron-managed-files.js', 'electron-installed-update.js', 'electron-installed-update.test.js',
   'electron-portable-update.js', 'electron-portable-update.test.js', 'electron-update-http.js', 'electron-project-association.js', 'tools/build-distributions.js');
 extraChecks.push('tools/packaged-test-driver.js', 'tools/electron-portable-update-smoke.js', 'tools/electron-setup-update-smoke.js', 'tools/verify-release-artifacts.js', 'tools/build-update-qa.js', 'tools/prepare-previous-release.js', 'tools/electron-portable-helper-smoke.js', 'electron-update-log.js');
+extraChecks.push('tools/build-setup-qa.js');
 for (const file of ['server.js', 'electron-main.js', 'electron-network.js', 'electron-update.js', 'electron-preload.js', 'electron-guest-preload.js', 'electron-launcher-preload.js', 'electron-launcher.js', 'tools/build-icons.js', 'tools/download-cloudflared.js', 'tools/electron-smoke.js', 'tools/electron-guest-smoke.js', 'tools/electron-portable-smoke.js', ...serverFiles, ...clientFiles, ...extraChecks]) {
   const result = spawnSync(process.execPath, ['--check', file], { cwd: root, encoding: 'utf8' });
   if (result.status !== 0) {

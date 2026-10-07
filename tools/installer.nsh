@@ -1,5 +1,14 @@
 ; Per-user handler, owned by Setup. Protected Windows UserChoice is read only.
 !define DUBLINE_SETUP_PROGID "io.github.dmbai009.Dubline.Setup.Project"
+!macro customWelcomePage
+  !insertmacro skipPageIfUpdated
+  !insertmacro MUI_PAGE_WELCOME
+!macroend
+; Assisted installers otherwise offer all-users mode to an elevated process.
+; Dubline's workspace, updater and associations consistently belong to this user.
+!macro customInstallMode
+  StrCpy $isForceCurrentInstall "1"
+!macroend
 !macro customInstall
   WriteRegStr HKCU "Software\Classes\${DUBLINE_SETUP_PROGID}" "" "Dubline Project"
   WriteRegStr HKCU "Software\Classes\${DUBLINE_SETUP_PROGID}" "DublineOwner" "$INSTDIR\${APP_EXECUTABLE_FILENAME}"

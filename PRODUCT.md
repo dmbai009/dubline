@@ -47,3 +47,8 @@ The development build implements durable editor intent and scoped collaboration,
 A bounded safe snapshot barrier protects project/Voxalike/archive snapshots. Desktop Save Project uses a fresh native destination each time, the existing streamed serializer and destination-side atomic commit. Workspace autosave/history remains the recovery authority; opening a project imports one scene, and multiplayer host confirms a shared scene switch. A remote guest leaves and imports locally after confirmation.
 
 Windows distribution now builds one core for a per-user NSIS Setup and an extracted Portable ZIP. Explicit channel markers select installed/Portable/Steam behavior. Background downloads never silently install during recording/import/export/pending work. Portable patches and full fallback use verified managed files, an external helper, rollback and crash recovery. Unknown projects/profile/storage are excluded. Setup/Portable use one product identity and single-instance coordinator, with independent owned HKCU document handlers and no UserChoice override. Optional hardware proxy acceleration and transfer graphs remain outside this pass.
+
+Setup uses an assisted Windows wizard with welcome/license pages, a selectable
+installation folder, progress and an optional final launch. It creates desktop and
+Start menu shortcuts and registers in Windows Installed apps. Installation stays
+per-user; updates reuse that installation folder and uninstall preserves user data.
