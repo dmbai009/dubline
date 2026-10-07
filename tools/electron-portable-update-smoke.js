@@ -29,7 +29,7 @@ async function workspace(browser) {
     throw error;
   });
   await page.evaluate(() => { if (!myName) { modalNickInput.value = 'Artifact Host'; handleNickSubmit({ preventDefault() {} }); } });
-  await until(() => page.evaluate(() => !!myName && amHost() && !!clientId));
+  await until(() => page.evaluate(() => !!myName && amHost() && !!clientId && !!session && !editorNeedsResync));
   return page;
 }
 async function importFixture(page) {

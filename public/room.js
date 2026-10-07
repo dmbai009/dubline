@@ -2,7 +2,10 @@
 // ROOM
 // Socket, joining the room, nicks, host rights, state sync
 // ==========================================
-const socket = io();
+// A fast local handshake can arrive while the parser is still loading editor/UI
+// scripts. Install every snapshot handler before accepting the initial room state.
+const socket = io({ autoConnect: false });
+document.addEventListener('DOMContentLoaded', () => socket.connect(), { once: true });
 
 // Join the room (and rejoin after the socket reconnects)
 let pendingRoomPassword = '';

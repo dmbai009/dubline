@@ -14,6 +14,30 @@ describe('Media/presence recovery and local timeline controls', { skip: skipReas
   });
   afterEach(async () => { assert.deepEqual(page.errors, []); await page.browserContext().close(); });
 
+  test('initial socket joins only after delayed renderer scripts have installed all state handlers', async () => {
+    let held;
+    await page.setRequestInterception(true);
+    const handler = request => {
+      if (request.url().endsWith('/editor.js')) held = request;
+      else request.continue();
+    };
+    page.on('request', handler);
+    const navigation = page.reload({ waitUntil: 'networkidle0' });
+    try {
+      await require('./helpers').waitUntil(() => !!held);
+      await wait(500);
+      assert.equal(await page.evaluate(() => socket.connected), false, 'joining must wait for the rest of the renderer');
+      await held.continue(); held = null;
+      await navigation;
+      await waitFor(page, () => socket.connected && session?.loaded && !editorNeedsResync);
+      assert.equal(await page.evaluate(() => myName), 'Alice');
+    } finally {
+      if (held) await held.continue();
+      await navigation;
+      page.off('request', handler); await page.setRequestInterception(false);
+    }
+  });
+
   test('locale loading is lazy, failure preserves English, retry works and the latest selection wins', async () => {
     assert.equal(await page.evaluate(() => !!DublineI18n.messages.en && !DublineI18n.messages.ru && !DublineI18n.messages.uk && !window.JSZip), true);
     let block = true, held;
