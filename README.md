@@ -168,6 +168,12 @@ valid; old commits, tags, and releases are unchanged. The original MIT text is
 retained in [LICENSE-MIT-LEGACY](LICENSE-MIT-LEGACY) for historical reference,
 not as an alternative license for the current revision.
 
+**Licensing boundary:** commit
+`b05b1adbd5a0a6337a9a5434683bbfffb1fc88aa` introduced DubLine Source License
+1.0 and is the first revision covered by it (inclusive). Its parent,
+`0bd90a879a40904a9648b77cc93504811ab2dd1c`, is the last revision before the
+transition and retains its MIT License.
+
 - You may read, copy, fork, and modify the source for the uses allowed by LICENSE.
 - Personal, educational, research, and other noncommercial use is allowed.
 - Companies and other organizations may use DubLine internally, including for
