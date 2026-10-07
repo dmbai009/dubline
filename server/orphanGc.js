@@ -24,10 +24,14 @@ function recognized(area, entry) {
   return entry.isFile() && (area === 'uploads' && /^(line_.+_\d+_[a-f0-9-]{36}|line_project_[a-f0-9]{32}_\d+)\.webm$/.test(entry.name) || area === 'packs' && /^pack_source_[a-f0-9]{64}\.zip$/.test(entry.name));
 }
 async function collect({ roots, rooms, idle = () => true, grace = 7 * DAY, now = Date.now() }) {
-  const kept = references(rooms, roots.uploads, roots.packs), removed = [];
-  for (const [area, root] of Object.entries(roots)) {
+  if (!idle()) return [];
+  // Use the same canonical roots for references and deletion candidates. Windows
+  // TEMP can contain 8.3 aliases, and selected storage can have a junction parent.
+  const canonicalRoots = Object.fromEntries(await Promise.all(Object.entries(roots).map(async ([area, root]) => [area, await fs.promises.realpath(root)])));
+  const liveReferences = () => references(rooms, canonicalRoots.uploads, canonicalRoots.packs);
+  const kept = liveReferences(), removed = [];
+  for (const [area, base] of Object.entries(canonicalRoots)) {
     if (!idle()) break;
-    const base = await fs.promises.realpath(root);
     for (const entry of await fs.promises.readdir(base, { withFileTypes: true })) {
       if (!idle()) return removed;
       if (!recognized(area, entry)) continue;
@@ -36,7 +40,7 @@ async function collect({ roots, rooms, idle = () => true, grace = 7 * DAY, now =
       const stat = await fs.promises.lstat(target);
       if (stat.isSymbolicLink() || Math.max(stat.mtimeMs, stat.ctimeMs) + grace > now || !idle()) continue;
       // Recheck live references immediately before removal, after asynchronous IO.
-      if (references(rooms, roots.uploads, roots.packs).has(identity(target))) continue;
+      if (liveReferences().has(identity(target))) continue;
       // Never follow a reparse point inside an owned-looking directory.
       const safe = async directory => {
         for (const child of await fs.promises.readdir(directory, { withFileTypes: true })) {
@@ -44,7 +48,7 @@ async function collect({ roots, rooms, idle = () => true, grace = 7 * DAY, now =
         }
         return true;
       };
-      if (stat.isDirectory() && !await safe(target) || !idle() || references(rooms, roots.uploads, roots.packs).has(identity(target))) continue;
+      if (stat.isDirectory() && !await safe(target) || !idle() || liveReferences().has(identity(target))) continue;
       await fs.promises.rm(target, { recursive: stat.isDirectory(), force: false }); removed.push(target);
     }
   }

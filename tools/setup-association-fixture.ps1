@@ -1,6 +1,8 @@
 param([ValidateSet('preflight','status','foreign','cleanup')][string]$Operation,
   [Parameter(Mandatory=$true)][string]$JobFile)
 $ErrorActionPreference = 'Stop'
+# Native QA can start through pwsh -> Node -> Windows PowerShell as well.
+$env:PSModulePath = [IO.Path]::Combine($PSHOME, 'Modules')
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
 $job = Get-Content -LiteralPath $JobFile -Raw -Encoding UTF8 | ConvertFrom-Json
 if ($job.foreign -notmatch '^io\.github\.dmbai009\.Dubline\.QA\.[a-f0-9]{32}\.Project$') { throw 'Invalid QA owner.' }

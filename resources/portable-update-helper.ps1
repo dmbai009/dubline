@@ -1,6 +1,9 @@
 param([Parameter(Mandatory=$true)][string]$JobFile)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2
+# Node/Electron launched by pwsh can inherit PowerShell 7 module paths. This
+# Windows PowerShell helper only needs the built-in modules of its own engine.
+$env:PSModulePath = [IO.Path]::Combine($PSHOME, 'Modules')
 $utf8 = New-Object System.Text.UTF8Encoding($false)
 $plan = Get-Content -LiteralPath $JobFile -Raw -Encoding UTF8 | ConvertFrom-Json
 $root = [IO.Path]::GetFullPath([string]$plan.root).TrimEnd('\')

@@ -75,6 +75,17 @@ test('Portable stages changed files only, falls back to full for modified base, 
   for (const modified of [false, true]) {
     const f = await fixture();
     try {
+      // Reproduce pwsh -> Node -> powershell.exe inheriting an incompatible
+      // Utility module ahead of the Windows PowerShell built-in modules in CI.
+      const moduleRoot = path.join(f.folder, 'pwsh-modules');
+      const utility = path.join(moduleRoot, 'Microsoft.PowerShell.Utility');
+      await fsp.mkdir(utility, { recursive: true });
+      await fsp.writeFile(path.join(utility, 'Microsoft.PowerShell.Utility.psd1'), "@{ RootModule='Utility.psm1'; NestedModules=@('Microsoft.PowerShell.Commands.Utility.dll'); ModuleVersion='99.0.0'; GUID='d66b41ca-a424-4af2-bc62-99bd6178d234'; FunctionsToExport=@('Get-FileHash'); CmdletsToExport=@('New-Object','ConvertFrom-Json','ConvertTo-Json','Start-Sleep'); AliasesToExport=@() }\n");
+      await fsp.writeFile(path.join(utility, 'Utility.psm1'), "function Get-FileHash { throw 'Incompatible test Utility module.' }\nExport-ModuleMember -Function Get-FileHash\n");
+      const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => key.toUpperCase() !== 'PSMODULEPATH'));
+      env.PSModulePath = [moduleRoot, path.join(process.env.SystemRoot || 'C:/Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'Modules')].join(path.delimiter);
+      const probe = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', 'Get-FileHash -LiteralPath $PSHOME/powershell.exe'], { encoding: 'utf8', windowsHide: true, env });
+      assert.notEqual(probe.status, 0, 'The inherited incompatible module path must reproduce the Windows PowerShell hash failure.');
       await fsp.writeFile(path.join(f.a, 'Keep мой проект.dubline'), 'user-project');
       await fsp.writeFile(path.join(f.a, 'personal.txt'), 'user-note');
       if (modified) await fsp.writeFile(path.join(f.a, 'resources', 'app.asar'), 'locally-modified');
@@ -89,7 +100,7 @@ test('Portable stages changed files only, falls back to full for modified base, 
       assert.equal(await fsp.readFile(path.join(f.a, 'resources', 'app.asar'), 'utf8'), modified ? 'locally-modified' : 'code-A');
       const plan = f.adapter.staged.plan; plan.restart = false; plan.processes = [{ id: 2147483647 }];
       await fsp.writeFile(f.adapter.staged.job, JSON.stringify(plan));
-      const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', f.adapter.staged.helper, '-JobFile', f.adapter.staged.job], { encoding: 'utf8', windowsHide: true });
+      const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', f.adapter.staged.helper, '-JobFile', f.adapter.staged.job], { encoding: 'utf8', windowsHide: true, env });
       assert.equal(result.status, 0, result.stderr);
       const outcome = JSON.parse(await fsp.readFile(path.join(f.adapter.staged.folder, 'update-result.json'), 'utf8'));
       assert.equal(outcome.ok, true, outcome.error);
