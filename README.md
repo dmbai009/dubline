@@ -9,7 +9,7 @@
 ![Windows](https://img.shields.io/badge/Windows-portable%20.exe-0078D6)
 ![Browser](https://img.shields.io/badge/guests-Chrome%20%7C%20Edge-F4B400)
 ![Languages](https://img.shields.io/badge/UI-EN%20%7C%20RU%20%7C%20UK-8B5CF6)
-![License](https://img.shields.io/badge/license-MIT-22C55E)
+[![License](https://img.shields.io/badge/license-DubLine%20Source%201.0-2563EB)](LICENSE)
 
 [Download for Windows](https://github.com/dmbai009/dubline/releases/latest)
 
@@ -157,4 +157,35 @@ Inspired by Voxalike and The Choicer Voicer. Built with Electron, Node.js, Expre
 
 ## License
 
-[MIT](LICENSE)
+DubLine is distributed under the [DubLine Source License 1.0](LICENSE).
+This is a **source-available license**, not an OSI-approved open-source license.
+
+Previous versions and revisions of DubLine that were released under the MIT License remain available under the MIT License. Starting from the repository revision that introduced the DubLine Source License 1.0, DubLine is distributed under the DubLine Source License 1.0 unless explicitly stated otherwise.
+
+The transition is defined by that repository revision, independently of any
+version number. Existing MIT permissions for earlier published code remain
+valid; old commits, tags, and releases are unchanged. The original MIT text is
+retained in [LICENSE-MIT-LEGACY](LICENSE-MIT-LEGACY) for historical reference,
+not as an alternative license for the current revision.
+
+- You may read, copy, fork, and modify the source for the uses allowed by LICENSE.
+- Personal, educational, research, and other noncommercial use is allowed.
+- Companies and other organizations may use DubLine internally, including for
+  their own business operations.
+- Commercial distribution, resale, and commercial SaaS or hosted services
+  based on DubLine require prior written permission from **dmbai009**.
+- Source forks must be identified as unofficial. Third-party builds shared
+  with others must use a different product name and branding and must not
+  claim to be official DubLine. The DubLine name, logo, icons, and brand are
+  not licensed with the code.
+
+For contributions and the rights required to use and relicense them, see
+[CONTRIBUTING.md](CONTRIBUTING.md) and Section 7 of LICENSE. For commercial or
+branding permission, contact [dmbai009](https://github.com/dmbai009) and obtain
+a written agreement.
+
+Third-party dependencies remain under their own licenses; see
+[THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES). Electron builds include readable
+project and third-party notices under `resources/licenses/` in the extracted
+application. LICENSE contains the full terms, disclaimer of warranty, and
+limitation of liability.

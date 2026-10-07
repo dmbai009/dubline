@@ -4,7 +4,7 @@
   "description": "Collaborative voice dubbing on a timeline",
   "main": "electron-main.js",
   "author": "dmbai009",
-  "license": "MIT",
+  "license": "SEE LICENSE IN LICENSE",
   "engines": {
     "node": ">=20.1"
   },
@@ -13,6 +13,7 @@
     "start:server": "node server.js",
     "prepare:icons": "node tools/build-icons.js",
     "prepare:cloudflared": "node tools/download-cloudflared.js",
+    "prepare:licenses": "node tools/prepare-license-resources.js",
     "dist": "npm run prepare:icons && npm run prepare:cloudflared && electron-builder --win portable --x64",
     "test:electron": "node tools/electron-smoke.js",
     "test:electron:editor": "node tools/electron-editor-smoke.js",
@@ -48,6 +49,7 @@
     "socket.io-client": "^4.8.4"
   },
   "build": {
+    "beforePack": "tools/prepare-license-resources.js",
     "appId": "io.github.dmbai009.dubline",
     "productName": "Dubline",
     "asar": true,
@@ -74,9 +76,21 @@
       "!public/uploads/**/*",
       "!public/packs/**/*",
       "package.json",
-      "LICENSE"
+      "LICENSE",
+      "LICENSE-MIT-LEGACY",
+      "CONTRIBUTING.md",
+      "THIRD_PARTY_NOTICES"
     ],
     "extraResources": [
+      {
+        "from": ".",
+        "to": "licenses/DubLine",
+        "filter": ["LICENSE", "LICENSE-MIT-LEGACY", "CONTRIBUTING.md", "THIRD_PARTY_NOTICES"]
+      },
+      {
+        "from": "build/third-party-licenses",
+        "to": "licenses/third-party"
+      },
       {
         "from": "node_modules/ffmpeg-static/ffmpeg.exe",
         "to": "bin/ffmpeg.exe"

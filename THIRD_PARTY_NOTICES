@@ -1,0 +1,99 @@
+# Third-party notices for DubLine
+
+DubLine Source License 1.0 covers DubLine code only. Dependencies, bundled
+executables, and separately licensed files remain under their original
+licenses. DubLine's commercial, hosted-service, and branding restrictions do
+not restrict rights independently granted in these third-party components.
+Their copyright and license notices must be preserved when redistributing.
+
+## Direct runtime dependencies
+
+Versions below are from package-lock.json when this notice was introduced.
+The lock file and installed component license texts identify exact versions
+and terms for a particular build; regenerate the packaged inventory after
+dependency updates.
+
+| Component | Version | License | Upstream |
+| --- | --- | --- | --- |
+| adm-zip | 0.6.1 | MIT | https://github.com/cthackers/adm-zip |
+| express | 4.22.3 | MIT | https://github.com/expressjs/express |
+| ffmpeg-static (Node wrapper) | 5.3.0 | GPL-3.0-or-later | https://github.com/eugeneware/ffmpeg-static |
+| jszip | 3.10.2 | MIT OR GPL-3.0-or-later; used under MIT | https://github.com/Stuk/jszip |
+| mediabunny | 1.60.0 | MPL-2.0 | https://github.com/Vanilagy/mediabunny |
+| multer | 2.4.0 | MIT | https://github.com/expressjs/multer |
+| socket.io | 4.8.4 | MIT | https://github.com/socketio/socket.io |
+| yauzl | 3.4.0 | MIT | https://github.com/thejoshwolfe/yauzl |
+| yazl | 3.3.1 | MIT | https://github.com/thejoshwolfe/yazl |
+
+Transitive dependencies are also separately licensed. Before packaging,
+tools/prepare-license-resources.js records every non-development package in
+package-lock.json and copies its installed license, notice, copyright, and
+README files to build/third-party-licenses/npm/. These become
+resources/licenses/third-party/npm/ in the extracted Windows application,
+alongside an inventory containing component versions and license metadata.
+The component's own license text governs if metadata is missing or ambiguous.
+
+Mediabunny's MPL-2.0-covered files remain under MPL-2.0, including any changes
+to those files. When distributing executable forms, provide the corresponding
+covered source and tell recipients how to obtain it, as required by MPL-2.0.
+The npm package includes its upstream source in node_modules/mediabunny/src/.
+
+## Electron and Chromium
+
+Electron is used under MIT; Chromium, Node.js, and Electron's other bundled
+components have their own notices. The packaging hook copies the installed
+Electron LICENSE and LICENSES.chromium.html to
+resources/licenses/third-party/electron/. Preserve the runtime's own
+LICENSE.electron.txt and LICENSES.chromium.html as well.
+
+Upstream: https://github.com/electron/electron
+
+## FFmpeg executable
+
+FFmpeg is a separate executable launched by DubLine. Its license depends on
+the actual build and enabled libraries; it is not licensed under the DubLine
+Source License. The Windows binary currently downloaded by ffmpeg-static
+comes from its b6.1.1 release. The supplied binary README identifies it as
+6.1.1-essentials_build-www.gyan.dev, under GPL v3, with source revision
+https://github.com/FFmpeg/FFmpeg/commit/e38092ef93.
+
+The packaging hook copies ffmpeg.exe.LICENSE and ffmpeg.exe.README from the
+installed ffmpeg-static package to resources/licenses/third-party/ffmpeg/.
+These identify the actual binary license and build details. The Node wrapper
+has its own GPL-3.0-or-later license in the npm notices; do not confuse that
+license with the executable's licensing or with Electron's ffmpeg.dll.
+
+Anyone distributing FFmpeg must satisfy the applicable GPL obligations,
+including providing the complete corresponding source for the exact binary,
+its included libraries, and build scripts by a method permitted by GPL v3.
+The upstream source link and these notices alone do not satisfy all of those
+obligations. Preserve the binary's build information and arrange the required
+source provision when publishing a distribution.
+
+Upstream: https://ffmpeg.org/
+License guidance: https://ffmpeg.org/legal.html
+Binary release: https://github.com/eugeneware/ffmpeg-static/releases/tag/b6.1.1
+Windows build provider: https://www.gyan.dev/ffmpeg/builds/
+
+## Cloudflared executable
+
+Cloudflared is the separate Cloudflare tunnel helper. DubLine's downloader
+pins version 2026.9.3 and verifies the binary's SHA-256. Cloudflared is under
+Apache-2.0; its dependencies retain their own licenses. The upstream LICENSE
+from that tag is retained in resources/licenses/cloudflared/LICENSE and copied
+to resources/licenses/third-party/cloudflared/ in the packaged application.
+The provenance file records the source tag. Preserve applicable notices for
+Cloudflared's embedded dependencies when redistributing or replacing it.
+
+Upstream: https://github.com/cloudflare/cloudflared
+Pinned license: https://github.com/cloudflare/cloudflared/blob/2026.9.3/LICENSE
+
+## Development tools and user content
+
+Development tools, including electron-builder, puppeteer-core, and test-only
+socket.io-client, keep their own licenses. They are not relicensed by DubLine
+and are not part of the production npm inventory unless used at runtime.
+
+User videos, audio, recordings, subtitles, and imported packs retain their
+respective owners' rights. Including or importing them does not grant DubLine
+or other users rights beyond the permissions given by their owners.

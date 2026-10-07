@@ -1,21 +1,190 @@
-MIT License
+DubLine Source License 1.0
 
 Copyright (c) 2026 dmbai009
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+1. Scope and licensing transition
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+Previous versions and revisions of DubLine that were released under the MIT
+License remain available under the MIT License. Starting from the repository
+revision that introduced the DubLine Source License 1.0, DubLine is distributed
+under the DubLine Source License 1.0 unless explicitly stated otherwise.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+This transition is defined by the introducing repository revision, not by a
+version number, release date, or tag. It does not revoke or restrict rights
+already granted under the MIT License for earlier versions and revisions,
+including code obtained from those revisions. The historical MIT text is
+preserved in LICENSE-MIT-LEGACY for reference only; its inclusion does not
+dual-license the current revision. See the License section of README.md for
+the recorded transition commit once available.
+
+This is a source-available license. It is not an OSI-approved open-source
+license and does not grant unrestricted commercial rights.
+
+2. Definitions
+
+"Licensor" means dmbai009, the copyright holder of DubLine, or a successor
+holding the relevant rights.
+
+"Software" means the DubLine source code, documentation, and executable forms
+made available under this License, including modifications and derivative
+works. It excludes components explicitly provided under another license,
+third-party dependencies, and the branding described in Section 6.
+
+"You" means the individual or legal entity exercising rights under this License.
+
+"Noncommercial Use" means use that is not primarily intended for commercial
+advantage or monetary compensation, including personal, educational, research,
+and other noncommercial activities. Charging for access, subscriptions,
+advertising-supported access, or bundling access with a paid offering is
+commercial use even if the Software itself is described as free.
+
+"Internal Use" means use within a company or other organization for its own
+operations, including commercial business operations. Employees and contractors
+may use the Software solely on that organization's behalf. Internal Use does
+not include distributing the Software to customers or providing customers or
+other outside parties with a commercial hosted service based on the Software.
+
+3. Permissions
+
+Subject to all conditions of this License, Licensor grants You a worldwide,
+non-exclusive, royalty-free copyright license to:
+
+(a) read, inspect, download, and copy the source code;
+(b) fork, modify, and build the Software for Noncommercial Use or Internal Use;
+(c) run the Software for personal, educational, research, and other
+    Noncommercial Use;
+(d) run the Software for Internal Use by companies and other organizations;
+(e) distribute the Software, in source or executable form, with or without
+    modifications, for Noncommercial Use under this License; and
+(f) provide noncommercial hosted access to the Software, subject to this
+    License and without representing the service as official DubLine.
+
+Private copies and copies shared solely with employees or contractors for
+permitted Internal Use are allowed. Making a source fork available without
+commercial distribution is allowed, including by a company.
+
+Media, recordings, subtitles, exported projects, and other output You create
+with the Software do not become subject to this License solely because You
+used the Software to create them. Rights in their underlying content remain
+with their respective owners. Permitted Internal Use includes producing
+commercial output without distributing the Software or offering a commercial
+hosted service based on it.
+
+4. Commercial restrictions and written permission
+
+Without prior written permission from Licensor, You may not:
+
+(a) commercially distribute, sell, resell, rent, or sublicense the Software,
+    its modifications, or its executable builds;
+(b) include the Software in a paid product, commercial distribution, or paid
+    bundle, even if the Software is assigned no separate price; or
+(c) operate or offer a commercial SaaS, hosted, managed, or other service that
+    gives customers or other outside parties access to the Software or its
+    functionality, including through an API, subscription, advertising-funded
+    offering, or paid service bundle.
+
+The Internal Use permission in Section 3 is an express exception for a
+company's own operations, not permission for commercial distribution or
+commercial hosted services. These restrictions apply equally to modified and
+unmodified copies and forks.
+
+Commercial permissions must be agreed in writing with Licensor. Contact
+dmbai009 through https://github.com/dmbai009 for permission requests. A request,
+silence, or submission of a pull request does not constitute permission.
+
+5. Redistribution and notices
+
+When sharing or distributing the Software, You must include this License,
+retain applicable copyright and attribution notices, and preserve third-party
+license texts and notices. You must clearly identify Your modifications and
+state that the recipients' rights to DubLine code are governed by this License.
+You may not remove its restrictions, represent the Software as MIT-licensed,
+or grant recipients broader rights to Licensor's code than You received.
+
+Your modifications remain subject to this License when distributed as part of
+the Software. You retain copyright in Your original modifications, subject to
+any contribution grant You separately make under Section 7.
+
+6. Unofficial builds, names, and branding
+
+All third-party executable builds distributed or provided to others, whether
+modified or unmodified, must use a product name different from DubLine. This
+includes their application name, executable name, package identity, and
+distribution listing. They must prominently identify themselves as unofficial
+and must not claim or imply that they are official DubLine, endorsed by
+Licensor, or produced by Licensor. A private build used only by its builder
+need not be renamed.
+
+Source forks must clearly identify themselves as unofficial. You must not
+present a fork as the official DubLine project.
+
+The DubLine name, logo, icons, trademarks, and other brand assets are not
+licensed with the code. No trademark or brand license is granted. Third-party
+builds must replace DubLine logos, icons, and other branding unless Licensor
+has given separate written permission. Truthful references to DubLine as the
+origin of the code and preservation of required attribution notices are
+allowed; they must not imply endorsement.
+
+7. Contributions
+
+Pull requests and other contributions intentionally submitted for inclusion
+in DubLine are welcome only if You own the necessary rights or have authority
+to grant them. You retain ownership of Your original contribution.
+
+By intentionally submitting a contribution for inclusion, You grant Licensor
+a perpetual, worldwide, non-exclusive, irrevocable, royalty-free, transferable,
+and sublicensable copyright license to use, reproduce, modify, prepare
+derivative works of, publicly display, publicly perform, distribute, and
+commercialize that contribution in source and executable form, and to license
+or relicense it under this License or any other terms, including proprietary
+and commercial terms. This grant is not limited by Sections 3 through 6.
+
+You also grant Licensor a perpetual, worldwide, non-exclusive, royalty-free,
+transferable, sublicensable patent license under claims You control that are
+necessarily infringed by Your contribution alone or by its combination with
+DubLine as submitted, to make, have made, use, sell, offer for sale, import,
+and otherwise transfer the contribution and such combination.
+
+You represent that You have authority to make these grants and disclose any
+third-party code, licenses, or other restrictions in Your submission. Material
+clearly marked "Not a Contribution" is excluded from this grant and may not
+be incorporated without a separate agreement. See CONTRIBUTING.md for the
+submission acknowledgment. Licensor is not required to accept a contribution.
+
+8. Third-party components
+
+Third-party dependencies, bundled executables, and separately licensed files
+remain under their own licenses. This License does not replace, restrict,
+or relicense those components, and its commercial and branding restrictions
+do not apply to rights independently granted by their owners. Their license
+terms govern those components in the event of a conflict. See
+THIRD_PARTY_NOTICES and the accompanying third-party license files.
+
+9. Termination
+
+Rights granted to You under this License terminate automatically if You
+violate its conditions. Upon termination You must stop using, modifying, and
+distributing the Software under this License. Termination does not affect
+rights You independently hold under an earlier MIT grant or a third-party
+license, or the contribution rights already granted to Licensor. Licensor
+may reinstate Your rights in writing.
+
+10. Disclaimer of warranty
+
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THE SOFTWARE IS PROVIDED
+"AS IS" AND "AS AVAILABLE", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE, TITLE, AND NON-INFRINGEMENT. YOU ASSUME ALL RISK ARISING
+FROM THE USE, MODIFICATION, OR DISTRIBUTION OF THE SOFTWARE.
+
+11. Limitation of liability
+
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, LICENSOR AND CONTRIBUTORS
+SHALL NOT BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, INCLUDING
+DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES,
+LOSS OF DATA, PROFITS, OR BUSINESS, WHETHER IN CONTRACT, TORT, OR OTHERWISE,
+ARISING FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR ITS USE OR OTHER
+DEALINGS, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. NOTHING IN THIS
+LICENSE EXCLUDES LIABILITY THAT CANNOT LAWFULLY BE EXCLUDED.
+
+All rights not expressly granted are reserved.
