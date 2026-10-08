@@ -59,6 +59,8 @@ header { flex-wrap:wrap; gap:8px 12px; flex-shrink:0; }
 #masterVolume { flex:0 0 70px; min-width:70px; }
 #editorCaption { resize:vertical; width:100%; max-width:100%; min-width:0; }
 #transportCC.subtitles-off { color:#fb923c; border-color:#f97316; background:rgba(249,115,22,.15); box-shadow:0 0 10px rgba(249,115,22,.45); }
+html[data-theme="light"] #transportCC.subtitles-off { color:#9a3412; }
+.video-wrapper:fullscreen #transportCC.subtitles-off { color:#fb923c; }
 .transport-display-actions { display:inline-flex; align-items:center; gap:8px; flex-shrink:0; }
 #filesModal .files-card { width:820px; max-width:calc(100vw - 32px); }
 #filesModal .tab-content { min-width:0; }

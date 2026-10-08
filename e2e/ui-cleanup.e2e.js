@@ -2,6 +2,22 @@ const { describe, test, before, after, beforeEach, afterEach } = require('node:t
 const assert = require('node:assert/strict');
 const { skipReason, startServer, launchBrowser, openPlayer, loadFixture, waitFor, claimAndSelect } = require('./helpers');
 
+// Run in the page against the actual rendered text and composited surfaces.
+function textContrast(node) {
+  const rgba = color => color.match(/[\d.]+/g).map(Number);
+  const chain = []; for (let parent = node; parent; parent = parent.parentElement) chain.unshift(parent);
+  let background = [255, 255, 255];
+  for (const parent of chain) {
+    const [r, g, b, a = 1] = rgba(getComputedStyle(parent).backgroundColor);
+    background = [r, g, b].map((channel, index) => channel * a + background[index] * (1 - a));
+  }
+  const luminance = rgb => rgb.slice(0, 3).map(channel => {
+    const value = channel / 255; return value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4;
+  }).reduce((sum, value, index) => sum + value * [.2126, .7152, .0722][index], 0);
+  const foreground = luminance(rgba(getComputedStyle(node).color)), surface = luminance(background);
+  return (Math.max(foreground, surface) + .05) / (Math.min(foreground, surface) + .05);
+}
+
 // Virtual device identities wrap real Chromium capture/playback. They simulate
 // unplugging hardware without replacing MediaRecorder or the listening graphs.
 async function virtualDevices(page) {
@@ -68,23 +84,12 @@ describe('UI cleanup and local audio devices', { skip: skipReason, timeout: 1200
           document.documentElement.dataset.theme = theme; i18n.setLanguage(language);
           updateExportDurationWarning();
           const warning = document.getElementById('longExportWarning');
-          const rgba = color => color.match(/[\d.]+/g).map(Number);
-          // Composite translucent warning/card surfaces over their opaque parents.
-          const chain = []; for (let node = warning; node; node = node.parentElement) chain.unshift(node);
-          let background = [255, 255, 255];
-          for (const node of chain) {
-            const [r, g, b, a = 1] = rgba(getComputedStyle(node).backgroundColor);
-            background = [r, g, b].map((channel, index) => channel * a + background[index] * (1 - a));
-          }
-          const luminance = rgb => rgb.slice(0, 3).map(channel => {
-            const value = channel / 255; return value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4;
-          }).reduce((sum, value, index) => sum + value * [.2126, .7152, .0722][index], 0);
-          const foreground = luminance(rgba(getComputedStyle(warning).color)), surface = luminance(background);
-          return { ratio: (Math.max(foreground, surface) + .05) / (Math.min(foreground, surface) + .05), visible: warning.getBoundingClientRect().height > 0, text: warning.textContent, expected: t('warning.longExport', { minutes: 24 }) };
+          return { visible: warning.getBoundingClientRect().height > 0, text: warning.textContent, expected: t('warning.longExport', { minutes: 24 }) };
         }, theme, language);
         assert.equal(result.visible, true);
         assert.equal(result.text, result.expected);
-        assert.ok(result.ratio >= 4.5, `${theme}/${language}: contrast ${result.ratio.toFixed(2)}`);
+        const ratio = await page.$eval('#longExportWarning', textContrast);
+        assert.ok(ratio >= 4.5, `${theme}/${language}: contrast ${ratio.toFixed(2)}`);
       }
     }
     await page.evaluate(() => { delete video.duration; updateExportDurationWarning(); });
@@ -243,6 +248,19 @@ describe('UI cleanup and local audio devices', { skip: skipReason, timeout: 1200
     await page.click('#transportCC');
     const state = () => page.$eval('#transportCC', node => ({ off: node.classList.contains('subtitles-off'), pressed: node.getAttribute('aria-pressed'), shadow: getComputedStyle(node).boxShadow, title: node.title }));
     assert.equal((await state()).off, true); assert.equal((await state()).pressed, 'false'); assert.notEqual((await state()).shadow, 'none');
+    for (const theme of ['midnight', 'graphite', 'light', 'ocean', 'forest', 'sunset']) {
+      await page.evaluate(theme => { document.documentElement.dataset.theme = theme; }, theme);
+      await page.$eval('#transportCC', node => Promise.all(node.getAnimations().map(animation => animation.finished)));
+      const ratio = await page.$eval('#transportCC', textContrast);
+      assert.ok(ratio >= 4.5, `${theme} CC contrast ${ratio.toFixed(2)}`);
+      assert.notEqual((await state()).shadow, 'none', 'off-state glow is preserved');
+    }
+    await page.evaluate(() => { document.documentElement.dataset.theme = 'light'; });
+    await page.$eval('[data-studio-action=fullscreen]', button => button.click());
+    await waitFor(page, () => !!document.fullscreenElement);
+    const fullscreenRatio = await page.$eval('#transportCC', textContrast);
+    assert.ok(fullscreenRatio >= 4.5, `light-theme fullscreen CC contrast ${fullscreenRatio.toFixed(2)}`);
+    await page.evaluate(() => document.exitFullscreen());
     await page.reload(); await waitFor(page, () => session?.loaded);
     assert.equal((await state()).off, true);
     for (const language of ['ru', 'en', 'uk']) {
