@@ -588,7 +588,7 @@ async function sendTake(entry) {
 
   let res = null;
   try {
-    res = await fetch(`/api/upload-line-audio?room=${encodeURIComponent(entry.room)}`, { method: 'POST', body: form });
+    res = await window.DublineNetwork.upload(`/api/upload-line-audio?room=${encodeURIComponent(entry.room)}`, { method: 'POST', body: form });
   } catch (err) {
     res = null; // network unavailable
   }

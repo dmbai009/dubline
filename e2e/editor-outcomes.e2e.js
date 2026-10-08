@@ -106,6 +106,7 @@ describe('Editor outcomes and durable recovery', { skip: skipReason, timeout: 12
     assert.deepEqual((await stored()).map(item => [item.status, item.outcome.reason, item.outcome.confirmed, item.sent]), [['conflict', 'conflict', true, true]]);
     await page.evaluate(() => queueEditorRequest(() => ['editor_undo', {}]));
     await reload(); assert.equal(await page.evaluate(() => editorConflicts.length), 1);
+    assert.equal(await page.$eval('#editorSyncState', node => node.dataset.syncState), 'conflict');
     await page.evaluate(() => reviewEditorConflicts());
     const text = await page.$eval('#editorConflictPanel', node => node.textContent);
     assert.match(text, /My durable caption/); assert.match(text, /Remote caption/); assert.match(text, /Request sent/);
@@ -157,7 +158,8 @@ describe('Editor outcomes and durable recovery', { skip: skipReason, timeout: 12
     assert.equal(await page.evaluate(() => mutationIds.length), 0);
     const id = await page.evaluate(() => editorConflicts[0].id);
     assert.equal(await page.evaluate(() => editorConflicts[0].status), 'recovery');
-    assert.match(await page.$eval('#editorSyncState', node => node.textContent), /recovery/);
+    assert.equal(await page.$eval('#editorSyncState', node => node.dataset.syncState), 'storage');
+    assert.match(await page.$eval('#editorSyncState', node => node.textContent), /Storage error/);
     await page.evaluate(() => { editorIntentStore.put = savedPut; reviewEditorConflicts(); });
     assert.equal(await page.$('[data-retry-operation]'), null);
     await page.click('[data-check-operation]'); await waitFor(page, () => !editorQueue.length && !editorConflicts.length);
@@ -195,6 +197,7 @@ describe('Editor outcomes and durable recovery', { skip: skipReason, timeout: 12
     await waitFor(page, () => socket.connected && !editorQueue.length && editorConflicts.length === 1);
     assert.equal(await page.evaluate(() => createCount), 1); assert.equal(await page.evaluate(() => session.lines.length), 5);
     assert.deepEqual((await stored()).map(record => [record.status, record.outcome.reason]), [['recovery', 'expired']]);
+    assert.equal(await page.$eval('#editorSyncState', node => node.dataset.syncState), 'recovery');
     await reload(); assert.equal(await page.evaluate(() => session.lines.length), 5); assert.equal(await page.evaluate(() => editorConflicts[0].status), 'recovery');
     await page.evaluate(() => reviewEditorConflicts()); assert.equal(await page.$('[data-retry-operation]'), null);
   });

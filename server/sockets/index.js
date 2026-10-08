@@ -28,4 +28,5 @@ io.on('connection', socket => {
   require('../mediaPresence').register(socket, conn);
   require('../snapshotBarrier').register(socket, conn);
   require('../cursorPresence').register(socket, conn);
+  require('../networkTelemetry').register(socket, conn);
 });

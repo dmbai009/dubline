@@ -59,7 +59,7 @@
   function signal(id, data) { if (scene === session?.activeSessionId) socket.emit('cursor_signal', { to: id, sessionId: scene, signal: data }); }
   function attach(peer, channel, id) {
     if (channel.label !== 'dubline-presence') { channel.close(); return; }
-    peer.channel = channel;
+    peer.channel = window.DublineNetwork.channel(channel);
     channel.onopen = () => clearTimeout(peer.timer);
     channel.onclose = () => close(id);
     channel.onmessage = event => { if (typeof event.data !== 'string' || event.data.length > 2048) return; try { receive(id, JSON.parse(event.data)); } catch { /* malformed volatile sample */ } };

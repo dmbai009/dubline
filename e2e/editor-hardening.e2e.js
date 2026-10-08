@@ -67,7 +67,8 @@ describe('Collaborative editor hardening', { skip: skipReason }, () => {
     });
     assert.equal(await page.evaluate(() => session.lines[0].caption), 'Offline intent');
     assert.equal(await page.evaluate(() => editorQueue.length), 1);
-    assert.match(await page.$eval('#editorSyncState', button => button.textContent), /Syncing/);
+    assert.equal(await page.$eval('#editorSyncState', button => button.dataset.syncState), 'offline');
+    assert.match(await page.$eval('#editorSyncState', button => button.textContent), /No connection/);
     await page.evaluate(() => socket.connect());
     await waitFor(page, () => window.offlineResult?.ok && !editorQueue.length);
     assert.equal(await page.evaluate(() => session.lines[0].caption), 'Offline intent');

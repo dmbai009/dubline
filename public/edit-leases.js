@@ -25,10 +25,20 @@
     const response = value => options.result ? value : value.ok ? value.token : null;
     const sessionId = session?.activeSessionId;
     if (!socket.connected || session?.mode !== 'edit') return response({ ok: false, reason: !socket.connected ? 'unavailable' : 'mode' });
-    const result = await new Promise(resolve => socket.timeout(3000).emit('edit_lease_acquire', { sessionId, targets }, (error, value) => resolve(error ? null : value)));
+    if (options.signal?.aborted) return response({ ok: false, reason: 'cancelled' });
+    const acquisitionId = crypto.randomUUID?.() || [...crypto.getRandomValues(new Uint8Array(18))].map(value => value.toString(16).padStart(2, '0')).join('');
+    const cancel = () => { if (socket.connected) socket.emit('edit_lease_cancel', { acquisitionId }); };
+    options.signal?.addEventListener('abort', cancel, { once: true });
+    const result = await new Promise(resolve => socket.timeout(3000).emit('edit_lease_acquire', { sessionId, targets, acquisitionId }, (error, value) => resolve(error ? { ok: false, reason: socket.connected ? 'timeout' : 'unavailable' } : value)));
+    options.signal?.removeEventListener('abort', cancel);
+    if (options.signal?.aborted || result?.reason === 'timeout') cancel();
+    if (options.signal?.aborted) { if (result?.token) socket.emit('edit_lease_release', { token: result.token }); return response({ ok: false, reason: 'cancelled' }); }
     if (!result?.ok) {
       if (!options.result) showToast(editorFailureMessage(result?.reason || 'unavailable'));
       return response(result || { ok: false, reason: 'unavailable' });
+    }
+    if (result.expires <= serverNow()) {
+      socket.emit('edit_lease_release', { token: result.token }); return response({ ok: false, reason: 'timeout' });
     }
     if (session?.activeSessionId !== sessionId || session.mode !== 'edit') {
       socket.emit('edit_lease_release', { token: result.token }); return response({ ok: false, reason: 'session' });
@@ -54,10 +64,11 @@
   }, 2000);
   function foreign(lineId, group) {
     const line = session?.lines.find(item => item.id === lineId);
-    return remote.find(lease => lease.actorId !== socket.id && lease.targets.some(target =>
+    return remote.find(lease => lease.expires > serverNow() && lease.actorId !== socket.id && lease.targets.some(target =>
       (target.type === 'session' || target.type === 'track' && target.key === line?.character || target.type === 'line' && target.key === lineId) &&
       (target.group === group || target.group === 'structural')));
   }
+  window.foreignEditLease = foreign;
   window.renderEditLease = block => {
     block.querySelector('.remote-edit-lease')?.remove();
     const id = Number(block.id.replace('line-block-', ''));

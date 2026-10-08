@@ -588,7 +588,7 @@ async function renderOriginalVideo(progress,snapshot) {
   const form=new FormData();form.append('clientId',clientId);form.append('sessionId',snapshot.scene.activeSessionId);
   form.append('soundtrack',new Blob([output.target.buffer],{type:'audio/mp4'}),'soundtrack.m4a');
   progress(75,t('render.originalMux'));
-  const response=await fetch('/api/export-original-video?room='+encodeURIComponent(currentRoom),{method:'POST',body:form});
+  const response=await window.DublineNetwork.upload('/api/export-original-video?room='+encodeURIComponent(currentRoom),{method:'POST',body:form});
   if(!response.ok)throw new Error(await readError(response));
   const prepared=await response.json();assertExportScene(snapshot);
   const link=document.createElement('a');link.href=prepared.downloadUrl;link.download=prepared.filename;link.click();

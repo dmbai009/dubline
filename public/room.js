@@ -237,6 +237,7 @@ function playerCardHtml(nick, stats, online) {
         <div class="player-name" title="${esc(nick)}">${esc(nick)}</div>
         <div class="player-tags">${tags}</div>
       </div>
+      ${window.DublineNetwork?.html(online) || ''}
       <div class="player-stats"><span>${t('lobby.recorded', { n: stats.recorded })}</span><span>${t('lobby.claimed', { n: stats.claimed })}</span></div>
       <div class="progress"><div style="width:${pct}%"></div></div>
       <div class="player-status-icons">
@@ -306,6 +307,7 @@ function renderLobby() {
   patchLobby(lobbyList, next);
   window.refreshCollaboratorJumpButtons?.();
   window.refreshRoleProgress?.();
+  window.DublineNetwork?.refresh();
 }
 
 window.changeModerator = async (nick, id) => {

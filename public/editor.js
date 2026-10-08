@@ -136,15 +136,19 @@ let editorPersistence = Promise.resolve();
 let restoredEditorRecords = null;
 let editorRecoveryLoading = false;
 let editorStorageIssue = false;
+let editorStorageReadIssue = false;
+let editorConfirmedConnection = null, editorConfirmedScene = null, editorResyncing = 0;
 function persistEditorOperation(operation, remove = false) {
   const record = remove ? null : structuredClone({ schemaVersion: 2, id: operation.id, event: operation.event, payload: operation.payload,
     request: operation.request, sessionId: operation.sessionId, roomId: operation.roomId, clientId: operation.clientId,
     status: operation.status, sent: !!operation.sent, outcome: operation.outcome, targetBases: [...operation.targetBases], createdAt: operation.createdAt || Date.now(), replacesId: operation.replacesId });
   // Serialize writes so a late put cannot resurrect a confirmed/discarded record.
   editorPersistence = editorPersistence.then(() => remove ? editorIntentStore.remove(operation.id) : operation.replacesId ? editorIntentStore.replace(operation.replacesId, record) : editorIntentStore.put(record))
-    .then(() => { operation.durable = true; editorStorageIssue = [...editorQueue, ...editorConflicts].some(item => item.durable === false); return true; }).catch(error => {
+    .then(() => { operation.durable = true; editorStorageIssue = editorStorageReadIssue || [...editorQueue, ...editorConflicts].some(item => item.durable === false); return true; }).catch(error => {
       console.warn('[DubLine] Editor recovery storage failed:', error);
-      operation.durable = false; editorStorageIssue = true; showToast(editorFailureMessage('storage')); renderEditorSyncState(); return false;
+      operation.durable = false;
+      if (!editorStorageIssue) showToast(editorFailureMessage('storage'));
+      editorStorageIssue = true; renderEditorSyncState(); return false;
     });
   return editorPersistence;
 }
@@ -152,7 +156,10 @@ async function restoreEditorOperations() {
   if (editorRecoveryLoading || !myName || !session?.editorProtocol || !socket.connected) return;
   editorRecoveryLoading = true;
   try {
-    if (!restoredEditorRecords) restoredEditorRecords = await editorIntentStore.all();
+    if (!restoredEditorRecords) {
+      restoredEditorRecords = await editorIntentStore.all(); editorStorageReadIssue = false;
+      editorStorageIssue = [...editorQueue, ...editorConflicts].some(item => item.durable === false);
+    }
     for (const record of [...restoredEditorRecords]) {
       if (record.clientId !== clientId || record.roomId !== currentRoom) continue;
       restoredEditorRecords.splice(restoredEditorRecords.indexOf(record), 1);
@@ -194,8 +201,11 @@ async function restoreEditorOperations() {
     }
     rebuildEditorOverlay(); renderEditorSyncState();
     if (editorQueue.length) scheduleEditorPump(0);
-  } catch (error) { console.warn('[DubLine] Could not load editor recovery:', error); }
-  finally { editorRecoveryLoading = false; }
+  } catch (error) {
+    if (!editorStorageReadIssue) showToast(editorFailureMessage('storage'));
+    editorStorageReadIssue = editorStorageIssue = true; console.warn('[DubLine] Could not load editor recovery:', error);
+  }
+  finally { editorRecoveryLoading = false; renderEditorSyncState(); }
 }
 
 function lineRevision(lineId) {
@@ -243,6 +253,8 @@ function rebuildEditorOverlay() {
 
 window.acceptEditorSnapshot = function(data) {
   editorProtocolReceivedAt = performance.now();
+  editorConfirmedConnection = socket.connected && data.editorProtocol ? socket.id : null;
+  editorConfirmedScene = data.activeSessionId;
   cancelEditorGesture();
   const changed = editorScene !== data.activeSessionId;
   if (changed) { editorDrafts.clear(); editorScene = data.activeSessionId; }
@@ -266,19 +278,27 @@ window.acceptEditorSnapshot = function(data) {
     }
   }
   rebuildEditorOverlay();
-  renderEditorSyncState();
   // session_updated on reconnect arrives only after join_room has succeeded.
   if (socket.connected) { editorNeedsResync = false; scheduleEditorPump(0); }
   restoreEditorOperations();
+  renderEditorSyncState();
 };
 
 function renderEditorSyncState() {
   const status = document.getElementById('editorSyncState');
   if (!status) return;
-  status.hidden = !editorQueue.length && !editorConflicts.length && !editorStorageIssue;
-  status.disabled = !editorConflicts.length;
   const actualConflicts = editorConflicts.filter(operation => operation.status === 'conflict').length;
-  status.textContent = !editorQueue.length && !editorConflicts.length && editorStorageIssue ? editorFailureMessage('storage') : t(editorConflicts.length ? actualConflicts === editorConflicts.length ? 'editor.syncConflict' : 'editor.syncRecovery' : editorNeedsResync ? 'editor.syncing' : 'editor.pending', { n: editorConflicts.length || editorQueue.length });
+  const state = editorStorageIssue ? 'storage' : actualConflicts ? 'conflict' : editorConflicts.length ? 'recovery' : !socket.connected ? 'offline' : !session?.loaded || editorConfirmedConnection !== socket.id || editorConfirmedScene !== session?.activeSessionId ? 'unknown' : editorNeedsResync || editorResyncing || editorRecoveryLoading || editorQueue.some(item => item.status === 'awaiting-resync') ? 'syncing' : editorQueue.length ? 'pending' : 'confirmed';
+  status.dataset.syncState = state;
+  status.hidden = session?.mode !== 'edit' && !editorQueue.length && !editorConflicts.length && !editorStorageIssue;
+  status.disabled = false;
+  const label = t('sync.' + state), count = editorQueue.length + editorConflicts.length;
+  if (status.dataset.syncLabel !== label + count) {
+    status.dataset.syncLabel = label + count;
+    status.innerHTML = `<span aria-hidden="true">${label.slice(0, label.indexOf(' '))}</span><span class="editor-sync-label">${esc(label.slice(label.indexOf(' ') + 1))}${count ? ` (${count})` : ''}</span>`;
+  }
+  status.dataset.tooltip = state === 'confirmed' ? t('sync.confirmedHelp') : label + (count ? ` (${count})` : '');
+  status.setAttribute('aria-label', status.dataset.tooltip);
   status.classList.toggle('conflict', !!actualConflicts);
   renderEditorConflicts();
 }
@@ -313,6 +333,7 @@ window.closeEditorConflicts = function() {
 window.reviewEditorConflicts = function() {
   const panel = document.getElementById('editorConflictPanel'); panel.hidden = !panel.hidden; renderEditorConflicts();
 };
+window.openEditorSyncReview = function() { if (editorConflicts.length) reviewEditorConflicts(); };
 
 async function retryEditorConflict(operation, sceneId) {
   if (!socket.connected || session?.activeSessionId !== sceneId || operation.sessionId !== sceneId || session.mode !== 'edit' || operation.roomId !== currentRoom || operation.clientId !== clientId || !myName || window.snapshotFrozen) return false;
@@ -424,19 +445,44 @@ function scheduleEditorPump(delay = 1000) {
   editorRetryTimer = setTimeout(pumpEditorQueue, delay);
 }
 
+function sendEditorRequest(operation) {
+  const engine = socket.io.engine, connection = socket.id;
+  return new Promise(resolve => {
+    let timer;
+    const cleanup = () => { clearTimeout(timer); engine?.off('drain', ready); engine?.off('upgrade', ready); socket.off('disconnect', disconnected); };
+    const disconnected = () => { cleanup(); resolve(null); };
+    const ready = () => {
+      if (!socket.connected || socket.id !== connection || engine !== socket.io.engine || operation.sessionId !== session?.activeSessionId || !editorQueue.includes(operation)) return disconnected();
+      if (!engine?.transport?.writable || engine.upgrading) return;
+      cleanup();
+      // A volatile mutation must not be discarded just because a clock,
+      // telemetry or recovery packet is currently using the transport. Wait for
+      // its existing drain event, then send without an intervening await. Never
+      // buffer a mutation across an unconfirmed room reconnection.
+      socket.volatile.timeout(EDITOR_ACK_TIMEOUT_MS).emit(operation.event, operation.request, (error, value) => resolve(error ? null : value));
+    };
+    timer = setTimeout(disconnected, EDITOR_ACK_TIMEOUT_MS);
+    engine?.on('drain', ready); engine?.on('upgrade', ready); socket.on('disconnect', disconnected);
+    ready();
+  });
+}
+
 function resyncEditor() {
   if (!socket.connected) return Promise.resolve(false);
+  editorResyncing++; renderEditorSyncState();
   return new Promise(resolve => {
     // This read-only request must wait behind handshake/clock packets when the
     // connected transport is busy. ACK timeout also removes any offline buffer;
     // mutations still use their immutable operation IDs and separate recovery.
     socket.timeout(EDITOR_ACK_TIMEOUT_MS).emit('editor_resync', {}, (err, result) => {
-      if (err || !result || !result.ok) return resolve(false);
+      editorResyncing--;
+      if (err || !result || !result.ok) { renderEditorSyncState(); return resolve(false); }
       applySessionUpdate(result.session);
       watchModeChange();
       updateModeUi();
       if (typeof renderBlindSettings === 'function') renderBlindSettings();
       editorNeedsResync = false;
+      renderEditorSyncState();
       resolve(true);
     });
   });
@@ -530,9 +576,7 @@ async function pumpEditorQueue() {
     }
     if (!editorQueue.includes(operation)) return;
     operation.attempts = (operation.attempts || 0) + 1;
-    const result = await new Promise(resolve => {
-      socket.volatile.timeout(EDITOR_ACK_TIMEOUT_MS).emit(operation.event, operation.request, (err, value) => resolve(err ? null : value));
-    });
+    const result = await sendEditorRequest(operation);
     if (!editorQueue.includes(operation)) return; // scene/mode changed while ACK was pending
     if (!result) {
       operation.status = 'awaiting-resync'; editorNeedsResync = true;
@@ -618,10 +662,11 @@ function sendLineUpdates(changesById, options = {}) {
   });
 }
 
-socket.on('disconnect', () => { editorNeedsResync = true; cancelEditorGesture(); clearTimeout(editorRetryTimer); renderEditorSyncState(); });
+socket.on('disconnect', () => { editorConfirmedConnection = null; editorNeedsResync = true; cancelEditorGesture(); clearTimeout(editorRetryTimer); renderEditorSyncState(); });
+socket.on('connect', renderEditorSyncState);
 window.addEventListener('dubline-language-changed', renderEditorSyncState);
 window.addEventListener('beforeunload', event => {
-  if (!editorQueue.length && !editorConflicts.length) return;
+  if (!editorQueue.length && !editorConflicts.length && !editorStorageIssue) return;
   event.preventDefault(); event.returnValue = '';
 });
 
@@ -789,9 +834,9 @@ window.showEditorInspector = function(line, capture = true) {
       <span class="insp-chip me">${t('mode.edit')}</span>
     </div>
     <form id="editorLineForm" class="setting-card" onsubmit="saveEditorLine(event, ${line.id})" novalidate>
-      <label class="setting-sub">${t('editor.caption')}</label>
+      <label class="setting-sub" for="editorCaption">${t('editor.caption')}</label>
       <textarea id="editorCaption" data-editor-field="caption" class="text-input" maxlength="2000" rows="4">${esc(values.caption)}</textarea>
-      <label class="setting-sub">${t('editor.track')}</label>
+      <label class="setting-sub" for="editorCharacter">${t('editor.track')}</label>
       <select id="editorCharacter" data-editor-field="character" class="text-input">
         ${options.map(name => `<option value="${esc(name)}" ${name === values.character ? 'selected' : ''}>${esc(name)}</option>`).join('')}
       </select>
@@ -951,21 +996,65 @@ window.enableLineEditDrag = function(el, lineId) {
     const identities = group.map(item => [item.id, item.revision || 0]);
     let released = false;
     let pendingPointer = null;
-    const earlyMove = next => { pendingPointer = { clientX: next.clientX, clientY: next.clientY }; };
-    const earlyRelease = () => { released = true; };
-    window.addEventListener('pointerup', earlyRelease, { once: true });
-    window.addEventListener('pointercancel', earlyRelease, { once: true });
+    const pointerId = event.pointerId;
+    let dragGesture = null;
+    const lostCapture = () => { if (window.activeEditorGesture === pendingGesture || window.activeEditorGesture === dragGesture) cancelEditorGesture(); };
+    const releasePointer = () => {
+      el.removeEventListener('lostpointercapture', lostCapture);
+      try { if (el.hasPointerCapture(pointerId)) el.releasePointerCapture(pointerId); } catch { /* synthetic/finished pointer */ }
+    };
+    const abort = new AbortController();
+    let waitMarker = null, waitNotice = null, waitActive = false;
+    const clearWaiting = () => {
+      clearTimeout(waitTimer); waitMarker?.remove(); waitNotice?.remove();
+      if (waitActive) document.body.classList.remove('editor-lease-waiting');
+      waitActive = false;
+      window.removeEventListener('pointerup', earlyRelease);
+      window.removeEventListener('pointercancel', earlyRelease);
+      window.removeEventListener('blur', earlyRelease);
+      window.removeEventListener('pointermove', earlyMove);
+    };
+    const earlyMove = next => {
+      if (next.pointerId !== pointerId) return;
+      pendingPointer = { clientX: next.clientX, clientY: next.clientY };
+      if (waitMarker) { waitMarker.style.left = `${Math.min(innerWidth - 35, next.clientX + 14)}px`; waitMarker.style.top = `${Math.min(innerHeight - 35, next.clientY + 14)}px`; }
+    };
+    const earlyRelease = next => {
+      if (next?.pointerId !== undefined && next.pointerId !== pointerId) return;
+      released = true; abort.abort(); clearWaiting();
+      releasePointer();
+      if (window.activeEditorGesture === pendingGesture) window.activeEditorGesture = null;
+    };
+    const pendingGesture = { sessionId, lineIds: new Set(group.map(item => item.id)), type: edge ? `resize-${edge}` : 'move',
+      baseFields: new Map(group.map(item => [item.id, editorBase(item)])), baseRevisions: new Map(identities), cleanup: earlyRelease };
+    window.activeEditorGesture = pendingGesture;
+    el.addEventListener('lostpointercapture', lostCapture);
+    try { el.setPointerCapture(pointerId); } catch { /* synthetic pointer; window listeners still own cleanup */ }
+    window.hideDublineTooltip?.();
+    const waitTimer = setTimeout(() => {
+      if (released) return;
+      waitActive = true;
+      document.body.classList.add('editor-lease-waiting');
+      waitMarker = document.createElement('span'); waitMarker.className = 'editor-lease-pointer'; waitMarker.textContent = '◌'; waitMarker.setAttribute('aria-hidden', 'true');
+      waitNotice = document.createElement('div'); waitNotice.className = 'editor-lease-notice'; waitNotice.role = 'status';
+      const rtt = window.DublineNetwork?.rtt();
+      waitNotice.textContent = t('editor.waitHost') + (rtt > 350 ? ' ' + t('editor.slowConnection', { ms: rtt }) : '');
+      document.body.append(waitMarker, waitNotice);
+      earlyMove({ pointerId, ...(pendingPointer || { clientX: event.clientX, clientY: event.clientY }) });
+    }, 300);
+    window.addEventListener('pointerup', earlyRelease);
+    window.addEventListener('pointercancel', earlyRelease);
     window.addEventListener('blur', earlyRelease, { once: true });
     window.addEventListener('pointermove', earlyMove);
     const targets = group.length > 64 ? [{ type: 'session', key: '*', group: 'structural' }] : group.flatMap(item =>
       [...(!session.protectTimings ? [{ type: 'line', key: item.id, group: 'timing' }] : []), ...(!edge ? [{ type: 'line', key: item.id, group: 'assignment' }] : [])]);
-    const leaseToken = await acquireEditLease(targets);
-    window.removeEventListener('pointerup', earlyRelease);
-    window.removeEventListener('pointercancel', earlyRelease);
-    window.removeEventListener('blur', earlyRelease);
-    window.removeEventListener('pointermove', earlyMove);
-    if (!leaseToken || released || !el.isConnected || session.activeSessionId !== sessionId || session.mode !== 'edit' || session.protectTimings !== protection || identities.some(([id, revision]) => (session.lines.find(item => item.id === id)?.revision || 0) !== revision)) {
-      releaseEditLease(leaseToken); return;
+    const acquired = await acquireEditLease(targets, { result: true, signal: abort.signal });
+    const leaseToken = acquired?.ok ? acquired.token : null;
+    clearWaiting();
+    if (window.activeEditorGesture === pendingGesture) window.activeEditorGesture = null;
+    if (!leaseToken && !released) showToast(t(acquired?.reason === 'locked' ? 'editor.dragLocked' : acquired?.reason === 'timeout' ? 'editor.leaseTimeout' : !socket.connected ? 'help.connection' : acquired?.reason === 'session' ? 'editor.failure.session' : 'editor.failure.' + (acquired?.reason || 'unavailable')));
+    if (!leaseToken || released || !el.isConnected || session.activeSessionId !== sessionId || session.mode !== 'edit' || session.protectTimings !== protection || identities.some(([id, revision]) => !session.lines.some(item => item.id === id && (item.revision || 0) === revision))) {
+      releasePointer(); releaseEditLease(leaseToken); return;
     }
     const blocks = group.map(item => ({ line: item, el: document.getElementById(`line-block-${item.id}`) })).filter(item => item.el);
     const tracks = sessionCharacters();
@@ -1007,6 +1096,7 @@ window.enableLineEditDrag = function(el, lineId) {
     }, 30);
 
     const onMove = moveEvent => {
+      if (moveEvent.pointerId !== undefined && moveEvent.pointerId !== pointerId) return;
       lastPointer = { clientX: moveEvent.clientX, clientY: moveEvent.clientY };
       const dx = moveEvent.clientX - originX;
       const dy = moveEvent.clientY - originY + (scroller.scrollTop - scrollOrigin);
@@ -1046,6 +1136,7 @@ window.enableLineEditDrag = function(el, lineId) {
     };
 
     const cleanup = (keepLease = false) => {
+      releasePointer();
       if (!keepLease) releaseEditLease(leaseToken);
       clearInterval(edgeScroll);
       window.removeEventListener('pointermove', onMove);
@@ -1061,8 +1152,9 @@ window.enableLineEditDrag = function(el, lineId) {
       });
       window.activeEditorGesture = null;
     };
-    const onCancel = () => { cleanup(); renderTimeline(); };
-    const onUp = () => {
+    const onCancel = next => { if (next?.pointerId !== undefined && next.pointerId !== pointerId) return; cleanup(); renderTimeline(); };
+    const onUp = next => {
+      if (next?.pointerId !== undefined && next.pointerId !== pointerId) return;
       const character = targetRow ? targetRow.dataset.character : null;
       cleanup(true);
       if (deferredEditorRender) { deferredEditorRender = false; renderTimeline(); }
@@ -1087,7 +1179,7 @@ window.enableLineEditDrag = function(el, lineId) {
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
     window.addEventListener('pointercancel', onCancel);
-    window.activeEditorGesture = { sessionId: session.activeSessionId, lineIds: new Set(group.map(item => item.id)),
+    window.activeEditorGesture = dragGesture = { sessionId: session.activeSessionId, lineIds: new Set(group.map(item => item.id)),
       baseFields: new Map(group.map(item => [item.id, editorBase(item)])), baseRevisions: new Map(group.map(item => [item.id, item.revision || 0])), type: edge ? `resize-${edge}` : 'move', cleanup };
     if (pendingPointer) onMove(pendingPointer);
   };

@@ -23,7 +23,7 @@
     "test:electron:guest": "node tools/electron-guest-smoke.js",
     "test:electron:cloudflare": "node tools/electron-smoke.js cloudflare",
     "test": "node --test",
-    "test:e2e": "node --test --test-concurrency=1 e2e/launcher.e2e.js e2e/desktop.e2e.js e2e/studio.e2e.js e2e/room.e2e.js e2e/media.e2e.js e2e/security.e2e.js e2e/workflow.e2e.js e2e/reliability.e2e.js e2e/audit-fixes.e2e.js e2e/projects.e2e.js e2e/workflow14.e2e.js e2e/direct-media.e2e.js e2e/solo-feedback.e2e.js e2e/proxy.e2e.js e2e/take-mix.e2e.js e2e/editor-hardening.e2e.js e2e/media-presence-hardening.e2e.js e2e/ui-cleanup.e2e.js e2e/editor-improvements.e2e.js e2e/group-reliability.e2e.js e2e/editor-outcomes.e2e.js",
+    "test:e2e": "node --test --test-concurrency=1 e2e/launcher.e2e.js e2e/desktop.e2e.js e2e/studio.e2e.js e2e/room.e2e.js e2e/media.e2e.js e2e/security.e2e.js e2e/workflow.e2e.js e2e/reliability.e2e.js e2e/audit-fixes.e2e.js e2e/projects.e2e.js e2e/workflow14.e2e.js e2e/direct-media.e2e.js e2e/solo-feedback.e2e.js e2e/proxy.e2e.js e2e/take-mix.e2e.js e2e/editor-hardening.e2e.js e2e/media-presence-hardening.e2e.js e2e/ui-cleanup.e2e.js e2e/editor-improvements.e2e.js e2e/group-reliability.e2e.js e2e/editor-outcomes.e2e.js e2e/collaboration-ux.e2e.js",
     "check": "node tools/check.js",
     "test:electron:take-mix": "node tools/electron-take-mix-smoke.js",
     "test:ui": "node --test --test-concurrency=1 e2e/ui-cleanup.e2e.js e2e/editor-improvements.e2e.js e2e/group-reliability.e2e.js",

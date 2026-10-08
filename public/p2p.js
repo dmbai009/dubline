@@ -133,7 +133,7 @@ socket.on('p2p_signal', async ({ from, data, sessionId }) => {
     pc.onicecandidate = e => { if (e.candidate) signal(from, { kind: 'candidate', from: 'seed', candidate: e.candidate }, sessionId); };
     pc.onconnectionstatechange = () => { if (['failed', 'closed', 'disconnected'].includes(pc.connectionState)) closePeer(key); };
     pc.ondatachannel = e => {
-      peer.channel = e.channel;
+      peer.channel = window.DublineNetwork.channel(e.channel);
       serveChannel(e.channel, key);
     };
     await pc.setRemoteDescription(data.sdp);
@@ -222,7 +222,7 @@ function connectToSeeder(peerId) {
     const key = `leech:${peerId}`;
     closePeer(key);
     const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
-    const channel = pc.createDataChannel('dubline', { ordered: true });
+    const channel = window.DublineNetwork.channel(pc.createDataChannel('dubline', { ordered: true }));
     channel.binaryType = 'arraybuffer';
     const peer = { pc, channel, pending: [], remoteSet: false, key, sessionId: session?.activeSessionId };
     peers.set(key, peer);

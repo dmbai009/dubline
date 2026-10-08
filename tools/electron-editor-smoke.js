@@ -38,7 +38,7 @@ if (!process.versions.electron) {
         if (await evaluate(source).catch(() => false)) return;
         await new Promise(resolve => setTimeout(resolve, 50));
       }
-      const state = await evaluate("JSON.stringify({ connected: socket.connected, name: myName, mode: session?.mode, caption: session?.lines?.find(line => line.id === 1)?.caption, queue: editorQueue.map(item => ({ event: item.event, status: item.status, sent: item.sent })), reviews: editorConflicts.map(item => ({ status: item.status, reason: item.outcome?.reason })) })").catch(() => 'unavailable');
+      const state = await evaluate("JSON.stringify({ connected: socket.connected, name: myName, mode: session?.mode, caption: session?.lines?.find(line => line.id === 1)?.caption, summary: editorReviewSummary, trace: window.nativeRecoveryTrace, queue: editorQueue.map(item => ({ event: item.event, status: item.status, sent: item.sent })), reviews: editorConflicts.map(item => ({ status: item.status, reason: item.outcome?.reason })) })").catch(() => 'unavailable');
       throw new Error(`Electron wait timed out: ${source}; ${state}`);
     };
     win.webContents.debugger.attach('1.3');
@@ -74,6 +74,44 @@ if (!process.versions.electron) {
         await editorPersistence;
         return { reasons: [empty.reason, exists.reason], conflicts: editorConflicts.length, durable: (await editorIntentStore.all()).length };
       })()`), { reasons: ['empty', 'exists'], conflicts: 0, durable: 0 });
+      await waitFor("document.getElementById('editorSyncState').dataset.syncState === 'confirmed'");
+      await waitFor("document.querySelector('.network-ping [data-rtt]').textContent !== '—'");
+      await evaluate("document.body.classList.add('lobby-compact');");
+      win.webContents.setZoomFactor(1.5);
+      assert.equal(await evaluate("Math.round(document.getElementById('lobbyPanel').getBoundingClientRect().width)"), 68);
+      assert.equal(await evaluate("document.getElementById('lobbyPanel').scrollWidth <= document.getElementById('lobbyPanel').clientWidth"), true);
+      win.webContents.setZoomFactor(1);
+      await evaluate("document.body.classList.remove('lobby-compact');");
+      await evaluate("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
+      for (const earlyRelease of [true, false]) {
+        await evaluate(`(() => {
+          window.nativeLeaseEmit = socket.emit; let first = true;
+          socket.emit = function(event, ...args) {
+            if (event === 'edit_lease_acquire' && first) { first = false; const callback = args.pop(); args.push((...values) => { window.nativeGrantLease = () => callback(...values); }); }
+            return nativeLeaseEmit.call(this, event, ...args);
+          };
+        })()`);
+        const location = await evaluate("(() => { const box=document.getElementById('line-block-1').getBoundingClientRect(); return {x:box.x+box.width/2,y:box.y+box.height/2}; })()");
+        await win.webContents.debugger.sendCommand('Input.dispatchMouseEvent', { type: 'mouseMoved', ...location });
+        await win.webContents.debugger.sendCommand('Input.dispatchMouseEvent', { type: 'mousePressed', ...location, button: 'left', clickCount: 1 });
+        await win.webContents.debugger.sendCommand('Input.dispatchMouseEvent', { type: 'mouseMoved', x: location.x + 40, y: location.y, button: 'left', buttons: 1 });
+        await waitFor("typeof nativeGrantLease === 'function'");
+        if (earlyRelease) {
+          await win.webContents.debugger.sendCommand('Input.dispatchMouseEvent', { type: 'mouseReleased', x: location.x + 40, y: location.y, button: 'left', clickCount: 1 });
+          await evaluate("nativeGrantLease(); delete window.nativeGrantLease;");
+          await waitFor("!activeEditorGesture && DublineEditLeases.stats().own === 0");
+          assert.deepEqual(await evaluate("({start:session.lines.find(line => line.id === 1).start,gesture:!!activeEditorGesture,queue:editorQueue.length,leases:DublineEditLeases.stats().own})"), { start: 3, gesture: false, queue: 0, leases: 0 });
+        } else {
+          await waitFor("!!document.querySelector('.editor-lease-notice')");
+          assert.equal(await evaluate("session.lines.find(line => line.id === 1).start"), 3);
+          await evaluate("nativeGrantLease(); delete window.nativeGrantLease;");
+          await waitFor("document.getElementById('line-block-1').classList.contains('editor-dragging')");
+          await win.webContents.debugger.sendCommand('Input.dispatchMouseEvent', { type: 'mouseReleased', x: location.x + 40, y: location.y, button: 'left', clickCount: 1 });
+          await waitFor("session.lines.find(line => line.id === 1).start > 3 && !editorQueue.length && !activeEditorGesture");
+        }
+        await evaluate("socket.emit = nativeLeaseEmit; void 0;");
+      }
+      await evaluate("editorUndo(); void 0;"); await waitFor("session.lines.find(line => line.id === 1).start === 3 && !editorQueue.length");
       await evaluate("document.querySelector('.track-add-btn').click();");
       await answer('Electron role');
       await waitFor("session.trackOrder.includes('Electron role')");
@@ -120,13 +158,29 @@ if (!process.versions.electron) {
       await win.loadURL(process.env.DUBLINE_EDITOR_SMOKE_URL);
       await waitFor('session?.loaded && editorConflicts.length === 1 && !editorRecoveryLoading');
       assert.equal(await evaluate('editorConflicts[0].outcome.reason'), 'conflict');
+      assert.equal(await evaluate("document.getElementById('editorSyncState').dataset.syncState"), 'conflict');
+      await waitFor('socket.io.engine.transport.writable && !socket.io.engine.upgrading && !socket.io.engine.writeBuffer.length');
       await evaluate(`
         reviewEditorConflicts();
-        // A connected transport can still be busy with handshake/clock packets.
-        // The recovery snapshot must wait for writability rather than be dropped.
-        const transport = socket.io.engine.transport;
-        transport.writable = false;
-        setTimeout(() => { transport.writable = true; socket.io.engine.flush(); }, 100);
+        window.nativeRecoveryTrace = [];
+        const original = socket.emit;
+        socket.emit = function(event, ...args) {
+          if (['editor_resync', 'editor_update_line', 'edit_lease_acquire'].includes(event)) {
+            nativeRecoveryTrace.push({ event, sent: true });
+            const callback = args.pop(); args.push((error, value) => { nativeRecoveryTrace.push({ event, error: !!error, ok: value?.ok, reason: value?.reason }); callback(error, value); });
+          }
+          return original.call(this, event, ...args);
+        };
+        // Delay one real clock packet, preserving Engine.IO's own flush/drain
+        // bookkeeping. Forcing writable=true + flush during another write can
+        // overwrite _prevBufferLen and corrupt the test's outgoing batch.
+        const transport = socket.io.engine.transport, write = transport.write;
+        transport.write = function(packets) {
+          this.write = write; this.writable = false;
+          setTimeout(() => write.call(this, packets), 100);
+        };
+        socket.emit('time_sync', Date.now(), () => {});
+        if (transport.writable) throw Error('Busy transport fixture did not start');
         document.querySelector('[data-retry-operation]').click();
       `);
       await waitFor('!editorConflicts.length && !editorQueue.length && !editorReviewBusy');
@@ -168,7 +222,7 @@ if (!process.versions.electron) {
       await new Promise(resolve => setTimeout(resolve, 100));
       assert.deepEqual(openedLinks, [WORKSHOP_URL], 'An unrelated URL reached the external browser');
       assert.equal(BrowserWindow.getAllWindows().length, 1, 'An unrelated popup was allowed');
-      console.log(JSON.stringify({ electron: process.versions.electron, checks: ['ordinary refusals without conflicts', 'add role', 'rename role', 'rename session', 'Alt+arrows', 'lost ACK/receipt/pending queue', 'real conflict/close/reload/Keep mine', 'slider reset', 'track reorder/Undo', 'protected timing/vertical move', 'track transfer/Undo', 'Files tabs', 'Escape', 'Workshop external link'], passed: true }));
+      console.log(JSON.stringify({ electron: process.versions.electron, checks: ['real RTT/compact lobby at 150%', 'controlled lease wait/early release/native drag', 'confirmed/conflict sync indicator', 'ordinary refusals without conflicts', 'add role', 'rename role', 'rename session', 'Alt+arrows', 'lost ACK/receipt/pending queue', 'real conflict/close/reload/Keep mine', 'slider reset', 'track reorder/Undo', 'protected timing/vertical move', 'track transfer/Undo', 'Files tabs', 'Escape', 'Workshop external link'], passed: true }));
       win.destroy(); app.exit(0);
     } catch (error) { console.error(error); win.destroy(); app.exit(1); }
   }).catch(error => { console.error(error); app.exit(1); });

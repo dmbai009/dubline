@@ -24,6 +24,7 @@ module.exports = function registerRoomHandlers(socket, conn) {
       require('../mediaPresence').clear(socket.id, conn.roomId);
       require('../mediaAvailability').clear(socket.id);
       require('../cursorPresence').clear(socket.id, conn.roomId);
+      require('../networkTelemetry').clear(socket.id, conn.roomId);
       socket.leave(conn.roomId);
       if (clearSocketRecordings(conn.roomId, socket.id)) broadcastRecording(conn.roomId);
       if (clearSocketSeeds(conn.roomId, socket.id)) broadcastSeeders(conn.roomId);

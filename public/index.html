@@ -1228,7 +1228,7 @@
             <button id="protectTimingsBtn" class="btn-icon" type="button" onclick="toggleProtectTimings()" aria-pressed="false"></button>
             <button class="btn-icon" type="button" onclick="editorUndo()" data-i18n="editor.undo" data-i18n-title="editor.undoTitle" title="Undo your last edit (Ctrl+Z)">↶ Undo</button>
           </div>
-          <button id="editorSyncState" class="btn-icon" hidden onclick="reviewEditorConflicts()" aria-live="polite"></button>
+          <button id="editorSyncState" class="btn-icon" hidden onclick="openEditorSyncReview()" aria-live="polite"></button>
           <div id="editorConflictPanel" class="editor-conflict-panel" hidden></div>
           <div class="scene-progress">
             <span data-i18n="progress.scene">Dubbed</span>
@@ -1263,6 +1263,7 @@
   <script src="local-database.js"></script>
   <script src="state.js"></script>
   <script src="dialogs.js"></script>
+  <script src="control-help.js"></script>
   <script src="project-audio.js"></script>
   <script src="timeline-model.js"></script>
   <script src="take-mix.js"></script>
@@ -1278,6 +1279,8 @@
   <script src="import.js"></script>
   <script src="export.js"></script>
   <script src="room.js"></script>
+  <script src="network-metrics.js"></script>
+  <script src="network-telemetry.js"></script>
   <script src="editor.js"></script>
   <script src="edit-leases.js"></script>
   <script src="track-editor.js"></script>
@@ -1301,6 +1304,7 @@
   <script src="cursor-model.js"></script>
   <script src="timeline-cursors.js"></script>
   <script src="diagnostics.js"></script>
+  <script src="action-help.js"></script>
   <style>
     #transportSeek { flex:1; min-width:70px; max-width:240px; }
     .transport-master { display:flex; align-items:center; gap:4px; font-size:11px; }

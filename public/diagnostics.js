@@ -21,6 +21,7 @@
     const begin = Math.max(0, (timelineContainer.scrollLeft - labelWidth) / pxPerSec), end = begin + timelineContainer.clientWidth / pxPerSec;
     return { build: window.DublineBuildInfo, timeline: { ...counters, totalCues: session?.lines?.length || 0, visibleCues: session?.lines?.filter(line => line.end >= begin && line.start <= end).length || 0 },
       audio: audio.cacheStats(), waveformCache: peaksCache.stats(), cpu: window.DublineCpuJobs?.stats(), cueWaveJobs: window.DublineCueWaves?.stats(),
+      network: window.DublineNetwork?.stats(),
       media: { id: session?.videoHash?.slice(0, 12), downloadRate: playerActivities.get(myName)?.downloadRate || 0, uploadRate: window.mediaUploadRate?.() || 0 },
       collaboration: { connected: socket.connected, sessionId: session?.activeSessionId, protocol: latestSessionProtocol,
         pending: editorQueue.length, conflicts: editorConflicts.length, locks: window.DublineEditLeases?.stats(), cursors: window.DublineCursorPresence?.stats() } };

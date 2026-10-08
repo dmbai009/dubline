@@ -24,7 +24,7 @@ projectInput.addEventListener('change', async () => {
   form.append('sessionId', session?.activeSessionId || '');
   form.append('project', file);
   try {
-    const response = await fetch(`/api/import-project?room=${encodeURIComponent(currentRoom)}`, { method: 'POST', body: form });
+    const response = await window.DublineNetwork.upload(`/api/import-project?room=${encodeURIComponent(currentRoom)}`, { method: 'POST', body: form });
     if (!response.ok) throw new Error(await readError(response));
     status.style.color = 'var(--success)';
     status.textContent = t('project.opened');
@@ -50,7 +50,7 @@ zipInput.addEventListener('change', async (e) => {
   formData.append('pack', file);
 
   try {
-    const res = await fetch(`/api/upload-pack?room=${encodeURIComponent(currentRoom)}`, { method: 'POST', body: formData });
+    const res = await window.DublineNetwork.upload(`/api/upload-pack?room=${encodeURIComponent(currentRoom)}`, { method: 'POST', body: formData });
     if (!res.ok) alert(await readError(res));
   } catch (err) {
     alert(t('upload.networkFailed'));
@@ -201,7 +201,7 @@ window.uploadCustomScene = async function() {
   if (intershumFile) form.append('intershum', intershumFile);
   renderCustomImportStatus();
   try {
-    const res = await fetch(`/api/upload-custom?room=${encodeURIComponent(currentRoom)}${optimize?'&optimize=1':''}`, { method: 'POST', body: form, signal:abort.signal });
+    const res = await window.DublineNetwork.upload(`/api/upload-custom?room=${encodeURIComponent(currentRoom)}${optimize?'&optimize=1':''}`, { method: 'POST', body: form, signal:abort.signal });
     if (!res.ok) throw new Error(await readError(res));
     const result = await res.json().catch(() => ({}));
     const skipped = Number(result.skippedTimings) || 0;

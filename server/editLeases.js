@@ -67,6 +67,7 @@ function register(socket, conn) {
     if (typeof ack !== 'function') return;
     if (!validMember(data)) return ack({ ok: false, reason: 'session' });
     const room = require('./rooms').getRoom(conn.roomId), targets = data.targets;
+    if (data.acquisitionId !== undefined && (typeof data.acquisitionId !== 'string' || !/^[a-f0-9-]{36}$/i.test(data.acquisitionId))) return ack({ ok: false, reason: 'invalid' });
     if (!Array.isArray(targets) || !targets.length || targets.length > MAX_TARGETS || targets.some(target =>
       !groups.has(target.group) || (target.type === 'line' ? !Number.isSafeInteger(target.key) || !room.lines.some(line => line.id === target.key)
         : target.type === 'track' ? typeof target.key !== 'string' || !room.trackOrder.includes(target.key)
@@ -77,7 +78,7 @@ function register(socket, conn) {
     const records = rooms.get(conn.roomId);
     if ([...records.values()].filter(lease => lease.socketId === socket.id).length >= 8 || records.size >= 512) return ack({ ok: false, reason: 'capacity' });
     const lease = { token: randomUUID(), socketId: socket.id, clientId: conn.clientId, nick: conn.nick,
-      sessionId: room.activeSessionId, targets: structuredClone(targets), expires: Date.now() + TTL_MS };
+      sessionId: room.activeSessionId, acquisitionId: data.acquisitionId, targets: structuredClone(targets), expires: Date.now() + TTL_MS };
     records.set(lease.token, lease); ack({ ok: true, token: lease.token, expires: lease.expires }); broadcast(conn.roomId);
   });
   socket.on('edit_lease_heartbeat', (data = {}) => {
@@ -88,6 +89,14 @@ function register(socket, conn) {
   socket.on('edit_lease_release', (data = {}) => {
     const records = rooms.get(conn.roomId), lease = records?.get(data.token);
     if (lease?.socketId === socket.id) { records.delete(data.token); broadcast(conn.roomId); }
+  });
+  socket.on('edit_lease_cancel', (data = {}) => {
+    if (typeof data.acquisitionId !== 'string' || data.acquisitionId.length !== 36) return;
+    const records = rooms.get(conn.roomId);
+    if (!records) return;
+    let changed = false;
+    for (const [token, lease] of records) if (lease.socketId === socket.id && lease.acquisitionId === data.acquisitionId) { records.delete(token); changed = true; }
+    if (changed) broadcast(conn.roomId);
   });
 }
 setInterval(() => {
