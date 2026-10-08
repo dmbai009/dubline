@@ -144,18 +144,36 @@ test('a killed Portable helper leaves a durable journal; the next helper restore
       changed: changes.changed.map(file => file.path), removed: changes.removed, restart: false, processes: [{ id: 2147483647 }] };
     const job = path.join(stage, 'job.json'); await fsp.writeFile(job, JSON.stringify(plan));
     const args = ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', helper, '-JobFile', job];
-    child = spawn('powershell.exe', args, { windowsHide: true, stdio: 'ignore' });
+    // Pause at an exact durable boundary; do not race startup and 150 writes
+    // inside a 10 s window on a loaded CI worker. Recovery uses the real helper.
+    const script = await fsp.readFile(helper, 'utf8');
+    const boundary = '    WriteAtomic $journalPath ($journal | ConvertTo-Json -Depth 30)';
+    assert.equal(script.split(boundary).length, 2, 'one journal boundary inside the replacement loop');
+    const pausedHelper = path.join(stage, 'interrupt-helper.ps1');
+    const pause = [
+      '    if ($journal.entries.Count -eq 5) {',
+      "      WriteAtomic (Join-Path ([IO.Path]::GetDirectoryName($JobFile)) 'interrupt-ready.json') '{\"ready\":true}'",
+      '      while ($true) { Start-Sleep -Milliseconds 100 }',
+      '    }'
+    ].join('\n');
+    await fsp.writeFile(pausedHelper, script.replace(boundary, boundary + '\n' + pause));
+    let stderr = '';
+    child = spawn('powershell.exe', args.map(value => value === helper ? pausedHelper : value), { windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] });
+    child.stderr.on('data', chunk => { stderr += chunk; });
     const exited = new Promise(resolve => child.once('exit', resolve));
-    const deadline = Date.now() + 10000; let interrupted = false;
+    const deadline = Date.now() + 60000; let interrupted = false, observed;
     while (Date.now() < deadline) {
       try {
-        const journal = JSON.parse(await fsp.readFile(path.join(f.a, '.dubline-update-journal.json'), 'utf8'));
-        if (journal.phase === 'applying' && journal.entries.length >= 5) { child.kill(); interrupted = true; break; }
+        const ready = JSON.parse(await fsp.readFile(path.join(stage, 'interrupt-ready.json'), 'utf8'));
+        observed = JSON.parse(await fsp.readFile(path.join(f.a, '.dubline-update-journal.json'), 'utf8'));
+        if (ready.ready && observed.phase === 'applying' && observed.entries.length === 5) { child.kill(); interrupted = true; break; }
       } catch (_) {}
-      await new Promise(resolve => setTimeout(resolve, 5));
+      if (child.exitCode !== null) break;
+      await new Promise(resolve => setTimeout(resolve, 25));
     }
-    assert.equal(interrupted, true); await exited; child = null;
+    assert.equal(interrupted, true, 'helper missed durable boundary: exit=' + child.exitCode + ', journal=' + JSON.stringify(observed) + ', stderr=' + stderr); await exited; child = null;
     assert.equal(JSON.parse(await fsp.readFile(path.join(f.a, '.dubline-update-journal.json'), 'utf8')).phase, 'applying');
+    for (const entry of observed.entries.slice(0, 4)) assert.equal(await fileHash(path.join(f.a, ...entry.path.split('/'))), await fileHash(path.join(f.b, ...entry.path.split('/'))), 'the interrupted helper really replaced files');
     const resumed = spawnSync('powershell.exe', args, { windowsHide: true, encoding: 'utf8' });
     assert.equal(resumed.status, 0, resumed.stderr);
     const outcome = JSON.parse(await fsp.readFile(path.join(stage, 'update-result.json'), 'utf8'));
