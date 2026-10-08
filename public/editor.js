@@ -427,8 +427,10 @@ function scheduleEditorPump(delay = 1000) {
 function resyncEditor() {
   if (!socket.connected) return Promise.resolve(false);
   return new Promise(resolve => {
-    // Volatile requests cannot survive offline in Socket.IO's outgoing buffer.
-    socket.volatile.timeout(EDITOR_ACK_TIMEOUT_MS).emit('editor_resync', {}, (err, result) => {
+    // This read-only request must wait behind handshake/clock packets when the
+    // connected transport is busy. ACK timeout also removes any offline buffer;
+    // mutations still use their immutable operation IDs and separate recovery.
+    socket.timeout(EDITOR_ACK_TIMEOUT_MS).emit('editor_resync', {}, (err, result) => {
       if (err || !result || !result.ok) return resolve(false);
       applySessionUpdate(result.session);
       watchModeChange();

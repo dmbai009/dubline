@@ -110,7 +110,13 @@ describe('Editor outcomes and durable recovery', { skip: skipReason, timeout: 12
     const text = await page.$eval('#editorConflictPanel', node => node.textContent);
     assert.match(text, /My durable caption/); assert.match(text, /Remote caption/); assert.match(text, /Request sent/);
     await page.click('[data-close-editor-conflicts]'); await page.click('#editorSyncState');
-    await page.click('[data-retry-operation]'); await waitFor(page, () => !editorConflicts.length && !editorQueue.length && !editorReviewBusy);
+    await page.evaluate(() => {
+      const transport = socket.io.engine.transport;
+      transport.writable = false;
+      setTimeout(() => { transport.writable = true; socket.io.engine.flush(); }, 100);
+      document.querySelector('[data-retry-operation]').click();
+    });
+    await waitFor(page, () => !editorConflicts.length && !editorQueue.length && !editorReviewBusy);
     await waitFor(other, () => session.lines[0].caption === 'My durable caption'); assert.deepEqual(await stored(), []);
   });
   test('three participants merge independent text/timing while stale assignments remain atomically protected', async () => {

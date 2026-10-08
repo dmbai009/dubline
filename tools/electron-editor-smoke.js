@@ -120,7 +120,15 @@ if (!process.versions.electron) {
       await win.loadURL(process.env.DUBLINE_EDITOR_SMOKE_URL);
       await waitFor('session?.loaded && editorConflicts.length === 1 && !editorRecoveryLoading');
       assert.equal(await evaluate('editorConflicts[0].outcome.reason'), 'conflict');
-      await evaluate('reviewEditorConflicts(); document.querySelector("[data-retry-operation]").click();');
+      await evaluate(`
+        reviewEditorConflicts();
+        // A connected transport can still be busy with handshake/clock packets.
+        // The recovery snapshot must wait for writability rather than be dropped.
+        const transport = socket.io.engine.transport;
+        transport.writable = false;
+        setTimeout(() => { transport.writable = true; socket.io.engine.flush(); }, 100);
+        document.querySelector('[data-retry-operation]').click();
+      `);
       await waitFor('!editorConflicts.length && !editorQueue.length && !editorReviewBusy');
       assert.equal(await evaluate('session.lines.find(line => line.id === 1).caption'), 'Native retained intent');
       assert.equal(await evaluate("(() => { const slider=document.getElementById('settingsMicGain'); slider.value='150'; slider.dispatchEvent(new Event('input',{bubbles:true})); slider.dispatchEvent(new MouseEvent('dblclick',{bubbles:true})); return userMicGain===1 && slider.value==='100'; })()"), true);
