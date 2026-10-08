@@ -785,10 +785,9 @@ function updateZoomLabel() {
 }
 
 // anchorX is the screen point whose time stays in place (the mouse cursor or the center)
-function setTimelineZoom(next, anchorX = timelineContainer.clientWidth / 2) {
+function setTimelineZoom(next, anchorX = timelineContainer.clientWidth / 2, anchorTime = Math.max(0, (timelineContainer.scrollLeft + anchorX - labelWidth) / pxPerSec)) {
   const clamped = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, next));
   if (Math.abs(clamped - pxPerSec) < 0.01) return;
-  const anchorTime = Math.max(0, (timelineContainer.scrollLeft + anchorX - labelWidth) / pxPerSec);
   pxPerSec = clamped;
   localStorage.setItem('dubline_zoom', String(Math.round(pxPerSec * 100) / 100));
   updateZoomLabel();

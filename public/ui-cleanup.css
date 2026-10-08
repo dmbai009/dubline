@@ -53,12 +53,13 @@ header { flex-wrap:wrap; gap:8px 12px; flex-shrink:0; }
 .audio-device-fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; }
 .audio-device-fields > label { display:flex; flex-direction:column; gap:8px; min-width:0; font-size:12px; }
 #transportSeek { order:-1; flex:1 0 calc(100% - 2px); width:100%; min-width:0; max-width:none; margin:2px 0 4px; }
-.transport-master { margin-left:auto; gap:6px; }
+.transport-options { display:flex; align-items:center; justify-content:flex-end; gap:8px; flex-wrap:wrap; min-width:0; max-width:100%; margin-left:auto; }
+.transport-master { gap:6px; }
 .transport-master output { display:inline-block; flex:0 0 4ch; width:4ch; text-align:right; font-variant-numeric:tabular-nums; }
 #masterVolume { flex:0 0 70px; min-width:70px; }
 #editorCaption { resize:vertical; width:100%; max-width:100%; min-width:0; }
 #transportCC.subtitles-off { color:#fb923c; border-color:#f97316; background:rgba(249,115,22,.15); box-shadow:0 0 10px rgba(249,115,22,.45); }
-.transport-display-actions { display:inline-flex; align-items:center; gap:8px; margin-left:auto; flex-shrink:0; }
+.transport-display-actions { display:inline-flex; align-items:center; gap:8px; flex-shrink:0; }
 #filesModal .files-card { width:820px; max-width:calc(100vw - 32px); }
 #filesModal .tab-content { min-width:0; }
 #filesModal .setting-card { margin:0 0 12px; padding:16px; }

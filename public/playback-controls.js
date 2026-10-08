@@ -46,7 +46,8 @@
   speed.addEventListener('change', () => { if (!setPreviewRate(Number(speed.value))) speed.value = String(video.playbackRate); }); transport.append(speed);
   const displayActions = document.createElement('span'); displayActions.className = 'transport-display-actions';
   displayActions.append(document.getElementById('transportExpandBtn'), transport.querySelector('[data-studio-action="fullscreen"]'));
-  transport.append(displayActions);
+  const options = document.createElement('div'); options.className = 'transport-options';
+  options.append(masterLabel, cc, speed, displayActions); transport.append(options);
   const seek = document.createElement('input'); Object.assign(seek, { type: 'range', id: 'transportSeek', min: '0', max: '1', step: '0.001', value: '0' }); seek.setAttribute('aria-label', t('playback.seek'));
   seek.addEventListener('input', () => { if (studioCanTransport()) { window.transportScrubbing = true; video.currentTime = Number(seek.value); window.sendHostSync?.(true); } });
   const finishSeek = () => { if (window.transportScrubbing) { window.transportScrubbing = false; window.sendHostSync?.(false); } };

@@ -76,7 +76,7 @@
   const map = document.createElement('canvas'); map.id = 'timelineMinimap'; map.height = 36; map.setAttribute('aria-label', t('find.minimap')); map.title = t('find.minimap');
   footer.append(map, nav); panel.append(footer);
   const density = document.createElement('canvas');
-  let dirty = true, frame = null, signature = '', dragging = false;
+  let dirty = true, frame = null, signature = '', gesture = null, palette = null;
   function invalidateMinimap() { dirty = true; scheduleMap(); }
   function scheduleMap() { if (frame === null) frame = requestAnimationFrame(drawMap); }
   function drawMap() {
@@ -87,41 +87,94 @@
     if (dirty || signature !== nextSignature) {
       const lines = (session?.lines || []).filter(visible);
       density.width = Math.round(width * dpr); density.height = Math.round(height * dpr);
+      const style = getComputedStyle(map);
+      const color = name => style.getPropertyValue('--' + name).trim();
+      palette = { background: color('panel-2'), line: color('accent'), recorded: color('success'), retake: color('warning'), viewport: color('accent-soft'), border: color('text'), playhead: color('danger') };
       const ctx = density.getContext('2d'); ctx.scale(dpr, dpr); ctx.clearRect(0, 0, width, height);
-      ctx.fillStyle = '#272733'; ctx.fillRect(0, 0, width, height);
+      ctx.fillStyle = palette.background; ctx.fillRect(0, 0, width, height);
       for (const line of lines) {
         const x = line.start / seconds * width, w = Math.max(1, (line.end - line.start) / seconds * width);
-        ctx.fillStyle = line.needsRetake ? '#f59e0b' : line.audioUrl ? '#22c55e' : '#8b5cf6'; ctx.globalAlpha = .65;
+        ctx.fillStyle = line.needsRetake ? palette.retake : line.audioUrl ? palette.recorded : palette.line; ctx.globalAlpha = .65;
         ctx.fillRect(x, 5, w, height - 10);
       }
       ctx.globalAlpha = 1; signature = nextSignature; dirty = false;
     }
     map.width = density.width; map.height = density.height;
     const ctx = map.getContext('2d'); ctx.drawImage(density, 0, 0); ctx.scale(dpr, dpr);
-    const left = timelineContainer.scrollLeft / pxPerSec / seconds * width;
-    const viewport = Math.max(0, timelineContainer.clientWidth - labelWidth) / pxPerSec / seconds * width;
-    ctx.fillStyle = '#ffffff18'; ctx.fillRect(left, 1, viewport, height - 2);
-    ctx.strokeStyle = '#e4e4e7'; ctx.lineWidth = 1; ctx.strokeRect(left + .5, 1.5, Math.max(1, viewport - 1), height - 3);
-    ctx.fillStyle = '#ef4444'; ctx.fillRect(video.currentTime / seconds * width, 0, 2, height);
+    const viewport = viewportBounds();
+    const left = viewport.left / seconds * width, span = (viewport.right - viewport.left) / seconds * width;
+    ctx.fillStyle = palette.viewport; ctx.fillRect(left, 1, span, height - 2);
+    ctx.strokeStyle = palette.border; ctx.lineWidth = 1; ctx.strokeRect(left + .5, 1.5, Math.max(1, span - 1), height - 3);
+    ctx.fillStyle = palette.playhead; ctx.fillRect(video.currentTime / seconds * width, 0, 2, height);
   }
+  function viewportBounds() {
+    const total = timelineSeconds() + TIMELINE_TAIL;
+    const left = Math.min(total, timelineContainer.scrollLeft / pxPerSec);
+    const available = Math.max(0, timelineContainer.clientWidth - labelWidth);
+    return { total, left, right: Math.min(total, left + available / pxPerSec), available };
+  }
+  function edgeAt(event, bounds, box) {
+    const x = event.clientX - box.left;
+    const left = bounds.left / bounds.total * box.width, right = bounds.right / bounds.total * box.width;
+    const a = Math.abs(x - left), b = Math.abs(x - right);
+    return Math.min(a, b) <= 7 ? (a <= b ? 'left' : 'right') : null;
+  }
+  map.addEventListener('pointermove', event => {
+    if (!gesture) map.style.cursor = edgeAt(event, viewportBounds(), map.getBoundingClientRect()) ? 'ew-resize' : 'grab';
+  });
+  map.addEventListener('pointerleave', () => { if (!gesture) map.style.cursor = ''; });
   map.addEventListener('pointerdown', event => {
-    if (event.button !== 0) return;
-    event.preventDefault(); map.setPointerCapture(event.pointerId); dragging = true;
-    const box = map.getBoundingClientRect(), total = timelineSeconds() + TIMELINE_TAIL;
-    const left = timelineContainer.scrollLeft / pxPerSec, span = Math.max(0, timelineContainer.clientWidth - labelWidth) / pxPerSec;
+    if (event.button !== 0 || gesture || !session?.loaded) return;
+    const bounds = viewportBounds(), box = map.getBoundingClientRect();
+    if (!bounds.available || !box.width) return;
+    event.preventDefault(); map.setPointerCapture(event.pointerId);
+    const { total, left, right, available } = bounds, span = right - left;
+    const edge = edgeAt(event, bounds, box), sessionId = session.activeSessionId;
     const time = (event.clientX - box.left) / box.width * total;
     const within = time >= left && time <= left + span;
-    const originScroll = timelineContainer.scrollLeft, originX = event.clientX;
-    let pending = within ? originScroll : (time - span / 2) * pxPerSec, scrollFrame = null;
-    const paint = () => { scrollFrame = null; timelineContainer.scrollLeft = pending; };
-    paint();
-    const move = nextEvent => { pending = within ? originScroll + (nextEvent.clientX - originX) / box.width * total * pxPerSec : ((nextEvent.clientX - box.left) / box.width * total - span / 2) * pxPerSec; if (scrollFrame === null) scrollFrame = requestAnimationFrame(paint); };
-    const finish = () => { if (!dragging) return; dragging = false; if (scrollFrame !== null) cancelAnimationFrame(scrollFrame); paint(); map.removeEventListener('pointermove', move); map.removeEventListener('pointerup', finish); map.removeEventListener('pointercancel', finish); map.removeEventListener('lostpointercapture', finish); window.removeEventListener('blur', finish); };
+    const originScroll = timelineContainer.scrollLeft, originX = event.clientX, originScale = pxPerSec;
+    let pending = event.clientX, scrollFrame = null, lastZoomFrame = null;
+    const paint = () => {
+      scrollFrame = null;
+      if (session?.activeSessionId !== sessionId) return;
+      if (edge) {
+        const nextTime = Math.max(0, Math.min(total, (edge === 'left' ? left : right) + (pending - originX) / box.width * total));
+        const nextSpan = edge === 'left' ? right - nextTime : nextTime - left;
+        // The opposite edge is an explicit time anchor, including rapid events
+        // arriving before the previous zoom render has run.
+        setTimelineZoom(available / Math.max(available / ZOOM_MAX, nextSpan), edge === 'left' ? timelineContainer.clientWidth : labelWidth, edge === 'left' ? right : left);
+        lastZoomFrame = zoomFrame;
+      } else {
+        timelineContainer.scrollLeft = within ? originScroll + (pending - originX) / box.width * total * originScale : ((pending - box.left) / box.width * total - span / 2) * originScale;
+      }
+      scheduleMap();
+    };
+    const move = nextEvent => {
+      if (nextEvent.pointerId !== event.pointerId) return;
+      pending = nextEvent.clientX; if (scrollFrame === null) scrollFrame = requestAnimationFrame(paint);
+    };
+    const finish = endEvent => {
+      if (gesture?.finish !== finish) return;
+      if (scrollFrame !== null) cancelAnimationFrame(scrollFrame);
+      if (endEvent.type === 'pointerup') { pending = endEvent.clientX; paint(); }
+      if (endEvent.type === 'scene' && lastZoomFrame !== null && zoomFrame === lastZoomFrame) cancelAnimationFrame(zoomFrame);
+      map.removeEventListener('pointermove', move); map.removeEventListener('pointerup', finish); map.removeEventListener('pointercancel', finish); map.removeEventListener('lostpointercapture', finish); window.removeEventListener('blur', finish);
+      gesture = null;
+      if (map.hasPointerCapture(event.pointerId)) map.releasePointerCapture(event.pointerId);
+      map.style.cursor = ''; scheduleMap();
+    };
+    gesture = { finish, sessionId }; map.style.cursor = edge ? 'ew-resize' : 'grabbing';
+    if (!edge) paint();
     map.addEventListener('pointermove', move); map.addEventListener('pointerup', finish); map.addEventListener('pointercancel', finish); map.addEventListener('lostpointercapture', finish); window.addEventListener('blur', finish);
   });
   timelineContainer.addEventListener('scroll', scheduleMap, { passive: true }); video.addEventListener('timeupdate', scheduleMap);
   new ResizeObserver(invalidateMinimap).observe(footer);
-  for (const event of ['session_updated', 'line_updated', 'takes_updated', 'editor_lines_updated']) socket.on(event, () => { refreshRoles(); applyFilters(); });
+  for (const event of ['session_updated', 'line_updated', 'takes_updated', 'editor_lines_updated']) socket.on(event, () => {
+    if (gesture && gesture.sessionId !== session?.activeSessionId) gesture.finish({ type: 'scene' });
+    refreshRoles(); applyFilters();
+  });
+  new MutationObserver(invalidateMinimap).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'style'] });
+  window.addEventListener('dubline-language-changed', () => { map.title = t('find.minimap'); map.setAttribute('aria-label', map.title); });
   window.addEventListener('dubline-language-changed', refreshTimelineNavigation);
   refreshTimelineNavigation();
 })();

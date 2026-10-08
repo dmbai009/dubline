@@ -44,6 +44,103 @@ describe('UI cleanup and local audio devices', { skip: skipReason, timeout: 1200
   });
   afterEach(async () => { assert.deepEqual(page.errors, []); await page.browserContext().close(); });
 
+  async function mapView() {
+    return page.evaluate(() => {
+      const box = document.getElementById('timelineMinimap').getBoundingClientRect(), total = timelineSeconds() + TIMELINE_TAIL;
+      const left = timelineContainer.scrollLeft / pxPerSec, right = left + (timelineContainer.clientWidth - labelWidth) / pxPerSec;
+      return { left, right, scale: pxPerSec, x: box.left, y: box.top + box.height / 2, width: box.width, leftX: box.left + left / total * box.width, rightX: box.left + Math.min(total, right) / total * box.width };
+    });
+  }
+  async function dragMap(x, y, targetX) {
+    await page.mouse.move(x, y); await page.mouse.down(); await page.mouse.move(targetX, y, { steps: 8 }); await page.mouse.up();
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  }
+
+  test('minimap repaints immediately with a distinct background for each theme', async () => {
+    const pixels = [];
+    for (const theme of ['midnight', 'graphite', 'light', 'ocean', 'forest', 'sunset']) {
+      await page.evaluate(theme => { document.documentElement.dataset.theme = theme; }, theme);
+      await waitFor(page, () => {
+        const map = document.getElementById('timelineMinimap'), ctx = map.getContext('2d'), expected = document.createElement('canvas').getContext('2d');
+        expected.fillStyle = getComputedStyle(map).getPropertyValue('--panel-2'); expected.fillRect(0, 0, 1, 1);
+        return JSON.stringify([...ctx.getImageData(Math.floor(map.width / 2), 0, 1, 1).data]) === JSON.stringify([...expected.getImageData(0, 0, 1, 1).data]);
+      });
+      pixels.push(await page.$eval('#timelineMinimap', map => [...map.getContext('2d').getImageData(Math.floor(map.width / 2), 0, 1, 1).data]));
+    }
+    assert.equal(new Set(pixels.map(pixel => pixel.join(','))).size, 6);
+    assert.ok(pixels[2].slice(0, 3).every(channel => channel > 230), 'light theme must actually paint a light canvas');
+    for (const language of ['ru', 'en', 'uk']) {
+      await page.evaluate(language => i18n.setLanguage(language), language);
+      assert.equal(await page.$eval('#timelineMinimap', map => map.title), await page.evaluate(() => t('find.minimap')));
+    }
+  });
+
+  test('both minimap edges zoom around the opposite edge while center drag only scrolls', async () => {
+    await page.evaluate(() => { setTimelineZoom(180); video.currentTime = 2; });
+    await waitFor(page, () => timeline.scrollWidth > timelineContainer.clientWidth);
+    await page.evaluate(() => { timelineContainer.scrollLeft = 2 * pxPerSec; });
+    const project = await page.evaluate(() => JSON.stringify([session.lines, session.projectAudio]));
+    const clickOnly = await mapView();
+    await page.mouse.click(clickOnly.rightX - 4, clickOnly.y);
+    assert.ok(Math.abs((await mapView()).scale - clickOnly.scale) < .01, 'an edge click without a drag must not jump');
+    for (const edge of ['right', 'left']) {
+      for (const outward of [false, true]) {
+        const before = await mapView(), x = edge === 'right' ? before.rightX : before.leftX;
+        await page.mouse.move(x, before.y);
+        assert.equal(await page.$eval('#timelineMinimap', map => getComputedStyle(map).cursor), 'ew-resize');
+        const delta = (edge === 'right' ? 1 : -1) * (outward ? 60 : -40);
+        await dragMap(x, before.y, x + delta);
+        const after = await mapView();
+        assert.ok(outward ? after.scale < before.scale : after.scale > before.scale, `${edge} outward=${outward}`);
+        assert.ok(Math.abs((edge === 'right' ? after.left - before.left : after.right - before.right)) < .02, 'opposite edge stays anchored');
+      }
+    }
+    const before = await mapView();
+    await dragMap((before.leftX + before.rightX) / 2, before.y, (before.leftX + before.rightX) / 2 + 25);
+    const after = await mapView();
+    assert.equal(after.scale, before.scale); assert.ok(after.left > before.left);
+    assert.equal(await page.evaluate(() => video.currentTime), 2);
+    assert.equal(await page.evaluate(() => JSON.stringify([session.lines, session.projectAudio])), project);
+    assert.equal(await page.$eval('#timelineMinimap', map => map.clientHeight), 36, 'overview keeps its visual height');
+    assert.equal(Number(await page.evaluate(() => localStorage.getItem('dubline_zoom'))), Math.round(after.scale * 100) / 100);
+  });
+
+  test('minimap zoom respects limits and stops on cancellation and scene switch', async () => {
+    await page.evaluate(() => setTimelineZoom(180));
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    let before = await mapView();
+    await dragMap(before.rightX, before.y, before.x - 100);
+    assert.equal((await mapView()).scale, await page.evaluate(() => ZOOM_MAX));
+    before = await mapView();
+    await dragMap(before.rightX, before.y, before.x + before.width + 100);
+    assert.ok((await mapView()).scale >= await page.evaluate(() => ZOOM_MIN));
+    await page.evaluate(() => setTimelineZoom(180));
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    for (const cancel of ['pointercancel', 'blur', 'scene']) {
+      before = await mapView();
+      await page.mouse.move(before.rightX, before.y); await page.mouse.down();
+      if (cancel === 'scene') {
+        const id = await page.evaluate(() => session.activeSessionId); await loadFixture(page);
+        await waitFor(page, id => session.activeSessionId !== id, 5000, id);
+      } else await page.evaluate(cancel => cancel === 'blur' ? window.dispatchEvent(new Event('blur')) : document.getElementById('timelineMinimap').dispatchEvent(new PointerEvent('pointercancel', { pointerId: 1 })), cancel);
+      const stopped = await mapView();
+      await page.mouse.move(before.rightX - 80, before.y); await page.mouse.up();
+      assert.equal((await mapView()).scale, stopped.scale, `no stale resize after ${cancel}`);
+    }
+    assert.equal(await page.$eval('#timelineMinimap', map => map.hasPointerCapture(1)), false);
+  });
+
+  test('Edit warning keeps its background without panel frames, and the host badge has balanced padding', async () => {
+    await page.evaluate(() => setStudioMode('edit')); await waitFor(page, () => session.mode === 'edit');
+    await page.click('#line-block-1');
+    const styles = await page.evaluate(() => {
+      const banner = getComputedStyle(document.querySelector('.edit-banner')), host = getComputedStyle(hostPanel);
+      return { shadow: getComputedStyle(document.querySelector('.timeline-panel')).boxShadow, outline: getComputedStyle(timelineContainer).outlineStyle, banner: banner.display !== 'none' && banner.backgroundImage !== 'none', paddingLeft: host.paddingLeft, paddingRight: host.paddingRight };
+    });
+    assert.deepEqual(styles, { shadow: 'none', outline: 'none', banner: true, paddingLeft: '12px', paddingRight: '12px' });
+    await page.keyboard.press('Space'); await waitFor(page, () => !video.paused); await page.keyboard.press('Space'); await waitFor(page, () => video.paused);
+  });
+
   test('host and moderator actions follow accepted mode changes without reloading', async () => {
     const moderator = await openPlayer(browser, server.url(`ui-cleanup-${serial}`), 'Moderator');
     try {
@@ -286,9 +383,11 @@ describe('UI cleanup and local audio devices', { skip: skipReason, timeout: 1200
       const actions = await page.evaluate(() => {
         const speed = document.getElementById('previewRate'), expand = document.getElementById('transportExpandBtn'), fullscreen = document.querySelector('[data-studio-action=fullscreen]');
         const a = expand.getBoundingClientRect(), b = fullscreen.getBoundingClientRect(), bar = document.querySelector('.studio-transport').getBoundingClientRect();
-        return { order: !!(speed.compareDocumentPosition(expand) & Node.DOCUMENT_POSITION_FOLLOWING), aligned: a.right <= b.left && b.right <= bar.right && b.right >= bar.right - 16 };
+        const options = speed.closest('.transport-options'), master = document.querySelector('.transport-master'), cc = document.getElementById('transportCC');
+        const grouped = options.contains(master) && options.contains(cc) && options.contains(fullscreen) && Math.abs(options.getBoundingClientRect().right - b.right) < 2;
+        return { order: !!(speed.compareDocumentPosition(expand) & Node.DOCUMENT_POSITION_FOLLOWING), aligned: a.right <= b.left && b.right <= bar.right && b.right >= bar.right - 16, grouped };
       });
-      assert.deepEqual(actions, { order: true, aligned: true });
+      assert.deepEqual(actions, { order: true, aligned: true, grouped: true });
     }
     for (const [width, height] of [[1024, 768], [1280, 720], [1920, 1080]]) { await page.setViewport({ width, height }); await check(); }
     await page.evaluate(() => toggleExpandedVideo()); await check();

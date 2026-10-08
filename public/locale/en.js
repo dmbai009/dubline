@@ -684,7 +684,7 @@ window.DublineLocales.en = {
   "find.next": "Next match",
   "find.close": "Close search",
   "find.matches": "{n} matches",
-  "find.minimap": "Scene overview: click to center the viewport, drag to scroll",
+  "find.minimap": "Scene overview: click to center the viewport, drag to scroll, drag viewport edges to zoom",
   "media.downloading": "Downloading {pct}%",
   "media.preparing": "Preparing media…",
   "media.ready": "Ready",
