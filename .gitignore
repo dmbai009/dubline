@@ -9,6 +9,7 @@ data/
 dist/
 /build/third-party-licenses/
 /build/update-qa/
+/build/ui-cleanup-qa/
 /audit/
 resources/cloudflared.exe
 resources/cloudflared.exe.download

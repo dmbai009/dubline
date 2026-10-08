@@ -50,16 +50,17 @@ test('coordinate conversion includes an already-scrolled and zoomed origin', () 
   assert.equal(timeline.coordinate(500, 200, 60), 5);
 });
 test('ADR volume controls speaker cue gain without connecting to a recording destination', () => {
-  const levels = [], connections = [];
+  const levels = [], connections = [], gains = [];
   class Context {
     constructor() { this.destination = 'speakers'; this.currentTime = 0; }
-    createGain() { return { gain: { setValueAtTime() {}, linearRampToValueAtTime(value) { if (value) levels.push(value); } }, connect(to) { connections.push(to); }, disconnect() {} }; }
+    createGain() { const node = { gain: { setValueAtTime() {}, linearRampToValueAtTime(value) { if (value) levels.push(value); } }, connect(to) { connections.push(to); }, disconnect() {} }; gains.push(node); return node; }
     createOscillator() { return { frequency: {}, connect() {}, start() {}, stop() {}, disconnect() {} }; }
   }
   let volume = 0.25; const cues = adr.create(Context, () => volume);
   cues.arm(3); assert.deepEqual(levels, [0.03, 0.03, 0.03]);
   volume = 1; cues.arm(3); assert.deepEqual(levels.slice(3), [0.12, 0.12, 0.12]);
-  assert.ok(connections.every(to => to === 'speakers'));
+  assert.equal(connections.filter(to => to === 'speakers').length, 1);
+  assert.ok(connections.every(to => to === 'speakers' || to === gains[0]), 'cue gain nodes connect only through the listening master bus');
 });
 test('persisted enabled ADR clamps preparation on reload and keeps cue volume local', () => {
   const values = new Map([['dubline_adr', 'three'], ['dubline_pre_roll', '1'], ['dubline_adr_volume', '0.35']]);

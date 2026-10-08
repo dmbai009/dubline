@@ -70,7 +70,7 @@ test('ADR schedules three one-second beats ahead of time, cancels all nodes and 
   assert.equal(adr.preparation(1, false), 1); assert.equal(adr.preparation(0.1, true), 3); assert.equal(adr.preparation(5, true), 5);
   assert.equal(oscillators.length, 0, 'off by default');
   cues.arm(5);
-  assert.equal(oscillators.length, 3); assert.equal(connected.filter(target => target === 'speakers').length, 3);
+  assert.equal(oscillators.length, 3); assert.equal(connected.filter(target => target === 'speakers').length, 1, 'all cues share one listening-only master bus');
   assert.deepEqual(oscillators.map(node => node.at), [2, 3, 4], 'UI ticks are not needed, including in a background tab');
   cues.stop(); assert.equal(oscillators.length, 3); assert.ok(oscillators.every(node => node.stopped));
 });

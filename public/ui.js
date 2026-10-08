@@ -15,14 +15,6 @@
   const monitoring = document.createElement('div'); monitoring.className = 'setting-card';
   monitoring.innerHTML = '<label data-i18n="studio.mixMode"></label><select data-studio-mix class="text-input"><option value="project" data-i18n="studio.projectMix"></option><option value="monitor" data-i18n="studio.monitor"></option></select><div class="setting-sub" data-i18n="studio.monitorHelp"></div>';
   personal.appendChild(monitoring);
-  const card = document.createElement('div'); card.id = 'projectMixSettings'; card.className = 'setting-card';
-  card.innerHTML = '<div class="setting-label" data-i18n="studio.projectMix"></div><div class="setting-sub" data-i18n="studio.projectHelp"></div>';
-  for (const channel of ['original', 'backing', 'dub']) {
-    const row = document.createElement('div'); row.className = 'setting-card-row'; row.dataset.projectChannel = channel;
-    row.innerHTML = '<span data-i18n="studio.' + channel + '"></span><label><input type="range" min="0" max="150" step="1" data-project-field="volume" data-reset-resolver="project-volume" data-reset-event="change"><output></output></label><button class="btn-outline" data-project-field="muted" data-i18n="studio.mute"></button><button class="btn-outline" data-project-field="solo" data-i18n="studio.solo"></button>' + (channel === 'dub' ? '' : '<label><span data-i18n="studio.offset"></span><input class="text-input" type="number" min="-43200" max="43200" step="0.01" data-project-field="offset"></label>');
-    card.appendChild(row);
-  }
-  shared.prepend(card);
   DublineI18n.apply(personal);
   DublineI18n.apply(shared);
 })();
@@ -455,6 +447,7 @@ window.addEventListener('dubline-language-changed', () => {
   if (connectionState === 'offline') setConnectionState('offline');
   if (session && session.loaded) renderTimeline();
   if (selectedLine) showInspector(selectedLine);
+  else inspector.innerHTML = `<h3>${t('inspector.title')}</h3><p>${t('inspector.empty')}</p>`;
   renderChatHistory();
   updateExportDurationWarning();
   renderDesktopInvite();

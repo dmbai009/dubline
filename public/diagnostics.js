@@ -14,7 +14,7 @@
   const panel = document.createElement('details'); panel.className = 'setting-card'; panel.id = 'performanceDiagnostics';
   const title = document.createElement('summary'), output = document.createElement('pre');
   output.style.cssText = 'white-space:pre-wrap;font-size:11px;max-height:300px;overflow:auto';
-  panel.append(title, output); document.getElementById('tabContentPlayer').append(panel);
+  panel.append(title, output); window.addSettingsCard('user', 'storage', panel);
   function titleText() { title.textContent = ({ en: 'Advanced diagnostics', ru: 'Расширенная диагностика', uk: 'Розширена діагностика' })[DublineI18n.getLanguage()] || 'Advanced diagnostics'; }
   window.addEventListener('dubline-language-changed', titleText); titleText();
   function sample() {

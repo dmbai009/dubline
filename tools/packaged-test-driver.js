@@ -46,17 +46,17 @@ class Inspector {
     const socket = new WebSocket(endpoint); await once(socket, 'open'); return new Inspector(socket);
   }
 }
-async function launch(executable, profile, beforeStart = '') {
+async function launch(executable, profile, beforeStart = '', { appPath = '' } = {}) {
   const inspectorPort = await port(), browserPort = await port();
   const env = { ...process.env, DUBLINE_USER_DATA_DIR: profile }; delete env.ELECTRON_RUN_AS_NODE;
-  const child = spawn(executable, [`--inspect-brk=${inspectorPort}`, `--remote-debugging-port=${browserPort}`, '--disable-gpu', '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows', '--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'],
+  const child = spawn(executable, [...(appPath ? [appPath] : []), `--inspect-brk=${inspectorPort}`, `--remote-debugging-port=${browserPort}`, '--disable-gpu', '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows', '--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'],
     { windowsHide: true, env, stdio: ['ignore', 'pipe', 'pipe'] });
   let log = ''; for (const stream of [child.stdout, child.stderr]) stream.on('data', data => { log = (log + data).slice(-32768); });
   const inspector = await Inspector.connect(inspectorPort);
   const paused = inspector.event('Debugger.paused'); await inspector.call('Debugger.enable'); await inspector.call('Runtime.runIfWaitingForDebugger');
   const frame = (await paused).callFrames[0];
   const prepared = await inspector.call('Debugger.evaluateOnCallFrame', { callFrameId: frame.callFrameId,
-    expression: `(()=>{ globalThis.__dublineTestRequire = require; globalThis.__dublineTestUpdater = () => updateAdapter; globalThis.__dublineTestServerPid = () => serverChild?.pid; const e = require('electron'); e.BrowserWindow.prototype.show = function() {}; e.dialog.showErrorBox = (title,message) => console.error('Native startup error:',title,message); e.app.on('browser-window-created', (_, window) => window.webContents.setBackgroundThrottling(false)); ${beforeStart}; return 'prepared'; })()`, returnByValue: true });
+    expression: `(()=>{ globalThis.__dublineTestRequire = typeof require === 'function' ? require : process.getBuiltinModule('module').createRequire(${JSON.stringify(appPath ? require('node:path').join(appPath, 'package.json') : executable)}); globalThis.__dublineTestUpdater = () => updateAdapter; globalThis.__dublineTestServerPid = () => serverChild?.pid; const e = globalThis.__dublineTestRequire('electron'); e.BrowserWindow.prototype.show = function() {}; e.dialog.showErrorBox = (title,message) => console.error('Native startup error:',title,message); e.app.on('browser-window-created', (_, window) => window.webContents.setBackgroundThrottling(false)); ${beforeStart}; return 'prepared'; })()`, returnByValue: true });
   if (prepared.exceptionDetails) { child.kill(); throw Error(JSON.stringify(prepared.exceptionDetails)); }
   await inspector.call('Debugger.resume');
   return { child, inspector, browserPort, log: () => log };

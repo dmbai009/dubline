@@ -361,6 +361,7 @@ function renderSessions() {
   const items = sessionItems();
   const host = amHost();
   sessionBtnTitle.textContent = session && session.loaded ? session.title : t('sessions.none');
+  document.getElementById('sessionBtn').title = sessionBtnTitle.textContent;
   sessionsNewBtn.style.display = host ? '' : 'none';
 
   if (!items.length) {
@@ -418,7 +419,10 @@ window.renameSession = async function(id) {
 window.deleteSession = async function(id) {
   const item = sessionItems().find(entry => entry.id === id);
   if (!item) return;
-  if (!await askConfirm(t('sessions.deleteConfirm', { title: item.title || '—', takes: item.recorded }))) return;
+  if (!amHost()) return;
+  const message = t('sessions.deleteConfirm', { title: item.title || '—', takes: item.recorded, retained: t(item.kind === 'pack' ? 'sessions.deleteRetained.pack' : 'sessions.deleteRetained.custom') });
+  if (!await askConfirm(message, { danger: true, confirmKey: 'sessions.delete' })) return;
+  if (!amHost() || !sessionItems().some(entry => entry.id === id)) return;
   socket.emit('host_delete_session', { id });
 };
 

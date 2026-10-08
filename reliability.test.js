@@ -130,6 +130,7 @@ test('cancelling ADR before AudioContext resumes cannot start delayed beeps', as
   let resume, starts = 0;
   class Context {
     constructor() { this.state = 'suspended'; }
+    createGain() { return { gain: { setValueAtTime() {} }, connect() {} }; }
     resume() { return new Promise(resolve => { resume = resolve; }); }
     createOscillator() { starts++; throw new Error('must not create cancelled cues'); }
   }

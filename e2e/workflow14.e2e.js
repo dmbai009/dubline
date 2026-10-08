@@ -55,14 +55,16 @@ describe('1.4 dialogs, settings and bounded timeline', { skip: skipReason, timeo
     assert.equal(await host.evaluate(() => preRollSeconds), 0); await host.evaluate(() => closeSettingsModal());
   });
   test('personal controls are in My Settings; shared values remain visible and disabled to Dub guests', async () => {
-    assert.ok(await guest.$eval('#projectMixSettings', node => node.textContent.includes('Project mix') && node.textContent.includes('Background / M&E') && node.textContent.includes('Original')));
+    assert.equal(await guest.$('#projectMixSettings'), null, 'project mix has one home on the timeline');
+    assert.equal(await guest.$$eval('.studio-audio-row', rows => rows.length), 3);
     const placements = await guest.evaluate(() => ['settingsLocalDuck', 'settingsPrompter', 'settingsHideMyTakes', 'settingsAdrVolume', 'settingsP2P'].map(id => document.getElementById(id).closest('.tab-content').id));
     assert.ok(placements.every(id => id === 'tabContentUser'));
     await guest.evaluate(() => { openSettingsModal(); switchSettingsTab('player'); });
-    assert.equal(await guest.$$eval('[data-project-field]', controls => controls.every(node => node.disabled && node.title.length)), true);
+    assert.equal(await guest.$$eval('[data-audio-field=offset]', controls => controls.length === 2 && controls.every(node => node.disabled)), true);
+    assert.equal(await guest.$$eval('[data-audio-field=volume]', controls => controls.length === 3 && controls.every(node => !node.disabled)), true, 'guest monitoring remains usable');
     assert.equal(await guest.$eval('#roomPasswordInput', node => node.disabled), true);
     await host.evaluate(() => setStudioMode('edit')); await waitFor(guest, () => session.mode === 'edit');
-    assert.equal(await guest.$$eval('[data-project-field]', controls => controls.every(node => !node.disabled)), true);
+    assert.equal(await guest.$$eval('[data-audio-field=offset]', controls => controls.length === 2 && controls.every(node => !node.disabled)), true);
     await guest.evaluate(() => closeSettingsModal());
   });
   test('bounds reject server creates and inspector edits beyond real duration; empty track clicks seek with zoom and scroll', async () => {

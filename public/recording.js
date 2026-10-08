@@ -129,13 +129,11 @@ window.handleStudioRecord = async function(lineId) {
   const recordingNick = myName;
   let recordingMic;
   try {
-    recordingMic = await navigator.mediaDevices.getUserMedia({
-      audio: {
+    recordingMic = await window.DublineAudioDevices.capture({
         echoCancellation: noiseSuppression,
         noiseSuppression,
         autoGainControl: false,
         channelCount: 1
-      }
     });
   } catch (err) {
     alert(t('error.mic'));
@@ -148,6 +146,7 @@ window.handleStudioRecord = async function(lineId) {
       (session.activeSessionId || '') !== recordingSessionId || currentRoom !== recordingRoom || myName !== recordingNick ||
       !takeSequence || !currentLine || getLineOwner(currentLine) !== recordingNick) {
     recordingMic.getTracks().forEach(track => track.stop());
+    window.DublineAudioDevices.release(recordingMic);
     if (!takeSequence && !socket.connected) showToast(t('record.connectionRequired'));
     return;
   }
@@ -368,6 +367,7 @@ function finishRecording({ discard = false } = {}) {
   activeRecording = null;
   recordingLineId = null;
   operation.stream.getTracks().forEach(track => track.stop());
+  window.DublineAudioDevices.release(operation.stream);
   if (micStream === operation.stream) micStream = null;
 
   video.pause();

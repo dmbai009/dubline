@@ -3,12 +3,12 @@
   let actors = new Map(), scene = null, sequence = 0, hz = 15, latest = null, timer = null, frame = null, subscription = '';
   let visible = true; try { visible = localStorage.getItem('dubline_cursors') !== '0'; } catch { /* private profile */ }
   const layer = document.createElement('div'); layer.id = 'collaboratorCursors'; layer.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:29;'; document.body.append(layer);
-  const personal = document.createElement('label'); personal.className = 'setting-card-row';
-  personal.innerHTML = '<span data-i18n="cursor.show"></span><input type="checkbox">';
-  const toggle = personal.querySelector('input'); toggle.checked = visible; document.getElementById('tabContentUser').append(personal);
-  const shared = document.createElement('label'); shared.className = 'setting-card-row';
+  const personal = document.createElement('label'); personal.className = 'setting-card';
+  personal.innerHTML = '<div class="setting-card-row"><span class="setting-label" data-i18n="cursor.show"></span><label class="switch-ui"><input id="settingsCollaboratorCursors" type="checkbox"><span class="switch-slider"></span></label></div>';
+  const toggle = personal.querySelector('input'); toggle.checked = visible; window.addSettingsCard('user', 'interface', personal); toggle.setAttribute('aria-label', t('cursor.show')); window.addEventListener('dubline-language-changed', () => toggle.setAttribute('aria-label', t('cursor.show')));
+  const shared = document.createElement('label'); shared.className = 'setting-card';
   shared.innerHTML = '<span data-i18n="cursor.hz"></span><input class="text-input" type="number" min="5" max="30" step="1" value="15">';
-  const rate = shared.querySelector('input'); document.getElementById('tabContentPlayer').append(shared); i18n.apply();
+  const rate = shared.querySelector('input'); window.addSettingsCard('player', 'room', shared); i18n.apply();
   function close(id) { const peer = direct.get(id); if (!peer) return; direct.delete(id); clearTimeout(peer.timer); try { peer.channel?.close(); peer.pc.close(); } catch { /* closed */ } }
   function clear() { for (const id of [...direct.keys()]) close(id); samples.clear(); receiveRates.clear(); earlyCandidates.clear(); layer.replaceChildren(); latest = null; subscription = ''; }
   function rowFor(packet) {

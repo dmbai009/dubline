@@ -423,7 +423,7 @@ function createHostWindow(port) {
   const localOrigin = `http://127.0.0.1:${port}`;
   mainWindow = new BrowserWindow({
     ...windowOptions(path.join(__dirname, 'electron-preload.js')),
-    width: 1500, height: 900, minWidth: 1280, minHeight: 720
+    width: 1500, height: 900, minWidth: 900, minHeight: 650
   });
   mainWindow.webContents.setWindowOpenHandler(createWorkshopLinkHandler(url => shell.openExternal(url)));
   mainWindow.webContents.on('will-navigate', (event, url) => { if (!url.startsWith(localOrigin)) event.preventDefault(); });
@@ -439,7 +439,7 @@ function createHostWindow(port) {
 function createGuestWindow(target) {
   const allowedOrigin = new URL(target).origin;
   mainWindow = new BrowserWindow({
-    ...windowOptions(path.join(__dirname, 'electron-guest-preload.js')), width: 1500, height: 900, minWidth: 1280, minHeight: 720
+    ...windowOptions(path.join(__dirname, 'electron-guest-preload.js')), width: 1500, height: 900, minWidth: 900, minHeight: 650
   });
   mainWindow.webContents.setWindowOpenHandler(createWorkshopLinkHandler(url => shell.openExternal(url)));
   mainWindow.webContents.on('will-navigate', (event, url) => {
@@ -839,16 +839,8 @@ else {
     if (!guestTargetUrl) setTimeout(checkForAppUpdate, 12000).unref();
     // Not at once: it must not slow down the start
     setTimeout(cleanupPortableLeftovers, 20000).unref?.();
-    session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
-      let allowed = false;
-      try {
-        const origin = new URL(webContents.getURL()).origin;
-        const expected = serverChild && localPort ? `http://127.0.0.1:${localPort}` : guestOrigin;
-        const requester = new URL(details.requestingUrl || webContents.getURL()).origin;
-        allowed = ['media', 'fullscreen'].includes(permission) && origin === expected && requester === expected;
-      } catch (err) { /* invalid or not loaded yet */ }
-      callback(allowed);
-    });
+    require('./electron-media-permissions').installRoomPermissions(session.defaultSession,
+      () => serverChild && localPort ? `http://127.0.0.1:${localPort}` : guestOrigin);
     const initialProjects = projectPathsFromArgs(process.argv, process.cwd(), error => dialog.showErrorBox(projectMessages(interfaceLanguage).failed, error.message));
     if (initialProjects.length) { createLauncherWindow(); for (const file of initialProjects) shellProjects.enqueue(file); }
     else if (guestTargetUrl) createGuestWindow(guestTargetUrl);

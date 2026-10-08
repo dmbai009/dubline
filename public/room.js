@@ -231,17 +231,6 @@ function playerCardHtml(nick, stats, online) {
     ? `<div class="progress"><div style="width:${activity.pct}%;background:var(--accent)"></div></div>` +
       (activity.buckets?.length ? '<div class="media-chunk-map">' + activity.buckets.map(value => `<i style="opacity:${.2 + value / 125}"></i>`).join('') + '</div>' : '') : '';
 
-  let latencyHtml = '';
-  if (isMe) {
-    latencyHtml = `
-      <div class="player-latency" title="${esc(t('latency.help'))}">
-        <span>${t('latency.label')}</span>
-        <b>${formatMs(latencyMs)}</b>
-      </div>`;
-  } else if (latencyMs) {
-    latencyHtml = `<div class="player-latency"><span>${t('latency.label')}</span><b>${formatMs(latencyMs)}</b></div>`;
-  }
-
   return `
     <div class="${classes}" title="${esc(nick)} · ${esc(t(online ? 'online' : 'studio.offline'))}">
       <div class="player-head">
@@ -262,7 +251,6 @@ function playerCardHtml(nick, stats, online) {
       </div>
       ${activityProgress}
       ${extra ? `<div class="player-status-text">${extra}</div>` : ''}
-      ${latencyHtml}
     </div>`;
 }
 

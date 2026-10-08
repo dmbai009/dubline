@@ -206,9 +206,10 @@ async function readError(res) {
 }
 
 // Volume mixer
-const muteAllCheckbox = document.getElementById('muteAllCheckbox');
-
-muteAllCheckbox.addEventListener('change', (e) => { volumes.isMuted = e.target.checked; applyVolumes(); });
+window.setListeningMuted = muted => {
+  volumes.isMuted = !!muted; applyVolumes();
+  window.dispatchEvent(new Event('dubline-listening-volume-changed'));
+};
 
 const playhead = document.createElement('div');
 playhead.id = 'playhead';

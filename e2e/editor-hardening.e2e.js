@@ -292,23 +292,27 @@ describe('Collaborative editor hardening', { skip: skipReason }, () => {
       ['settingsPreRoll', 2.5, 1, 'dubline_pre_roll', '1']
     ];
     for (const [id, from, expected, key, saved] of personal) {
+      await page.evaluate(id => openSettingsCategory('user', id === 'settingsPrompterSize' ? 'interface' : 'audio'), id);
       await page.$eval(`#${id}`, (input, value) => { input.value = value; input.dispatchEvent(new Event('input', { bubbles: true })); }, from);
       await resetEvent(`#${id}`);
       assert.deepEqual(await page.evaluate((id, key) => ({ value: Number(document.getElementById(id).value), saved: localStorage.getItem(key) }), id, key), { value: expected, saved });
     }
-    await page.evaluate(() => { localStorage.setItem('dubline_adr', 'three'); syncSettingsUi(); });
+    await page.evaluate(() => { openSettingsCategory('user', 'audio'); localStorage.setItem('dubline_adr', 'three'); syncSettingsUi(); });
     await resetEvent('#settingsPreRoll');
     assert.equal(await page.evaluate(() => preRollSeconds), 3);
     await page.evaluate(() => updateProjectAudio('settings', 'autoDuckAmount', 0.75));
     await waitFor(page, () => session.projectAudio.autoDuckAmount === 0.75);
+    await page.evaluate(() => { switchSettingsTab('player'); openSettingsCategory('player', 'audio'); });
     await resetEvent('#settingsAutoDuckAmount');
     await waitFor(page, () => session.projectAudio.autoDuckAmount === 0.4);
     await page.evaluate(() => { setStudioLocalDuck({ enabled: true, autoDuckAmount: 0.75 }); });
+    await page.evaluate(() => { switchSettingsTab('user'); openSettingsCategory('user', 'audio'); });
     await resetEvent('#settingsLocalDuckAmount');
     assert.equal(await page.evaluate(() => studioLocalDuck().autoDuckAmount), 0.4);
     await page.evaluate(() => updateProjectAudio('original', 'volume', 0.7));
     await waitFor(page, () => session.projectAudio.original.volume === 0.7);
-    await resetEvent('[data-project-channel=original] input[type=range]');
+    await page.evaluate(() => { localStorage.setItem('dubline_audio_collapsed', '0'); renderTimeline(); });
+    await resetEvent('#volOriginal');
     await waitFor(page, () => session.projectAudio.original.volume === 0);
     await page.evaluate(() => { localStorage.setItem('dubline_audio_collapsed', '0'); renderTimeline(); updateProjectAudio('original', 'volume', 0.6); });
     await waitFor(page, () => session.projectAudio.original.volume === 0.6);

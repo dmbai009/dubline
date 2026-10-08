@@ -54,6 +54,7 @@
     function ensurePlayCtx() {
       if (!playCtx) {
         playCtx = new (global.AudioContext || global.webkitAudioContext)();
+        global.DublineAudioDevices?.registerContext(playCtx);
         takesBus = playCtx.createGain();
         const limiter = playCtx.createDynamicsCompressor();
         limiter.threshold.value = -2;
@@ -78,7 +79,10 @@
         backing.volume = 1;
         applyVolumes();
       }
-      if (playCtx.state === 'suspended') playCtx.resume();
+      if (playCtx.state === 'suspended') {
+        if (global.DublineAudioDevices) global.DublineAudioDevices.resume(playCtx).catch(() => {});
+        else playCtx.resume();
+      }
       return playCtx;
     }
 
@@ -121,6 +125,7 @@
 
     function applyVolumes() {
       const volumes = getVolumes();
+      if (previewAudio) previewAudio.volume = volumes.isMuted ? 0 : Math.min(1, volumes.recorded);
       if (videoGain && backingGain && playCtx) {
         setDucking(duckingTakes.size > 0 || !!duckReleaseTimer, volumes.isMuted || isRenderInProgress());
         takesBus.gain.setValueAtTime(volumes.isMuted ? 0 : volumes.recorded, playCtx.currentTime);
@@ -345,6 +350,7 @@
       if (previewGraph) { previewGraph.gain.disconnect(); previewGraph.panner.disconnect(); previewGraph = null; }
       if (previewAudio) {
         previewAudio.pause();
+        global.DublineAudioDevices?.unregisterElement(previewAudio);
         previewAudio = null;
       }
       if (previewSource) {
@@ -356,9 +362,11 @@
     function playAudio(url) {
       stopPreview();
       previewAudio = new Audio(url);
+      global.DublineAudioDevices?.registerElement(previewAudio);
       const volumes = getVolumes();
       previewAudio.volume = volumes.isMuted ? 0 : Math.min(1, volumes.recorded);
-      return previewAudio.play();
+      const current = previewAudio;
+      return Promise.resolve(global.DublineAudioDevices?.ready()).then(() => { if (previewAudio === current) return current.play(); });
     }
 
     async function previewTake(line) {

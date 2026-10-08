@@ -511,7 +511,7 @@
     .record-cue.finish .cue-pill { background: rgba(217, 119, 6, 0.92); }
     .record-cue.finish .cue-dot { background: #fff; box-shadow: none; }
 
-    /* How to play */
+    /* Working in DubLine */
     .help-steps { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
     .help-step { background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); line-height: 1.45; }
     .help-step b { color: var(--text); font-size: 13px; }
@@ -1052,13 +1052,14 @@
     </div>
   </div>
 
-  <!-- MODAL: HOW TO PLAY -->
+  <!-- MODAL: WORKING IN DUBLINE -->
   <div id="helpModal" class="modal-overlay" style="display: none;">
     <div class="modal-card modal-large" style="width: 620px;">
       <div class="modal-header-row">
-        <h2 data-i18n="help.title">❓ How to play Dubline</h2>
+        <h2 data-i18n="help.title">❓ How to work in DubLine</h2>
         <button class="modal-close-icon" onclick="closeHelpModal()" data-i18n-title="close" title="Close">✕</button>
       </div>
+      <p class="help-intro" data-i18n="help.intro"></p>
       <div class="help-steps">
         <div class="help-step"><b data-i18n="help.step1.title">🎧 Put on headphones</b><span data-i18n="help.step1"></span></div>
         <div class="help-step"><b data-i18n="help.step2.title">🙋 Claim a line</b><span data-i18n="help.step2"></span></div>
@@ -1068,11 +1069,12 @@
         <div class="help-step"><b data-i18n="help.step6.title">🎬 Watch together</b><span data-i18n="help.step6"></span></div>
       </div>
       <div class="setting-card">
+        <div class="setting-sub" data-i18n="help.equipment"></div>
         <div class="setting-label" data-i18n="help.hotkeys">Hotkeys</div>
         <div class="setting-sub" data-i18n="help.keys"></div>
       </div>
       <div style="display: flex; justify-content: flex-end; margin-top: 4px;">
-        <button class="btn-record" data-i18n="help.ok" onclick="closeHelpModal()">Got it, let’s play!</button>
+        <button class="btn-record" data-i18n="help.ok" onclick="closeHelpModal()">Got it</button>
       </div>
     </div>
   </div>
@@ -1154,7 +1156,7 @@
     </div>
 
     <div class="header-right">
-      <button class="btn-header-action" onclick="openHelpModal()" data-i18n-title="help.title" title="❓ How to play Dubline">❓</button>
+      <button class="btn-header-action" onclick="openHelpModal()" data-i18n-title="help.title" title="❓ How to work in DubLine">❓</button>
       <button class="btn-header-action session-btn" id="sessionBtn" onclick="openSessionsModal()" data-i18n-title="sessions.title" title="🎬 Room sessions">🎬 <span id="sessionBtnTitle">—</span> ▾</button>
       <button class="btn-header-action" data-i18n="files" onclick="openFilesModal()">📁 Files &amp; Export</button>
       <button class="btn-header-action" data-i18n="settings" onclick="openSettingsModal()">⚙️ Settings</button>
@@ -1166,7 +1168,7 @@
   <div class="workspace" id="workspace">
     <!-- LOBBY -->
     <aside class="panel lobby-panel" id="lobbyPanel">
-      <div class="panel-title"><span data-i18n="lobby.title">Players</span><button class="btn-icon" data-studio-action="lobby" data-i18n-title="studio.collapseLobby" title="Collapse players">☰</button></div>
+      <div class="panel-title"><span data-i18n="lobby.title">Participants</span><button class="btn-icon" data-studio-action="lobby" data-i18n-title="studio.collapseLobby" title="Collapse participants">☰</button></div>
       <div class="lobby-summary">
         <div class="lobby-summary-row"><span data-i18n="progress.scene">Dubbed</span><span><b id="lobbyProgressCount">0</b> / <span id="lobbyProgressTotal">0</span></span></div>
         <div class="progress"><div id="lobbyProgressBar"></div></div>
@@ -1215,10 +1217,6 @@
             <button class="btn-icon" data-studio-action="forward" data-i18n-title="studio.forward" title="Forward 3 seconds (L)">+3</button>
             <span data-studio-time>0:00 / 0:00</span>
             <span id="audioLoadingStatus" role="status" aria-live="polite" hidden></span>
-            <label class="mute-toggle">
-              <input type="checkbox" id="muteAllCheckbox">
-              <span data-i18n="muteAll">🔇 Mute all</span>
-            </label>
             <button class="btn-icon" data-studio-action="expand" data-i18n-title="video.expand">⤢</button>
             <button class="btn-icon" data-studio-action="fullscreen" data-i18n-title="studio.fullscreen" title="Fullscreen (F)">⛶</button>
           </div>
@@ -1306,6 +1304,7 @@
   <script src="cpu-jobs.js"></script>
   <script src="audio-fx.js"></script>
   <script src="audio-memory.js"></script>
+  <script src="audio-devices.js"></script>
   <script src="audio.js"></script>
   <script src="player.js"></script>
   <script src="cue-wave-jobs.js"></script>
@@ -1326,6 +1325,7 @@
   <script src="chat.js"></script>
   <script src="update-presentation.js"></script>
   <script src="ui.js"></script>
+  <script src="settings-layout.js"></script>
   <script src="slider-reset.js"></script>
   <script src="playback-controls.js"></script>
   <script src="timeline-scrub.js"></script>
@@ -1358,5 +1358,6 @@
     .media-chunk-map { display:flex; height:5px; gap:1px; margin-top:4px; }
     .media-chunk-map i { flex:1; background:var(--accent); opacity:.2; }
   </style>
+  <link rel="stylesheet" href="ui-cleanup.css">
 </body>
 </html>

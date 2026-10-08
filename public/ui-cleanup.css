@@ -1,0 +1,72 @@
+/* The existing theme and controls remain; groups wrap instead of overlapping. */
+header { flex-wrap:wrap; gap:8px 12px; flex-shrink:0; }
+.header-left, .header-right { flex:0 1 auto; min-width:0; max-width:100%; flex-wrap:wrap; gap:6px; }
+.header-right { margin-left:auto; justify-content:flex-end; }
+.header-center { flex:1 1 160px; min-width:0; }
+#hostPanel { min-width:0; max-width:100%; flex-wrap:wrap; overflow-wrap:anywhere; }
+.room-badge { min-width:0; max-width:100%; flex-wrap:wrap; }
+#roomNameLabel { max-width:170px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.session-btn { min-width:0; max-width:240px; }
+.session-btn #sessionBtnTitle { min-width:0; max-width:170px; }
+.desktop-invite { min-width:0; max-width:320px; }
+.desktop-invite.collapsed { min-width:0; }
+.desktop-invite-row { flex-wrap:wrap; }
+.desktop-invite-summary { min-width:0; }
+.single-player .header-center { display:none; }
+@media (max-width:1400px) {
+  header { padding:6px 10px; gap:6px 8px; }
+  .brand small, #labelOnline { display:none; }
+  .header-center { order:3; flex-basis:100%; }
+  .header-right button { padding:6px 8px; }
+  .session-btn #sessionBtnTitle { max-width:140px; }
+}
+@media (max-width:800px) {
+  .header-left, .header-right { flex-basis:100%; justify-content:flex-start; }
+  .header-center { justify-content:flex-start; }
+  .header-right .session-btn { max-width:200px; }
+}
+#settingsModal .modal-card { width:min(900px, calc(100vw - 32px)); max-width:900px; }
+.settings-categories { display:flex; flex-wrap:wrap; gap:6px; padding-bottom:4px; }
+.settings-categories .active { background:var(--accent-soft); border-color:var(--accent); color:var(--accent-2); }
+.settings-category { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); align-items:start; gap:12px; }
+#settingsModal [hidden] { display:none !important; }
+#settingsModal .setting-card { min-width:0; padding:14px; gap:10px; }
+#settingsModal .setting-card-row { min-width:0; gap:12px; }
+#settingsModal .setting-card-row > div { min-width:0; overflow-wrap:anywhere; }
+#settingsModal .text-input { min-width:0; max-width:100%; min-height:34px; }
+#settingsModal select.text-input { max-width:50%; }
+#settingsModal .setting-card-row > div:first-child { flex:1; }
+#settingsModal .setting-card-row > select.text-input { flex:0 0 auto; min-width:110px; }
+#settingsModal .audio-device-fields select.text-input { width:100%; max-width:100%; }
+#settingsModal .setting-card > select, #settingsModal .audio-device-select { width:100%; max-width:100%; }
+#settingsModal input[type=number] { width:100px; }
+#settingsModal input[type=range] { width:100%; min-width:0; }
+#settingsModal button { white-space:normal; }
+#settingsModal .setting-sub { line-height:1.55; }
+#settingsModal #desktopAboutCard { margin-top:8px; }
+.setting-unit-field { display:inline-flex; align-items:center; gap:8px; flex-shrink:0; }
+.setting-unit-field input { width:85px !important; }
+.switch-ui input:focus-visible + .switch-slider { outline:2px solid var(--accent-2); outline-offset:3px; }
+.switch-ui input:disabled + .switch-slider { opacity:.5; cursor:not-allowed; }
+.settings-wide { grid-column:1/-1; }
+.audio-device-fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; }
+.audio-device-fields > label { display:flex; flex-direction:column; gap:8px; min-width:0; font-size:12px; }
+#transportSeek { order:-1; flex:1 0 calc(100% - 2px); width:100%; min-width:0; max-width:none; margin:2px 0 4px; }
+.transport-master { margin-left:auto; gap:6px; }
+#masterMute { padding:4px; width:30px; height:30px; display:inline-flex; align-items:center; justify-content:center; }
+#masterMute svg { width:19px; height:19px; }
+#masterMute[aria-pressed=true] { color:var(--danger); border-color:var(--danger); background:rgba(239,68,68,.12); }
+.studio-transport [data-studio-time] { margin-right:0; }
+.video-wrapper:fullscreen .watch-bar { bottom:96px; }
+.help-intro { line-height:1.5; color:var(--muted); font-size:12px; }
+.session-main { min-width:0; }
+.session-title, .session-meta { overflow-wrap:anywhere; }
+#textPromptTitle { overflow-wrap:anywhere; }
+@media (max-width:700px) {
+  .settings-category, .help-steps, .audio-device-fields { grid-template-columns:minmax(0,1fr); }
+  #settingsModal .modal-card { padding:16px; }
+  #settingsModal .setting-card-row { flex-wrap:wrap; }
+  #settingsModal select.text-input { max-width:100%; }
+  #passwordHostControls { flex-wrap:wrap; }
+  .session-item { flex-wrap:wrap; }
+}

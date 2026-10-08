@@ -8,8 +8,17 @@
   Object.assign(masterSlider, { type: 'range', id: 'masterVolume', min: '0', max: '100', step: '1', value: String(Math.round(master * 100)) });
   masterSlider.dataset.resetValue = '100'; masterSlider.dataset.resetEvent = 'input'; masterSlider.setAttribute('aria-label', t('playback.master'));
   const masterLabel = document.createElement('label'); masterLabel.className = 'transport-master';
-  masterLabel.append(masterSlider); const masterValue = document.createElement('output'); masterValue.textContent = masterSlider.value + '%'; masterLabel.append(masterValue);
-  masterSlider.addEventListener('input', () => { master = Number(masterSlider.value) / 100; try { localStorage.setItem('dubline_master_volume', String(master)); } catch { /* private mode */ } masterValue.textContent = masterSlider.value + '%'; applyVolumes(); });
+  const mute = document.createElement('button'); mute.type = 'button'; mute.id = 'masterMute'; mute.className = 'btn-icon';
+  const speaker = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z"/>' ;
+  function syncMute() {
+    mute.innerHTML = speaker + (volumes.isMuted ? '<path d="m17 9 5 6m0-6-5 6"/>' : '<path d="M17 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14"/>') + '</svg>';
+    mute.setAttribute('aria-pressed', String(volumes.isMuted));
+    mute.title = t(volumes.isMuted ? 'playback.unmute' : 'playback.mute'); mute.setAttribute('aria-label', mute.title);
+  }
+  mute.onclick = () => window.setListeningMuted(!volumes.isMuted);
+  window.addEventListener('dubline-listening-volume-changed', syncMute); window.addEventListener('dubline-language-changed', syncMute);
+  syncMute(); masterLabel.append(mute, masterSlider); const masterValue = document.createElement('output'); masterValue.textContent = masterSlider.value + '%'; masterLabel.append(masterValue);
+  masterSlider.addEventListener('input', () => { master = Number(masterSlider.value) / 100; try { localStorage.setItem('dubline_master_volume', String(master)); } catch { /* private mode */ } masterValue.textContent = masterSlider.value + '%'; applyVolumes(); window.dispatchEvent(new Event('dubline-listening-volume-changed'));  });
   transport.append(masterLabel);
   const cc = document.createElement('button'); cc.className = 'btn-icon'; cc.id = 'transportCC'; cc.textContent = 'CC'; cc.setAttribute('aria-label', t('playback.cc'));
   function syncCC() { cc.classList.toggle('active', prompterEnabled); cc.setAttribute('aria-pressed', String(prompterEnabled)); }
@@ -32,7 +41,10 @@
   seek.addEventListener('input', () => { if (studioCanTransport()) { window.transportScrubbing = true; video.currentTime = Number(seek.value); window.sendHostSync?.(true); } });
   const finishSeek = () => { if (window.transportScrubbing) { window.transportScrubbing = false; window.sendHostSync?.(false); } };
   for (const event of ['change', 'pointerup', 'pointercancel', 'blur']) seek.addEventListener(event, finishSeek);
-  transport.insertBefore(seek, transport.querySelector('[data-studio-time]'));
+  transport.prepend(seek);
+  window.addEventListener('dubline-language-changed', () => {
+    for (const [control, key] of [[masterSlider, 'master'], [cc, 'cc'], [speed, 'speed'], [seek, 'seek']]) control.setAttribute('aria-label', t('playback.' + key));
+  });
   function refresh() {
     seek.max = String(Number.isFinite(video.duration) ? video.duration : 0);
     if (document.activeElement !== seek) seek.value = String(video.currentTime);

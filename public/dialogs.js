@@ -21,7 +21,7 @@ function closeTextPrompt(value = null) {
   return true;
 }
 
-function askDialog(message, initial, maxLength, confirmMode) {
+function askDialog(message, initial, maxLength, confirmMode, options = {}) {
   closeTextPrompt();
   textPrompt.dataset.kind = confirmMode ? 'confirm' : 'text';
   document.getElementById('textPromptTitle').textContent = message;
@@ -31,19 +31,21 @@ function askDialog(message, initial, maxLength, confirmMode) {
   input.required = !confirmMode;
   input.value = initial;
   input.maxLength = maxLength;
-  document.getElementById('textPromptSave').textContent = t(confirmMode ? 'dialog.confirm' : 'save');
+  const save = document.getElementById('textPromptSave');
+  save.className = options.danger ? 'btn-delete' : 'btn-play';
+  save.textContent = t(options.confirmKey || (confirmMode ? 'dialog.confirm' : 'save'));
   document.getElementById('textPromptCancel').textContent = t('dialog.cancel');
   return new Promise(resolve => {
     pendingTextPrompt = { resolve, focus: document.activeElement, confirmMode };
     textPrompt.showModal();
-    if (confirmMode) document.getElementById('textPromptSave').focus();
+    if (confirmMode) document.getElementById(options.danger ? 'textPromptCancel' : 'textPromptSave').focus();
     else { input.focus(); input.select(); }
   });
 }
 window.askText = (message, initial = '', maxLength = 40) => askDialog(message, initial, maxLength, false);
-window.askConfirm = message => {
+window.askConfirm = (message, options = {}) => {
   const id = window.DublineState?.data.session?.activeSessionId;
-  return askDialog(message, '', 40, true).then(value => !!value && id === window.DublineState?.data.session?.activeSessionId);
+  return askDialog(message, '', 40, true, options).then(value => !!value && id === window.DublineState?.data.session?.activeSessionId);
 };
 document.getElementById('textPromptForm').addEventListener('submit', event => {
   event.preventDefault();

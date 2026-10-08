@@ -60,6 +60,12 @@
   input.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); revealMatch(event.shiftKey ? -1 : 1); } if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeTimelineSearch(); } });
   prev.onclick = () => revealMatch(-1); next.onclick = () => revealMatch(1); close.onclick = closeTimelineSearch;
   role.addEventListener('change', applyFilters); status.addEventListener('change', applyFilters);
+  window.addEventListener('dubline-language-changed', () => {
+    for (const option of status.options) option.textContent = t('find.' + option.value);
+    findButton.textContent = t('find.open'); input.placeholder = t('find.placeholder'); input.setAttribute('aria-label', t('find.open'));
+    for (const [button, key] of [[prev, 'previous'], [next, 'next'], [close, 'close']]) button.setAttribute('aria-label', t('find.' + key));
+    updateSearch();
+  });
   const footer = document.createElement('div'); footer.className = 'timeline-footer';
   const nav = document.createElement('div'); nav.className = 'timeline-footer-controls';
   nav.append(panel.querySelector('.toolbar-hint'), panel.querySelector('.zoom-controls'));
