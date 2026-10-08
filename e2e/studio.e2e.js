@@ -589,13 +589,13 @@ describe('studio', { skip: skipReason }, () => {
   test('lobby shows players and per-player / scene progress', async () => {
     const lobby = await waitFor(alice, () => document.querySelectorAll('.player-card').length >= 2 && {
       names: [...document.querySelectorAll('.player-card .player-name')].map(n => n.textContent),
-      count: document.getElementById('lobbyProgressCount').textContent,
+      duplicate: !!document.getElementById('lobbyProgressCount'),
       toolbar: document.getElementById('sceneProgressText').textContent,
       aliceStats: [...document.querySelectorAll('.player-card')].find(c => c.innerText.includes('Alice')).querySelector('.player-stats').innerText
     });
     assert.equal(lobby.names[0], 'Alice');
     assert.ok(lobby.names.includes('Bob'));
-    assert.equal(lobby.count, '1');
+    assert.equal(lobby.duplicate, false);
     assert.equal(lobby.toolbar, '1 / 4');
     assert.match(lobby.aliceStats, /1/);
   });
@@ -1263,6 +1263,7 @@ describe('studio', { skip: skipReason }, () => {
     await alice.evaluate(() => uploadCustomScene());
     const captions = await waitFor(alice, () => session.loaded && session.lines.length && document.querySelectorAll('.line-block').length === session.lines.length && session.lines.map(l => l.caption), 15000);
     assert.deepEqual(captions, ['School of hope', 'First line', 'Second line', 'Third line'], 'drawings dropped, \\h cleaned');
+    await alice.evaluate(() => closeFilesModal());
     await alice.evaluate(() => setStudioMode('edit'));
     await waitFor(bob, () => session.mode === 'edit');
 

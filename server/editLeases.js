@@ -46,6 +46,7 @@ function mutationTargets(event, data) {
   if (event === 'rename_character') return [{ type: 'track', key: data.from, group: 'structural' }, { type: 'track', key: data.to, group: 'structural' }];
   if (event === 'editor_create_line' || event === 'editor_add_track') return [{ type: 'track', key: data.character, group: 'structural' }];
   if (event === 'editor_undo') return [{ type: 'session', key: '*', group: 'structural' }];
+  if (event === 'editor_reorder_track' || event === 'editor_delete_track') return [{ type: 'session', key: '*', group: 'structural' }];
   return [];
 }
 function checkMutation(socket, conn, event, data) {

@@ -42,6 +42,7 @@ module.exports = function registerTrashHandlers(socket, conn) {
     const existing = new Set(room.lines.map(line => line.id));
     const restored = batch.lines.filter(entry => !existing.has(entry.line.id)).sort((a, b) => a.index - b.index);
     restored.forEach(entry => insertLineInOrder(room.lines, entry.line));
+    require('../rooms').restoreTrackOrder(room, batch, restored.map(entry => entry.line));
     // Roles released together with a character's last lines come back if nobody has claimed them
     for (const [character, owner] of Object.entries(batch.claims || {})) {
       if (!room.characterClaims[character]) room.characterClaims[character] = owner;
@@ -77,7 +78,7 @@ module.exports = function registerTrashHandlers(socket, conn) {
     for (const batch of room.deletedLines || []) {
       const keep = [];
       for (const entry of batch.lines) {
-        if (wanted.has(entry.line.id)) taken.push({ entry, claims: batch.claims || {} });
+        if (wanted.has(entry.line.id)) taken.push({ entry, claims: batch.claims || {}, trackOrder: batch.trackOrder });
         else keep.push(entry);
       }
       batch.lines = keep;
@@ -103,6 +104,7 @@ module.exports = function registerTrashHandlers(socket, conn) {
     if (!taken.length) return;
     // Put them back where they were
     taken.forEach(item => insertLineInOrder(room.lines, item.entry.line));
+    taken.forEach(item => require('../rooms').restoreTrackOrder(room, item, [item.entry.line]));
     taken.forEach(item => {
       const character = item.entry.line.character;
       const owner = item.claims[character];

@@ -82,6 +82,7 @@ function captureProject(session, resolveAsset = diskPathForUrl, snapshotDir = nu
     title: session.title || '',
     kind: session.kind === 'pack' ? 'pack' : 'custom',
     editorMode: session.mode === 'edit' ? 'edit' : 'dub',
+    protectTimings: session.protectTimings === true,
     roles: [...(session.trackOrder || [])],
     roleClaims: Object.fromEntries(Object.entries(session.characterClaims || {})),
     media: {
@@ -148,6 +149,7 @@ function safeArchivePath(name) {
 function validateManifest(manifest) {
   if (!object(manifest) || manifest.format !== FORMAT) fail('Invalid project manifest');
   if (![1, 2, 3, VERSION].includes(manifest.formatVersion)) throw new HttpError(400, 'Unsupported project version', 'project.unsupportedVersion');
+  if (manifest.project?.protectTimings !== undefined && typeof manifest.project.protectTimings !== 'boolean') fail('Invalid timing protection');
   if (!Array.isArray(manifest.assets) || !manifest.assets.length || manifest.assets.length >= MAX_ENTRIES) fail('Invalid project assets');
   const assets = new Map();
   let totalBytes = 0;
@@ -285,7 +287,7 @@ function fieldsForProject(project, urls) {
     if (meta) audioMetadata[channel] = { name: meta.name, duration: meta.duration, size: meta.size };
   }
   return {
-    title: project.title, kind: project.kind, mode: project.editorMode, zipUrl: '',
+    title: project.title, kind: project.kind, mode: project.editorMode, protectTimings: project.protectTimings === true, zipUrl: '',
     trackOrder: [...project.roles], characterClaims: Object.assign(Object.create(null), project.roleClaims),
     takeLatency: Object.assign(Object.create(null), project.takeLatency),
     videoUrl: url(m.video), originalVideoUrl: url(m.originalVideo), originalVideoName: m.originalVideoName || '', externalOriginalUrl: url(m.original), backingUrl: url(m.backing), baseBackingUrl: url(m.baseBacking),

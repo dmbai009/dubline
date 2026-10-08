@@ -145,6 +145,31 @@ describe('UI cleanup and local audio devices', { skip: skipReason, timeout: 1200
     await page.evaluate(() => adrCues.stop());
   });
 
+  test('partial output switching failure rolls every listening destination back to the last successful output', async () => {
+    await page.evaluate(async () => {
+      window.outputTestContext = ensurePlayCtx();
+      window.outputTestPreview = DublineAudioDevices.registerElement(new Audio());
+      adrCues.arm(); await DublineAudioDevices.ready();
+    });
+    assert.equal(await page.evaluate(() => DublineAudioDevices.changeOutput('out-a')), true);
+    await page.evaluate(() => { const route = backing.setSinkId; backing.setSinkId = function(id) { return id === 'out-b' ? Promise.reject(new DOMException('Injected partial failure', 'NotFoundError')) : route.call(this, id); }; });
+    assert.equal(await page.evaluate(() => DublineAudioDevices.changeOutput('out-b')), false);
+    const result = await page.evaluate(() => ({ selected: DublineAudioDevices.getSelection().outputId, stored: localStorage.getItem('dubline_output_device'), sinks: [video, backing, originalTrackAudio, outputTestContext, outputTestPreview].map(target => target.testSink) }));
+    assert.equal(result.selected, 'out-a'); assert.equal(result.stored, 'out-a'); assert.deepEqual(result.sinks, Array(5).fill('out-a'));
+    await page.evaluate(() => adrCues.stop());
+  });
+
+  test('microphone loss after reservation cleans up without starting a dead recorder or leaving processing UI', async () => {
+    await claimAndSelect(page, 1);
+    await page.evaluate(async () => {
+      const capture = DublineAudioDevices.capture; DublineAudioDevices.capture = async constraints => { const stream = await capture(constraints); window.lostMic = stream; return stream; };
+      const reserve = reserveTake; reserveTake = async (...args) => { const sequence = await reserve(...args); lostMic.getTracks().forEach(track => track.stop()); return sequence; };
+      await handleStudioRecord(1);
+    });
+    assert.deepEqual(await page.evaluate(() => ({ state: recordState, mic: !!micStream, pending: processingRecordings.size, active: !!activeRecording, live: lostMic.active })), { state: 'idle', mic: false, pending: 0, active: false, live: false });
+    assert.doesNotMatch(await page.$eval('#recBtn', button => button.textContent), /processing|preparing/i);
+  });
+
   test('mute preserves master volume and immediately silences HTML previews and scheduled ADR cues', async () => {
     await page.evaluate(() => { const slider = document.getElementById('masterVolume'); slider.value = '37'; slider.dispatchEvent(new Event('input', { bubbles: true })); });
     await page.evaluate(async () => {

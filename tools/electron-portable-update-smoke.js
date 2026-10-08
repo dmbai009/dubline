@@ -34,7 +34,7 @@ async function workspace(browser) {
 }
 async function importFixture(page) {
   const { fixtureVideoPath } = require('../e2e/helpers');
-  await page.evaluate(() => { openFilesModal(); switchFilesTab('import'); });
+  await page.evaluate(() => { openFilesModal(); switchFilesTab('projects'); });
   await (await page.$('#customVideoInput')).uploadFile(fixtureVideoPath());
   await page.evaluate(() => uploadCustomScene());
   await until(() => page.evaluate(() => session?.loaded && video.readyState >= 3));

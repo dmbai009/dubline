@@ -31,7 +31,7 @@ Dubline is a dubbing studio and party game for recording scenes together.
 - **Single Player:** dub every role yourself and invite friends into the same project later.
 - **Portable projects:** save and reopen a complete scene as `.dubline`, including media, recordings and mix settings.
 - **Large video optimization:** use a smaller working copy and keep the original for final export.
-- **Clip mixing:** individual or bulk volume, stereo pan and adjustable voice-effect amount, with author/host permissions.
+- **Clip mixing:** individual or bulk volume, stereo pan and adjustable voice-effect amount, with author/host/moderator permissions.
 - **Choose your storage drive:** move project media, recordings and the library to another disk.
 - **Timeline and audio improvements:** smoother auto-ducking, clearer loading status, reliable fullscreen and audio-track controls, precise group editing and adjustable role heights.
 - **Clearer settings:** separate personal monitoring and microphone preferences from the shared project mix.
@@ -40,7 +40,7 @@ Dubline is a dubbing studio and party game for recording scenes together.
 
 1. Download the Windows artifact from [GitHub Releases](https://github.com/dmbai009/dubline/releases). The next release provides the recommended **Setup.exe** and an optional **Portable.zip**; extract the entire ZIP before running its Dubline.exe. Older releases keep their original single-EXE layout.
 2. Create a room and choose **Cloudflare**, **Porthole** or **VPN**.
-3. Import a video or scene pack in **Files & Export**.
+3. Import a video or scene pack in **Files**. Open and save `.dubline` snapshots in its **Projects** tab.
 4. Share the invitation and PIN. Friends join, claim roles and record their lines.
 5. Review the scene together and export the result.
 
@@ -64,6 +64,10 @@ In **Edit Mode**, collaborators create and rename roles, edit captions and timin
 
 Undo restores your own edits while preserving later changes by other players. Deleted lines can be restored from session trash. **Dub Mode** locks source editing so actors can focus on recording and aligning their takes.
 
+Drag a track's handle to reorder it, or focus the handle and press Alt+↑/↓. Deleting a populated track offers a transfer of all its lines and takes to another track, or removal to session trash. Both paths use the shared editor's Undo and conflict checks.
+
+The host and room moderators can enable **Protect timings** in Edit Mode. Everyone can still edit text and assign lines to roles; moving or resizing timings and creating new lines stay locked until protection is disabled. The setting belongs to the scene and is saved in `.dubline` projects. Pending conflicts have individual and bulk review actions; unresolved edits stay on the current device until applied or explicitly discarded.
+
 ### Recording and voice tools
 
 Claim a character or an individual line, then record while other actors work on theirs. The timeline and participant list show who is recording and how much of the scene is complete.
@@ -74,7 +78,7 @@ Trim and align takes without changing their original audio. Pitch shifting and r
 
 If an upload is interrupted, the take stays on that device and retries after reconnection, including after a page reload. A delayed upload belongs to the scene in which it was recorded.
 
-Clip mix controls in the inspector set volume (0–300%), stereo pan (1% steps), and effect amount (0–100%, original/processed blend). Actors can change their own recordings after releasing a role; the host can change any clip. Ctrl/Shift selection spans roles. Changing a bulk setting gives every editable recorded clip the same value and preserves unrelated settings. Preview, video export and stereo WAV stems use the same clip settings. Changed clip mixes use `.dubline` format 3; Needs Retake markers use format 4. Older formats 1/2/3 remain readable. The retake marker and integer bulk Pitch follow the same author/host/collaborator permissions as clip mixing.
+Clip mix controls in the inspector set volume (0–300%), stereo pan (1% steps), and effect amount (0–100%, original/processed blend). Actors can change their own recordings after releasing a role; the host and moderators can change any clip. Ctrl/Shift selection spans roles. Changing a bulk setting gives every editable recorded clip the same value and preserves unrelated settings. Preview, video export and stereo WAV stems use the same clip settings. Changed clip mixes use `.dubline` format 3; Needs Retake markers use format 4. Older formats 1/2/3 remain readable. The retake marker retains collaborators' Edit Mode access.
 
 ### Audio and playback
 
@@ -87,6 +91,8 @@ Listen to individual takes, expand or fullscreen the video, and use **Watch Toge
 Use chat, **Random Cast** to distribute roles and **Blind Mode** to hide takes until the group is ready to listen. Blind Mode prevents accidental spoilers in the interface; it does not make recordings private from authorized room members.
 
 Desktop invitations use a PIN. The host can set a room password, remove participants, switch scenes and pause the room. Saved sessions and their recordings survive restarts.
+
+The host can appoint multiple room moderators from a participant's action menu and revoke them while online or offline. Their role survives reconnects, nickname changes and host restarts. Moderators can switch Edit/Dub Mode, protect timings, manage role assignments, Blind Mode and the project mix, pause recording and adjust any take. Scene management, media imports, project saving, room security, kicking participants and moderator appointments remain host-only. Moderation grants no permission to record over another actor's claimed line.
 
 Resize the lobby, video, inspector and timeline panels; zoom the timeline around the cursor. Choose from six themes and an English, Russian or Ukrainian interface. Layout, language and personal preferences are remembered on each device.
 

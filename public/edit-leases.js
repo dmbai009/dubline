@@ -18,7 +18,7 @@
       : [{ type: 'session', key: '*', group: 'structural' }];
     else if (event === 'rename_character') targets = [{ type: 'track', key: data.from, group: 'structural' },
       ...(session.trackOrder.includes(data.to) ? [{ type: 'track', key: data.to, group: 'structural' }] : [])];
-    else if (event === 'editor_add_track' || event === 'editor_undo') targets = [{ type: 'session', key: '*', group: 'structural' }];
+    else if (['editor_add_track', 'editor_undo', 'editor_reorder_track', 'editor_delete_track'].includes(event)) targets = [{ type: 'session', key: '*', group: 'structural' }];
     return targets.length > 128 ? [{ type: 'session', key: '*', group: 'structural' }] : targets;
   };
   window.acquireEditLease = async targets => {

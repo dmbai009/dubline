@@ -12,17 +12,29 @@ function updateModeUi() {
   document.body.classList.toggle('edit-mode', editing);
   document.getElementById('editModeBtn').classList.toggle('active', editing);
   document.getElementById('dubModeBtn').classList.toggle('active', !editing);
-  document.querySelectorAll('#modeSwitch button').forEach(button => { button.disabled = !amHost(); });
+  document.querySelectorAll('#modeSwitch button').forEach(button => { button.disabled = !canModerate(); });
+  const protect = document.getElementById('protectTimingsBtn');
+  protect.disabled = !canModerate(); protect.setAttribute('aria-pressed', String(session?.protectTimings === true));
+  protect.textContent = t(session?.protectTimings ? 'editor.timingsProtected' : 'editor.protectTimings');
+  protect.title = t('editor.protectTimingsHelp');
+  document.getElementById('addEditorLineBtn').disabled = session?.protectTimings === true;
   document.querySelector('.toolbar-hint').textContent = t(editing ? 'timeline.editHint' : 'timeline.hint');
 }
 
 window.setStudioMode = async function(mode) {
-  if (!amHost() || !['edit', 'dub'].includes(mode) || !session || session.mode === mode) return;
+  if (!canModerate() || !['edit', 'dub'].includes(mode) || !session || session.mode === mode) return;
   const sessionId = session.activeSessionId, deadline = Date.now() + 8000;
   while (editorQueue.length && socket.connected && session?.activeSessionId === sessionId && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 25));
-  if (!socket.connected || session?.activeSessionId !== sessionId) return;
+  if (!socket.connected || session?.activeSessionId !== sessionId || !canModerate()) return;
   if (editorQueue.length || editorConflicts.some(entry => entry.sessionId === sessionId)) return showToast(t('editor.rejected'));
   socket.emit('set_session_mode', { mode, sessionId });
+};
+
+window.toggleProtectTimings = function() {
+  if (!canModerate() || session?.mode !== 'edit') return;
+  socket.volatile.timeout(5000).emit('set_protect_timings', { sessionId: session.activeSessionId, enabled: !session.protectTimings }, (error, result) => {
+    if (error || !result?.ok) showToast(t('editor.rejected'));
+  });
 };
 
 // Edit Mode opened during a recording: stop it and keep the take. The server accepts it
@@ -122,10 +134,10 @@ let editorRecoveryLoading = false;
 function persistEditorOperation(operation, remove = false) {
   const record = remove ? null : structuredClone({ id: operation.id, event: operation.event, payload: operation.payload,
     request: operation.request, sessionId: operation.sessionId, roomId: operation.roomId, clientId: operation.clientId,
-    status: operation.status, sent: !!operation.sent, targetBases: [...operation.targetBases], createdAt: operation.createdAt || Date.now() });
+    status: operation.status, sent: !!operation.sent, targetBases: [...operation.targetBases], createdAt: operation.createdAt || Date.now(), replacesId: operation.replacesId });
   // Serialize writes so a late put cannot resurrect a confirmed/discarded record.
-  editorPersistence = editorPersistence.then(() => remove ? editorIntentStore.remove(operation.id) : editorIntentStore.put(record))
-    .catch(error => { console.warn('[DubLine] Editor recovery is memory-only:', error); });
+  editorPersistence = editorPersistence.then(() => remove ? editorIntentStore.remove(operation.id) : operation.replacesId ? editorIntentStore.replace(operation.replacesId, record) : editorIntentStore.put(record))
+    .then(() => true).catch(error => { console.warn('[DubLine] Editor recovery is memory-only:', error); return false; });
   return editorPersistence;
 }
 async function restoreEditorOperations() {
@@ -231,16 +243,63 @@ function renderEditorSyncState() {
   status.disabled = !editorConflicts.length;
   status.textContent = t(editorConflicts.length ? 'editor.syncConflict' : editorNeedsResync ? 'editor.syncing' : 'editor.pending', { n: editorConflicts.length || editorQueue.length });
   status.classList.toggle('conflict', !!editorConflicts.length);
+  renderEditorConflicts();
 }
 
-window.reviewEditorConflicts = function() {
+let editorReviewBusy = false, editorReviewSummary = '';
+function renderEditorConflicts() {
   const panel = document.getElementById('editorConflictPanel');
-  panel.hidden = !panel.hidden;
   if (panel.hidden) return;
-  panel.innerHTML = editorConflicts.map(operation => `<div class="editor-conflict-item">${editorIntentHtml(operation)}
-    <button class="btn-play" data-retry-operation="${operation.id}" ${operation.sessionId !== session?.activeSessionId || session?.mode !== 'edit' ? 'disabled' : ''}>${t('editor.keepMine')}</button>
-    <button class="btn-outline" data-discard-operation="${operation.id}">${t('editor.discardPending')}</button></div>`).join('');
+  const scroll = panel.querySelector('.editor-conflict-list')?.scrollTop || 0;
+  panel.innerHTML = `<div class="editor-conflict-actions"><button class="btn-play" data-review-all="keep" ${editorReviewBusy ? 'disabled' : ''}>${t('editor.keepAll')}</button><button class="btn-delete" data-review-all="discard" ${editorReviewBusy ? 'disabled' : ''}>${t('editor.discardAll')}</button></div><p role="status">${esc(editorReviewSummary)}</p><div class="editor-conflict-list">` + editorConflicts.map(operation => `<div class="editor-conflict-item">${editorIntentHtml(operation)}
+    <button class="btn-play" data-retry-operation="${operation.id}" ${editorReviewBusy || operation.sessionId !== session?.activeSessionId || session?.mode !== 'edit' ? 'disabled' : ''}>${t('editor.keepMine')}</button>
+    <button class="btn-outline" data-discard-operation="${operation.id}" ${editorReviewBusy ? 'disabled' : ''}>${t('editor.discardPending')}</button></div>`).join('') + '</div>';
+  panel.querySelector('.editor-conflict-list').scrollTop = scroll;
+}
+window.reviewEditorConflicts = function() {
+  const panel = document.getElementById('editorConflictPanel'); panel.hidden = !panel.hidden; renderEditorConflicts();
 };
+
+async function retryEditorConflict(operation, sceneId) {
+  if (!socket.connected || session?.activeSessionId !== sceneId || operation.sessionId !== sceneId || session.mode !== 'edit' || operation.roomId !== currentRoom || operation.clientId !== clientId || !myName || window.snapshotFrozen) return false;
+  if (!editorUpdates(operation).length) { showToast(t('editor.repeatAction')); return false; }
+  if (editorQueue.length || !await resyncEditor() || session?.activeSessionId !== sceneId || session.mode !== 'edit') return false;
+  const payload = structuredClone(operation.payload);
+  for (const patch of editorUpdates({ ...operation, payload })) {
+    const line = editorAuthoritative.get(patch.lineId);
+    if (!line || session.protectTimings && (patch.start !== undefined && patch.start !== line.start || patch.end !== undefined && patch.end !== line.end)) return false;
+    patch.revision = line.revision || 0; patch.base = editorBase(line);
+  }
+  const result = await Promise.race([queueEditorRequest(() => [operation.event, payload], { replacement: operation }), new Promise(resolve => setTimeout(() => resolve(null), 15000))]);
+  return !!result?.ok;
+}
+
+async function resolveEditorConflicts(action, operations) {
+  if (editorReviewBusy) return;
+  if (action === 'discard' && !await askConfirm(t('editor.discardAllConfirm', { n: operations.length }), { danger: true })) return;
+  editorReviewBusy = true; renderEditorConflicts();
+  const sceneId = session?.activeSessionId;
+  let applied = 0, discarded = 0;
+  try {
+    for (const operation of operations) {
+      if (!editorConflicts.includes(operation)) continue;
+      if (action === 'keep') {
+        if (!socket.connected || session?.activeSessionId !== sceneId || session.mode !== 'edit' || editorQueue.length) break;
+        if (await retryEditorConflict(operation, sceneId)) applied++;
+      } else if (await persistEditorOperation(operation, true)) {
+        const index = editorConflicts.indexOf(operation); if (index >= 0) editorConflicts.splice(index, 1); discarded++;
+      }
+    }
+  } finally {
+    editorReviewBusy = false;
+    editorReviewSummary = t('editor.reviewSummary', { applied, discarded, remaining: editorConflicts.length + editorQueue.length });
+    renderEditorSyncState(); renderEditorConflicts();
+  }
+}
+document.addEventListener('click', event => {
+  const button = event.target.closest('[data-review-all]');
+  if (button && !button.disabled) resolveEditorConflicts(button.dataset.reviewAll, [...editorConflicts]);
+});
 
 function editorIntentHtml(operation) {
   const labels = { editor_create_line: 'editor.addLine', editor_update_line: 'editor.line', editor_update_lines: 'editor.line', editor_delete_lines: 'editor.delete', editor_add_track: 'editor.addTrack', editor_undo: 'editor.undo', set_line_character: 'editor.track', set_lines_character: 'editor.track', rename_character: 'editor.track' };
@@ -253,29 +312,19 @@ function editorIntentHtml(operation) {
   }).join('') || `<p>${esc(operation.payload.from || '')} ${operation.payload.to ? '→ ' + esc(operation.payload.to) : ''}${esc(operation.payload.character || '')} ${esc(operation.payload.caption || '')}</p>`;
   return `<b>${esc(t(labels[operation.event] || 'editor.line'))}</b>${operation.sessionId !== session?.activeSessionId ? `<p>${t('editor.otherScene')}</p>` : ''}${details}`;
 }
-document.addEventListener('click', event => {
+document.addEventListener('click', async event => {
   const button = event.target.closest('[data-retry-operation], [data-discard-operation]');
   if (!button || button.disabled) return;
   const id = button.dataset.retryOperation || button.dataset.discardOperation;
   const operation = editorConflicts.find(item => item.id === id);
-  if (!operation) return;
+  if (!operation || editorReviewBusy) return;
   if (button.dataset.retryOperation) {
-    if (operation.sessionId !== session?.activeSessionId || session?.mode !== 'edit') return;
-    // Explicitly choosing Keep mine creates a NEW operation against latest state.
-    const payload = structuredClone(operation.payload);
-    for (const patch of editorUpdates({ ...operation, payload })) {
-      const line = session.lines.find(item => item.id === patch.lineId);
-      if (!line) return showToast(t('editor.cancelled'));
-      patch.revision = line.revision || 0; patch.base = editorBase(line);
-    }
-    // Destructive/structural operations need their original confirmation again.
-    if (!editorUpdates(operation).length) return showToast(t('editor.repeatAction'));
-    queueEditorRequest(() => [operation.event, payload]).then(editorResult);
+    await resolveEditorConflicts('keep', [operation]); return;
   }
-  editorConflicts.splice(editorConflicts.indexOf(operation), 1);
-  persistEditorOperation(operation, true);
+  if (!await persistEditorOperation(operation, true)) return;
+  const index = editorConflicts.indexOf(operation); if (index >= 0) editorConflicts.splice(index, 1);
   renderEditorSyncState();
-  document.getElementById('editorConflictPanel').hidden = true;
+  renderEditorConflicts();
 });
 
 function editorBase(line) {
@@ -333,6 +382,7 @@ async function pumpEditorQueue() {
     if (editorNeedsResync && !await resyncEditor()) return;
     const operation = editorQueue[0];
     if (!operation) return;
+    if (operation.status === 'persisting') return;
     if (operation.roomId !== currentRoom || operation.clientId !== clientId || operation.sessionId !== session?.activeSessionId || (session.mode !== 'edit' && operation.event !== 'editor_add_track')) {
       finishEditorOperation(operation, { ok: false, reason: 'session' }); return;
     }
@@ -361,7 +411,7 @@ async function pumpEditorQueue() {
     window.releaseEditLease?.(mutationLease);
     editorPumping = false;
     renderEditorSyncState();
-    if (editorQueue.length && socket.connected) scheduleEditorPump(editorNeedsResync ? 1000 : 0);
+    if (editorQueue.length && socket.connected) scheduleEditorPump(editorNeedsResync ? 1000 : editorQueue[0].status === 'persisting' ? 100 : 0);
   }
 }
 
@@ -384,7 +434,7 @@ function queueEditorRequest(build, options = {}) {
     }
   }
   const id = crypto.randomUUID?.() || [...crypto.getRandomValues(new Uint32Array(4))].map(value => value.toString(16)).join('-');
-  const operation = { id, event, payload, sessionId, roomId: currentRoom, clientId, status: 'queued', coalesce: options.coalesce, targetBases: new Map() };
+  const operation = { id, event, payload, sessionId, roomId: currentRoom, clientId, status: options.replacement ? 'persisting' : 'queued', replacesId: options.replacement?.id, coalesce: options.coalesce, targetBases: new Map() };
   for (const target of editorRevisionTargets(operation)) {
     const line = session.lines.find(item => item.id === target.lineId);
     if (line) operation.targetBases.set(line.id, editorBase(line));
@@ -394,15 +444,29 @@ function queueEditorRequest(build, options = {}) {
   operation.promise = new Promise(resolve => { operation.resolve = resolve; });
   operation.createdAt = Date.now();
   editorQueue.push(operation);
-  persistEditorOperation(operation);
+  persistEditorOperation(operation).then(saved => {
+    if (!options.replacement) return;
+    if (!saved) {
+      if (!editorQueue.includes(operation)) return;
+      editorQueue.splice(editorQueue.indexOf(operation), 1); operation.resolve({ ok: false, reason: 'storage' });
+      rebuildEditorOverlay(); renderTimeline(); renderEditorSyncState(); return;
+    }
+    const index = editorConflicts.indexOf(options.replacement); if (index >= 0) editorConflicts.splice(index, 1);
+    if (!editorQueue.includes(operation)) { renderEditorConflicts(); return; }
+    operation.status = 'queued'; renderEditorConflicts(); scheduleEditorPump(0);
+  });
   // A selected clip moved into another role must remain visible after overlay redraw.
   if (selectedLine && editorUpdates(operation).some(patch => patch.lineId === selectedLine.id && patch.character !== undefined && patch.character !== selectedLine.character)) revealLineId = selectedLine.id;
   rebuildEditorOverlay(); renderTimeline(); renderEditorSyncState();
-  scheduleEditorPump(options.coalesce ? 80 : 0);
+  if (!options.replacement) scheduleEditorPump(options.coalesce ? 80 : 0);
   return operation.promise;
 }
 
 function sendLineUpdates(changesById, options = {}) {
+  if (session?.protectTimings && [...changesById].some(([id, patch]) => {
+    const line = session.lines.find(item => item.id === id);
+    return !line || patch.start !== undefined && Number(patch.start) !== line.start || patch.end !== undefined && Number(patch.end) !== line.end;
+  })) { showToast(t('editor.timingsProtected')); return Promise.resolve({ ok: false, reason: 'timingsProtected' }); }
   return queueEditorRequest(() => {
     const updates = [...changesById].map(([lineId, changes]) => ({ lineId, revision: lineRevision(lineId), base: editorBase(session.lines.find(item => item.id === lineId)), ...changes }));
     return updates.length === 1 ? ['editor_update_line', updates[0]] : ['editor_update_lines', { updates }];
@@ -438,7 +502,7 @@ window.addEditorTrack = async function() {
 };
 
 window.createLineAtPlayhead = function(character = '') {
-  if (!session || session.mode !== 'edit') return;
+  if (!session || session.mode !== 'edit' || session.protectTimings) return;
   const tracks = sessionCharacters();
   const selectedTrack = character || (selectedLine && selectedLine.character) || tracks[0];
   if (!selectedTrack) return addEditorTrack();
@@ -446,7 +510,7 @@ window.createLineAtPlayhead = function(character = '') {
 };
 
 window.createEditorLineAt = function(character, time) {
-  if (!session || session.mode !== 'edit' || !session.loaded || !sessionCharacters().includes(character)) return;
+  if (!session || session.mode !== 'edit' || session.protectTimings || !session.loaded || !sessionCharacters().includes(character)) return;
   if (!Number.isFinite(time) || time < 0 || time > 43200) return;
   const bounds = window.DublineTimeline.create(time, editorVideoDuration());
   if (!bounds) return showToast(t('timeline.outsideCreate'));
@@ -557,6 +621,7 @@ window.reloadEditorDraft = function(lineId) {
 window.showEditorInspector = function(line, capture = true) {
   const oldForm = inspector.querySelector('#editorLineForm');
   if (oldForm && capture) rememberEditorDraft(oldForm);
+  if (oldForm) oldForm.querySelectorAll('[data-editor-field="start"], [data-editor-field="end"]').forEach(input => { input.disabled = session.protectTimings === true; });
   const key = editorDraftKey(line.id);
   let draft = editorDrafts.get(key);
   const tracks = sessionCharacters();
@@ -607,6 +672,7 @@ window.showEditorInspector = function(line, capture = true) {
     <p class="take-hint">${t('editor.dragHint')}</p>
   `;
   const form = inspector.querySelector('#editorLineForm');
+  form.querySelectorAll('[data-editor-field="start"], [data-editor-field="end"]').forEach(input => { input.disabled = session.protectTimings === true; });
   form.dataset.draftKey = key;
   form.dataset.revision = String(line.revision || 0);
   form.dataset.tracks = JSON.stringify(tracks);
@@ -642,6 +708,10 @@ window.saveEditorLine = async function(event, lineId) {
   const changes = {};
   for (const field of EDITOR_FORM_FIELDS) if (!sameEditorValue(field, submitted[field], draft.base[field])) changes[field] = submitted[field];
   if (changes.start !== undefined || changes.end !== undefined) { changes.start = Number(submitted.start); changes.end = Number(submitted.end); }
+  if (session.protectTimings && (changes.start !== undefined && changes.start !== line.start || changes.end !== undefined && changes.end !== line.end)) {
+    draft.pending = false; form.querySelector('button[type="submit"]').disabled = false;
+    showToast(t('editor.timingsProtected')); return;
+  }
   // A form edits the version the user actually saw, not a newer revision picked
   // up while the request waited in the drag queue.
   const result = await queueEditorRequest(() => ['editor_update_line', { lineId, revision: draft.base.revision || 0, base: editorBase(draft.base), ...changes }]);
@@ -718,6 +788,7 @@ window.enableLineEditDrag = function(el, lineId) {
   const endHandle = document.createElement('span');
   endHandle.className = 'line-resize-handle end';
   el.append(startHandle, endHandle);
+  startHandle.hidden = endHandle.hidden = session?.protectTimings === true;
 
   const begin = async (event, edge = null) => {
     if (event.button !== 0) return;
@@ -727,12 +798,14 @@ window.enableLineEditDrag = function(el, lineId) {
     if (event.ctrlKey || event.metaKey || event.shiftKey) return; // with a modifier the click selects
     const line = session.lines.find(item => item.id === lineId);
     if (!line || session.mode !== 'edit') return;
+    if (edge && session.protectTimings) return;
     cancelEditorGesture();
     // Dragging one of several selected lines moves the whole selection
     const group = !edge && multiSelection.size >= 2 && multiSelection.has(lineId)
       ? session.lines.filter(item => multiSelection.has(item.id))
       : [line];
     const sessionId = session.activeSessionId;
+    const protection = session.protectTimings;
     const identities = group.map(item => [item.id, item.revision || 0]);
     let released = false;
     let pendingPointer = null;
@@ -743,13 +816,13 @@ window.enableLineEditDrag = function(el, lineId) {
     window.addEventListener('blur', earlyRelease, { once: true });
     window.addEventListener('pointermove', earlyMove);
     const targets = group.length > 64 ? [{ type: 'session', key: '*', group: 'structural' }] : group.flatMap(item =>
-      [{ type: 'line', key: item.id, group: 'timing' }, ...(!edge ? [{ type: 'line', key: item.id, group: 'assignment' }] : [])]);
+      [...(!session.protectTimings ? [{ type: 'line', key: item.id, group: 'timing' }] : []), ...(!edge ? [{ type: 'line', key: item.id, group: 'assignment' }] : [])]);
     const leaseToken = await acquireEditLease(targets);
     window.removeEventListener('pointerup', earlyRelease);
     window.removeEventListener('pointercancel', earlyRelease);
     window.removeEventListener('blur', earlyRelease);
     window.removeEventListener('pointermove', earlyMove);
-    if (!leaseToken || released || !el.isConnected || session.activeSessionId !== sessionId || identities.some(([id, revision]) => (session.lines.find(item => item.id === id)?.revision || 0) !== revision)) {
+    if (!leaseToken || released || !el.isConnected || session.activeSessionId !== sessionId || session.mode !== 'edit' || session.protectTimings !== protection || identities.some(([id, revision]) => (session.lines.find(item => item.id === id)?.revision || 0) !== revision)) {
       releaseEditLease(leaseToken); return;
     }
     const blocks = group.map(item => ({ line: item, el: document.getElementById(`line-block-${item.id}`) })).filter(item => item.el);
@@ -805,7 +878,7 @@ window.enableLineEditDrag = function(el, lineId) {
       } else {
         if (Math.abs(dx) >= 14) axisReleased = true;
         else if (Math.abs(dx) <= 6) axisReleased = false;
-        const locked = !axisReleased && Math.abs(dy) > 6;
+        const locked = session.protectTimings || !axisReleased && Math.abs(dy) > 6;
         guides.classList.toggle('locked', locked);
         delta = window.DublineTimeline.move(group, locked ? 0 : shift, editorVideoDuration());
         blocks.forEach(({ el: block }) => block.classList.toggle('axis-locked', locked));
@@ -917,6 +990,7 @@ window.handleEditorKey = function(e) {
   // ←/→ move the selected lines in time (instead of seeking the video)
   if ((e.code === 'ArrowLeft' || e.code === 'ArrowRight') && !e.altKey && !e.ctrlKey && !e.metaKey) {
     e.preventDefault();
+    if (session.protectTimings) return true;
     const step = (e.shiftKey ? 1 : 0.1) * (e.code === 'ArrowLeft' ? -1 : 1);
     const shift = window.DublineTimeline.move(lines, step, editorVideoDuration());
     if (!shift) return true;

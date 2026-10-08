@@ -248,10 +248,15 @@ describe('Media/presence recovery and local timeline controls', { skip: skipReas
 
   test('media readiness uses decoder events, scopes late snapshots and preserves seeding/recording badges', async () => {
     await waitFor(page, () => video.readyState >= 3);
-    await page.evaluate(() => video.dispatchEvent(new Event('waiting')));
+    await page.evaluate(() => {
+      // A decoder with no next frame must buffer. A stale waiting event on an
+      // already-decodable paused player is deliberately no longer sufficient.
+      Object.defineProperty(video, 'readyState', { configurable: true, value: 2 });
+      video.dispatchEvent(new Event('waiting'));
+    });
     await waitFor(page, () => playerActivities.get('Alice')?.state === 'buffering');
     assert.equal(await page.$eval('#mediaReadinessOverlay', el => el.hidden), false);
-    await page.evaluate(() => video.dispatchEvent(new Event('canplay')));
+    await page.evaluate(() => { delete video.readyState; video.dispatchEvent(new Event('canplay')); });
     await waitFor(page, () => playerActivities.get('Alice')?.state === 'ready');
     assert.equal(await page.$eval('#mediaReadinessOverlay', el => el.hidden), true);
     await page.evaluate(() => {

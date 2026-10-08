@@ -20,7 +20,7 @@
   };
   const monitorKey = () => `${currentRoom}:${session && session.activeSessionId || ''}`;
   const personal = () => monitors[monitorKey()] ? model.normalize({ ...session, projectAudio: monitors[monitorKey()] }) : project();
-  const canMix = () => !!(session && session.loaded && socket.connected && (amHost() || session.mode === 'edit'));
+  const canMix = () => !!(session && session.loaded && socket.connected && (canModerate() || session.mode === 'edit'));
   window.studioAudioEnd = () => {
     if (!session || !session.loaded) return 0;
     const sources = model.sources(session), mix = project();
@@ -228,6 +228,8 @@
       row.querySelector('output').textContent = Math.round(project()[channel].volume * 100) + '%';
     }
     const gain = model.gains(project());
+    const summary = document.getElementById('exportMixSummary');
+    if (summary) summary.textContent = ['original', 'backing', 'dub'].map(channel => `${t('studio.' + channel)}: ${Math.round(gain[channel] * 100)}%`).join(' · ');
     for (const [id, channel] of [['renderOrig', 'original'], ['renderBacking', 'backing'], ['renderDub', 'dub']]) {
       const slider = document.querySelector(`#${id}Vol`), label = document.querySelector(`#${id}Val`);
       if (slider) { slider.value = Math.round(gain[channel] * 100); slider.disabled = true; }

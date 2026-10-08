@@ -6,7 +6,7 @@ const { sanitizeChatText } = require('../sanitize');
 const { logEvent } = require('../log');
 const { saveRooms, flushRooms, getRoom, emitSession, dropEmptyRoleClaims, snapshotActive } = require('../rooms');
 const { broadcastRecording, addSystemMessage } = require('../presence');
-const { isHost, isAuthorized, getLineOwner } = require('../auth');
+const { canModerate, isAuthorized, getLineOwner } = require('../auth');
 const takeMix = require('../../public/take-mix');
 const history = require('../editHistory');
 const { registerMutation } = require('../editorOperations');
@@ -16,7 +16,7 @@ module.exports = function registerRoleHandlers(socket, conn) {
     const reply = typeof ack === 'function' ? ack : () => {};
     const room = getRoom(conn.roomId), line = room.lines.find(item => item.id === lineId);
     if (!line?.audioUrl || typeof value !== 'boolean') return reply({ ok: false, reason: 'invalid' });
-    if (!(isHost(room, conn.clientId) || room.mode === 'edit' || line.recordedBy === conn.nick || getLineOwner(room, line) === conn.nick)) return reply({ ok: false, reason: 'owner' });
+    if (!(canModerate(room, conn.clientId) || room.mode === 'edit' || line.recordedBy === conn.nick || getLineOwner(room, line) === conn.nick)) return reply({ ok: false, reason: 'owner' });
     if (audioUrl !== line.audioUrl || takeMixRevision !== (line.takeMixRevision || 0)) return reply({ ok: false, reason: 'conflict' });
     line.needsRetake = value;
     line.takeMixRevision = (line.takeMixRevision || 0) + 1;
@@ -57,7 +57,7 @@ module.exports = function registerRoleHandlers(socket, conn) {
     if (!conn.roomId || !conn.nick) return;
     const room = getRoom(conn.roomId);
     const owner = room.characterClaims[character];
-    if (!owner || (owner !== conn.nick && !isHost(room, conn.clientId))) return;
+    if (!owner || (owner !== conn.nick && !canModerate(room, conn.clientId))) return;
 
     delete room.characterClaims[character];
     room.lines.forEach(l => {
@@ -65,7 +65,7 @@ module.exports = function registerRoleHandlers(socket, conn) {
     });
     saveRooms();
     emitSession(conn.roomId);
-    if (owner !== conn.nick) addSystemMessage(conn.roomId, 'system.roleReleased', { character, owner }, `👑 The host released the role "${character}" from ${owner}`);
+    if (owner !== conn.nick) addSystemMessage(conn.roomId, 'system.roleReleasedBy', { character, owner, by: conn.nick });
   });
 
   socket.on('claim_line', ({ lineId, sessionId, audioUrl } = {}, ack) => {
@@ -97,12 +97,12 @@ module.exports = function registerRoleHandlers(socket, conn) {
     if (room.characterClaims[line.character]) return;
 
     const owner = line.claimedBy;
-    if (owner !== conn.nick && !isHost(room, conn.clientId)) return;
+    if (owner !== conn.nick && !canModerate(room, conn.clientId)) return;
 
     line.claimedBy = null;
     saveRooms();
     require('../sessionScope').emitLines(conn.roomId, [line]);
-    if (owner !== conn.nick) addSystemMessage(conn.roomId, 'system.lineReleased', { id: line.id, owner }, `👑 The host released line #${line.id} from ${owner}`);
+    if (owner !== conn.nick) addSystemMessage(conn.roomId, 'system.lineReleasedBy', { id: line.id, owner, by: conn.nick });
   });
 
   // Captured take identity prevents settings from reaching replacement recordings.
@@ -146,7 +146,7 @@ module.exports = function registerRoleHandlers(socket, conn) {
       if (!target || seen.has(target.lineId)) return reply({ ok: false, reason: 'invalid' });
       seen.add(target.lineId);
       const line = room.lines.find(item => item.id === target.lineId);
-      if (!line || !takeMix.canEdit(line, conn.nick, isHost(room, conn.clientId), getLineOwner(room, line))) return reply({ ok: false, reason: 'owner' });
+      if (!line || !takeMix.canEdit(line, conn.nick, canModerate(room, conn.clientId), getLineOwner(room, line))) return reply({ ok: false, reason: 'owner' });
       if (target.audioUrl !== line.audioUrl || (bulk && !line.audioUrl)) return reply({ ok: false, reason: 'take' });
       if ((bulk || target.takeMixRevision !== undefined) && (!Number.isSafeInteger(target.takeMixRevision) || target.takeMixRevision !== (line.takeMixRevision || 0))) return reply({ ok: false, reason: 'conflict' });
       lines.push(line);
@@ -170,13 +170,13 @@ module.exports = function registerRoleHandlers(socket, conn) {
   socket.on('host_reset_claims', () => {
     if (!conn.roomId) return;
     const room = getRoom(conn.roomId);
-    if (!isHost(room, conn.clientId)) return;
+    if (!canModerate(room, conn.clientId)) return;
 
     room.characterClaims = Object.create(null);
     room.lines.forEach(l => { l.claimedBy = null; });
     saveRooms();
     emitSession(conn.roomId);
-    addSystemMessage(conn.roomId, 'system.claimsReset', {}, '♻️ The host released all roles and lines (recorded takes are kept)');
+    addSystemMessage(conn.roomId, 'system.claimsResetBy', { by: conn.nick }, `♻️ ${conn.nick} released all roles and lines (recorded takes are kept)`);
   });
 
   // ---------- Line characters: moving lines to another track ----------
@@ -323,7 +323,7 @@ module.exports = function registerRoleHandlers(socket, conn) {
   socket.on('host_release_lines', ({ lineIds } = {}) => {
     if (!conn.roomId || !Array.isArray(lineIds)) return;
     const room = getRoom(conn.roomId);
-    if (!isHost(room, conn.clientId)) return;
+    if (!canModerate(room, conn.clientId)) return;
     let released = 0;
     for (const id of lineIds) {
       const line = room.lines.find(l => l.id === id);

@@ -67,7 +67,7 @@ describe('solo feedback: numbering, fixed media controls, loading and QHD wavefo
   const listener=request=>{if(request.url().includes('soloDelay=1'))delayed=request;else request.continue();};page.on('request',listener);
   try {
    await page.evaluate(()=>setMediaSource(originalTrackAudio,originalTrackAudio.getAttribute('src')+'?soloDelay=1'));
-   await waitFor(page,()=>!document.getElementById('audioLoadingStatus').hidden&&document.getElementById('audioLoadingStatus').textContent==='Loading audio…');
+   await waitFor(page,()=>!document.getElementById('audioLoadingStatus').hidden&&document.getElementById('audioLoadingStatus').textContent===t('tracks.buffering'));
    while(!delayed)await new Promise(resolve=>setTimeout(resolve,20));await delayed.continue();
    await waitFor(page,()=>originalTrackAudio.readyState>=3&&document.getElementById('audioLoadingStatus').hidden);
   }finally{page.off('request',listener);await page.setRequestInterception(false);}

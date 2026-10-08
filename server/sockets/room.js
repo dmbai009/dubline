@@ -187,6 +187,7 @@ module.exports = function registerRoomHandlers(socket, conn) {
     roomSockets[conn.roomId][socket.id].nick = newName;
 
     if (oldName) renameClaims(room, oldName, newName);
+    for (const entry of room.moderators || []) if (entry.clientId === conn.clientId) entry.nick = newName;
     if (room.hostClientId === conn.clientId) room.host = newName;
     logEvent(conn.roomId, `✎ ${oldName || 'player without a nickname'} is now ${newName}`);
 

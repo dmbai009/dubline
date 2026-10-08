@@ -101,3 +101,29 @@ stored independently of HTTP origin; the local port is reused when available.
 
 Native save progress/cancel uses ticket-bound trusted IPC. Writing reports actual
 ZIP bytes; commit disables cancellation, and app shutdown waits for the save.
+
+## Editor reliability and room moderation
+
+Track reorder/delete operations use the existing durable editor queue, semantic
+leases, operation receipts and per-actor Undo. Track deletion checks the complete
+source-line, take, claim and ordering baseline before an atomic transfer or trash
+operation. Replacing a recovered conflict uses one IndexedDB transaction; failed
+replacement retains the original operation. Bulk review serializes fresh patches
+after resync and leaves structural conflicts for explicit individual review.
+
+Scene-scoped protectTimings defaults to false and is serialized explicitly in
+portable projects. Server checks cover creates, timing patches and timing Undo;
+caption edits, assignment, ordering and deletion remain available.
+
+Persistent room moderator grants bind to client identity independently of nickname.
+Public grants expose only an opaque grant ID, nickname and online state. Separate
+isHost/isModerator/canModerate checks retain host-only administration, scene/media
+management, project operations and Watch Together authority. Role-only broadcasts
+refresh permissions without replacing a scene or discarding inspector drafts.
+
+Media readiness observes plausible continuous decoder progress as well as events,
+resetting samples on source/scene/seek boundaries. Audio diagnostics distinguish
+extraction, selected-source failure and buffering. Device output changes serialize
+and roll all listening destinations back to the last successful output, then the
+system default if needed. Failed recording startup releases microphone, graph and
+recording resources without awaiting an inactive recorder's stop event.

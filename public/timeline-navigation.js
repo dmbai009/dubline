@@ -13,7 +13,7 @@
   const next = document.createElement('button'); next.className = 'btn-icon'; next.textContent = '↓'; next.setAttribute('aria-label', t('find.next'));
   const close = document.createElement('button'); close.className = 'btn-icon'; close.textContent = '×'; close.setAttribute('aria-label', t('find.close'));
   search.append(input, count, prev, next, close); filters.after(search);
-  let results = [], selectedResult = -1, searchTimer = null;
+  let results = [], selectedResult = -1, searchTimer = null, resultSignature = '';
   function visible(line) {
     return (!role.value || line.character === role.value) && (status.value === 'all' || status.value === 'recorded' && !!line.audioUrl || status.value === 'unrecorded' && !line.audioUrl || status.value === 'retake' && !!line.audioUrl && line.needsRetake === true);
   }
@@ -24,6 +24,9 @@
   function updateSearch() {
     const query = input.value.trim().toLowerCase();
     results = [...(session?.lines || [])].filter(line => visible(line) && (!query || queryMatches(line, query))).sort((a, b) => a.start - b.start || a.id - b.id);
+    const signature = JSON.stringify([session?.activeSessionId, query, role.value, status.value, results.map(line => line.id)]);
+    if (signature !== resultSignature) selectedResult = -1;
+    resultSignature = signature;
     selectedResult = Math.min(selectedResult, results.length - 1); count.textContent = t('find.matches', { n: results.length });
     prev.disabled = next.disabled = !results.length;
   }
@@ -35,9 +38,10 @@
     if (sessionCharacters().includes(value)) role.value = value;
   }
   function applyFilters() {
+    const byId = new Map((session?.lines || []).map(line => [line.id, line]));
     for (const row of timeline.querySelectorAll('.track-row')) row.hidden = !!role.value && row.dataset.character !== role.value;
     for (const block of timeline.querySelectorAll('.line-block')) {
-      const line = session?.lines.find(item => item.id === Number(block.id.replace('line-block-', '')));
+      const line = byId.get(Number(block.id.replace('line-block-', '')));
       block.hidden = !line || !visible(line);
     }
     if (selectedLine && !visible(selectedLine)) { selectedLine = null; multiSelection.clear(); inspector.innerHTML = `<h3>${t('inspector.title')}</h3><p>${t('inspector.empty')}</p>`; publishSelection?.(); }
@@ -48,7 +52,7 @@
   window.closeTimelineSearch = () => { if (search.hidden) return false; search.hidden = true; input.blur(); return true; };
   function revealMatch(direction) {
     updateSearch(); if (!results.length) return;
-    selectedResult = (selectedResult + direction + results.length) % results.length;
+    selectedResult = selectedResult < 0 ? (direction < 0 ? results.length - 1 : 0) : (selectedResult + direction + results.length) % results.length;
     const line = results[selectedResult], block = document.getElementById(`line-block-${line.id}`);
     if (!block) return;
     clearMultiSelection(); selectLine(line); block.scrollIntoView({ block: 'nearest', inline: 'center' });
@@ -56,7 +60,7 @@
     setTimeout(() => block.classList.remove('search-flash'), 1200);
     count.textContent = `${selectedResult + 1} / ${results.length}`;
   }
-  input.addEventListener('input', () => { clearTimeout(searchTimer); searchTimer = setTimeout(() => { selectedResult = -1; updateSearch(); }, 120); });
+  input.addEventListener('input', () => { selectedResult = -1; clearTimeout(searchTimer); searchTimer = setTimeout(updateSearch, 120); });
   input.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); revealMatch(event.shiftKey ? -1 : 1); } if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeTimelineSearch(); } });
   prev.onclick = () => revealMatch(-1); next.onclick = () => revealMatch(1); close.onclick = closeTimelineSearch;
   role.addEventListener('change', applyFilters); status.addEventListener('change', applyFilters);

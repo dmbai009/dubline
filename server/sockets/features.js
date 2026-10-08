@@ -1,14 +1,14 @@
 // Random casting, spoiler-only Blind Mode, and lightweight player activity statuses.
 const { io } = require('../app');
 const { getRoom, saveRooms, snapshotActive, emitSession } = require('../rooms');
-const { isHost } = require('../auth');
+const { canModerate } = require('../auth');
 const { onlineMembers, addSystemMessage } = require('../presence');
 
 module.exports = function registerFeatureHandlers(socket, conn) {
   socket.on('random_cast', () => {
     if (!conn.roomId) return;
     const room = getRoom(conn.roomId);
-    if (!isHost(room, conn.clientId) || room.mode !== 'dub') return;
+    if (!canModerate(room, conn.clientId) || room.mode !== 'dub') return;
     const players = [...new Set(onlineMembers(conn.roomId).map(member => member.nick).filter(Boolean))];
     // Empty editor tracks have no work and must not consume a player's turn.
     const roles = [...new Set(room.lines.map(line => line.character).filter(Boolean))];
@@ -35,7 +35,7 @@ module.exports = function registerFeatureHandlers(socket, conn) {
   socket.on('set_blind_mode', ({ enabled } = {}) => {
     if (!conn.roomId) return;
     const room = getRoom(conn.roomId);
-    if (!isHost(room, conn.clientId)) return;
+    if (!canModerate(room, conn.clientId)) return;
     room.blindMode = !!enabled;
     if (room.blindMode) room.lines.forEach(line => { if (line.audioUrl) line.blindRevealed = false; });
     room.updatedAt = Date.now();
@@ -59,7 +59,7 @@ module.exports = function registerFeatureHandlers(socket, conn) {
   socket.on('host_reveal_takes', () => {
     if (!conn.roomId) return;
     const room = getRoom(conn.roomId);
-    if (!isHost(room, conn.clientId)) return;
+    if (!canModerate(room, conn.clientId)) return;
     room.lines.forEach(line => { if (line.audioUrl) line.blindRevealed = true; });
     saveRooms();
     emitSession(conn.roomId);

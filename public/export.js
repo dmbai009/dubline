@@ -24,6 +24,7 @@ window.openRenderModal = function() {
   }
   openFilesModal();
   switchFilesTab('export');
+  document.getElementById('tabBtnExport').focus();
 };
 
 window.closeRenderModal = function() {

@@ -144,12 +144,14 @@ function refreshFilePickers() {
   document.querySelectorAll('.file-pick').forEach(pick => {
     const input = pick.querySelector('input[type=file]');
     const file = input.files && input.files[0];
-    const name = pick.querySelector('.file-pick-name');
-    pick.classList.toggle('has-file', !!file);
-    name.textContent = file ? file.name : t('file.none');
-    name.title = file ? file.name : '';
+    const name = pick.querySelector('.file-pick-name'), filename = file?.name || input.dataset.chosenName || '';
+    pick.classList.toggle('has-file', !!filename);
+    name.textContent = filename || t('file.none');
+    name.title = filename;
   });
 }
+// Capture the display name before import handlers clear the input to allow reselection.
+document.addEventListener('change', event => { if (event.target.matches?.('.file-pick input[type=file]')) event.target.dataset.chosenName = event.target.files?.[0]?.name || ''; }, true);
 document.addEventListener('change', event => { if (event.target.closest && event.target.closest('.file-pick')) refreshFilePickers(); });
 window.addEventListener('dubline-language-changed', refreshFilePickers);
 refreshFilePickers();

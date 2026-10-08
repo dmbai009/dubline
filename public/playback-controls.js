@@ -40,19 +40,20 @@
   const seek = document.createElement('input'); Object.assign(seek, { type: 'range', id: 'transportSeek', min: '0', max: '1', step: '0.001', value: '0' }); seek.setAttribute('aria-label', t('playback.seek'));
   seek.addEventListener('input', () => { if (studioCanTransport()) { window.transportScrubbing = true; video.currentTime = Number(seek.value); window.sendHostSync?.(true); } });
   const finishSeek = () => { if (window.transportScrubbing) { window.transportScrubbing = false; window.sendHostSync?.(false); } };
-  for (const event of ['change', 'pointerup', 'pointercancel', 'blur']) seek.addEventListener(event, finishSeek);
+  for (const event of ['change', 'blur']) seek.addEventListener(event, finishSeek);
+  for (const event of ['pointerup', 'pointercancel', 'blur']) window.addEventListener(event, finishSeek);
   transport.prepend(seek);
   window.addEventListener('dubline-language-changed', () => {
     for (const [control, key] of [[masterSlider, 'master'], [cc, 'cc'], [speed, 'speed'], [seek, 'seek']]) control.setAttribute('aria-label', t('playback.' + key));
   });
   function refresh() {
     seek.max = String(Number.isFinite(video.duration) ? video.duration : 0);
-    if (document.activeElement !== seek) seek.value = String(video.currentTime);
+    if (!window.transportScrubbing) seek.value = String(video.currentTime);
     seek.disabled = !studioCanTransport(); speed.disabled = recordState !== 'idle' || !!(watchMode && !amHost()) || !!renderInProgress;
   }
   for (const event of ['timeupdate', 'loadedmetadata', 'play', 'pause', 'ratechange']) video.addEventListener(event, refresh);
   let sceneId = session?.activeSessionId;
-  socket.on('session_updated', () => { if (sceneId !== session?.activeSessionId) { sceneId = session?.activeSessionId; setPreviewRate(1, true); } refresh(); });
+  socket.on('session_updated', () => { if (sceneId !== session?.activeSessionId) { finishSeek(); sceneId = session?.activeSessionId; setPreviewRate(1, true); } refresh(); });
   for (const event of ['watch_start', 'watch_stop', 'watch_sync']) socket.on(event, refresh);
   refresh(); applyVolumes();
   let idleTimer = null, pointerDown = false;

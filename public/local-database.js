@@ -36,6 +36,7 @@
   function store(name) {
     if (!Object.hasOwn(STORES, name)) throw new Error('Unknown local store');
     return { put: value => run(name, 'readwrite', table => table.put(value)),
+      replace: (id, value) => run(name, 'readwrite', table => { table.delete(id); return table.put(value); }),
       remove: id => run(name, 'readwrite', table => table.delete(id)),
       all: () => run(name, 'readonly', table => table.getAll()),
       get: id => run(name, 'readonly', table => table.get(id)) };

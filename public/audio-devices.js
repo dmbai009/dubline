@@ -43,16 +43,25 @@
     const failed = results.find(result => result.status === 'rejected'); if (failed) throw failed.reason;
   }
   function enqueue(action) { outputQueue = outputQueue.then(action, action); return outputQueue; }
+  async function restoreOutput(previous) {
+    for (const candidate of [...new Set([previous, ''])]) {
+      try {
+        await routeAll(candidate);
+        outputId = candidate; write('dubline_output_device', candidate); return;
+      } catch { /* Roll back every destination again on the system default. */ }
+    }
+    outputId = ''; write('dubline_output_device', '');
+  }
   function changeOutput(id) {
     if (!outputSupported) return Promise.resolve(false);
     return enqueue(async () => {
+      const previous = outputId;
       try {
         // Probe even before the first playback context exists.
         const probe = new Audio(); await route(probe, id); await routeAll(id);
         outputId = id; write('dubline_output_device', id); notice = ''; paint(); return true;
       } catch {
-        outputId = ''; write('dubline_output_device', '');
-        await routeAll('').catch(() => {}); say('audio.device.outputFailed'); return false;
+        await restoreOutput(previous); say('audio.device.outputFailed'); return false;
       }
     });
   }
@@ -61,8 +70,7 @@
     if (outputSupported) enqueue(async () => {
       try { await route(target, outputId); }
       catch {
-        outputId = ''; write('dubline_output_device', '');
-        await routeAll('').catch(() => {}); say('audio.device.outputFailed');
+        await restoreOutput(outputId); say('audio.device.outputFailed');
       }
     });
     return target;
@@ -96,6 +104,10 @@
         if (inputId === selected) { inputId = ''; write('dubline_input_device', ''); }
         say('audio.device.inputMissing'); stream = await media.getUserMedia({ audio: constraints });
       }
+      if (!stream.active || !stream.getAudioTracks().some(track => track.readyState === 'live')) {
+        stream.getTracks().forEach(track => track.stop()); say('audio.device.recordingInterrupted');
+        throw new Error('Microphone disconnected before capture started');
+      }
       streams.add(stream);
       for (const track of stream.getAudioTracks()) track.addEventListener('ended', () => {
         streams.delete(stream);
@@ -109,6 +121,7 @@
   function release(stream) { streams.delete(stream); if (!recordingBusy() && notice === 'audio.device.deferred') { notice = ''; paint(); } }
   window.DublineAudioDevices = {
     capture, release, refresh,
+    live: stream => !!stream?.active && stream.getAudioTracks().some(track => track.readyState === 'live'),
     registerContext: context => register(context, contexts),
     registerElement: element => register(element, elements),
     unregisterElement: element => elements.delete(element),

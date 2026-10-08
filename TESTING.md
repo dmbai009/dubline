@@ -102,3 +102,28 @@ verifies the previous destination bytes survive cancellation before commit.
 Waveform-prewarm tests cover asynchronous cache creation, duplicate job reuse,
 stale/busy/failure isolation and the two-process bound. Update-log tests enforce
 bounded persistence and the absence of credentials/private paths.
+
+## Editor improvements and reliability checks
+
+Run npm run check, npm test and npm run test:e2e for syntax, server/model tests and
+the complete real-browser suite. editor-improvements.test.js covers track
+operations, timing protection, portable projects and moderator permissions across
+reconnects, restart, revocation and scene/snapshot boundaries. media-readiness.test.js
+covers missing decoder events, seek/source reset, actual download progress and
+separate preparation/source diagnostics.
+
+npm run test:ui includes real collaborative conflict recovery, atomic IndexedDB
+replacement failures, track gestures/Undo, protected drafts, live moderator UI,
+keyboard/seek/search behavior and Files layout across six themes, RU/EN/UK,
+1024x768, 1280x720 and 1920x1080, including 125%/150% interface scale. Audio-device
+cases cover every listening path, partial sink rollback and microphone loss after
+recording reservation.
+
+npm run test:electron:editor and npm run test:electron:ui exercise the native
+Electron renderer and production audio permission/routing setup. The UI smoke
+captures Files tabs at each tested size/language and checks horizontal overflow.
+Native take-mix, projects and storage smokes remain relevant regression checks.
+GitHub Tests runs the complete browser suite plus both native editor/UI smokes
+for each commit. Synthetic capture/output devices establish routing and lifecycle
+behavior; physical hardware, subjective audio quality and real WAN instability
+remain manual checks.

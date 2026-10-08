@@ -1,6 +1,6 @@
 const { io } = require('../app');
 const { getRoom, saveRooms, snapshotActive } = require('../rooms');
-const { isHost } = require('../auth');
+const { canModerate } = require('../auth');
 const model = require('../../public/project-audio');
 module.exports = function(socket, conn) {
   socket.on('project_audio_update', (data = {}, ack) => {
@@ -9,7 +9,7 @@ module.exports = function(socket, conn) {
     if (!conn.roomId || !conn.nick) return reply({ ok: false, reason: 'room' });
     const room = getRoom(conn.roomId);
     if (!room.loaded || data.sessionId !== room.activeSessionId) return reply({ ok: false, reason: 'session' });
-    if (!isHost(room, conn.clientId) && room.mode !== 'edit') return reply({ ok: false, reason: 'host' });
+    if (!canModerate(room, conn.clientId) && room.mode !== 'edit') return reply({ ok: false, reason: 'host' });
     const current = model.normalize(room);
     if (data.revision !== current.revision) return reply({ ok: false, reason: 'conflict', mix: current, sessionId: room.activeSessionId });
     const channel = data.channel;

@@ -33,7 +33,7 @@ describe('Studio Workflow 1.3', { skip: skipReason }, () => {
   test('imports every optional-source combination through the real form', async () => {
     for (const combination of [[], ['subtitles'], ['original'], ['background'], ['original', 'background'], ['original', 'background', 'subtitles']]) {
       const previous = await host.evaluate(() => session.activeSessionId);
-      await host.evaluate(() => { openFilesModal(); switchFilesTab('import'); });
+      await host.evaluate(() => { openFilesModal(); switchFilesTab('packs'); });
       await (await host.$('#customVideoInput')).uploadFile(fixtureVideoPath());
       if (combination.includes('original')) await (await host.$('#customOriginalInput')).uploadFile(original);
       if (combination.includes('background')) await (await host.$('#customIntershumInput')).uploadFile(background);

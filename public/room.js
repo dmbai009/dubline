@@ -190,9 +190,6 @@ let lastOnlineUsers = [];
 // LOBBY: player list, progress, delay
 // ==========================================
 const lobbyList = document.getElementById('lobbyList');
-const lobbyProgressCount = document.getElementById('lobbyProgressCount');
-const lobbyProgressTotal = document.getElementById('lobbyProgressTotal');
-const lobbyProgressBar = document.getElementById('lobbyProgressBar');
 const sceneProgressText = document.getElementById('sceneProgressText');
 const sceneProgressBar = document.getElementById('sceneProgressBar');
 const sceneProgressPct = document.getElementById('sceneProgressPct');
@@ -213,13 +210,15 @@ function playerCardHtml(nick, stats, online) {
   const latencyMs = Math.round(latencyFor(nick) * 1000);
   const pct = stats.claimed ? Math.round((stats.recorded / stats.claimed) * 100) : (stats.recorded ? 100 : 0);
   const activity = playerActivities.get(nick);
+  const moderator = online && session?.moderators?.find(entry => entry.online && entry.nick === nick);
   const classes = ['player-card', isMe ? 'me' : '', online ? '' : 'offline', recordingLine ? 'recording' : ''].filter(Boolean).join(' ');
 
   const tags = [
     nick === roomHost ? `<span class="tag host">👑 ${t('lobby.host')}</span>` : '',
+    moderator ? `<span class="tag moderator" title="${esc(t('moderator.title'))}" aria-label="${esc(t('moderator.title'))}">🛡</span>` : '',
     online && !isMe && session?.mode === 'edit' ? `<button class="btn-icon" title="${esc(t('cursor.jump'))}" onclick="jumpToCollaborator(${jsArg(nick)})">↗</button>` : '',
     isMe ? `<span class="tag you">${t('lobby.you')}</span>` : '',
-    online && !isMe && amHost() ? `<button class="kick-btn" title="${esc(t('kick.button'))}" onclick="kickPlayer(${jsArg(nick)})">✖</button>` : ''
+    online && !isMe && amHost() && !session?.singlePlayer ? `<details class="participant-menu"><summary aria-label="${esc(t('moderator.actions'))}">⋯</summary><div><button class="btn-outline" onclick="changeModerator(${jsArg(nick)}, ${jsArg(moderator?.id || '')})">${t(moderator ? 'moderator.revoke' : 'moderator.grant')}</button><button class="btn-delete" onclick="kickPlayer(${jsArg(nick)})">${t('kick.button')}</button></div></details>` : ''
   ].join('');
 
   const extra = [
@@ -242,6 +241,7 @@ function playerCardHtml(nick, stats, online) {
       <div class="progress"><div style="width:${pct}%"></div></div>
       <div class="player-status-icons">
         ${nick === roomHost ? `<span title="${esc(t('lobby.host'))}">👑</span>` : ''}
+        ${moderator ? `<span title="${esc(t('moderator.title'))}">🛡</span>` : ''}
         ${isMe ? `<span title="${esc(t('lobby.you'))}">●</span>` : ''}
         ${recordingLine ? `<span title="${esc(t('lobby.recording', { id: recordingLine[0] }))}">🎙</span>` : ''}
         ${seedingNicks.has(nick) ? `<span title="${esc(t('lobby.seeding'))}">↑</span>` : ''}
@@ -258,9 +258,6 @@ function renderLobby() {
   const progress = sceneProgress();
   const pct = progress.total ? Math.round((progress.recorded / progress.total) * 100) : 0;
   usersOnlineText.textContent = String(lastOnlineUsers.length);
-  lobbyProgressCount.textContent = progress.recorded;
-  lobbyProgressTotal.textContent = progress.total;
-  lobbyProgressBar.style.width = `${pct}%`;
   sceneProgressText.textContent = `${progress.recorded} / ${progress.total}`;
   sceneProgressBar.style.width = `${pct}%`;
   sceneProgressPct.textContent = `${pct}%`;
@@ -278,8 +275,17 @@ function renderLobby() {
     html += `<div class="lobby-section">${t('lobby.offline', { n: offline.length })}</div>`;
     html += offline.map(nick => playerCardHtml(nick, progress.perPlayer.get(nick) || empty, false)).join('');
   }
+  if (amHost() && !session?.singlePlayer) html += (session?.moderators || []).filter(entry => !entry.online).map(entry => `<div class="offline-moderator"><span>🛡 ${esc(entry.nick)} · ${t('studio.offline')}</span><button class="btn-outline" onclick="changeModerator(${jsArg(entry.nick)}, ${jsArg(entry.id)})">${t('moderator.revoke')}</button></div>`).join('');
   lobbyList.innerHTML = html;
 }
+
+window.changeModerator = async (nick, id) => {
+  if (!amHost() || session?.singlePlayer) return;
+  if (!await askConfirm(t(id ? 'moderator.revokeConfirm' : 'moderator.grantConfirm', { nick }))) return;
+  if (!amHost() || session?.singlePlayer || !socket.connected) return;
+  const result = await new Promise(resolve => socket.timeout(5000).emit(id ? 'host_revoke_moderator' : 'host_grant_moderator', id ? { id } : { nick }, (error, value) => resolve(error ? null : value)));
+  if (!result?.ok) showToast(t('moderator.failed'));
+};
 
 // ==========================================
 // UNDOING LINE DELETION
@@ -461,7 +467,8 @@ socket.on('latency_updated', (latency) => {
   renderLobby();
 });
 
-socket.on('room_users_updated', ({ users, host, hostOnline: online }) => {
+socket.on('room_users_updated', ({ users, host, hostOnline: online, moderators }) => {
+  if (session && Array.isArray(moderators)) session.moderators = moderators;
   roomHost = host;
   hostOnline = online;
   lastOnlineUsers = users;
@@ -511,6 +518,8 @@ window.handleNickSubmit = function(e) {
 function amHost() {
   return !!myName && roomHost === myName;
 }
+function amModerator() { return !!myName && !amHost() && !!session?.moderators?.some(entry => entry.online && entry.nick === myName); }
+function canModerate() { return amHost() || amModerator(); }
 
 // The timeline and inspector depend on host rights (role release buttons), so they are
 // redrawn only when those rights actually change, not on every player join
@@ -537,6 +546,9 @@ function updateHostUi() {
       ${watchBtn}
       ${dubControls}
     `;
+  } else if (amModerator()) {
+    hostPanel.className = 'host-panel';
+    hostPanel.innerHTML = `<span>${t('moderator.title')}</span><button class="btn-host pause" onclick="hostForcePause()">${t('host.pause')}</button>` + (session.mode === 'edit' ? '' : `<button class="btn-host cast" onclick="randomCast()">${t('randomCast')}</button><button class="btn-host reset" onclick="hostResetClaims()">${t('host.reset')}</button><button class="btn-host reveal" onclick="revealAllTakes()">${t('blind.reveal')}</button>`);
   } else if (!hostOnline) {
     hostPanel.className = 'host-panel offline';
     hostPanel.innerHTML = `
@@ -564,25 +576,34 @@ function updateHostUi() {
   const projectSave = document.getElementById('projectExportBtn');
   projectSave.disabled = !canManagePacks || projectExportBusy;
   projectSave.title = canManagePacks ? t('project.saveHelp') : t('onlyHost');
+  document.getElementById('localMediaInput').disabled = !session?.loaded;
+  document.getElementById('projectHostNotice').hidden = canManagePacks;
 
-  if (renderedAsHost !== canManagePacks) {
-    renderedAsHost = canManagePacks;
-    refreshViews();
+  const permissions = `${canManagePacks}:${amModerator()}`;
+  if (renderedAsHost !== permissions) {
+    renderedAsHost = permissions;
+    // Preserve an in-flight drag and the Inspector draft on role changes.
+    if (window.activeEditorGesture) refreshEditorTimeline(session.lines);
+    else if (session?.loaded) renderTimeline();
+    if (selectedLine && recordState === 'idle') showInspector(selectedLine);
   }
+  if (typeof renderBlindSettings === 'function') renderBlindSettings();
 }
 
 window.hostForcePause = async function() {
+  if (!canModerate()) return;
   const sessionId = session?.activeSessionId;
   const others = [...new Set(liveRecordings.values())].filter(nick => nick !== myName);
   if (others.length && !await askConfirm(t('host.pauseConfirm', { names: others.join(', ') }))) return;
-  if (session?.activeSessionId !== sessionId) return;
+  if (session?.activeSessionId !== sessionId || !canModerate()) return;
   socket.emit('host_force_pause', { sessionId });
 };
 window.claimHost = function() { socket.emit('claim_host'); };
 window.hostResetClaims = async function() {
+  if (!canModerate()) return;
   const sessionId = session?.activeSessionId;
   if (!await askConfirm(t('confirm.reset'))) return;
-  if (session?.activeSessionId !== sessionId) return showToast(t('editor.dialogChanged'));
+  if (session?.activeSessionId !== sessionId || !canModerate()) return showToast(t('editor.dialogChanged'));
   socket.emit('host_reset_claims', { sessionId });
 };
 

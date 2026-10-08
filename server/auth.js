@@ -84,6 +84,15 @@ function isHost(room, clientId) {
   return !!clientId && room.hostClientId === clientId;
 }
 
+function isModerator(room, clientId) {
+  return !!clientId && !room.singlePlayer && !isHost(room, clientId) &&
+    !(room.banned || []).includes(clientId) &&
+    (room.moderators || []).some(entry => entry.clientId === clientId) &&
+    Object.values(room.nickOwners || {}).includes(clientId);
+}
+
+function canModerate(room, clientId) { return isHost(room, clientId) || isModerator(room, clientId); }
+
 function getLineOwner(room, line) {
   if (room.singlePlayer) return room.host;
   return (Object.hasOwn(room.characterClaims, line.character) && room.characterClaims[line.character]) || line.claimedBy || null;
@@ -99,5 +108,7 @@ module.exports = {
   isPasswordLocked,
   notePasswordFailure,
   isHost,
+  isModerator,
+  canModerate,
   getLineOwner
 };

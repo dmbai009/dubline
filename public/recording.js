@@ -142,32 +142,37 @@ window.handleStudioRecord = async function(lineId) {
   // The microphone permission prompt can outlive a mode/session/ownership change.
   const takeSequence = await reserveTake(lineId, recordingSessionId);
   const currentLine = session && session.lines.find(item => item.id === lineId);
-  if (recordState !== 'idle' || renderInProgress || !session || session.mode === 'edit' || watchMode ||
+  const microphoneLost = !window.DublineAudioDevices.live(recordingMic);
+  if (microphoneLost || recordState !== 'idle' || renderInProgress || !session || session.mode === 'edit' || watchMode ||
       (session.activeSessionId || '') !== recordingSessionId || currentRoom !== recordingRoom || myName !== recordingNick ||
       !takeSequence || !currentLine || getLineOwner(currentLine) !== recordingNick) {
     recordingMic.getTracks().forEach(track => track.stop());
     window.DublineAudioDevices.release(recordingMic);
+    if (microphoneLost) showToast(t('audio.device.recordingInterrupted'));
     if (!takeSequence && !socket.connected) showToast(t('record.connectionRequired'));
     return;
   }
   line = currentLine;
   micStream = recordingMic;
 
-  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  if (audioCtx.state === 'suspended') audioCtx.resume();
-
-  const micSource = audioCtx.createMediaStreamSource(micStream);
-  const gainNode = audioCtx.createGain();
-  gainNode.gain.value = userMicGain;
-  const audioDest = audioCtx.createMediaStreamDestination();
-  micSource.connect(gainNode);
-  gainNode.connect(audioDest);
-  // A separate voice level analyser tells us when the player has finished speaking
-  const voiceMeter = audioCtx.createAnalyser();
-  voiceMeter.fftSize = 2048;
-  gainNode.connect(voiceMeter);
-
-  startVisualizer(micStream);
+  let micSource, gainNode, audioDest, voiceMeter, recorder;
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    micSource = audioCtx.createMediaStreamSource(micStream);
+    gainNode = audioCtx.createGain(); gainNode.gain.value = userMicGain;
+    audioDest = audioCtx.createMediaStreamDestination();
+    micSource.connect(gainNode); gainNode.connect(audioDest);
+    voiceMeter = audioCtx.createAnalyser(); voiceMeter.fftSize = 2048; gainNode.connect(voiceMeter);
+    const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : '';
+    recorder = mimeType ? new MediaRecorder(audioDest.stream, { mimeType }) : new MediaRecorder(audioDest.stream);
+    startVisualizer(micStream);
+  } catch {
+    recordingMic.getTracks().forEach(track => track.stop()); window.DublineAudioDevices.release(recordingMic);
+    micStream = null; micSource?.disconnect(); gainNode?.disconnect(); voiceMeter?.disconnect();
+    audioDest?.stream.getTracks().forEach(track => track.stop()); stopVisualizer();
+    showToast(t('error.mic')); return;
+  }
 
   const adrEnabled = localStorage.getItem('dubline_adr') === 'three';
   const wantedPreRoll = window.DublineAdr.preparation(preRollSeconds, adrEnabled);
@@ -186,8 +191,6 @@ window.handleStudioRecord = async function(lineId) {
   discardTake = false;
   recordingLineId = lineId;
 
-  const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : '';
-  const recorder = mimeType ? new MediaRecorder(audioDest.stream, { mimeType }) : new MediaRecorder(audioDest.stream);
   mediaRecorder = recorder;
   const operation = { recorder, stream: recordingMic, discarded: false, nick: recordingNick, room: recordingRoom, sessionId: recordingSessionId };
   processingRecordings.add(operation);
@@ -203,6 +206,7 @@ window.handleStudioRecord = async function(lineId) {
     if (activeRecording === operation) finishRecording({ discard: operation.discarded });
     recordingMic.getTracks().forEach(track => track.stop());
     micSource.disconnect(); gainNode.disconnect(); voiceMeter.disconnect();
+    audioDest.stream.getTracks().forEach(track => track.stop());
 
     // Recording was interrupted by the host: don't save the take
     if (operation.discarded) {
@@ -252,7 +256,19 @@ window.handleStudioRecord = async function(lineId) {
     processingRecordings.delete(operation);
   };
 
-  recorder.start(100);
+  if (!window.DublineAudioDevices.live(recordingMic)) {
+    finishRecording({ discard: true }); processingRecordings.delete(operation);
+    micSource.disconnect(); gainNode.disconnect(); voiceMeter.disconnect();
+    audioDest.stream.getTracks().forEach(track => track.stop());
+    showToast(t('audio.device.recordingInterrupted')); return;
+  }
+  try { recorder.start(100); }
+  catch {
+    finishRecording({ discard: true }); processingRecordings.delete(operation);
+    micSource.disconnect(); gainNode.disconnect(); voiceMeter.disconnect();
+    audioDest.stream.getTracks().forEach(track => track.stop());
+    showToast(t('error.mic')); return;
+  }
   const playbackAt = performance.now() + holdSeconds * 1000;
   let lastProgressAt = playbackAt, lastVideoTime = startTime;
   const playbackFailed = () => {
@@ -382,6 +398,10 @@ function finishRecording({ discard = false } = {}) {
 
   if (operation.recorder.state !== 'inactive') {
     operation.recorder.stop();
+  } else {
+    // No stop event arrives if a device disappears before recorder.start.
+    processingRecordings.delete(operation);
+    if (selectedLine) showInspector(selectedLine);
   }
 }
 

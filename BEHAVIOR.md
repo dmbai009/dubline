@@ -98,3 +98,24 @@ Bulk controls operate on editable recorded clips in the current selection, acros
 
 Native Save Project reports actual stages/bytes and supports cancellation before
 commit. Atomic replacement finishes without offering an unsafe cancel action.
+
+## Editor and moderator invariants
+
+- Track reorder/delete is atomic, scene-bound and idempotent. Transfers retain
+  takes and their mix/effect/alignment settings. Stale lines, claims, takes or
+  track order reject the entire operation. Undo respects intervening work and
+  permanently purged takes never reappear.
+- Bulk conflict review preserves unresolved operations on durable-storage errors.
+  Discard all requires confirmation; destructive structural work is never
+  automatically reconstructed or replayed.
+- Protect timings is shared per scene, defaults off for legacy data and survives
+  portable save/open. Host/moderator changes take effect on the server immediately,
+  including already-open gestures and queued timing edits. Text/role edits and
+  track operations remain available; creation, timing edits and timing Undo do not.
+- Moderators persist across nickname changes, reconnects and host restarts; revoking
+  or kicking removes elevated rights immediately. Nickname reuse never transfers
+  the grant. Moderation does not change recording ownership or host-only imports,
+  project save/open, scene administration, security, kicks or Watch Together.
+- Files has Packs, Video & subtitles, Projects and Export tabs. Guest local media
+  affects that device only; exports use the reactive shared mix summary. Personal
+  monitoring stays local. Keyboard shortcuts preserve text editing and modal focus.

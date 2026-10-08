@@ -33,7 +33,7 @@ describe('portable project browser workflow', { skip: skipReason, timeout: 90000
     await waitFor(host, () => session.latency[myName] === 42);
     const old = await host.evaluate(() => ({ id: session.activeSessionId, title: session.title,
       line: { ...session.lines[0] }, audibleStart: takeStartTime(session.lines[0]), count: session.sessionList.length }));
-    await host.evaluate(() => { openFilesModal(); switchFilesTab('export'); });
+    await host.evaluate(() => { openFilesModal(); switchFilesTab('projects'); });
     const download = host.waitForResponse(response => response.url().includes('/api/export-project'), { timeout: 15000 });
     await host.click('#projectExportBtn');
     const response = await download;
@@ -45,7 +45,7 @@ describe('portable project browser workflow', { skip: skipReason, timeout: 90000
     assert.ok(project.files.get(project.manifest.project.lines[0].take.asset).length > 100);
     const filename = path.join(dir, 'Проект.dubline'); fs.writeFileSync(filename, bytes);
     await waitFor(host, () => document.getElementById('projectExportStatus').textContent.includes('Project download started'));
-    await host.evaluate(() => switchFilesTab('import'));
+    await host.evaluate(() => switchFilesTab('projects'));
     const imported = host.waitForResponse(response => response.url().includes('/api/import-project'), { timeout: 15000 });
     await (await host.$('#projectInput')).uploadFile(filename);
     assert.equal((await imported).status(), 200);
@@ -69,13 +69,13 @@ describe('portable project browser workflow', { skip: skipReason, timeout: 90000
     await waitFor(host, () => document.getElementById('projectImportStatus').style.color === 'var(--danger)' ||
       document.getElementById('projectImportStatus').textContent.includes('not supported'));
     assert.equal(await host.evaluate(() => session.activeSessionId), id);
-    await guest.evaluate(() => { openFilesModal(); switchFilesTab('export'); });
+    await guest.evaluate(() => { openFilesModal(); switchFilesTab('projects'); });
     assert.equal(await guest.$eval('#projectExportBtn', button => button.disabled), true);
     assert.equal(await guest.$eval('#projectInput', input => input.disabled), true);
   });
 
   test('limits and automatic optimization are visible in EN/RU/UK',async()=>{
-    await host.evaluate(()=>{openFilesModal();switchFilesTab('import');});
+    await host.evaluate(()=>{openFilesModal();switchFilesTab('projects');});
     for(const language of ['en','ru','uk']){
       const labels=await host.evaluate(async language=>{await DublineI18n.setLanguage(language);return ['customImport.limits','project.openHelp','project.saveHelp'].map(key=>document.querySelector('[data-i18n="'+key+'"]').textContent);},language);
       for(const text of labels){assert.match(text,/300/);assert.doesNotMatch(text,/384/);}

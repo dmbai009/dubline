@@ -857,39 +857,18 @@
   </div>
 
   <!-- MODAL: FILES AND EXPORT -->
-  <div id="filesModal" class="modal-overlay" style="display: none;">
-    <div class="modal-card modal-large" style="width: 600px;">
-      <div class="modal-header-row">
-        <h2 data-i18n="files.title">📁 Files &amp; Export</h2>
-        <button class="modal-close-icon" onclick="closeFilesModal()" data-i18n-title="close" title="Close">✕</button>
-      </div>
-
-      <div class="modal-tabs">
-        <button id="tabBtnImport" class="modal-tab-btn active" data-i18n="importTab" onclick="switchFilesTab('import')">⬆ Import</button>
-        <button id="tabBtnLibrary" class="modal-tab-btn" data-i18n="libraryTab" onclick="switchFilesTab('library')">📂 Server packs</button>
-        <button id="tabBtnExport" class="modal-tab-btn" data-i18n="exportTab" onclick="switchFilesTab('export')">🎬 Export</button>
-      </div>
-
-      <div id="tabContentImport" class="tab-content active">
-        <div class="setting-card">
-          <div class="setting-label" data-i18n="project.open">Open Dubline Project (.dubline)</div>
-          <div class="setting-sub" data-i18n="project.openHelp">Continue a saved project in a new scene. Existing scenes are kept.</div>
-          <label class="upload-btn" id="projectOpenLabel" style="width:100%;">
-            <span data-i18n="project.choose">Choose .dubline file</span>
-            <input type="file" id="projectInput" accept=".dubline" style="display:none;">
-          </label>
-          <div id="projectImportStatus" class="setting-sub" role="status" style="display:none;"></div>
-        </div>
-        <div class="setting-card">
+  <div id="filesModal" class="modal-overlay" style="display:none;">
+  <div class="modal-card modal-large files-card" role="dialog" aria-modal="true" aria-labelledby="filesTitle">
+    <div class="modal-header-row"><h2 id="filesTitle" data-i18n="files.title">Files</h2><button class="modal-close-icon" onclick="closeFilesModal()" data-i18n-title="close" title="Close">✕</button></div>
+    <div class="modal-tabs" role="tablist" aria-labelledby="filesTitle"><button id="tabBtnPacks" class="modal-tab-btn active" role="tab" aria-controls="tabContentPacks" aria-selected="true" tabindex="0" data-files-tab="packs" data-i18n="files.packs" onclick="switchFilesTab('packs')"></button><button id="tabBtnVideo" class="modal-tab-btn" role="tab" aria-controls="tabContentVideo" aria-selected="false" tabindex="-1" data-files-tab="video" data-i18n="files.video" onclick="switchFilesTab('video')"></button><button id="tabBtnProjects" class="modal-tab-btn" role="tab" aria-controls="tabContentProjects" aria-selected="false" tabindex="-1" data-files-tab="projects" data-i18n="files.projects" onclick="switchFilesTab('projects')"></button><button id="tabBtnExport" class="modal-tab-btn" role="tab" aria-controls="tabContentExport" aria-selected="false" tabindex="-1" data-files-tab="export" data-i18n="files.export" onclick="switchFilesTab('export')"></button></div>
+    <div id="tabContentPacks" class="tab-content active" role="tabpanel" aria-labelledby="tabBtnPacks" ><div class="setting-card">
           <div class="setting-label" data-i18n="zipImport">1. Import a Voxalike pack (.zip)</div>
           <div class="setting-sub" data-i18n="zipImport.help">Supports Voxalike and The Choicer Voicer scene archives</div>
-          <label class="upload-btn" id="uploadLabel" style="width: 100%;">
-            <span data-i18n="chooseZip">⬆ Choose .ZIP archive</span>
-            <input type="file" id="zipInput" accept=".zip" style="display: none;">
-          </label>
-        </div>
-
-        <div class="setting-card">
+          <label class="file-pick" id="uploadLabel" style="width: 100%;">
+            <span class="file-pick-button" data-i18n="chooseZip">⬆ Choose .ZIP archive</span>
+            <input type="file" id="zipInput" accept=".zip">
+          <span class="file-pick-name"></span></label>
+        </div><div class="setting-card">
           <div class="setting-label" data-i18n="workshopImport">2. Voxalike Workshop link</div>
           <div class="setting-sub" data-i18n="workshopImport.help">Paste a pack page link. The host validates and caches the ZIP locally.</div>
           <div style="display:flex;gap:8px;align-items:center;">
@@ -898,32 +877,36 @@
           </div>
           <div id="workshopImportStatus" class="setting-sub" style="display:none;"></div>
           <a href="https://voxalike.com/workshop" target="_blank" rel="noopener noreferrer" class="btn-share" style="align-self:flex-start;text-decoration:none;" data-i18n="workshopImport.browse">Browse Workshop</a>
+        </div><div id="filesLibrarySection" class="setting-card">
+        <div class="setting-sub" data-i18n="library.help">Choose a previously uploaded pack:</div>
+        <div id="filesLibraryList" style="display: flex; flex-direction: column; gap: 8px; overflow-y: auto; max-height: 340px; padding: 2px;">
+          <span style="color: var(--faint);" data-i18n="searchingPacks">Looking for packs…</span>
         </div>
-
-        <div class="setting-card">
+      </div></div>
+<div id="tabContentVideo" class="tab-content" role="tabpanel" aria-labelledby="tabBtnVideo" hidden><div class="setting-card">
           <div class="setting-label" data-i18n="customImport">3. Video + subtitles</div>
           <div class="setting-sub" data-i18n="customImport.help">Upload MP4/MKV and ASS/SSA/SRT/VTT. MKV may contain its own subtitle track.</div>
           <div class="setting-sub" data-i18n="customImport.limits">Working video: up to 300 MB. Larger videos are optimized automatically on the host; the original is kept for export. Separate audio is independent. Subtitles: up to 20 MB.</div>
           <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 4px;">
             <div class="file-field">
-              <span class="file-field-label" data-i18n="videoFile">Video (.mp4 / .mkv):</span>
-              <label class="file-pick"><input type="file" id="customVideoInput" accept="video/mp4,video/x-matroska,.mp4,.mkv"><span class="file-pick-button" data-i18n="file.choose">Choose file</span><span class="file-pick-name">No file chosen</span></label>
+              <span id="customVideoInputLabel" class="file-field-label" data-i18n="videoFile">Video (.mp4 / .mkv):</span>
+              <label class="file-pick"><input type="file" id="customVideoInput" aria-labelledby="customVideoInputLabel" required accept="video/mp4,video/x-matroska,.mp4,.mkv"><span class="file-pick-button" data-i18n="file.choose">Choose file</span><span class="file-pick-name">No file chosen</span></label>
             </div>
             <div id="mkvCompatibilityWarning" class="setting-warning" data-i18n="warning.mkvCodec"></div>
             <div class="file-field">
-              <span class="file-field-label" data-i18n="subtitleFile">Subtitles (optional):</span>
-              <label class="file-pick"><input type="file" id="customSubInput" accept=".ass,.ssa,.srt,.vtt"><span class="file-pick-button" data-i18n="file.choose">Choose file</span><span class="file-pick-name">No file chosen</span></label>
+              <span id="customSubInputLabel" class="file-field-label" data-i18n="subtitleFile">Subtitles (optional):</span>
+              <label class="file-pick"><input type="file" id="customSubInput" aria-labelledby="customSubInputLabel" accept=".ass,.ssa,.srt,.vtt"><span class="file-pick-button" data-i18n="file.choose">Choose file</span><span class="file-pick-name">No file chosen</span></label>
+            </div>
+            <details class="files-extra-audio"><summary data-i18n="files.extraAudio">Additional audio</summary><div class="file-field">
+              <span id="customOriginalInputLabel" class="file-field-label" data-i18n="studio.importOriginal">Original audio (optional)</span>
+              <label class="file-pick"><input type="file" id="customOriginalInput" aria-labelledby="customOriginalInputLabel" accept=".wav,.mp3,.m4a,.aac,.ogg,.oga,.opus,.flac"><span class="file-pick-button" data-i18n="file.choose">Choose file</span><span class="file-pick-name">No file chosen</span></label>
             </div>
             <div class="file-field">
-              <span class="file-field-label" data-i18n="studio.importOriginal">Original audio (optional)</span>
-              <label class="file-pick"><input type="file" id="customOriginalInput" accept=".wav,.mp3,.m4a,.aac,.ogg,.oga,.opus,.flac"><span class="file-pick-button" data-i18n="file.choose">Choose file</span><span class="file-pick-name">No file chosen</span></label>
-            </div>
-            <div class="file-field">
-              <span class="file-field-label" data-i18n="studio.importBacking">Background / M&amp;E (optional)</span>
-              <label class="file-pick"><input type="file" id="customIntershumInput" accept=".wav,.mp3,.m4a,.aac,.ogg,.oga,.opus,.flac"><span class="file-pick-button" data-i18n="file.choose">Choose file</span><span class="file-pick-name">No file chosen</span></label>
-            </div>
+              <span id="customIntershumInputLabel" class="file-field-label" data-i18n="studio.importBacking">Background / M&amp;E (optional)</span>
+              <label class="file-pick"><input type="file" id="customIntershumInput" aria-labelledby="customIntershumInputLabel" accept=".wav,.mp3,.m4a,.aac,.ogg,.oga,.opus,.flac"><span class="file-pick-button" data-i18n="file.choose">Choose file</span><span class="file-pick-name">No file chosen</span></label>
+            </div></details>
             <div>
-              <span style="font-size: 11px; color: var(--muted); font-weight: 700;" data-i18n="sceneTitle">Scene title (optional):</span>
+              <label for="customSceneTitle" style="font-size: 11px; color: var(--muted); font-weight: 700;" data-i18n="sceneTitle">Scene title (optional):</label>
               <input type="text" id="customSceneTitle" class="text-input" data-i18n-placeholder="sceneTitle.placeholder" placeholder="My new scene…" maxlength="80" style="width: 100%; margin-top: 2px;">
             </div>
             <button id="customCancelBtn" class="btn-share" onclick="cancelCustomImport()" style="display:none;" data-i18n="dialog.cancel">Cancel</button>
@@ -932,30 +915,39 @@
               <span data-i18n="createScene">🚀 Create scene</span>
             </button>
           </div>
-        </div>
-      </div>
-
-      <div id="tabContentLibrary" class="tab-content">
-        <div class="setting-sub" data-i18n="library.help">Choose a previously uploaded pack:</div>
-        <div id="filesLibraryList" style="display: flex; flex-direction: column; gap: 8px; overflow-y: auto; max-height: 340px; padding: 2px;">
-          <span style="color: var(--faint);" data-i18n="searchingPacks">Looking for packs…</span>
-        </div>
-      </div>
-
-      <div id="tabContentExport" class="tab-content">
-        <div class="setting-card">
+        </div><div class="setting-card">
+          <div class="setting-label" data-i18n="localMedia">4. Video from your disk</div>
+          <div class="setting-sub" data-i18n="localMedia.help">Saves the host’s internet: choose the pack .zip or video you downloaded earlier, and the video plays from your computer instead of through the tunnel.</div>
+          <label class="file-pick" style="justify-content: center; cursor: pointer;">
+            <span class="file-pick-button" data-i18n="localMedia.choose">📂 Choose .zip or video</span>
+            <input type="file" id="localMediaInput" accept=".zip,video/*,.mkv">
+          <span class="file-pick-name"></span></label>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span id="localMediaStatus" class="setting-sub"></span>
+            <button id="localMediaResetBtn" class="btn-outline" data-i18n="localMedia.reset" onclick="resetLocalMedia()" style="display: none;">Stream from host again</button>
+          </div>
+        </div></div>
+<div id="tabContentProjects" class="tab-content" role="tabpanel" aria-labelledby="tabBtnProjects" hidden><p class="setting-sub" id="projectHostNotice" data-i18n="files.projectsHost"></p><div class="setting-card">
+          <div class="setting-label" data-i18n="project.open">Open Dubline Project (.dubline)</div>
+          <div class="setting-sub" data-i18n="project.openHelp">Continue a saved project in a new scene. Existing scenes are kept.</div>
+          <label class="file-pick" id="projectOpenLabel" style="width:100%;">
+            <span class="file-pick-button" data-i18n="project.choose">Choose .dubline file</span>
+            <input type="file" id="projectInput" accept=".dubline">
+          <span class="file-pick-name"></span></label>
+          <div id="projectImportStatus" class="setting-sub" role="status" style="display:none;"></div>
+        </div><div class="setting-card">
           <div class="setting-label" data-i18n="project.save">Save Dubline Project (.dubline)</div>
           <div class="setting-sub" data-i18n="project.saveHelp">Saves this scene with its media, current recordings, edits and project mix.</div>
           <div id="projectExportStatus" class="setting-sub" role="status" style="display:none;"></div>
           <button id="projectExportBtn" class="btn-header-action" onclick="saveDublineProject()" style="justify-content:center;">
             <span data-i18n="project.saveButton">Save project</span>
           </button>
-        </div>
-        <div class="setting-card">
+        </div></div>
+<div id="tabContentExport" class="tab-content" role="tabpanel" aria-labelledby="tabBtnExport" hidden><div class="setting-card">
           <div class="setting-label" data-i18n="videoExport">1. Export finished video (WebCodecs)</div>
           <div class="setting-sub" data-i18n="videoExport.help">Fast MP4 export with mixed audio in your browser</div>
           <div id="longExportWarning" class="setting-warning"></div>
-          <div style="display: flex; flex-direction: column; gap: 8px; margin: 6px 0;">
+          <div hidden style="display: none; flex-direction: column; gap: 8px; margin: 6px 0;">
             <div>
               <div style="display:flex; justify-content:space-between; font-size:11px; font-weight:700;">
                 <span data-i18n="dubTrack">🎙️ Recorded dubbing:</span><span id="renderDubVal">100%</span>
@@ -975,7 +967,7 @@
               <input type="range" id="renderOrigVol" min="0" max="150" value="0" disabled style="width:100%; accent-color: var(--warning);">
             </div>
           </div>
-          <div class="setting-sub" data-i18n="studio.exportMix"></div>
+          <p class="setting-sub" data-i18n="studio.exportMix"></p><div id="exportMixSummary" class="export-mix-summary" role="status"></div>
           <div id="renderProgressBox" style="display: none; background: var(--bg); padding:10px; border-radius: var(--radius-sm); border:1px solid var(--border);">
             <span id="renderStatusText" data-i18n="rendering" style="font-size:12px; font-weight:700; color: var(--success);">⏳ Exporting video…</span>
             <div class="progress" style="margin-top:6px;"><div id="renderProgressBar" style="background: var(--success);"></div></div>
@@ -984,27 +976,21 @@
           <button id="startRenderBtn" class="btn-play" onclick="startVideoRender()" style="padding: 9px 14px;">
             <span data-i18n="startExport">▶ Export MP4 video</span>
           </button>
-        </div>
-
-        <div class="setting-card">
+        </div><div class="setting-card">
           <div class="setting-label" data-i18n="stemExport">2. Character stems for REAPER (.zip)</div>
           <div class="setting-sub" data-i18n="stemExport.help">Full-length WAV track per character, aligned from 0:00 with silence between lines</div>
           <div id="stemsStatus" class="setting-sub" style="display:none; color: var(--success);"></div>
           <button id="downloadStemsBtn" class="btn-header-action" onclick="downloadReaperStems()" style="justify-content: center;">
             <span data-i18n="downloadStems">🎛️ Build and download WAV stems</span>
           </button>
-        </div>
-
-        <div class="setting-card">
+        </div><div class="setting-card">
           <div class="setting-label" data-i18n="packExport">3. Export editable Voxalike pack (.zip)</div>
           <div class="setting-sub" data-i18n="packExport.help">Builds a compatible pack from the video and edited lines on the host.</div>
           <div id="packExportStatus" class="setting-sub" style="display:none;"></div>
           <button id="packExportBtn" class="btn-header-action" onclick="exportVoxalikePack()" style="justify-content:center;">
             <span data-i18n="packExport.button">📦 Build Voxalike pack</span>
           </button>
-        </div>
-
-        <div class="setting-card">
+        </div><div class="setting-card">
           <div class="setting-label" data-i18n="sourcePack">4. Original scene pack (.zip)</div>
           <div class="setting-sub" data-i18n="sourcePack.help">Download the original ZIP for friends</div>
           <a id="downloadOriginalPackBtn" class="btn-header-action" href="#" download style="justify-content: center; display: none;">
@@ -1014,27 +1000,10 @@
           <a id="downloadVideoBtn" class="btn-header-action" href="#" download style="justify-content: center; display: none;">
             <span></span>
           </a>
-        </div>
-
-        <div class="setting-card">
-          <div class="setting-label" data-i18n="localMedia">4. Video from your disk</div>
-          <div class="setting-sub" data-i18n="localMedia.help">Saves the host’s internet: choose the pack .zip or video you downloaded earlier, and the video plays from your computer instead of through the tunnel.</div>
-          <label class="btn-header-action" style="justify-content: center; cursor: pointer;">
-            <span data-i18n="localMedia.choose">📂 Choose .zip or video</span>
-            <input type="file" id="localMediaInput" accept=".zip,video/*,.mkv" style="display: none;">
-          </label>
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <span id="localMediaStatus" class="setting-sub"></span>
-            <button id="localMediaResetBtn" class="btn-outline" data-i18n="localMedia.reset" onclick="resetLocalMedia()" style="display: none;">Stream from host again</button>
-          </div>
-        </div>
-      </div>
-
-      <div style="display: flex; justify-content: flex-end; margin-top: 8px;">
-        <button class="btn-outline" data-i18n="close" onclick="closeFilesModal()">Close</button>
-      </div>
-    </div>
+        </div></div>
+    <div class="insp-actions"><button class="btn-outline" data-i18n="close" onclick="closeFilesModal()">Close</button></div>
   </div>
+</div>
 
   <!-- MODAL: SESSIONS -->
   <div id="sessionsModal" class="modal-overlay" style="display: none;">
@@ -1169,10 +1138,6 @@
     <!-- LOBBY -->
     <aside class="panel lobby-panel" id="lobbyPanel">
       <div class="panel-title"><span data-i18n="lobby.title">Participants</span><button class="btn-icon" data-studio-action="lobby" data-i18n-title="studio.collapseLobby" title="Collapse participants">☰</button></div>
-      <div class="lobby-summary">
-        <div class="lobby-summary-row"><span data-i18n="progress.scene">Dubbed</span><span><b id="lobbyProgressCount">0</b> / <span id="lobbyProgressTotal">0</span></span></div>
-        <div class="progress"><div id="lobbyProgressBar"></div></div>
-      </div>
       <div class="lobby-list" id="lobbyList"></div>
       <div class="lobby-footer" id="p2pBox" style="display: none;">
         <span id="p2pStatusText"></span>
@@ -1187,9 +1152,6 @@
         <div class="panel video-box">
           <div class="video-wrapper">
             <video id="mainVideo" crossorigin="anonymous"></video>
-            <div class="video-actions">
-              <button id="expandVideoBtn" class="video-action" type="button" onclick="toggleExpandedVideo()" data-i18n-title="video.expand" title="Expand video">⤢</button>
-            </div>
             <audio id="backingAudio" crossorigin="anonymous"></audio>
             <audio id="originalTrackAudio" crossorigin="anonymous"></audio>
             <div id="videoPrompter" class="video-prompter" style="display: none;">
@@ -1217,7 +1179,7 @@
             <button class="btn-icon" data-studio-action="forward" data-i18n-title="studio.forward" title="Forward 3 seconds (L)">+3</button>
             <span data-studio-time>0:00 / 0:00</span>
             <span id="audioLoadingStatus" role="status" aria-live="polite" hidden></span>
-            <button class="btn-icon" data-studio-action="expand" data-i18n-title="video.expand">⤢</button>
+            <button id="transportExpandBtn" class="btn-icon" data-studio-action="expand" data-i18n-title="video.expand">⤢</button>
             <button class="btn-icon" data-studio-action="fullscreen" data-i18n-title="studio.fullscreen" title="Fullscreen (F)">⛶</button>
           </div>
 
@@ -1260,7 +1222,8 @@
             <button id="editModeBtn" type="button" onclick="setStudioMode('edit')" data-i18n="mode.edit">✎ Edit</button>
           </div>
           <div class="editor-tools">
-            <button class="btn-icon" type="button" onclick="createLineAtPlayhead()" data-i18n="editor.addLine">＋ Line</button>
+            <button id="addEditorLineBtn" class="btn-icon" type="button" onclick="createLineAtPlayhead()" data-i18n="editor.addLine">＋ Line</button>
+            <button id="protectTimingsBtn" class="btn-icon" type="button" onclick="toggleProtectTimings()" aria-pressed="false"></button>
             <button class="btn-icon" type="button" onclick="editorUndo()" data-i18n="editor.undo" data-i18n-title="editor.undoTitle" title="Undo your last edit (Ctrl+Z)">↶ Undo</button>
           </div>
           <button id="editorSyncState" class="btn-icon" hidden onclick="reviewEditorConflicts()" aria-live="polite"></button>
@@ -1315,6 +1278,7 @@
   <script src="room.js"></script>
   <script src="editor.js"></script>
   <script src="edit-leases.js"></script>
+  <script src="track-editor.js"></script>
   <script src="selection-presence.js"></script>
   <script src="studio.js"></script>
   <script src="features.js"></script>

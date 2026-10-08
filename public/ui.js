@@ -421,19 +421,42 @@ settingsTheme.addEventListener('change', () => {
 });
 
 window.openFilesModal = function() {
-  filesModal.style.display = 'flex'; switchFilesTab('import'); renderCustomImportStatus(); };
-window.closeFilesModal = function() { filesModal.style.display = 'none'; };
+  if (filesModal.style.display !== 'flex') window.filesReturnFocus = document.activeElement;
+  filesModal.style.display = 'flex'; switchFilesTab('packs'); renderCustomImportStatus();
+  document.getElementById('tabBtnPacks').focus(); };
+window.closeFilesModal = function() {
+  if (filesModal.style.display !== 'flex') return;
+  filesModal.style.display = 'none'; window.filesReturnFocus?.focus(); window.filesReturnFocus = null;
+};
 window.switchFilesTab = function(tab) {
-  const names = ['import', 'library', 'export'];
+  if (tab === 'import' || tab === 'library') tab = 'packs';
+  const names = ['packs', 'video', 'projects', 'export'];
+  if (!names.includes(tab)) return;
   names.forEach(name => {
     const suffix = name[0].toUpperCase() + name.slice(1);
-    document.getElementById(`tabBtn${suffix}`).classList.toggle('active', name === tab);
-    document.getElementById(`tabContent${suffix}`).classList.toggle('active', name === tab);
+    const button = document.getElementById(`tabBtn${suffix}`), content = document.getElementById(`tabContent${suffix}`);
+    button.classList.toggle('active', name === tab); button.setAttribute('aria-selected', String(name === tab)); button.tabIndex = name === tab ? 0 : -1;
+    content.classList.toggle('active', name === tab); content.hidden = name !== tab;
   });
-  if (tab === 'library') loadServerPacks();
+  if (tab === 'packs') loadServerPacks().catch(() => { libraryList.textContent = t('conn.lost'); });
   if (tab === 'export') updateExportDurationWarning();
-  if (tab === 'import') renderCustomImportStatus();
+  if (tab === 'video') renderCustomImportStatus();
 };
+filesModal.querySelector('[role="tablist"]').addEventListener('keydown', event => {
+  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+  const tabs = [...filesModal.querySelectorAll('[data-files-tab]')], current = tabs.indexOf(event.target);
+  if (current < 0) return;
+  event.preventDefault();
+  const index = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (current + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+  switchFilesTab(tabs[index].dataset.filesTab); tabs[index].focus();
+});
+filesModal.addEventListener('keydown', event => {
+  if (event.key !== 'Tab' || document.querySelector('dialog[open]')) return;
+  const controls = [...filesModal.querySelectorAll('button,input,select,textarea,a[href],summary')].filter(control => !control.disabled && control.tabIndex >= 0 && control.getClientRects().length);
+  if (!controls.length) return;
+  const index = controls.indexOf(document.activeElement);
+  if (event.shiftKey && index <= 0 || !event.shiftKey && index === controls.length - 1) { event.preventDefault(); controls[event.shiftKey ? controls.length - 1 : 0].focus(); }
+});
 
 window.addEventListener('dubline-language-changed', () => {
   updateHostUi();
@@ -457,17 +480,27 @@ window.addEventListener('dubline-language-changed', () => {
 // ==========================================
 // HOTKEYS
 // ==========================================
+timelineContainer.tabIndex = -1;
+timelineContainer.addEventListener('pointerdown', event => {
+  if (!event.target.closest('button,input,textarea,select,[contenteditable]')) timelineContainer.focus({ preventScroll: true });
+}, true);
 window.addEventListener('keydown', (e) => {
-  if (e.code === 'KeyF' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); window.openTimelineSearch?.(); return; }
+  const editingText = e.target.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"], [role="textbox"]');
+  const modalOpen = [...document.querySelectorAll('.modal-overlay, dialog[open]')].some(element => element.getClientRects().length && getComputedStyle(element).visibility !== 'hidden');
+  if (e.code === 'KeyF' && (e.ctrlKey || e.metaKey)) {
+    if (modalOpen || editingText && e.target.id !== 'timelineSearchInput' || !session?.loaded) return;
+    e.preventDefault(); window.openTimelineSearch?.(); return;
+  }
   if (e.code === 'Escape') {
-    if (window.closeTimelineSearch?.()) return;
     if (closeTextPrompt()) return;
+    if (document.querySelector('dialog[open]')) return;
+    if (!modalOpen && window.closeTimelineSearch?.()) return;
     if (document.body.classList.contains('video-expanded')) toggleExpandedVideo();
     closeHostingModal(); closeSettingsModal(); closeFilesModal(); closeSessionsModal();
     closeHelpModal(); closeTrashModal(); clearMultiSelection();
     return;
   }
-  if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName) || e.target.isContentEditable || e.ctrlKey && e.code !== 'KeyZ' || e.metaKey && e.code !== 'KeyZ') return;
+  if (editingText || e.target.isContentEditable || modalOpen || e.defaultPrevented || e.ctrlKey && e.code !== 'KeyZ' || e.metaKey && e.code !== 'KeyZ') return;
 
   // Edit Mode has its own keys for the selected lines (move, change role, delete, undo)
   if (window.handleEditorKey && handleEditorKey(e)) return;
@@ -475,8 +508,10 @@ window.addEventListener('keydown', (e) => {
 
   // Space: play/pause
   if (e.code === 'Space') {
+    if (e.target.closest('button, a[href], [role="button"], [role="switch"], summary')) return;
     e.preventDefault();
-    window.studioTransport('play');
+    if (!e.repeat) window.studioTransport('play');
+    return;
   }
   const transportKeys = { KeyJ: 'back', KeyK: 'pause', KeyL: 'forward', KeyF: 'fullscreen' };
   if (transportKeys[e.code]) { e.preventDefault(); window.studioTransport(transportKeys[e.code]); }
@@ -561,7 +596,7 @@ function showInspector(line) {
     if (allowCharacterClaims) secondary.push(`<button class="btn-outline" onclick="claimCharacter(${jsArg(line.character)})">${t('claim.role', { character: esc(line.character) })}</button>`);
   } else if (isOwnedByMe && charOwner) {
     secondary.push(`<button class="btn-outline" onclick="unclaimCharacter(${jsArg(line.character)})">${t('release.role', { character: esc(line.character) })}</button>`);
-  } else if (isOwnedByOther && amHost()) {
+  } else if (isOwnedByOther && canModerate()) {
     secondary.push(charOwner
       ? `<button class="btn-host" onclick="unclaimCharacter(${jsArg(line.character)})">${t('host.releaseRole', { owner: esc(owner) })}</button>`
       : `<button class="btn-host" onclick="unclaimSingleLine(${line.id})">${t('host.releaseLine', { owner: esc(owner) })}</button>`);
@@ -632,7 +667,7 @@ function showMultiInspector() {
     ${editorForm}
     ${takeMixPanelHtml(lines, true)}
     <div class="insp-actions secondary">
-      ${amHost() && !session.singlePlayer ? `<button class="btn-host" onclick="releaseSelectedLines()">${t('multi.release')}</button>` : ''}
+      ${canModerate() && !session.singlePlayer ? `<button class="btn-host" onclick="releaseSelectedLines()">${t('multi.release')}</button>` : ''}
       ${session.mode === 'edit' ? `<button class="btn-outline" onclick="deleteEditorLines([...multiSelection])">${t('multi.delete')}</button>` : ''}
       <button class="btn-outline" onclick="clearMultiSelection()">${t('multi.clear')}</button>
     </div>
@@ -677,7 +712,7 @@ window.saveLineCharacter = function(e, lineId) {
   const name = document.getElementById('charInput').value.trim();
   if (!line || !name || name === line.character) return showInspector(selectedLine);
   const roleOwner = session.characterClaims && session.characterClaims[name];
-  if (roleOwner && roleOwner !== myName && !amHost()) {
+  if (roleOwner && roleOwner !== myName && !canModerate()) {
     showToast(t('char.roleTaken', { name, owner: roleOwner }));
     return;
   }
@@ -816,7 +851,7 @@ document.addEventListener('fullscreenchange', () => {
 
 window.toggleExpandedVideo = function() {
   const expanded = document.body.classList.toggle('video-expanded');
-  const button = document.getElementById('expandVideoBtn');
+  const button = document.getElementById('transportExpandBtn');
   button.classList.toggle('active', expanded);
   button.title = t(expanded ? 'video.collapse' : 'video.expand');
 };
@@ -955,7 +990,7 @@ if (!isChromiumBrowser()) {
 
 
 function canEditTake(line) {
-  return window.DublineTakeMix.canEdit(line, myName, amHost(), getLineOwner(line));
+  return window.DublineTakeMix.canEdit(line, myName, canModerate(), getLineOwner(line));
 }
 function retakeControlHtml(line) {
   if (!line.audioUrl) return '';

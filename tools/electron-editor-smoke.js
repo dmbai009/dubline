@@ -95,6 +95,21 @@ if (!process.versions.electron) {
       })()`);
       assert.deepEqual(recovery, { ok: true, caption: 'Native B', revisions: 2 });
       assert.equal(await evaluate("(() => { const slider=document.getElementById('settingsMicGain'); slider.value='150'; slider.dispatchEvent(new Event('input',{bubbles:true})); slider.dispatchEvent(new MouseEvent('dblclick',{bubbles:true})); return userMicGain===1 && slider.value==='100'; })()"), true);
+      await evaluate("document.querySelector('[data-character=\"Friend\"] .track-drag-handle').focus();");
+      await key('Up', ['alt']); await waitFor("session.trackOrder[0] === 'Friend' && editorQueue.length === 0");
+      await evaluate("editorUndo(); void 0;"); await waitFor("session.trackOrder[0] === 'Hero' && editorQueue.length === 0");
+      await evaluate("document.getElementById('protectTimingsBtn').click();"); await waitFor('session.protectTimings');
+      assert.equal(await evaluate("document.getElementById('addEditorLineBtn').disabled && [...document.querySelectorAll('[data-editor-field=\"start\"], [data-editor-field=\"end\"]')].every(input => input.disabled)"), true);
+      const protectedTiming = await evaluate("[session.lines[0].start, session.lines[0].end]");
+      await evaluate("updateEditorLine(session.lines[0], {character:'Friend'}); void 0;"); await waitFor("session.lines[0].character === 'Friend' && editorQueue.length === 0");
+      assert.deepEqual(await evaluate("[session.lines[0].start, session.lines[0].end]"), protectedTiming);
+      await evaluate("editorUndo(); void 0;"); await waitFor("session.lines[0].character === 'Hero' && editorQueue.length === 0");
+      await evaluate("document.querySelector('[data-character=\"Hero\"] .track-delete-button').click();"); await waitFor("document.querySelector('.track-delete-dialog').open");
+      await evaluate("document.querySelector('[data-track-decision=transfer]').click();"); await waitFor("!session.trackOrder.includes('Hero') && editorQueue.length === 0");
+      assert.equal(await evaluate('session.lines.length'), 4);
+      await evaluate("editorUndo(); void 0;"); await waitFor("session.trackOrder.includes('Hero') && editorQueue.length === 0");
+      await evaluate("document.getElementById('protectTimingsBtn').click();"); await waitFor('!session.protectTimings');
+      assert.deepEqual(await evaluate("(() => {openFilesModal(); switchFilesTab('projects'); const result = {tabs:[...document.querySelectorAll('#filesModal [role=tab]')].map(tab=>tab.dataset.filesTab), project:document.getElementById('projectExportBtn').closest('[role=tabpanel]').id, local:document.getElementById('localMediaInput').closest('[role=tabpanel]').id};closeFilesModal();return result;})()"), {tabs:['packs','video','projects','export'],project:'tabContentProjects',local:'tabContentVideo'});
       await evaluate("document.querySelector('.track-add-btn').click();"); await key('Escape');
       await waitFor("!document.querySelector('dialog[open]')");
       const roomUrl = win.webContents.getURL();
@@ -116,7 +131,7 @@ if (!process.versions.electron) {
       await new Promise(resolve => setTimeout(resolve, 100));
       assert.deepEqual(openedLinks, [WORKSHOP_URL], 'An unrelated URL reached the external browser');
       assert.equal(BrowserWindow.getAllWindows().length, 1, 'An unrelated popup was allowed');
-      console.log(JSON.stringify({ electron: process.versions.electron, checks: ['add role', 'rename role', 'rename session', 'Alt+arrows', 'lost ACK/pending queue', 'slider reset', 'Escape', 'Workshop external link'], passed: true }));
+      console.log(JSON.stringify({ electron: process.versions.electron, checks: ['add role', 'rename role', 'rename session', 'Alt+arrows', 'lost ACK/pending queue', 'slider reset', 'track reorder/Undo', 'protected timing/vertical move', 'track transfer/Undo', 'Files tabs', 'Escape', 'Workshop external link'], passed: true }));
       win.destroy(); app.exit(0);
     } catch (error) { console.error(error); win.destroy(); app.exit(1); }
   }).catch(error => { console.error(error); app.exit(1); });

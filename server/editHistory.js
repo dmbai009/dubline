@@ -75,6 +75,10 @@ function popFor(roomId, room, actorId) {
   return null;
 }
 
+function peekFor(roomId, room, actorId) {
+  return (histories.get(keyOf(roomId, room)) || []).findLast(entry => entry.by === actorId) || null;
+}
+
 // Every edit and every undo raises a line's revision by one. After an undo the line is back in
 // the state that this player's earlier edit left it in, so that edit stays undoable.
 function rebase(roomId, room, actorId, lineId, fromRev, toRev) {
@@ -127,4 +131,4 @@ function renameNick(roomId, oldName, newName) {
   }
 }
 
-module.exports = { lineBefore, record, recordLines, popFor, hasFor, rebase, clear, renameNick, LINE_FIELDS, canUndoLine, noteUndo };
+module.exports = { lineBefore, record, recordLines, peekFor, popFor, hasFor, rebase, clear, renameNick, LINE_FIELDS, canUndoLine, noteUndo };

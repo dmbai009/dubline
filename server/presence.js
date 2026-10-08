@@ -81,7 +81,7 @@ function broadcastRoomUsers(roomId) {
   require('./cursorPresence').broadcast(roomId);
   const room = getRoom(roomId);
   const users = [...new Set(onlineMembers(roomId).map(m => m.nick).filter(Boolean))];
-  io.to(roomId).emit('room_users_updated', { users, host: room.host, hostOnline: isHostOnline(roomId) });
+  io.to(roomId).emit('room_users_updated', { users, host: room.host, hostOnline: isHostOnline(roomId), moderators: require('./moderators').publicRecords(room) });
 }
 
 function addChatMessage(roomId, message) {

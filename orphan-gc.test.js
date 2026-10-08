@@ -2,7 +2,7 @@ const test = require('node:test'), assert = require('node:assert/strict');
 const fs = require('node:fs'), path = require('node:path'), os = require('node:os');
 const { collect } = require('./server/orphanGc');
 test('idle orphan cleanup protects inactive scenes, trash, originals, unknown files and recent staging', async t => {
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'dubline-gc-'))); t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const dir = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'dubline-gc-'))); t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const roots = Object.fromEntries(['data', 'uploads', 'packs'].map(name => { const folder = path.join(dir, name); fs.mkdirSync(folder); return [name, folder]; }));
   const names = ['custom_1234567890123_abcdef', 'custom_1234567890123_bcdefg', 'custom_1234567890123_cdefgh', 'custom_1234567890123_defghi'];
   for (const name of names) fs.mkdirSync(path.join(roots.uploads, name));
@@ -16,7 +16,7 @@ test('idle orphan cleanup protects inactive scenes, trash, originals, unknown fi
   assert.equal(fs.readFileSync(path.join(roots.uploads, 'User Project.dubline'), 'utf8'), 'keep');
 });
 test('orphan cleanup preserves scene references when configured roots are filesystem aliases', async t => {
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'dubline-gc-')));
+  const dir = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'dubline-gc-')));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const workspace = path.join(dir, 'workspace'), alias = path.join(dir, 'alias');
   fs.mkdirSync(workspace);
@@ -35,7 +35,7 @@ test('orphan cleanup preserves scene references when configured roots are filesy
   assert.equal(fs.readFileSync(path.join(workspace, 'uploads', referenced, 'video.mp4'), 'utf8'), referenced);
 });
 test('orphan cleanup rechecks new live references after IO through an aliased root', async t => {
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'dubline-gc-')));
+  const dir = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'dubline-gc-')));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const workspace = path.join(dir, 'workspace'), alias = path.join(dir, 'alias');
   fs.mkdirSync(workspace);

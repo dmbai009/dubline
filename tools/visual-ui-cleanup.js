@@ -9,14 +9,15 @@ async function captureScreens(page, destination, resize) {
     await resize(width, height);
     for (const language of ['ru', 'en', 'uk']) {
       await page.evaluate(language => i18n.setLanguage(language), language);
-      await page.evaluate(() => { closeSettingsModal(); closeHelpModal(); session.title = 'Эпизод 12 — Подготовка сцены и запись голосов — A very long project title'; renderSessions(); });
+      await page.evaluate(() => { closeHostingModal(); closeSettingsModal(); closeHelpModal(); session.title = 'Эпизод 12 — Подготовка сцены и запись голосов — A very long project title'; renderSessions(); });
       const failures = await page.evaluate(() => {
         const controls = [...document.querySelectorAll('header button, header input')].filter(element => element.getBoundingClientRect().width);
         return controls.filter(element => {
           const r = element.getBoundingClientRect(), hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
           return r.left < -1 || r.right > innerWidth + 1 || !element.contains(hit);
-        }).map(element => element.outerHTML);
+        }).map(element => { const r = element.getBoundingClientRect(); return { control: element.outerHTML, hit: document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)?.outerHTML.slice(0, 500) }; });
       });
+      if (failures.length) await page.screenshot({ path: path.join(destination, `${width}-${language}-header-failure.png`) });
       assert.deepEqual(failures, [], `header ${width} ${language}`);
       await page.screenshot({ path: path.join(destination, `${width}-${language}-studio.png`) });
       await page.evaluate(() => { openSettingsModal(); switchSettingsTab('user'); openSettingsCategory('user', 'audio'); });
@@ -27,6 +28,13 @@ async function captureScreens(page, destination, resize) {
       await page.screenshot({ path: path.join(destination, `${width}-${language}-storage.png`) });
       await page.evaluate(() => { closeSettingsModal(); openHelpModal(); });
       await page.screenshot({ path: path.join(destination, `${width}-${language}-help.png`) });
+      await page.evaluate(() => { closeHelpModal(); openFilesModal(); });
+      for (const tab of ['packs', 'video', 'projects', 'export']) {
+        await page.evaluate(tab => switchFilesTab(tab), tab);
+        assert.equal(await page.$eval('#filesModal .modal-card', card => card.scrollWidth > card.clientWidth + 1), false, `Files ${width} ${language} ${tab}`);
+        await page.screenshot({ path: path.join(destination, `${width}-${language}-files-${tab}.png`) });
+      }
+      await page.evaluate(() => closeFilesModal());
     }
   }
   await page.evaluate(() => { closeHelpModal(); closeSettingsModal(); });

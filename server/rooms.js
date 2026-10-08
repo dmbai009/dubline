@@ -17,7 +17,7 @@ const timelineBounds = require('../public/timeline-model');
 // Scene fields that belong to a session (see "Sessions" below)
 const SESSION_FIELDS = ['loaded', 'title', 'kind', 'zipUrl', 'videoUrl', 'backingUrl', 'lines', 'characterClaims', 'createdAt', 'updatedAt',
   'audioTracks', 'originalTrack', 'backingTrack', 'baseBackingUrl', 'deletedLines', 'mode', 'trackOrder', 'nextLineId', 'blindMode',
-  'externalOriginalUrl', 'audioMetadata', 'projectAudio', 'videoHasAudio', 'takeLatency', 'videoDuration', 'workshopSource', 'originalVideoUrl', 'originalVideoName'];
+  'externalOriginalUrl', 'audioMetadata', 'projectAudio', 'videoHasAudio', 'takeLatency', 'videoDuration', 'workshopSource', 'originalVideoUrl', 'originalVideoName', 'protectTimings'];
 let repairedOnLoad = false;
 
 function loadRooms() {
@@ -78,6 +78,7 @@ function cleanImportedCaptions(session) {
 
 function normalizeEditorState(session) {
   if (!session || !Array.isArray(session.lines)) return;
+  session.protectTimings = session.protectTimings === true;
   session.characterClaims = Object.assign(Object.create(null), session.characterClaims);
   session.takeLatency = Object.assign(Object.create(null), session.takeLatency);
   session.projectAudio = projectAudio.normalize(session);
@@ -183,12 +184,15 @@ function getRoom(roomId) {
     passwordHash: null,   // room password (scrypt); the password itself is not stored
     passwordSalt: null,
     admitted: [],         // devices that already entered the password (not asked again)
-    banned: []            // devices the host kicked
+    banned: [],           // devices the host kicked
+    moderators: []       // room-scoped grants, never portable scene metadata
   };
   for (const key in defaults) {
     if (rooms[roomId][key] === undefined) rooms[roomId][key] = defaults[key];
   }
   const room = rooms[roomId];
+  if (!Array.isArray(room.moderators)) room.moderators = [];
+  room.moderators = room.moderators.filter(entry => entry && typeof entry.id === 'string' && typeof entry.clientId === 'string' && typeof entry.nick === 'string');
   for (const field of ['nickOwners', 'latency', 'sessions', 'characterClaims']) {
     if (!room[field] || Object.getPrototypeOf(room[field]) !== null) room[field] = Object.assign(Object.create(null), room[field]);
   }
@@ -213,7 +217,7 @@ function getRoom(roomId) {
 function emptySession() {
   return {
     loaded: false, title: '', kind: null, zipUrl: '', videoUrl: '', backingUrl: '', lines: [], characterClaims: {}, createdAt: null, updatedAt: null,
-    mode: 'dub', trackOrder: [], nextLineId: 1, blindMode: false,
+    mode: 'dub', trackOrder: [], nextLineId: 1, blindMode: false, protectTimings: false,
     externalOriginalUrl: '', audioMetadata: {}, projectAudio: undefined, takeLatency: Object.create(null),
     videoDuration: undefined, workshopSource: undefined, originalVideoUrl: '', originalVideoName: '',
     videoHasAudio: undefined, // unknown until probing succeeds; false only for genuinely silent video
@@ -310,9 +314,10 @@ function deleteSessionFiles(session) {
 
 // Secrets (players' clientIds) never reach clients
 function publicRoom(room) {
-  const { hostClientId, nickOwners, chat, sessions, passwordHash, passwordSalt, admitted, banned, deletedLines, originalVideoUrl, ...rest } = room;
+  const { hostClientId, nickOwners, chat, sessions, passwordHash, passwordSalt, admitted, banned, deletedLines, originalVideoUrl, moderators, ...rest } = room;
   return {
     ...rest,
+    moderators: require('./moderators').publicRecords(room),
     editorProtocol: require('./editorOperations').snapshotProtocol(room),
     hasOriginalVideo: !!originalVideoUrl,
     originalVideoSize: fileSizeForUrl(originalVideoUrl),
@@ -382,6 +387,17 @@ function dropEmptyRoleClaims(room) {
   }
 }
 
+// Restore missing tracks beside their surviving neighbours, preserving concurrent order.
+function restoreTrackOrder(room, batch, lines) {
+  for (const line of lines) {
+    const name = line.character;
+    if (room.trackOrder.includes(name)) continue;
+    const old = batch.trackOrder || [], index = old.indexOf(name);
+    const anchor = index < 0 ? room.trackOrder.at(-1) : old.slice(0, index).reverse().find(track => room.trackOrder.includes(track));
+    room.trackOrder.splice(anchor ? room.trackOrder.indexOf(anchor) + 1 : 0, 0, name);
+  }
+}
+
 // Load saved rooms; save the timing repair right away so it runs only once
 Object.assign(rooms, loadRooms());
 if (repairedOnLoad) writeRoomsNow();
@@ -400,5 +416,6 @@ module.exports = {
   emitSession,
   ensureAudioTracks,
   dropEmptyRoleClaims,
-  normalizeEditorState
+  normalizeEditorState,
+  restoreTrackOrder
 };

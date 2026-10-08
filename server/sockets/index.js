@@ -14,6 +14,7 @@ io.on('connection', socket => {
   const conn = { roomId: null, nick: '', clientId: '' };
   require('../sessionScope').register(socket, conn);
   registerRoomHandlers(socket, conn);
+  require('../moderators').register(socket, conn);
   registerRoleHandlers(socket, conn);
   registerHostHandlers(socket, conn);
   registerTrashHandlers(socket, conn);

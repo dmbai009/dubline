@@ -276,7 +276,7 @@ describe('clip mixing: real sockets, inspector and audio', { skip: skipReason, t
     assert.equal(parsed.manifest.project.lines[0].take.volume, expected[0].volume);
     const oldId = await host.evaluate(() => session.activeSessionId);
     const filename = path.join(server.dirs.data, 'clip-settings.dubline'); fs.writeFileSync(filename, archive);
-    await host.evaluate(() => { openFilesModal(); switchFilesTab('import'); });
+    await host.evaluate(() => { openFilesModal(); switchFilesTab('projects'); });
     await (await host.$('#projectInput')).uploadFile(filename);
     await waitFor(host, id => session.activeSessionId !== id && session.lines[0].audioUrl, 15000, oldId);
     for (const [i, line] of (await lines(host)).entries()) {

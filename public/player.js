@@ -958,17 +958,12 @@ window.renameCharacterTrack = async function(name) {
 function refreshAudioLoadingStatus() {
   const status = document.getElementById('audioLoadingStatus');
   if (!status || !session?.loaded) { if (status) status.hidden = true; return; }
-  const failed = session.audioTracksError === session.videoUrl;
-  const preparing = session.audioTracksPending || (!failed && session.audioTracks === undefined && session.videoHasAudio === undefined && !session.externalOriginalUrl);
-  const sources = window.DublineProjectAudio.sources(session), gains = window.DublineProjectAudio.gains(window.DublineProjectAudio.normalize(session));
-  const audible = [['original', originalTrackAudio], ['backing', backing]].filter(([channel]) => sources[channel] && gains[channel] > 0);
-  const buffering = audible.some(([, element]) => !element.error && element.readyState < 3);
-  const sourceError = audible.some(([, element]) => element.error);
-  status.hidden = !preparing && !buffering && !failed && !sourceError;
-  status.classList.toggle('audio-loading', !!preparing || buffering);
-  status.textContent = t(preparing ? 'tracks.preparing' : failed || sourceError ? 'tracks.failed' : 'tracks.buffering');
+  const result = window.DublineProjectAudio.preparationStatus(session, { original: originalTrackAudio, backing });
+  status.hidden = !result.key;
+  status.classList.toggle('audio-loading', result.loading);
+  status.textContent = result.key ? t(result.key, { channels: result.channels.map(channel => t('studio.' + channel)).join(', ') }) : '';
 }
-for (const element of [originalTrackAudio, backing]) for (const event of ['loadstart', 'loadedmetadata', 'waiting', 'stalled', 'canplay', 'playing', 'error', 'emptied']) element.addEventListener(event, refreshAudioLoadingStatus);
+for (const element of [originalTrackAudio, backing]) for (const event of ['loadstart', 'loadedmetadata', 'waiting', 'stalled', 'canplay', 'playing', 'error', 'emptied', 'timeupdate']) element.addEventListener(event, refreshAudioLoadingStatus);
 window.addEventListener('dubline-language-changed', refreshAudioLoadingStatus);
 
 // The same builder is used for structural full render and affected-row updates.
@@ -990,7 +985,7 @@ function buildRoleRow(char, trackWidth, allowCharacterClaims, editing) {
       } else if (charClaimedBy === myName) {
         roleHtml = `<span class="role-badge me">🎭 ${t('you')} <button class="role-btn" style="margin-left:4px" onclick="unclaimCharacter(${jsArg(char)})">✖</button></span>`;
       } else {
-        const kickBtn = amHost()
+        const kickBtn = canModerate()
           ? `<button class="role-btn" style="margin-left:4px" title="${t('host.releaseRole', { owner: esc(charClaimedBy) })}" onclick="unclaimCharacter(${jsArg(char)})">✖</button>`
           : '';
         roleHtml = `<span class="role-badge other">🔒 ${esc(charClaimedBy)}${kickBtn}</span>`;
@@ -1006,6 +1001,7 @@ function buildRoleRow(char, trackWidth, allowCharacterClaims, editing) {
         ${roleHtml}
       </div>
     `;
+    if (editing) window.addTrackEditorControls?.(label, char);
 
     const trackArea = document.createElement('div');
     trackArea.className = 'track-timeline';

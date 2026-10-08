@@ -5,13 +5,13 @@ const settingsHideMyTakes = document.getElementById('settingsHideMyTakes');
 function renderBlindSettings() {
   if (!session) return;
   settingsBlindMode.checked = !!session.blindMode;
-  settingsBlindMode.disabled = !amHost();
-  settingsBlindMode.title = amHost() ? '' : t('onlyHost');
+  settingsBlindMode.disabled = !canModerate();
+  settingsBlindMode.title = canModerate() ? '' : t('moderator.only');
   settingsHideMyTakes.checked = (session.blindPlayers || []).includes(myName);
 }
 
 settingsBlindMode.addEventListener('change', () => {
-  if (!amHost()) return renderBlindSettings();
+  if (!canModerate()) return renderBlindSettings();
   socket.emit('set_blind_mode', { enabled: settingsBlindMode.checked, sessionId: session?.activeSessionId });
 });
 
@@ -22,13 +22,13 @@ settingsHideMyTakes.addEventListener('change', () => {
 socket.on('session_updated', renderBlindSettings);
 
 window.randomCast = async function() {
-  if (!amHost() || !session || session.mode !== 'dub') return;
+  if (!canModerate() || !session || session.mode !== 'dub') return;
   const sessionId = session.activeSessionId;
-  if (await askConfirm(t('randomCast.confirm')) && session?.activeSessionId === sessionId) socket.emit('random_cast', { sessionId });
+  if (await askConfirm(t('randomCast.confirm')) && session?.activeSessionId === sessionId && canModerate()) socket.emit('random_cast', { sessionId });
 };
 
 window.revealAllTakes = function() {
-  if (amHost()) socket.emit('host_reveal_takes', { sessionId: session?.activeSessionId });
+  if (canModerate()) socket.emit('host_reveal_takes', { sessionId: session?.activeSessionId });
 };
 
 let lastActivityReport = 0;

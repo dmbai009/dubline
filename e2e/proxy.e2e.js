@@ -15,10 +15,10 @@ describe('optimized video and original-quality export',{skip:skipReason,timeout:
  });
  after(async()=>{await browser?.close();await server?.cleanup();if(dir)fs.rmSync(dir,{recursive:true,force:true,maxRetries:10,retryDelay:100});});
  test('actual import UI optimizes large video, reports preparation and serves a smaller copy to guests',async()=>{
-  await host.evaluate(()=>{openFilesModal();switchFilesTab('import');Object.defineProperty(crypto,'randomUUID',{value:undefined,configurable:true});window.proxyProgress=[];socket.on('video_import_progress',event=>{
+  await host.evaluate(()=>{openFilesModal();switchFilesTab('video');Object.defineProperty(crypto,'randomUUID',{value:undefined,configurable:true});window.proxyProgress=[];socket.on('video_import_progress',event=>{
     window.proxyProgress.push(event);
     if(event.stage==='compressing' && event.percent>0 && !window.proxyReopened){
-      const id=customImportRequest.id;closeFilesModal();openFilesModal();DublineI18n.setLanguage('ru');switchFilesTab('import');
+      const id=customImportRequest.id;closeFilesModal();openFilesModal();DublineI18n.setLanguage('ru');switchFilesTab('video');
       window.proxyReopened={same:customImportRequest.id===id,percent:customImportStatus.percent,status:document.getElementById('customUploadStatus').textContent,visible:document.getElementById('customUploadStatus').style.display,cancel:document.getElementById('customCancelBtn').style.display,disabled:document.getElementById('customUploadBtn').disabled};
       DublineI18n.setLanguage('en');
     }
@@ -44,7 +44,7 @@ describe('optimized video and original-quality export',{skip:skipReason,timeout:
  });
  test('cancelled large import leaves the existing project active and removes temporary files',async()=>{
   const id=await host.evaluate(()=>session.activeSessionId);
-  await host.evaluate(()=>{openFilesModal();switchFilesTab('import');window.cancelStage='';const cancel=event=>{if(event.stage==='compressing'){window.cancelStage=event.stage;socket.off('video_import_progress',cancel);document.getElementById('customCancelBtn').click();}};socket.on('video_import_progress',cancel);});await(await host.$('#customVideoInput')).uploadFile(source);
+  await host.evaluate(()=>{openFilesModal();switchFilesTab('video');window.cancelStage='';const cancel=event=>{if(event.stage==='compressing'){window.cancelStage=event.stage;socket.off('video_import_progress',cancel);document.getElementById('customCancelBtn').click();}};socket.on('video_import_progress',cancel);});await(await host.$('#customVideoInput')).uploadFile(source);
   await host.click('#customUploadBtn');await waitFor(host,()=>!customImportRequest);
   assert.equal(await host.evaluate(()=>window.cancelStage),'compressing');assert.match(await host.$eval('#customUploadStatus',status=>status.textContent),/cancelled/);assert.equal(await host.evaluate(()=>session.activeSessionId),id);
   await waitUntil(()=>!fs.readdirSync(server.dirs.data).some(name=>name.startsWith('.incoming-')),10000);

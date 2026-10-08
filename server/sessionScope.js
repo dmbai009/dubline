@@ -6,6 +6,7 @@ const SCENE_MUTATIONS = new Set([
   'set_take_props', 'set_takes_props', 'set_line_character', 'set_lines_character',
   'rename_character', 'set_session_mode', 'editor_create_line', 'editor_update_line',
   'editor_update_lines', 'editor_delete_lines', 'editor_add_track', 'editor_undo',
+  'editor_reorder_track', 'editor_delete_track', 'set_protect_timings',
   'host_delete_lines', 'host_undo_delete', 'host_trash_restore', 'host_trash_purge',
   'host_set_audio_tracks', 'random_cast', 'host_reveal_takes', 'set_blind_mode', 'set_blind_preference',
   'host_watch_start', 'host_watch_sync', 'host_watch_stop', 'host_force_pause',
@@ -17,7 +18,7 @@ function register(socket, conn) {
     if (!SCENE_MUTATIONS.has(event)) return next();
     const member = require('./state').roomSockets[conn.roomId]?.[socket.id];
     const room = conn.roomId && require('./rooms').getRoom(conn.roomId);
-    const reason = !member?.nick || member.clientId !== conn.clientId ? 'room'
+    const reason = !member?.nick || member.nick !== conn.nick || member.clientId !== conn.clientId || !require('./auth').isAuthorized(room, conn.nick, conn.clientId) ? 'room'
       : !data || data.sessionId !== room.activeSessionId ? 'session' : null;
     if (reason) {
       if (typeof ack === 'function') ack({ ok: false, reason, sessionId: room?.activeSessionId });

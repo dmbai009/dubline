@@ -7,7 +7,7 @@ const { emptyTake, parseSeconds } = require('../parsers');
 const { deleteTakeFile } = require('../files');
 const { logEvent } = require('../log');
 const { getRoom, saveRooms, snapshotActive, emitSession, dropEmptyRoleClaims, normalizeEditorState, insertLineInOrder, publicRoom } = require('../rooms');
-const { isHost } = require('../auth');
+const { isHost, canModerate } = require('../auth');
 const { endWatch, broadcastRecording, addSystemMessage } = require('../presence');
 const history = require('../editHistory');
 const timelineModel = require('../../public/timeline-model');
@@ -56,6 +56,7 @@ function restoreBatch(room, batch) {
   const existing = new Set(room.lines.map(line => line.id));
   const restored = batch.lines.filter(entry => !existing.has(entry.line.id)).sort((a, b) => a.index - b.index);
   restored.forEach(entry => insertLineInOrder(room.lines, entry.line));
+  require('../rooms').restoreTrackOrder(room, batch, restored.map(entry => entry.line));
   for (const [character, owner] of Object.entries(batch.claims || {})) {
     if (!room.characterClaims[character]) room.characterClaims[character] = owner;
   }
@@ -105,7 +106,7 @@ module.exports = function registerEditorHandlers(socket, conn) {
   socket.on('set_session_mode', ({ mode } = {}) => {
     if (!conn.roomId || !['edit', 'dub'].includes(mode)) return;
     const room = getRoom(conn.roomId);
-    if (!isHost(room, conn.clientId) || !room.loaded || room.mode === mode) return;
+    if (!canModerate(room, conn.clientId) || !room.loaded || room.mode === mode) return;
     room.mode = mode;
     room.updatedAt = Date.now();
     if (mode === 'edit') {
@@ -119,6 +120,64 @@ module.exports = function registerEditorHandlers(socket, conn) {
     logEvent(conn.roomId, `✎ ${conn.nick} switched to ${mode} mode`);
     if (mode === 'edit') addSystemMessage(conn.roomId, 'system.modeEdit', { nick: conn.nick }, `✎ ${conn.nick} opened Edit Mode: the scene can be edited, recording is paused`);
     else addSystemMessage(conn.roomId, 'system.modeDub', { nick: conn.nick }, `🎙 ${conn.nick} returned to Dub Mode: recording is open again`);
+  });
+
+  socket.on('set_protect_timings', ({ enabled } = {}, ack) => {
+    const reply = typeof ack === 'function' ? ack : () => {};
+    const room = getRoom(conn.roomId);
+    if (!canModerate(room, conn.clientId)) return reply({ ok: false, reason: 'host' });
+    if (!room.loaded || room.mode !== 'edit' || typeof enabled !== 'boolean') return reply({ ok: false, reason: 'mode' });
+    room.protectTimings = enabled; snapshotActive(room); saveRooms(); emitSession(conn.roomId);
+    reply({ ok: true });
+  });
+
+  registerMutation(socket, conn, 'editor_reorder_track', ({ character, before, trackOrder } = {}, ack) => {
+    const room = getRoom(conn.roomId);
+    if (!editorAllowed(conn, room)) return ack({ ok: false, reason: 'mode' });
+    if (!Array.isArray(trackOrder) || JSON.stringify(trackOrder) !== JSON.stringify(room.trackOrder)) return ack({ ok: false, reason: 'conflict' });
+    if (!room.trackOrder.includes(character) || before !== null && !room.trackOrder.includes(before) || before === character) return ack({ ok: false, reason: 'invalid' });
+    const tracksBefore = [...room.trackOrder], next = room.trackOrder.filter(name => name !== character);
+    next.splice(before === null ? next.length : next.indexOf(before), 0, character);
+    room.trackOrder = next;
+    history.recordLines(conn.roomId, room, conn.clientId, new Map(), { ...room.characterClaims }, tracksBefore);
+    room.updatedAt = Date.now(); snapshotActive(room); saveRooms(); emitSession(conn.roomId);
+    ack({ ok: true });
+  });
+
+  registerMutation(socket, conn, 'editor_delete_track', (data = {}, ack) => {
+    const room = getRoom(conn.roomId), { character, target, trackOrder, lines: expected, expectedClaims } = data;
+    if (!editorAllowed(conn, room)) return ack({ ok: false, reason: 'mode' });
+    if (!room.trackOrder.includes(character) || !Array.isArray(expected) || !['transfer', 'trash'].includes(data.action)) return ack({ ok: false, reason: 'invalid' });
+    const lines = room.lines.filter(line => line.character === character);
+    const expectedById = new Map(expected.map(item => [item?.lineId, item]));
+    if (expectedById.size !== expected.length || expected.length !== lines.length || JSON.stringify(trackOrder) !== JSON.stringify(room.trackOrder) ||
+        lines.some(line => { const item = expectedById.get(line.id); return !item || item.revision !== (line.revision || 0) || item.audioUrl !== line.audioUrl || item.takeMixRevision !== (line.takeMixRevision || 0) || item.claimedBy !== line.claimedBy; }) ||
+        !expectedClaims || (room.characterClaims[character] || null) !== expectedClaims.from || (room.characterClaims[target] || null) !== expectedClaims.to) return ack({ ok: false, reason: 'conflict' });
+    const tracksBefore = [...room.trackOrder], claimsBefore = { ...room.characterClaims };
+    if (data.action === 'transfer') {
+      const name = cleanTrackName(target);
+      if (!name || name !== target || name === character || !room.trackOrder.includes(name) && data.createTarget !== true) return ack({ ok: false, reason: 'invalid' });
+      const before = new Map(lines.map(line => [line.id, history.lineBefore(line)]));
+      for (const line of lines) {
+        line.character = name;
+        line.claimedBy = room.characterClaims[name] ? null : line.claimedBy || room.characterClaims[character] || null;
+        line.revision = (line.revision || 0) + 1;
+      }
+      room.trackOrder = room.trackOrder.filter(track => track !== character);
+      if (!room.trackOrder.includes(name)) room.trackOrder.push(name);
+      delete room.characterClaims[character];
+      history.recordLines(conn.roomId, room, conn.clientId, before, claimsBefore, tracksBefore);
+    } else {
+      if (lines.length) {
+        putInTrash(room, new Set(lines.map(line => line.id)), conn.nick);
+        const batch = room.deletedLines.at(-1); batch.trackOrder = tracksBefore;
+        history.record(conn.roomId, room, { by: conn.clientId, type: 'deleteTrack', batch, count: lines.length, tracksBefore, character });
+      } else history.record(conn.roomId, room, { by: conn.clientId, type: 'removeTrack', tracksBefore, character });
+      room.trackOrder = room.trackOrder.filter(track => track !== character);
+      delete room.characterClaims[character];
+    }
+    room.updatedAt = Date.now(); snapshotActive(room); saveRooms(); emitSession(conn.roomId);
+    ack({ ok: true, count: lines.length });
   });
 
   // The client lost an answer: send it the current scene (read-only, nothing is repeated)
@@ -155,6 +214,7 @@ module.exports = function registerEditorHandlers(socket, conn) {
     if (!conn.roomId) return reply({ ok: false, reason: 'room' });
     const room = getRoom(conn.roomId);
     if (!editorAllowed(conn, room)) return reply({ ok: false, reason: 'mode' });
+    if (room.protectTimings) return reply({ ok: false, reason: 'timingsProtected' });
     if (data.sessionId !== undefined && data.sessionId !== room.activeSessionId) return reply({ ok: false, reason: 'session' });
     const bounds = validBounds(data.start, data.end, MIN_LINE_SECONDS, room.videoDuration);
     const character = cleanTrackName(data.character);
@@ -209,6 +269,7 @@ module.exports = function registerEditorHandlers(socket, conn) {
       const bounds = validBounds(data.start ?? line.start, data.end ?? line.end, Math.min(MIN_LINE_SECONDS, line.end - line.start), room.videoDuration);
       const character = data.character === undefined ? line.character : cleanTrackName(data.character);
       if (!bounds || !character) return reply({ ok: false, reason: 'invalid' });
+      if (room.protectTimings && (bounds.start !== line.start || bounds.end !== line.end)) return reply({ ok: false, reason: 'timingsProtected' });
       const caption = data.caption === undefined ? line.caption : cleanCaption(data.caption);
       if (caption === null) return reply({ ok: false, reason: 'caption' });
       planned.push({ line, bounds, character, caption });
@@ -304,6 +365,8 @@ module.exports = function registerEditorHandlers(socket, conn) {
     const room = getRoom(conn.roomId);
     if (!editorAllowed(conn, room)) return reply({ ok: false, reason: 'mode' });
     if (payload && payload.sessionId !== undefined && payload.sessionId !== room.activeSessionId) return reply({ ok: false, reason: 'session' });
+    const pendingUndo = history.peekFor(conn.roomId, room, conn.clientId);
+    if (room.protectTimings && pendingUndo?.lines?.some(item => item.changes.start || item.changes.end)) return reply({ ok: false, reason: 'timingsProtected' });
     const entry = history.popFor(conn.roomId, room, conn.clientId);
     if (!entry) return reply({ ok: false, reason: 'empty' });
     normalizeEditorState(room);
@@ -368,6 +431,15 @@ module.exports = function registerEditorHandlers(socket, conn) {
         delete room.characterClaims[entry.name];
         undone = 1;
       } else skipped = 1;
+    } else if (entry.type === 'removeTrack' || entry.type === 'deleteTrack') {
+      if (entry.type === 'deleteTrack') {
+        if (room.deletedLines.includes(entry.batch)) undone = restoreBatch(room, entry.batch);
+        skipped = entry.count - undone;
+      }
+      if (entry.type === 'removeTrack' && !room.trackOrder.includes(entry.character)) {
+        const anchor = entry.tracksBefore.slice(0, entry.tracksBefore.indexOf(entry.character)).reverse().find(name => room.trackOrder.includes(name));
+        room.trackOrder.splice(anchor ? room.trackOrder.indexOf(anchor) + 1 : 0, 0, entry.character); undone++;
+      }
     } else if (entry.type === 'delete') {
       if (room.deletedLines.includes(entry.batch)) undone = restoreBatch(room, entry.batch);
       skipped = entry.batch.lines.length - undone;

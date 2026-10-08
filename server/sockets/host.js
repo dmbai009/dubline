@@ -5,7 +5,7 @@ const { sanitizeNick, sanitizeChatText } = require('../sanitize');
 const { logEvent } = require('../log');
 const { saveRooms, getRoom, emptySession, snapshotActive, activateSession, deleteSessionFiles, emitSession, ensureAudioTracks } = require('../rooms');
 const { WATCH_COUNTDOWN_MS, endWatch, broadcastRecording, broadcastSeeders, onlineMembers, addSystemMessage } = require('../presence');
-const { setRoomPassword, isHost } = require('../auth');
+const { setRoomPassword, isHost, canModerate } = require('../auth');
 const { isDesktopRoom } = require('../desktop');
 const history = require('../editHistory');
 
@@ -14,11 +14,11 @@ module.exports = function registerHostHandlers(socket, conn) {
   socket.on('host_force_pause', () => {
     if (!conn.roomId) return;
     const room = getRoom(conn.roomId);
-    if (!isHost(room, conn.clientId)) return;
+    if (!canModerate(room, conn.clientId)) return;
 
     io.to(conn.roomId).emit('force_pause', { by: conn.nick, sessionId: room.activeSessionId });
     logEvent(conn.roomId, `⏸ ${conn.nick} paused for everyone`);
-    addSystemMessage(conn.roomId, 'system.forcePause', { nick: conn.nick }, `⏸ Host ${conn.nick} paused the video for everyone`);
+    addSystemMessage(conn.roomId, 'system.forcePause', { nick: conn.nick }, `⏸ ${conn.nick} paused the video for everyone`);
   });
   // ---------- Room password and kicked players (host only) ----------
   socket.on('host_set_password', ({ password } = {}) => {
@@ -55,6 +55,7 @@ module.exports = function registerHostHandlers(socket, conn) {
 
     room.banned = [...new Set([...room.banned, ...ids])];
     room.admitted = room.admitted.filter(id => !ids.has(id));
+    for (const id of ids) require('../moderators').revokeClient(room, id);
     delete room.nickOwners[victim];
     saveRooms();
 
