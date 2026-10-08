@@ -118,6 +118,7 @@ describe('Track structure, protected timings and room moderators on the real ser
     const host = await scene(), one = await join(host.room, 'One'), two = await join(host.room, 'Two'), guest = await join(host.room, 'Guest');
     const first = await grant(host, one); await grant(host, two); assert.equal((await ack(host, 'host_grant_moderator', { nick: 'One' })).changed, false);
     assert.equal((await ack(one, 'host_grant_moderator', { nick: 'Guest' })).ok, false);
+    assert.equal((await ack(guest, 'host_grant_moderator', { nick: 'Guest', role: 'host', moderator: true })).ok, false);
     assert.equal((await ack(two, 'host_revoke_moderator', { id: first.id })).ok, false);
     assert.equal((await ack(host, 'host_grant_moderator', { nick: 'Host' })).ok, false);
     assert.equal((await ack(host, 'host_grant_moderator', { nick: 'Missing' })).ok, false);
@@ -184,6 +185,10 @@ describe('Track structure, protected timings and room moderators on the real ser
     await waitUntil(async () => (await state(host)).moderators.some(item => item.id === record.id && item.online));
     assert.equal((await state(host)).protectTimings, true);
     assert.equal((await ack(moderator, 'set_protect_timings', { sessionId: id, enabled: false })).ok, true);
+    const form = new FormData(); form.append('clientId', host.clientId); form.append('sessionId', id); form.append('project', new Blob([bytes]), 'protected.dubline');
+    const imported = await fetch(`http://localhost:${server.port}/api/import-project?room=${host.room}`, { method: 'POST', body: form });
+    assert.equal(imported.status, 200, await imported.clone().text());
+    const reopened = await state(host); assert.notEqual(reopened.activeSessionId, id); assert.equal(reopened.protectTimings, true); assert.equal(reopened.moderators[0].id, record.id);
   });
   test('transferring recorded tracks preserves authorship, audio placement and every mix setting under a claimed destination', async () => {
     const host = await scene('dub'), guest = await join(host.room, 'Guest');
@@ -228,6 +233,14 @@ describe('Track structure, protected timings and room moderators on the real ser
     assert.equal((await ack(moderator, 'reserve_take', { sessionId: snapshot.activeSessionId, lineId: 1 })).reason, 'owner');
     const response = await fetch(`http://localhost:${server.port}/api/export-project`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ room: host.room, clientId: moderator.clientId, sessionId: snapshot.activeSessionId }) }); assert.equal(response.status, 403);
     const imported = await fetch(`http://localhost:${server.port}/api/load-server-pack`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ room: host.room, clientId: moderator.clientId, filename: 'test-scene.zip' }) }); assert.equal(imported.status, 403); assert.equal((await state(host)).activeSessionId, snapshot.activeSessionId);
+    const projectForm = new FormData(); projectForm.append('clientId', moderator.clientId); projectForm.append('sessionId', snapshot.activeSessionId); projectForm.append('project', new Blob(['invalid project']), 'attempt.dubline');
+    assert.equal((await fetch(`http://localhost:${server.port}/api/import-project?room=${host.room}`, { method: 'POST', body: projectForm })).status, 403);
+    const reserve = await ack(host, 'reserve_take', { sessionId: snapshot.activeSessionId, lineId: 1 });
+    const audioForm = new FormData();
+    for (const [key, value] of Object.entries({ clientId: moderator.clientId, userName: moderator.nick, sessionId: snapshot.activeSessionId, lineId: 1, takeSequence: reserve.takeSequence, uploadId: `forged-${++serial}`, audioStart: 0 })) audioForm.append(key, value);
+    audioForm.append('audio', new Blob(['forged recording']), 'take.webm');
+    assert.equal((await fetch(`http://localhost:${server.port}/api/upload-line-audio?room=${host.room}`, { method: 'POST', body: audioForm })).status, 403);
+    assert.equal((await state(host)).lines[0].audioUrl, snapshot.lines[0].audioUrl);
   });
   test('grant requests require confirmed members of this room and cannot target a different room', async () => {
     const host = await scene(), elsewhere = await join('another-moderator-room', 'Elsewhere');
@@ -246,6 +259,8 @@ describe('Track structure, protected timings and room moderators on the real ser
     const host = await scene(), moderator = await join(host.room, 'Moderator'), record = await grant(host, moderator), old = await state(host);
     const response = await fetch(`http://localhost:${server.port}/api/load-server-pack`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filename: 'test-scene.zip', clientId: host.clientId, room: host.room }) }); assert.equal(response.status, 200);
     const next = await state(host); assert.notEqual(next.activeSessionId, old.activeSessionId); assert.equal(next.moderators[0].id, record.id);
+    moderator.socket.emit('host_switch_session', { id: old.activeSessionId, role: 'host', isHost: true }); await wait(50);
+    assert.equal((await state(host)).activeSessionId, next.activeSessionId);
     assert.equal((await ack(moderator, 'set_protect_timings', { sessionId: old.activeSessionId, enabled: true })).reason, 'session'); assert.equal((await state(host)).protectTimings, false);
   });
   test('snapshot freeze applies equally to moderator process actions and host role management', async () => {
@@ -256,5 +271,32 @@ describe('Track structure, protected timings and room moderators on the real ser
     assert.equal((await ack(host, 'host_revoke_moderator', { id: record.id })).reason, 'snapshot');
     host.socket.emit('snapshot_cancel', { token: barrier.token }); await wait(30);
     assert.equal((await ack(host, 'host_revoke_moderator', { id: record.id })).ok, true);
+  });
+  test('moderator releases foreign claims, resets and randomizes casting with the actual actor in system messages', async () => {
+    const host = await scene('dub'), moderator = await join(host.room, 'Moderator'), guest = await join(host.room, 'Guest'); await grant(host, moderator);
+    const id = (await state(host)).activeSessionId, messages = []; host.socket.on('chat_message', message => messages.push(message));
+    guest.socket.emit('claim_character', { sessionId: id, character: 'Hero' }); await waitUntil(async () => (await state(host)).characterClaims.Hero === 'Guest');
+    moderator.socket.emit('unclaim_character', { sessionId: id, character: 'Hero' }); await waitUntil(async () => !(await state(host)).characterClaims.Hero);
+    assert.equal(messages.find(message => message.key === 'system.roleReleasedBy')?.params.by, 'Moderator');
+    assert.equal((await ack(guest, 'claim_line', { sessionId: id, lineId: 1 })).ok, true);
+    moderator.socket.emit('unclaim_line', { sessionId: id, lineId: 1 }); await waitUntil(async () => !(await state(host)).lines[0].claimedBy);
+    await waitUntil(() => messages.some(message => message.key === 'system.lineReleasedBy' && message.params.by === 'Moderator'));
+    moderator.socket.emit('random_cast', { sessionId: id }); await waitUntil(async () => Object.keys((await state(host)).characterClaims).length === 2);
+    await waitUntil(() => messages.some(message => message.key === 'system.randomCast' && message.params.nick === 'Moderator'));
+    moderator.socket.emit('host_reset_claims', { sessionId: id }); await waitUntil(async () => !(await state(host)).lines.some(line => line.claimedBy));
+    assert.deepEqual((await state(host)).characterClaims, {});
+    await waitUntil(() => messages.some(message => message.key === 'system.claimsResetBy' && message.params.by === 'Moderator'));
+  });
+  test('two moderators edit concurrently, retain ordinary conflicts and cannot spoof host authority after revocation', async () => {
+    const host = await scene(), one = await join(host.room, 'One'), two = await join(host.room, 'Two'); const grantOne = await grant(host, one); await grant(host, two);
+    const snapshot = await state(host), first = snapshot.lines[0], second = snapshot.lines[1];
+    const results = await Promise.all([ack(one, 'editor_update_line', operation(snapshot, patch(first, { caption: 'One edit' }))), ack(two, 'editor_update_line', operation(snapshot, patch(second, { caption: 'Two edit' })))]);
+    assert.ok(results.every(result => result.ok));
+    assert.equal((await ack(two, 'editor_update_line', operation(snapshot, patch(first, { caption: 'Stale overwrite' })))).reason, 'conflict');
+    assert.equal((await ack(one, 'editor_undo', operation(await state(host)))).undone, 1);
+    assert.equal((await state(host)).lines[1].caption, 'Two edit');
+    await ack(host, 'host_revoke_moderator', { id: grantOne.id });
+    assert.equal((await ack(one, 'set_protect_timings', { sessionId: snapshot.activeSessionId, enabled: true, role: 'host', isModerator: true })).ok, false);
+    assert.equal((await ack(two, 'set_protect_timings', { sessionId: snapshot.activeSessionId, enabled: true })).ok, true);
   });
 });

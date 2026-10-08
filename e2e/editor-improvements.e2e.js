@@ -72,6 +72,9 @@ describe('Editor improvements in the browser', { skip: skipReason, timeout: 1200
     const other = await guest('Moderator'); await other.evaluate(() => selectLine(session.lines[0])); await other.type('#editorCaption', ' draft');
     await page.evaluate(() => { changeModerator('Moderator', ''); }); await confirm(); await waitFor(other, () => amModerator());
     assert.equal(await other.$eval('#protectTimingsBtn', button => button.disabled), false); assert.equal(await other.$eval('#projectExportBtn', button => button.disabled), true);
+    await other.evaluate(() => { openSessionsModal(); });
+    assert.equal(await other.$$eval('#sessionsList .session-actions', elements => elements.length), 0);
+    assert.equal(await other.$eval('#sessionsNewBtn', button => button.style.display), 'none'); await other.evaluate(() => closeSessionsModal());
     assert.match(await other.$eval('#editorCaption', input => input.value), /draft/);
     const id = await page.evaluate(() => session.moderators[0].id); await page.evaluate(id => { changeModerator('Moderator', id); }, id); await confirm(); await waitFor(other, () => !amModerator());
     assert.equal(await other.$eval('#protectTimingsBtn', button => button.disabled), true); assert.match(await other.$eval('#editorCaption', input => input.value), /draft/);
