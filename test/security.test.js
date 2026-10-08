@@ -33,11 +33,28 @@ async function startServer(extraEnv = {}) {
   const dirs = { data: path.join(base, 'data'), uploads: path.join(base, 'uploads'), packs: path.join(base, 'packs') };
   // Loaded into the server process only for the test: answers how much memory the server holds
   const memoryProbe = path.join(base, 'memory-probe.js');
-  fs.writeFileSync(memoryProbe, "process.on('message', m => { if (m === 'memory?') process.send({ type: 'memory', rss: process.memoryUsage().rss }); });\n");
+  fs.writeFileSync(memoryProbe, `
+    const multer = require(${JSON.stringify(require.resolve('multer'))});
+    const memoryStorage = multer.memoryStorage;
+    let storedFiles = 0;
+    multer.memoryStorage = function (...args) {
+      const storage = memoryStorage.apply(this, args), handle = storage._handleFile;
+      storage._handleFile = function (...args) { storedFiles++; return handle.apply(this, args); };
+      return storage;
+    };
+    process.on('message', message => {
+      if (message?.type !== 'memory?') return;
+      // Measure retained upload memory, not unreachable socket chunks awaiting GC.
+      // Live buffers in Multer's chunks array cannot be collected by this probe.
+      global.gc();
+      const { rss, arrayBuffers } = process.memoryUsage();
+      process.send({ type: 'memory', id: message.id, rss, arrayBuffers, storedFiles });
+    });
+  `);
   const proc = fork(path.join(ROOT, 'server.js'), [], {
     cwd: ROOT,
     silent: true,
-    execArgv: ['--require', memoryProbe],
+    execArgv: ['--expose-gc', '--require', memoryProbe],
     env: {
       ...process.env,
       PORT: String(port),
@@ -63,18 +80,20 @@ async function startServer(extraEnv = {}) {
     });
     proc.on('exit', code => reject(new Error(`server exited with ${code}:\n${output}`)));
   });
+  let probeId = 0;
   return {
     url: `http://127.0.0.1:${port}`,
     port,
-    rssMb() {
+    memoryUsage() {
       return new Promise(resolve => {
+        const id = ++probeId;
         const onMessage = message => {
-          if (!message || message.type !== 'memory') return;
+          if (!message || message.type !== 'memory' || message.id !== id) return;
           proc.off('message', onMessage);
-          resolve(message.rss / (1024 * 1024));
+          resolve(message);
         };
         proc.on('message', onMessage);
-        proc.send('memory?');
+        proc.send({ type: 'memory?', id });
       });
     },
     dirs,
@@ -308,9 +327,17 @@ describe('browser server (start.bat)', () => {
     const head = `--${boundary}\r\nContent-Disposition: form-data; name="clientId"\r\n\r\nnot-the-host\r\n`
       + `--${boundary}\r\nContent-Disposition: form-data; name="pack"; filename="big.zip"\r\nContent-Type: application/zip\r\n\r\n`;
     const tail = `\r\n--${boundary}--\r\n`;
-    const before = await server.rssMb();
-    let peak = before;
-    const sampler = setInterval(() => server.rssMb().then(mb => { peak = Math.max(peak, mb); }), 50);
+    const control = await postFile(server, '/api/upload-pack?room=party', { clientId: hostId }, 'pack', 'control.zip', packZip());
+    assert.equal(control.status, 200);
+    const before = await server.memoryUsage();
+    assert.ok(before.storedFiles > 0, 'the probe observed the authorized control upload');
+    let peak = before.rss, peakBuffers = before.arrayBuffers, storedFiles = before.storedFiles, sampling;
+    const sample = async () => {
+      const usage = await server.memoryUsage();
+      peak = Math.max(peak, usage.rss); peakBuffers = Math.max(peakBuffers, usage.arrayBuffers);
+      storedFiles = Math.max(storedFiles, usage.storedFiles);
+    };
+    const sampler = setInterval(() => { sampling ||= sample().finally(() => { sampling = null; }); }, 50);
     const status = await new Promise((resolve, reject) => {
       const req = http.request(`${server.url}/api/upload-pack?room=party`, {
         method: 'POST',
@@ -333,8 +360,11 @@ describe('browser server (start.bat)', () => {
       pump();
     });
     clearInterval(sampler);
-    peak = Math.max(peak, await server.rssMb());
+    await sampling; await sample();
     assert.equal(status, 403);
-    assert.ok(peak - before < 100, `the server grew by ${Math.round(peak - before)} MB for a refused 200 MB upload`);
+    assert.equal(storedFiles, before.storedFiles, 'a refused file never enters memory storage');
+    console.log(`Refused 200 MiB: RSS growth ${Math.round((peak - before.rss) / MB)} MiB; live buffers ${Math.round((peakBuffers - before.arrayBuffers) / MB)} MiB; storage calls 0`);
+    assert.ok((peak - before.rss) / MB < 100, `the server grew by ${Math.round((peak - before.rss) / MB)} MB for a refused 200 MB upload`);
+    assert.ok((peakBuffers - before.arrayBuffers) / MB < 100, 'a refused upload must not retain its body in buffers');
   });
 });
