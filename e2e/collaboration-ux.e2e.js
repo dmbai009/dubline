@@ -249,9 +249,11 @@ describe('Collaboration latency and UX', { skip: skipReason, timeout: 120000 }, 
     assert.equal(await page.$eval('#editorStart', node => node.disabled || node.readOnly), false);
     assert.equal(await page.$eval('#editorCharacter', node => node.disabled), false);
     assert.match(await page.$eval('#editorCaption', node => node.parentElement.dataset.tooltip), /Another participant/);
+    assert.equal(await page.$eval('#editorLineForm .btn-delete', node => node.disabled), true, 'deletion conflicts with a caption lease even though independent timing/assignment remain editable');
     await other.evaluate(() => releaseEditLease(captionLease)); await waitFor(page, () => !document.getElementById('editorCaption').readOnly);
     assert.equal(await page.$eval('#editorCaption', node => node.value), 'Local unsaved text');
     assert.equal(await page.$eval('#editorCaption', node => node.parentElement.hasAttribute('data-tooltip')), false);
+    assert.equal(await page.$eval('#editorLineForm .btn-delete', node => node.disabled), false);
     assert.equal(await other.$eval('#editModeBtn', node => node.disabled), true);
     assert.match(await other.$eval('#editModeBtn', node => node.parentElement.dataset.tooltip), /host or a moderator/);
     await page.evaluate(() => socket.emit('host_grant_moderator', { nick: 'Guest' }));

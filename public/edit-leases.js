@@ -66,7 +66,7 @@
     const line = session?.lines.find(item => item.id === lineId);
     return remote.find(lease => lease.expires > serverNow() && lease.actorId !== socket.id && lease.targets.some(target =>
       (target.type === 'session' || target.type === 'track' && target.key === line?.character || target.type === 'line' && target.key === lineId) &&
-      (target.group === group || target.group === 'structural')));
+      (target.group === group || target.group === 'structural' || group === 'structural')));
   }
   window.foreignEditLease = foreign;
   window.renderEditLease = block => {
