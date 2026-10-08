@@ -59,12 +59,13 @@ describe('Group editing reliability', { skip: skipReason, timeout: 120000 }, () 
     assert.equal(await host.evaluate(() => JSON.stringify(session.lines)), before);
     await host.evaluate(() => editorUndo()); await waitFor(host, () => session.trackOrder.join(',') === 'Friend,Hero,Empty');
   });
-  test('lost reorder ACK retries the identical operation once and preserves subsequent local intent', async () => {
+  test('lost reorder ACK checks the identical receipt and preserves subsequent local intent without repeating a known mutation', async () => {
     const other = await guest('Guest');
     await host.evaluate(async () => { await queueEditorRequest(() => ['editor_add_track', { character: 'Empty' }]); });
     await host.evaluate(() => {
-      const original = socket.emit; let lose = true; window.reorderRequests = [];
+      const original = socket.emit; let lose = true; window.reorderRequests = []; window.reorderReceiptRequests = [];
       socket.emit = function(event, ...args) {
+        if (event === 'editor_operation_status') reorderReceiptRequests.push(JSON.stringify(args[0].request));
         if (event === 'editor_reorder_track') {
           reorderRequests.push(JSON.stringify(args[0]));
           if (lose) { lose = false; const callback = args.pop(); args.push(() => callback(new Error('Injected lost reorder ACK'))); }
@@ -75,7 +76,8 @@ describe('Group editing reliability', { skip: skipReason, timeout: 120000 }, () 
     });
     await waitFor(host, () => !editorQueue.length && !editorConflicts.length && session.trackOrder.join(',') === 'Friend,Empty,Hero');
     const requests = await host.evaluate(() => reorderRequests);
-    assert.equal(requests.length, 3); assert.equal(requests[0], requests[1]); assert.notEqual(requests[1], requests[2]);
+    assert.equal(requests.length, 2); assert.notEqual(requests[0], requests[1]);
+    assert.deepEqual(await host.evaluate(() => reorderReceiptRequests), [requests[0]]);
     await waitFor(other, () => session.trackOrder.join(',') === 'Friend,Empty,Hero');
     await host.evaluate(() => editorUndo()); await waitFor(host, () => session.trackOrder.join(',') === 'Friend,Hero,Empty');
     await host.evaluate(() => editorUndo()); await waitFor(host, () => session.trackOrder.join(',') === 'Hero,Friend,Empty');

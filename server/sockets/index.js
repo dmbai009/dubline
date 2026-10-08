@@ -20,6 +20,7 @@ io.on('connection', socket => {
   registerTrashHandlers(socket, conn);
   registerP2pHandlers(socket, conn);
   registerEditorHandlers(socket, conn);
+  require('../editorOperations').registerRecovery(socket, conn);
   registerFeatureHandlers(socket, conn);
   registerProjectAudio(socket, conn);
   require('../selectionPresence').register(socket, conn);

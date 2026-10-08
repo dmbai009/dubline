@@ -103,9 +103,9 @@ html[data-theme=light] .line-block.selected { outline-color:var(--accent); }
 #audioLoadingStatus.audio-loading::before { content:''; display:inline-block; width:10px; height:10px; margin-right:6px; border:2px solid var(--border); border-top-color:var(--accent); border-radius:50%; vertical-align:middle; animation:audioPreparing .9s linear infinite; }
 @keyframes audioPreparing { to { transform:rotate(360deg); } }
 /* Runtime editor status and gesture anchors. Presence never changes clip colours. */
-.editor-conflict-panel { position: fixed; z-index: 1100; right: 20px; bottom: 70px; width: min(440px, 90vw); max-height: 65vh; overflow: auto; background: var(--bg-panel, #202024); border: 1px solid var(--danger); border-radius: 10px; padding: 12px; }
+.editor-conflict-panel { position: fixed; z-index: 1100; right: 20px; bottom: 70px; width: min(440px, 90vw); max-height: 65vh; overflow: auto; background: var(--panel); color: var(--text); border: 1px solid var(--danger); border-radius: 10px; padding: 12px; }
 .editor-conflict-panel[hidden], #editorSyncState[hidden] { display: none; }
-.editor-conflict-item { margin-bottom: 12px; }
+.editor-conflict-item { margin-bottom: 12px; overflow-wrap: anywhere; }
 .editor-conflict-item pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; }
 #editorSyncState.conflict { color: var(--danger); }
 .editor-drag-guides { position: absolute; inset: 0; pointer-events: none; z-index: 18; }

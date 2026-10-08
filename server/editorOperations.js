@@ -22,6 +22,24 @@ function prune(now) {
   }
 }
 
+// Read receipts without executing a mutation, including after a scene/mode switch.
+// The authenticated actor and exact immutable request remain the lookup boundary.
+function registerRecovery(socket, conn) {
+  socket.on('editor_operation_status', ({ event, request } = {}, ack) => {
+    if (typeof ack !== 'function') return;
+    if (!conn.roomId || !conn.nick || roomSockets[conn.roomId]?.[socket.id]?.clientId !== conn.clientId) return ack({ ok: false, reason: 'room' });
+    if (typeof event !== 'string' || !request || typeof request.operationId !== 'string' || request.operationId.length > 96 || typeof request.sessionId !== 'string') return ack({ ok: false, reason: 'invalid' });
+    const now = Date.now(); prune(now);
+    const cached = receipts.get(JSON.stringify([conn.roomId, request.sessionId, conn.clientId, request.operationId]));
+    if (cached) {
+      const fingerprint = createHash('sha256').update(JSON.stringify([event, request])).digest('hex');
+      return ack(cached.fingerprint === fingerprint ? { ok: true, state: 'known', result: JSON.parse(cached.result) } : { ok: false, reason: 'operation' });
+    }
+    const retryable = request.operationEpoch === epoch && Number.isFinite(request.operationTime) && now - request.operationTime < TTL_MS && request.operationTime <= now + 60000;
+    ack({ ok: true, state: 'unseen', retryable });
+  });
+}
+
 function registerMutation(socket, conn, event, handler) {
   socket.on(event, (data = {}, ack) => {
     if (typeof data === 'function') { ack = data; data = {}; }
@@ -70,4 +88,4 @@ function patchMatches(line, data) {
   return data.caption !== undefined || data.start !== undefined || data.end !== undefined;
 }
 
-module.exports = { registerMutation, patchMatches, epoch, snapshotProtocol };
+module.exports = { registerMutation, registerRecovery, patchMatches, epoch, snapshotProtocol };

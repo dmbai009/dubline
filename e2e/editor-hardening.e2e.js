@@ -404,8 +404,10 @@ describe('Collaborative editor hardening', { skip: skipReason }, () => {
       await page.evaluate(() => loadSavedPack('test-scene.zip'));
       await waitFor(page, id => session.activeSessionId !== id, 10000, secondId);
       await page.evaluate(() => releaseOldEdit());
+      await waitFor(page, () => !editorQueue.length && editorConflicts.length === 1);
       assert.equal(await page.evaluate(() => editorQueue.length), 0);
       assert.equal(await page.evaluate(() => editorConflicts.length), 1);
+      assert.equal(await page.evaluate(() => editorConflicts[0].status), 'recovery');
       assert.equal(await page.evaluate(() => session.lines[0].caption), 'Hello there');
     } finally { await bob.browserContext().close(); }
   });

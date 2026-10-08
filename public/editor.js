@@ -95,25 +95,28 @@ socket.on('editor_lines_updated', (lines, metadata) => {
 
 function editorResult(result) {
   if (result && result.ok) return true;
-  if (!result) {
-    showToast(t('editor.rejected'));
-    return false;
-  }
-  if (result.reason === 'conflict' && (result.lines || result.line)) {
+  if (result?.reason === 'conflict' && (result.lines || result.line)) {
     if (acceptSessionProtocol(result.editorProtocol)) applyEditorLines(result.lines || [result.line]);
     showToast(t('editor.conflict'));
-  } else if (result.reason === 'timeout') {
-    showToast(t('editor.timeout'));
-  } else if (result.reason === 'cancelled' || result.reason === 'session') {
-    showToast(t('editor.cancelled'));
-  } else if (result.reason === 'exists') {
-    showToast(t('editor.trackExists'));
-  } else if (result.reason === 'caption') {
-    showToast(t('editor.captionTooLong'));
   } else {
-    showToast(t('editor.rejected'));
+    showToast(editorFailureMessage(result?.reason || 'unconfirmed'));
   }
   return false;
+}
+
+function editorFailureMessage(reason) {
+  const keys = { conflict: 'editor.conflict', exists: 'editor.trackExists', caption: 'editor.captionTooLong',
+    timingsProtected: 'editor.timingsProtected', cancelled: 'editor.cancelled' };
+  const reasons = ['locked', 'invalid', 'mode', 'session', 'empty', 'missing', 'expired', 'capacity', 'operation', 'snapshot', 'room', 'name', 'storage', 'unconfirmed', 'legacy', 'unavailable'];
+  return t(keys[reason] || (reasons.includes(reason) ? 'editor.failure.' + reason : 'editor.failure.unknown'));
+}
+
+function editorOutcome(result) {
+  if (result?.ok) return 'confirmed';
+  if (result?.reason === 'conflict') return 'conflict';
+  // Retain ambiguous results and intent bound to a scene that is no longer active.
+  if (!result || ['expired', 'operation', 'unconfirmed', 'legacy', 'storage', 'timeout', 'session'].includes(result.reason)) return 'recovery';
+  return ['locked', 'invalid', 'mode', 'session', 'empty', 'missing', 'capacity', 'snapshot', 'room', 'name', 'caption', 'timingsProtected', 'exists', 'unavailable', 'cancelled'].includes(result.reason) ? 'rejected' : 'recovery';
 }
 
 // Authoritative data is never modified by optimistic edits. Requests capture the
@@ -132,13 +135,17 @@ const editorIntentStore = window.DublineLocalDatabase.store('pendingEditorOperat
 let editorPersistence = Promise.resolve();
 let restoredEditorRecords = null;
 let editorRecoveryLoading = false;
+let editorStorageIssue = false;
 function persistEditorOperation(operation, remove = false) {
-  const record = remove ? null : structuredClone({ id: operation.id, event: operation.event, payload: operation.payload,
+  const record = remove ? null : structuredClone({ schemaVersion: 2, id: operation.id, event: operation.event, payload: operation.payload,
     request: operation.request, sessionId: operation.sessionId, roomId: operation.roomId, clientId: operation.clientId,
-    status: operation.status, sent: !!operation.sent, targetBases: [...operation.targetBases], createdAt: operation.createdAt || Date.now(), replacesId: operation.replacesId });
+    status: operation.status, sent: !!operation.sent, outcome: operation.outcome, targetBases: [...operation.targetBases], createdAt: operation.createdAt || Date.now(), replacesId: operation.replacesId });
   // Serialize writes so a late put cannot resurrect a confirmed/discarded record.
   editorPersistence = editorPersistence.then(() => remove ? editorIntentStore.remove(operation.id) : operation.replacesId ? editorIntentStore.replace(operation.replacesId, record) : editorIntentStore.put(record))
-    .then(() => true).catch(error => { console.warn('[DubLine] Editor recovery is memory-only:', error); return false; });
+    .then(() => { operation.durable = true; editorStorageIssue = [...editorQueue, ...editorConflicts].some(item => item.durable === false); return true; }).catch(error => {
+      console.warn('[DubLine] Editor recovery storage failed:', error);
+      operation.durable = false; editorStorageIssue = true; showToast(editorFailureMessage('storage')); renderEditorSyncState(); return false;
+    });
   return editorPersistence;
 }
 async function restoreEditorOperations() {
@@ -152,6 +159,12 @@ async function restoreEditorOperations() {
       if (editorQueue.some(item => item.id === record.id) || editorConflicts.some(item => item.id === record.id)) continue;
       const operation = { ...record, targetBases: new Map(record.targetBases || []), coalesce: null };
       operation.promise = new Promise(resolve => { operation.resolve = resolve; });
+      if (['confirmed', 'rejected', 'discarded'].includes(record.status)) { persistEditorOperation(operation, true); continue; }
+      if (!operation.request?.operationId || !operation.payload) {
+        operation.payload ||= {};
+        operation.status = 'recovery'; operation.outcome = { reason: 'legacy', confirmed: false, manual: true };
+        editorConflicts.push(operation); persistEditorOperation(operation); continue;
+      }
       const patches = editorUpdates(operation);
       const currentScene = operation.sessionId === session.activeSessionId;
       const expired = record.request?.operationEpoch !== session.editorProtocol.epoch ||
@@ -161,9 +174,21 @@ async function restoreEditorOperations() {
         const line = editorAuthoritative.get(patch.lineId);
         return line && ['caption', 'start', 'end', 'character'].every(field => patch[field] === undefined || line[field] === patch[field]);
       });
-      if (expired && satisfied) { persistEditorOperation(operation, true); continue; }
-      if (!currentScene || expired || operation.status === 'conflict' || (session.mode !== 'edit' && operation.event !== 'editor_add_track')) {
-        operation.status = 'conflict'; editorConflicts.push(operation); persistEditorOperation(operation); continue;
+      if (expired && satisfied && operation.sent && operation.status !== 'conflict' && patches.every(patch => patch.character === undefined)) { operation.status = 'confirmed'; await retireEditorOperation(operation); continue; }
+      if (operation.status === 'conflict' && record.outcome?.reason === 'conflict') { editorConflicts.push(operation); continue; }
+      // Old conflicts have no trustworthy rejection reason. Keep intent for review
+      // and consult receipts; never migrate them by simply deleting the record.
+      if (['conflict', 'recovery'].includes(operation.status) && !operation.sent && !record.outcome) {
+        operation.status = 'recovery'; operation.outcome = { reason: 'legacy', confirmed: false, manual: true };
+        editorConflicts.push(operation); persistEditorOperation(operation); continue;
+      }
+      if (!currentScene && !operation.sent || expired && !operation.sent || operation.status === 'recovery' && !operation.sent) {
+        operation.status = 'recovery'; operation.outcome ||= { reason: !currentScene ? 'session' : 'expired', confirmed: false, manual: true };
+        editorConflicts.push(operation); persistEditorOperation(operation); continue;
+      }
+      if (!operation.sent && session.mode !== 'edit' && operation.event !== 'editor_add_track') {
+        operation.status = 'rejected'; operation.outcome = { reason: 'mode', confirmed: true, manual: false };
+        await retireEditorOperation(operation); showToast(editorFailureMessage('mode')); continue;
       }
       operation.status = 'queued'; editorQueue.push(operation);
     }
@@ -180,7 +205,7 @@ function lineRevision(lineId) {
 
 function editorUpdates(operation) {
   if (operation.event === 'editor_update_line') return [operation.payload];
-  if (operation.event === 'editor_update_lines') return operation.payload.updates;
+  if (operation.event === 'editor_update_lines') return Array.isArray(operation.payload?.updates) ? operation.payload.updates : [];
   return [];
 }
 function editorRevisionTargets(operation) {
@@ -233,11 +258,11 @@ window.acceptEditorSnapshot = function(data) {
     operation.coalesce = null;
     // Captured requests retain identity and epoch. A new server cannot blindly
     // replay a structural operation whose old receipt may already have applied.
-    if (operation.request.operationEpoch !== data.editorProtocol?.epoch) {
+    if (!operation.sent && operation.request?.operationEpoch !== data.editorProtocol?.epoch) {
       finishEditorOperation(operation, { ok: false, reason: 'expired' }); continue;
     }
-    if (operation.roomId !== currentRoom || operation.clientId !== clientId || operation.sessionId !== editorScene || (data.mode !== 'edit' && operation.event !== 'editor_add_track')) {
-      finishEditorOperation(operation, { ok: false, reason: operation.sessionId !== editorScene ? 'session' : 'mode' });
+    if (!operation.sent && (operation.roomId !== currentRoom || operation.clientId !== clientId || operation.sessionId !== editorScene || (data.mode !== 'edit' && operation.event !== 'editor_add_track'))) {
+      finishEditorOperation(operation, { ok: false, reason: operation.sessionId !== editorScene ? 'session' : 'mode' }, operation.sessionId !== editorScene ? 'recovery' : undefined);
     }
   }
   rebuildEditorOverlay();
@@ -250,20 +275,28 @@ window.acceptEditorSnapshot = function(data) {
 function renderEditorSyncState() {
   const status = document.getElementById('editorSyncState');
   if (!status) return;
-  status.hidden = !editorQueue.length && !editorConflicts.length;
+  status.hidden = !editorQueue.length && !editorConflicts.length && !editorStorageIssue;
   status.disabled = !editorConflicts.length;
-  status.textContent = t(editorConflicts.length ? 'editor.syncConflict' : editorNeedsResync ? 'editor.syncing' : 'editor.pending', { n: editorConflicts.length || editorQueue.length });
-  status.classList.toggle('conflict', !!editorConflicts.length);
+  const actualConflicts = editorConflicts.filter(operation => operation.status === 'conflict').length;
+  status.textContent = !editorQueue.length && !editorConflicts.length && editorStorageIssue ? editorFailureMessage('storage') : t(editorConflicts.length ? actualConflicts === editorConflicts.length ? 'editor.syncConflict' : 'editor.syncRecovery' : editorNeedsResync ? 'editor.syncing' : 'editor.pending', { n: editorConflicts.length || editorQueue.length });
+  status.classList.toggle('conflict', !!actualConflicts);
   renderEditorConflicts();
 }
 
 let editorReviewBusy = false, editorReviewSummary = '';
+function canKeepEditorOperation(operation) {
+  return operation.status === 'conflict' && editorUpdates(operation).length > 0;
+}
+function canRetryEditorSave(operation) {
+  return canKeepEditorOperation(operation) || operation.status === 'recovery' && operation.outcome?.confirmed && editorUpdates(operation).length > 0;
+}
 function renderEditorConflicts() {
   const panel = document.getElementById('editorConflictPanel');
   if (panel.hidden) return;
   const scroll = panel.querySelector('.editor-conflict-list')?.scrollTop || 0;
-  panel.innerHTML = `<div class="editor-conflict-actions"><button class="btn-play" data-review-all="keep" ${editorReviewBusy ? 'disabled' : ''}>${t('editor.keepAll')}</button><button class="btn-delete" data-review-all="discard" ${editorReviewBusy ? 'disabled' : ''}>${t('editor.discardAll')}</button></div><p role="status">${esc(editorReviewSummary)}</p><div class="editor-conflict-list">` + editorConflicts.map(operation => `<div class="editor-conflict-item">${editorIntentHtml(operation)}
-    <button class="btn-play" data-retry-operation="${operation.id}" ${editorReviewBusy || operation.sessionId !== session?.activeSessionId || session?.mode !== 'edit' ? 'disabled' : ''}>${t('editor.keepMine')}</button>
+  panel.innerHTML = `<div class="editor-conflict-actions">${editorConflicts.some(canKeepEditorOperation) ? `<button class="btn-play" data-review-all="keep" ${editorReviewBusy ? 'disabled' : ''}>${t('editor.keepAll')}</button>` : ''}<button class="btn-delete" data-review-all="discard" ${editorReviewBusy ? 'disabled' : ''}>${t('editor.discardAll')}</button></div><p role="status">${esc(editorReviewSummary)}</p><div class="editor-conflict-list">` + editorConflicts.map(operation => `<div class="editor-conflict-item">${editorIntentHtml(operation)}
+    ${canRetryEditorSave(operation) ? `<button class="btn-play" data-retry-operation="${operation.id}" ${editorReviewBusy || operation.sessionId !== session?.activeSessionId || session?.mode !== 'edit' ? 'disabled' : ''}>${t(canKeepEditorOperation(operation) ? 'editor.keepMine' : 'editor.retrySave')}</button>` : `<p>${esc(t('editor.repeatAction'))}</p>`}
+    ${operation.status === 'recovery' && !operation.outcome?.confirmed && operation.request?.operationId && (operation.sent || ['storage', 'legacy', 'unconfirmed'].includes(operation.outcome?.reason)) ? `<button class="btn-outline" data-check-operation="${operation.id}" ${editorReviewBusy || !socket.connected || !operation.sent && operation.sessionId !== session?.activeSessionId ? 'disabled' : ''}>${t('editor.checkResult')}</button>` : ''}
     <button class="btn-outline" data-discard-operation="${operation.id}" ${editorReviewBusy ? 'disabled' : ''}>${t('editor.discardPending')}</button></div>`).join('') + '</div>';
   panel.querySelector('.editor-conflict-list').scrollTop = scroll;
   const close = document.createElement('button'); close.type = 'button'; close.className = 'btn-icon editor-conflict-close';
@@ -283,13 +316,15 @@ window.reviewEditorConflicts = function() {
 
 async function retryEditorConflict(operation, sceneId) {
   if (!socket.connected || session?.activeSessionId !== sceneId || operation.sessionId !== sceneId || session.mode !== 'edit' || operation.roomId !== currentRoom || operation.clientId !== clientId || !myName || window.snapshotFrozen) return false;
-  if (!editorUpdates(operation).length) { showToast(t('editor.repeatAction')); return false; }
+  if (!canRetryEditorSave(operation)) return false;
   if (editorQueue.length || !await resyncEditor() || session?.activeSessionId !== sceneId || session.mode !== 'edit') return false;
   const payload = structuredClone(operation.payload);
   for (const patch of editorUpdates({ ...operation, payload })) {
     const line = editorAuthoritative.get(patch.lineId);
     if (!line || session.protectTimings && (patch.start !== undefined && patch.start !== line.start || patch.end !== undefined && patch.end !== line.end)) return false;
-    patch.revision = line.revision || 0; patch.base = editorBase(line);
+    // Only Keep mine explicitly authorizes rebasing over the current version.
+    // A retry after an ordinary refusal keeps its bases and may conflict normally.
+    if (canKeepEditorOperation(operation)) { patch.revision = line.revision || 0; patch.base = editorBase(line); }
   }
   const result = await Promise.race([queueEditorRequest(() => [operation.event, payload], { replacement: operation }), new Promise(resolve => setTimeout(() => resolve(null), 15000))]);
   return !!result?.ok;
@@ -300,20 +335,22 @@ async function resolveEditorConflicts(action, operations) {
   if (action === 'discard' && !await askConfirm(t('editor.discardAllConfirm', { n: operations.length }), { danger: true })) return;
   editorReviewBusy = true; renderEditorConflicts();
   const sceneId = session?.activeSessionId;
-  let applied = 0, discarded = 0;
+  let applied = 0, discarded = 0, rejected = 0;
   try {
     for (const operation of operations) {
       if (!editorConflicts.includes(operation)) continue;
       if (action === 'keep') {
+        if (!canRetryEditorSave(operation)) continue;
         if (!socket.connected || session?.activeSessionId !== sceneId || session.mode !== 'edit' || editorQueue.length) break;
         if (await retryEditorConflict(operation, sceneId)) applied++;
-      } else if (await persistEditorOperation(operation, true)) {
+        else rejected++;
+      } else if (await discardEditorOperation(operation)) {
         const index = editorConflicts.indexOf(operation); if (index >= 0) editorConflicts.splice(index, 1); discarded++;
       }
     }
   } finally {
     editorReviewBusy = false;
-    editorReviewSummary = t('editor.reviewSummary', { applied, discarded, remaining: editorConflicts.length + editorQueue.length });
+    editorReviewSummary = t('editor.reviewSummary', { applied, rejected, discarded, remaining: editorConflicts.length + editorQueue.length });
     renderEditorSyncState(); renderEditorConflicts();
   }
 }
@@ -331,22 +368,52 @@ function editorIntentHtml(operation) {
     const number = line ? lineNumber(line) : patch.lineId;
     return `<p><b>#${number}</b> ${esc(patch.caption ?? '')} ${patch.start !== undefined || patch.end !== undefined ? `${patch.start ?? patch.base?.start}–${patch.end ?? patch.base?.end}s` : ''} ${esc(patch.character ?? operation.payload.character ?? '')}</p>`;
   }).join('') || `<p>${esc(operation.payload.from || '')} ${operation.payload.to ? '→ ' + esc(operation.payload.to) : ''}${esc(operation.payload.character || '')} ${esc(operation.payload.caption || '')}</p>`;
-  return `<b>${esc(t(labels[operation.event] || 'editor.line'))}</b>${operation.sessionId !== session?.activeSessionId ? `<p>${t('editor.otherScene')}</p>` : ''}${details}`;
+  const reason = operation.outcome?.reason || 'legacy';
+  const current = targets.map(patch => session?.activeSessionId === operation.sessionId ? editorAuthoritative.get(patch.lineId) : null).filter(Boolean);
+  return `<b>${esc(t(labels[operation.event] || 'editor.line'))}</b><p>${esc(editorFailureMessage(reason))}</p>${operation.sessionId !== session?.activeSessionId ? `<p>${t('editor.otherScene')}</p>` : ''}${details}
+    ${current.length ? `<details><summary>${esc(t('editor.currentVersion'))}</summary>${current.map(line => `<p>#${line.id}: ${esc(line.caption)} · ${line.start}–${line.end} · ${esc(line.character)}</p>`).join('')}</details>` : ''}
+    <details><summary>${esc(t('editor.operationDetails'))}</summary><p>${esc(operation.event)} · ${esc(operation.id)}</p><p>${esc(operation.sessionId)} · ${esc(reason)}</p><p>${esc(t(operation.sent ? 'editor.requestSent' : 'editor.requestUnsent'))} · ${esc(t(operation.outcome?.confirmed ? 'editor.resultKnown' : 'editor.resultUnknown'))}</p></details>`;
 }
 document.addEventListener('click', async event => {
-  const button = event.target.closest('[data-retry-operation], [data-discard-operation]');
+  const button = event.target.closest('[data-retry-operation], [data-discard-operation], [data-check-operation]');
   if (!button || button.disabled) return;
-  const id = button.dataset.retryOperation || button.dataset.discardOperation;
+  const id = button.dataset.retryOperation || button.dataset.discardOperation || button.dataset.checkOperation;
   const operation = editorConflicts.find(item => item.id === id);
   if (!operation || editorReviewBusy) return;
+  if (button.dataset.checkOperation) {
+    editorReviewBusy = true; renderEditorConflicts();
+    try {
+      // Preserve identity/payload; this is recovery, never a new user mutation.
+      if (operation.sessionId !== session?.activeSessionId && !operation.sent) return;
+      if (!await persistEditorOperation(operation)) return;
+      editorConflicts.splice(editorConflicts.indexOf(operation), 1);
+      operation.attempts = 0; operation.status = 'queued';
+      operation.promise = new Promise(resolve => { operation.resolve = resolve; });
+      editorQueue.push(operation); editorNeedsResync = true; scheduleEditorPump(0);
+    } finally { editorReviewBusy = false; renderEditorSyncState(); }
+    return;
+  }
   if (button.dataset.retryOperation) {
     await resolveEditorConflicts('keep', [operation]); return;
   }
-  if (!await persistEditorOperation(operation, true)) return;
+  if (!await askConfirm(t('editor.discardAllConfirm', { n: 1 }), { danger: true }) || !await discardEditorOperation(operation)) return;
   const index = editorConflicts.indexOf(operation); if (index >= 0) editorConflicts.splice(index, 1);
   renderEditorSyncState();
   renderEditorConflicts();
 });
+
+async function retireEditorOperation(operation) {
+  // A failed delete must leave a terminal tombstone, not an older in-flight or
+  // conflict record that can reappear after reload. Try both writes independently.
+  const saved = await persistEditorOperation(operation);
+  const removed = await persistEditorOperation(operation, true);
+  return saved || removed;
+}
+async function discardEditorOperation(operation) {
+  const status = operation.status; operation.status = 'discarded';
+  if (await retireEditorOperation(operation)) return true;
+  operation.status = status; return false;
+}
 
 function editorBase(line) {
   return { caption: line.caption, start: line.start, end: line.end, character: line.character };
@@ -373,10 +440,13 @@ function resyncEditor() {
   });
 }
 
-function finishEditorOperation(operation, result) {
+function finishEditorOperation(operation, result, category = editorOutcome(result)) {
   const index = editorQueue.indexOf(operation);
   if (index === -1) return;
   editorQueue.splice(index, 1);
+  // A failed explicit conflict resolution must retain the user's original intent,
+  // even when the new attempt receives an ordinary refusal (for example a lease).
+  if (category === 'rejected' && operation.replacesId) category = 'recovery';
   if (result?.ok) {
     const lines = result.lines || (result.line ? [result.line] : []);
     for (const next of editorQueue) {
@@ -390,9 +460,17 @@ function finishEditorOperation(operation, result) {
       persistEditorOperation(next);
     }
   }
-  if (!result?.ok) { operation.status = 'conflict'; editorConflicts.push(operation); }
-  persistEditorOperation(operation, !!result?.ok);
-  operation.resolve(result);
+  operation.status = category;
+  operation.outcome = { reason: result?.reason || (result?.ok ? 'ok' : 'unconfirmed'), confirmed: !!result && !['expired', 'operation', 'unconfirmed', 'legacy', 'storage', 'timeout'].includes(result.reason), manual: ['conflict', 'recovery'].includes(category) };
+  if (['conflict', 'recovery'].includes(category)) editorConflicts.push(operation);
+  const saved = ['confirmed', 'rejected'].includes(category) ? retireEditorOperation(operation) : persistEditorOperation(operation);
+  // UI rollback also runs for local lease failures and scene/mode boundaries.
+  rebuildEditorOverlay();
+  if (!result?.ok) {
+    if (operation.event === 'editor_reorder_track') renderTimeline();
+    else refreshEditorTimeline(editorUpdates(operation).map(patch => editorAuthoritative.get(patch.lineId)).filter(Boolean));
+  }
+  saved.then(() => operation.resolve(result || { ok: false, reason: 'unconfirmed' }));
 }
 
 async function pumpEditorQueue() {
@@ -400,33 +478,69 @@ async function pumpEditorQueue() {
   editorPumping = true;
   let mutationLease = null;
   try {
-    if (editorNeedsResync && !await resyncEditor()) return;
-    const operation = editorQueue[0];
+    let operation = editorQueue[0]; operation.attempts ||= 0;
+    if (operation.status === 'persisting') return;
+    if (editorNeedsResync && !await resyncEditor()) {
+      if (++operation.attempts >= 3) finishEditorOperation(operation, { ok: false, reason: 'unconfirmed' });
+      return;
+    }
+    operation = editorQueue[0];
     if (!operation) return;
     if (operation.status === 'persisting') return;
+    if (operation.sent || operation.outcome?.reason === 'legacy') {
+      const receipt = await new Promise(resolve => socket.volatile.timeout(EDITOR_ACK_TIMEOUT_MS).emit('editor_operation_status', { event: operation.event, request: operation.request }, (error, value) => resolve(error ? null : value)));
+      if (!editorQueue.includes(operation)) return;
+      if (!receipt?.ok) {
+        editorNeedsResync = true;
+        if (receipt || ++operation.attempts >= 3) finishEditorOperation(operation, { ok: false, reason: receipt?.reason || 'unconfirmed' }, 'recovery');
+        return;
+      }
+      if (receipt.state === 'known') {
+        finishEditorOperation(operation, receipt.result);
+        const lines = receipt.result.lines || (receipt.result.line ? [receipt.result.line] : []);
+        if (operation.sessionId === session?.activeSessionId && lines.length && acceptSessionProtocol(receipt.result.editorProtocol)) applyEditorLines(lines, !!receipt.result.ok);
+        return;
+      }
+      if (!receipt.retryable) { finishEditorOperation(operation, { ok: false, reason: 'expired' }); return; }
+      if (operation.sessionId !== session?.activeSessionId || session.mode !== 'edit' && operation.event !== 'editor_add_track') {
+        finishEditorOperation(operation, { ok: false, reason: operation.sessionId !== session?.activeSessionId ? 'session' : 'mode' }); return;
+      }
+    }
     if (operation.roomId !== currentRoom || operation.clientId !== clientId || operation.sessionId !== session?.activeSessionId || (session.mode !== 'edit' && operation.event !== 'editor_add_track')) {
-      finishEditorOperation(operation, { ok: false, reason: 'session' }); return;
+      finishEditorOperation(operation, { ok: false, reason: operation.sessionId !== session?.activeSessionId ? 'session' : 'mode' }); return;
     }
     if (!operation.sent && session.mode === 'edit' && window.editorLeaseTargets) {
       const targets = window.editorLeaseTargets(operation.event, operation.payload);
       if (targets.length) {
-        mutationLease = await window.acquireEditLease(targets);
+        const acquired = await window.acquireEditLease(targets, { result: true });
+        mutationLease = acquired?.ok ? acquired.token : null;
         operation.mutationLease = mutationLease;
         if (!editorQueue.includes(operation)) return;
-        if (!mutationLease) { finishEditorOperation(operation, { ok: false, reason: 'locked' }); return; }
+        if (!mutationLease) { finishEditorOperation(operation, { ok: false, reason: acquired?.reason || 'locked' }); return; }
       }
     }
+    const previouslySent = !!operation.sent;
     operation.status = 'in-flight';
     operation.sent = true;
-    await persistEditorOperation(operation);
+    if (!await persistEditorOperation(operation)) {
+      operation.sent = previouslySent;
+      finishEditorOperation(operation, { ok: false, reason: 'storage' }); return;
+    }
+    if (!editorQueue.includes(operation)) return;
+    operation.attempts = (operation.attempts || 0) + 1;
     const result = await new Promise(resolve => {
       socket.volatile.timeout(EDITOR_ACK_TIMEOUT_MS).emit(operation.event, operation.request, (err, value) => resolve(err ? null : value));
     });
     if (!editorQueue.includes(operation)) return; // scene/mode changed while ACK was pending
-    if (!result) { operation.status = 'queued'; editorNeedsResync = true; return; }
+    if (!result) {
+      operation.status = 'awaiting-resync'; editorNeedsResync = true;
+      persistEditorOperation(operation); showToast(editorFailureMessage('unconfirmed'));
+      if (operation.attempts >= 3) finishEditorOperation(operation, { ok: false, reason: 'unconfirmed' });
+      return;
+    }
     finishEditorOperation(operation, result);
     const lines = result.lines || (result.line ? [result.line] : []);
-    if (lines.length && acceptSessionProtocol(result.editorProtocol)) applyEditorLines(lines, !!result.ok);
+    if (operation.sessionId === session?.activeSessionId && lines.length && acceptSessionProtocol(result.editorProtocol)) applyEditorLines(lines, !!result.ok);
     else { rebuildEditorOverlay(); if (!result.ok || editorQueue.length) refreshEditorTimeline(session.lines); }
   } finally {
     window.releaseEditLease?.(mutationLease);
@@ -438,12 +552,13 @@ async function pumpEditorQueue() {
 
 function queueEditorRequest(build, options = {}) {
   if (window.snapshotFrozen) return Promise.resolve({ ok: false, reason: 'snapshot' });
+  if (editorQueue.length >= 2000) return Promise.resolve({ ok: false, reason: 'capacity' });
   const [event, original] = build();
   const payload = structuredClone(original);
   const sessionId = session?.activeSessionId;
   const last = editorQueue.at(-1);
   // Only unsent keyboard bursts with the same selection and remote boundary coalesce.
-  if (options.coalesce && last?.status === 'queued' && !last.sent && last.coalesce === options.coalesce && last.sessionId === sessionId && !editorNeedsResync) {
+  if (options.coalesce && ['queued', 'persisting'].includes(last?.status) && !last.sent && last.coalesce === options.coalesce && last.sessionId === sessionId && !editorNeedsResync) {
     const updates = editorUpdates({ event, payload });
     const previous = editorUpdates(last);
     if (updates.length === previous.length && updates.every((patch, i) => patch.lineId === previous[i].lineId)) {
@@ -455,7 +570,7 @@ function queueEditorRequest(build, options = {}) {
     }
   }
   const id = crypto.randomUUID?.() || [...crypto.getRandomValues(new Uint32Array(4))].map(value => value.toString(16)).join('-');
-  const operation = { id, event, payload, sessionId, roomId: currentRoom, clientId, status: options.replacement ? 'persisting' : 'queued', replacesId: options.replacement?.id, coalesce: options.coalesce, targetBases: new Map() };
+  const operation = { id, event, payload, sessionId, roomId: currentRoom, clientId, status: 'persisting', attempts: 0, replacesId: options.replacement?.id, coalesce: options.coalesce, targetBases: new Map() };
   for (const target of editorRevisionTargets(operation)) {
     const line = session.lines.find(item => item.id === target.lineId);
     if (line) operation.targetBases.set(line.id, editorBase(line));
@@ -466,15 +581,19 @@ function queueEditorRequest(build, options = {}) {
   operation.createdAt = Date.now();
   editorQueue.push(operation);
   persistEditorOperation(operation).then(saved => {
-    if (!options.replacement) return;
     if (!saved) {
       if (!editorQueue.includes(operation)) return;
-      editorQueue.splice(editorQueue.indexOf(operation), 1); operation.resolve({ ok: false, reason: 'storage' });
-      rebuildEditorOverlay(); renderTimeline(); renderEditorSyncState(); return;
+      if (options.replacement) {
+        editorQueue.splice(editorQueue.indexOf(operation), 1); operation.resolve({ ok: false, reason: 'storage' });
+        rebuildEditorOverlay(); renderTimeline(); renderEditorSyncState();
+      } else {
+        finishEditorOperation(operation, { ok: false, reason: 'storage' }); renderEditorSyncState();
+      }
+      return;
     }
     const index = editorConflicts.indexOf(options.replacement); if (index >= 0) editorConflicts.splice(index, 1);
     if (!editorQueue.includes(operation)) { renderEditorConflicts(); return; }
-    operation.status = 'queued'; renderEditorConflicts(); scheduleEditorPump(0);
+    operation.status = 'queued'; renderEditorConflicts(); scheduleEditorPump(options.coalesce ? 80 : 0);
   });
   // A selected clip moved into another role must remain visible after overlay redraw.
   if (selectedLine && editorUpdates(operation).some(patch => patch.lineId === selectedLine.id && patch.character !== undefined && patch.character !== selectedLine.character)) revealLineId = selectedLine.id;

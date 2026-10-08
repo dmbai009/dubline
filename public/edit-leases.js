@@ -21,16 +21,20 @@
     else if (['editor_add_track', 'editor_undo', 'editor_reorder_track', 'editor_delete_track'].includes(event)) targets = [{ type: 'session', key: '*', group: 'structural' }];
     return targets.length > 128 ? [{ type: 'session', key: '*', group: 'structural' }] : targets;
   };
-  window.acquireEditLease = async targets => {
+  window.acquireEditLease = async (targets, options = {}) => {
+    const response = value => options.result ? value : value.ok ? value.token : null;
     const sessionId = session?.activeSessionId;
-    if (!socket.connected || session?.mode !== 'edit') return null;
+    if (!socket.connected || session?.mode !== 'edit') return response({ ok: false, reason: !socket.connected ? 'unavailable' : 'mode' });
     const result = await new Promise(resolve => socket.timeout(3000).emit('edit_lease_acquire', { sessionId, targets }, (error, value) => resolve(error ? null : value)));
-    if (!result?.ok) { showToast(t('editor.locked', { name: result?.by || t('conn.lost') })); return null; }
+    if (!result?.ok) {
+      if (!options.result) showToast(editorFailureMessage(result?.reason || 'unavailable'));
+      return response(result || { ok: false, reason: 'unavailable' });
+    }
     if (session?.activeSessionId !== sessionId || session.mode !== 'edit') {
-      socket.emit('edit_lease_release', { token: result.token }); return null;
+      socket.emit('edit_lease_release', { token: result.token }); return response({ ok: false, reason: 'session' });
     }
     own.set(result.token, { sessionId });
-    return result.token;
+    return response(result);
   };
   window.releaseEditLease = token => {
     if (!token) return;

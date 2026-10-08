@@ -32,13 +32,14 @@ if (!process.versions.electron) {
     // Intercept only the OS browser launch; exercise Electron's actual popup policy.
     win.webContents.setWindowOpenHandler(createWorkshopLinkHandler(async url => { openedLinks.push(url); }));
     const evaluate = source => win.webContents.executeJavaScript(source, true);
-    const waitFor = async source => {
-      const deadline = Date.now() + 10000;
+    const waitFor = async (source, timeout = 10000) => {
+      const deadline = Date.now() + timeout;
       while (Date.now() < deadline) {
         if (await evaluate(source).catch(() => false)) return;
         await new Promise(resolve => setTimeout(resolve, 50));
       }
-      throw new Error(`Electron wait timed out: ${source}`);
+      const state = await evaluate("JSON.stringify({ connected: socket.connected, name: myName, mode: session?.mode, caption: session?.lines?.find(line => line.id === 1)?.caption, queue: editorQueue.map(item => ({ event: item.event, status: item.status, sent: item.sent })), reviews: editorConflicts.map(item => ({ status: item.status, reason: item.outcome?.reason })) })").catch(() => 'unavailable');
+      throw new Error(`Electron wait timed out: ${source}; ${state}`);
     };
     win.webContents.debugger.attach('1.3');
     const key = async (keyCode, modifiers = []) => {
@@ -67,6 +68,12 @@ if (!process.versions.electron) {
       await waitFor('session.loaded && session.lines.length === 4');
       await evaluate("document.getElementById('editModeBtn').click();");
       await waitFor("session.mode === 'edit'");
+      assert.deepEqual(await evaluate(`(async () => {
+        const empty = await queueEditorRequest(() => ['editor_undo', {}]);
+        const exists = await queueEditorRequest(() => ['editor_add_track', { character: 'Hero' }]);
+        await editorPersistence;
+        return { reasons: [empty.reason, exists.reason], conflicts: editorConflicts.length, durable: (await editorIntentStore.all()).length };
+      })()`), { reasons: ['empty', 'exists'], conflicts: 0, durable: 0 });
       await evaluate("document.querySelector('.track-add-btn').click();");
       await answer('Electron role');
       await waitFor("session.trackOrder.includes('Electron role')");
@@ -83,17 +90,39 @@ if (!process.versions.electron) {
       await waitFor("session.lines.find(line => line.id === 1).character === 'Hero' && editorQueue.length === 0");
       const recovery = await evaluate(`(async () => {
         const emit = socket.emit, before = session.lines.find(line => line.id === 1).revision || 0;
-        let lose = true;
+        let lose = true, sends = 0, checks = 0;
         socket.emit = function(event, ...args) {
+          if (event === 'editor_update_line') sends++;
+          if (event === 'editor_operation_status') checks++;
           if (event === 'editor_update_line' && lose) { lose = false; const ack = args.pop(); args.push(() => ack(new Error('Native lost ACK'))); }
           return emit.call(this, event, ...args);
         };
         try {
           const results = await Promise.all(['Native A', 'Native B'].map(caption => updateEditorLine(session.lines.find(line => line.id === 1), { caption })));
-          return { ok: results.every(result => result.ok), caption: session.lines.find(line => line.id === 1).caption, revisions: session.lines.find(line => line.id === 1).revision - before };
+          return { ok: results.every(result => result.ok), caption: session.lines.find(line => line.id === 1).caption, revisions: session.lines.find(line => line.id === 1).revision - before, sends, checks };
         } finally { socket.emit = emit; }
       })()`);
-      assert.deepEqual(recovery, { ok: true, caption: 'Native B', revisions: 2 });
+      assert.deepEqual(recovery, { ok: true, caption: 'Native B', revisions: 2, sends: 2, checks: 1 });
+      await evaluate(`(async () => {
+        const base = structuredClone(session.lines.find(line => line.id === 1)), protocol = session.editorProtocol;
+        socket.disconnect(); updateEditorLine(base, { caption: 'Native retained intent' });
+        const remote = io(location.origin, { forceNew: true, transports: ['websocket'] });
+        await new Promise(resolve => { remote.once('connect', () => remote.emit('join_room', { room: currentRoom, nick: 'Native collaborator', clientId: crypto.randomUUID() })); remote.once('nick_state', resolve); });
+        const result = await new Promise(resolve => remote.emit('editor_update_line', { lineId: base.id, revision: base.revision, caption: 'Native remote version', sessionId: session.activeSessionId, operationId: crypto.randomUUID(), operationEpoch: protocol.epoch, operationTime: protocol.serverTime }, resolve));
+        if (!result.ok) throw Error(JSON.stringify(result)); remote.disconnect(); socket.connect();
+      })()`);
+      // A volatile mutation can be lost at the reconnect boundary. Allow its
+      // actual 10 s ACK deadline plus the bounded resync/receipt recovery step.
+      await waitFor('editorConflicts.length === 1 && !editorQueue.length', await evaluate('EDITOR_ACK_TIMEOUT_MS + 5000'));
+      await evaluate('reviewEditorConflicts();'); await key('Escape');
+      assert.equal(await evaluate('document.getElementById("editorConflictPanel").hidden && editorConflicts.length === 1'), true);
+      win.webContents.once('will-prevent-unload', event => event.preventDefault());
+      await win.loadURL(process.env.DUBLINE_EDITOR_SMOKE_URL);
+      await waitFor('session?.loaded && editorConflicts.length === 1 && !editorRecoveryLoading');
+      assert.equal(await evaluate('editorConflicts[0].outcome.reason'), 'conflict');
+      await evaluate('reviewEditorConflicts(); document.querySelector("[data-retry-operation]").click();');
+      await waitFor('!editorConflicts.length && !editorQueue.length && !editorReviewBusy');
+      assert.equal(await evaluate('session.lines.find(line => line.id === 1).caption'), 'Native retained intent');
       assert.equal(await evaluate("(() => { const slider=document.getElementById('settingsMicGain'); slider.value='150'; slider.dispatchEvent(new Event('input',{bubbles:true})); slider.dispatchEvent(new MouseEvent('dblclick',{bubbles:true})); return userMicGain===1 && slider.value==='100'; })()"), true);
       await evaluate("document.querySelector('[data-character=\"Friend\"] .track-drag-handle').focus();");
       await key('Up', ['alt']); await waitFor("session.trackOrder[0] === 'Friend' && editorQueue.length === 0");
@@ -131,7 +160,7 @@ if (!process.versions.electron) {
       await new Promise(resolve => setTimeout(resolve, 100));
       assert.deepEqual(openedLinks, [WORKSHOP_URL], 'An unrelated URL reached the external browser');
       assert.equal(BrowserWindow.getAllWindows().length, 1, 'An unrelated popup was allowed');
-      console.log(JSON.stringify({ electron: process.versions.electron, checks: ['add role', 'rename role', 'rename session', 'Alt+arrows', 'lost ACK/pending queue', 'slider reset', 'track reorder/Undo', 'protected timing/vertical move', 'track transfer/Undo', 'Files tabs', 'Escape', 'Workshop external link'], passed: true }));
+      console.log(JSON.stringify({ electron: process.versions.electron, checks: ['ordinary refusals without conflicts', 'add role', 'rename role', 'rename session', 'Alt+arrows', 'lost ACK/receipt/pending queue', 'real conflict/close/reload/Keep mine', 'slider reset', 'track reorder/Undo', 'protected timing/vertical move', 'track transfer/Undo', 'Files tabs', 'Escape', 'Workshop external link'], passed: true }));
       win.destroy(); app.exit(0);
     } catch (error) { console.error(error); win.destroy(); app.exit(1); }
   }).catch(error => { console.error(error); app.exit(1); });

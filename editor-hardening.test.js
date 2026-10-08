@@ -96,6 +96,42 @@ describe('Editor operation protocol and semantic history', () => {
     assert.equal((await ack(returned, 'editor_add_track', otherEpoch)).reason, 'expired');
   });
 
+  test('receipt inspection is read-only, exact, actor-bound and available after switching scenes', async () => {
+    const alice = await scene(), bob = await join(alice.room, 'Bob'), snapshot = await state(alice);
+    const request = operation(snapshot, { character: 'Inspected track' });
+    const query = (player, payload = request) => ack(player, 'editor_operation_status', { event: 'editor_add_track', request: payload });
+    assert.deepEqual(await query(alice), { ok: true, state: 'unseen', retryable: true });
+    const result = await ack(alice, 'editor_add_track', request);
+    assert.deepEqual(await query(alice), { ok: true, state: 'known', result });
+    assert.deepEqual(await query(bob), { ok: true, state: 'unseen', retryable: true });
+    assert.equal((await query(alice, { ...request, character: 'Different fingerprint' })).reason, 'operation');
+    alice.socket.emit('set_session_mode', { mode: 'dub', sessionId: snapshot.activeSessionId });
+    await waitUntil(async () => (await state(alice)).mode === 'dub');
+    assert.deepEqual(await query(alice), { ok: true, state: 'known', result });
+    const response = await fetch(`http://localhost:${server.port}/api/load-server-pack?room=${alice.room}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filename: 'test-scene.zip', clientId: alice.clientId, room: alice.room })
+    });
+    assert.equal(response.status, 200); assert.notEqual((await state(alice)).activeSessionId, snapshot.activeSessionId);
+    assert.deepEqual(await query(alice), { ok: true, state: 'known', result });
+    assert.equal((await state(alice)).trackOrder.includes('Inspected track'), false);
+    const otherRoom = await scene(); assert.equal((await query(otherRoom)).state, 'unseen');
+    const unjoined = io(`http://localhost:${server.port}`, { transports: ['websocket'], forceNew: true }); sockets.push(unjoined);
+    await new Promise(resolve => unjoined.once('connect', resolve));
+    assert.equal((await ack({ socket: unjoined }, 'editor_operation_status', { event: 'editor_add_track', request })).reason, 'room');
+  });
+
+  test('recovery distinguishes known refusals from unknown results after server epoch changes', async () => {
+    const alice = await scene(), initial = await state(alice);
+    const request = operation(initial);
+    const rejected = await ack(alice, 'editor_undo', request); assert.equal(rejected.reason, 'empty');
+    assert.deepEqual(await ack(alice, 'editor_operation_status', { event: 'editor_undo', request }), { ok: true, state: 'known', result: rejected });
+    const unknown = operation(initial, { character: 'Never sent' });
+    assert.deepEqual(await ack(alice, 'editor_operation_status', { event: 'editor_add_track', request: { ...unknown, operationTime: initial.editorProtocol.serverTime - 31 * 60 * 1000 } }), { ok: true, state: 'unseen', retryable: false });
+    await server.restart(); await waitUntil(async () => alice.socket.connected && (await state(alice)).editorProtocol.epoch !== initial.editorProtocol.epoch);
+    assert.deepEqual(await ack(alice, 'editor_operation_status', { event: 'editor_undo', request }), { ok: true, state: 'unseen', retryable: false });
+    assert.equal((await state(alice)).trackOrder.includes('Never sent'), false);
+  });
+
   test('caption and timing safely rebase; conflicting timing edge rejects entire group', async () => {
     const alice = await scene(), bob = await join(alice.room, 'Bob');
     const initial = await state(alice), line = initial.lines[0];
