@@ -50,18 +50,20 @@ async function main() {
         return String([...map.getContext('2d').getImageData(Math.floor(map.width / 2), 0, 1, 1).data]) === String([...expected.getImageData(0, 0, 1, 1).data]);
       });
     }
-    await page.evaluate(() => { setTimelineZoom(180); video.currentTime = 2; });
+    await page.evaluate(() => { setTimelineZoom(180); video.pause(); video.currentTime = 2; });
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     const overview = await page.evaluate(() => {
       const box = document.getElementById('timelineMinimap').getBoundingClientRect();
-      return { x: box.left + (timelineContainer.clientWidth - labelWidth) / pxPerSec / (timelineSeconds() + TIMELINE_TAIL) * box.width, y: box.top + 18, scale: pxPerSec };
+      return { x: box.left + Math.min(1, (timelineContainer.scrollLeft + timelineContainer.clientWidth - labelWidth) / pxPerSec / (timelineSeconds() + TIMELINE_TAIL)) * box.width, y: box.top + 18, scale: pxPerSec };
     });
     await page.mouse.move(overview.x, overview.y); await page.mouse.down(); await page.mouse.move(overview.x + 40, overview.y, { steps: 8 }); await page.mouse.up();
-    assert.equal(await page.evaluate(scale => pxPerSec < scale && video.currentTime === 2, overview.scale), true, 'native minimap edge zoom does not seek');
+    const resizedOverview = await page.evaluate(() => ({ scale: pxPerSec, time: video.currentTime }));
+    assert.equal(resizedOverview.scale < overview.scale && resizedOverview.time === 2, true, `native minimap edge zoom does not seek: ${JSON.stringify(resizedOverview)}`);
     await page.evaluate(() => setStudioMode('edit')); await waitFor(page, () => session.mode === 'edit');
     await page.evaluate(() => timelineContainer.focus());
     assert.equal(await page.evaluate(() => getComputedStyle(timelineContainer).outlineStyle === 'none' && getComputedStyle(document.querySelector('.timeline-panel')).boxShadow === 'none'), true);
-    if (!process.argv.includes('--functional-only')) await page.screenshot({ path: path.join(destination, 'minimap-graphite.png') });
+    fs.mkdirSync(destination, { recursive: true });
+    await page.screenshot({ path: path.join(destination, 'minimap-graphite.png') });
     await page.evaluate(() => setStudioMode('dub')); await waitFor(page, () => session.mode === 'dub');
     await page.evaluate(() => { openSettingsModal(); openSettingsCategory('user', 'audio'); });
     await page.click('#audioDeviceRefresh');
