@@ -9,7 +9,7 @@ const labelWidth = 180;
 
 // Timeline zoom: pixels per second (Ctrl+wheel, the − / + / "Whole scene" buttons)
 const ZOOM_DEFAULT = 60;
-const ZOOM_MIN = 2;
+const ZOOM_MIN = ZOOM_DEFAULT * 0.1;
 const ZOOM_MAX = 400;
 let pxPerSec = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Number(localStorage.getItem('dubline_zoom')) || ZOOM_DEFAULT));
 

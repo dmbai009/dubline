@@ -56,6 +56,70 @@ describe('UI cleanup and local audio devices', { skip: skipReason, timeout: 1200
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   }
 
+  test('long-export warnings contrast with their actual backgrounds in every theme and language', async () => {
+    await page.evaluate(() => {
+      // Only metadata is substituted: exercise the real duration warning and CSS.
+      Object.defineProperty(video, 'duration', { configurable: true, get: () => 1440 });
+      openFilesModal(); switchFilesTab('export');
+    });
+    for (const theme of ['midnight', 'graphite', 'light', 'ocean', 'forest', 'sunset']) {
+      for (const language of ['ru', 'en', 'uk']) {
+        const result = await page.evaluate((theme, language) => {
+          document.documentElement.dataset.theme = theme; i18n.setLanguage(language);
+          updateExportDurationWarning();
+          const warning = document.getElementById('longExportWarning');
+          const rgba = color => color.match(/[\d.]+/g).map(Number);
+          // Composite translucent warning/card surfaces over their opaque parents.
+          const chain = []; for (let node = warning; node; node = node.parentElement) chain.unshift(node);
+          let background = [255, 255, 255];
+          for (const node of chain) {
+            const [r, g, b, a = 1] = rgba(getComputedStyle(node).backgroundColor);
+            background = [r, g, b].map((channel, index) => channel * a + background[index] * (1 - a));
+          }
+          const luminance = rgb => rgb.slice(0, 3).map(channel => {
+            const value = channel / 255; return value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4;
+          }).reduce((sum, value, index) => sum + value * [.2126, .7152, .0722][index], 0);
+          const foreground = luminance(rgba(getComputedStyle(warning).color)), surface = luminance(background);
+          return { ratio: (Math.max(foreground, surface) + .05) / (Math.min(foreground, surface) + .05), visible: warning.getBoundingClientRect().height > 0, text: warning.textContent, expected: t('warning.longExport', { minutes: 24 }) };
+        }, theme, language);
+        assert.equal(result.visible, true);
+        assert.equal(result.text, result.expected);
+        assert.ok(result.ratio >= 4.5, `${theme}/${language}: contrast ${result.ratio.toFixed(2)}`);
+      }
+    }
+    await page.evaluate(() => { delete video.duration; updateExportDurationWarning(); });
+    assert.equal(await page.$eval('#longExportWarning', node => getComputedStyle(node).display), 'none', 'short scenes still hide the warning');
+  });
+
+  test('all zoom controls and both minimap edges stop at ten percent', async () => {
+    await page.evaluate(() => { Object.defineProperty(video, 'duration', { configurable: true, get: () => 1440 }); video.pause(); video.currentTime = 2; });
+    const checkFloor = async () => {
+      assert.equal(await page.evaluate(() => pxPerSec / ZOOM_DEFAULT), .1);
+      assert.equal(await page.$eval('#zoomLabel', label => label.textContent), '10%');
+      assert.equal(await page.evaluate(() => video.currentTime), 2, 'zoom never seeks');
+    };
+    await page.evaluate(() => { setTimelineZoom(6.1); });
+    await page.click('#zoomOutBtn'); await checkFloor();
+    await page.evaluate(() => {
+      setTimelineZoom(6.1);
+      timelineContainer.dispatchEvent(new WheelEvent('wheel', { ctrlKey: true, deltaY: 100, cancelable: true }));
+    });
+    await checkFloor();
+    await page.evaluate(() => fitTimeline()); await checkFloor();
+    for (const edge of ['right', 'left']) {
+      await page.evaluate(() => setTimelineZoom(7));
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      await page.evaluate(() => { timelineContainer.scrollLeft = 400; });
+      const before = await mapView();
+      await dragMap(edge === 'left' ? before.leftX : before.rightX, before.y, edge === 'left' ? before.x - 100 : before.x + before.width + 100);
+      await checkFloor();
+    }
+    await page.evaluate(() => localStorage.setItem('dubline_zoom', '2'));
+    await page.reload(); await waitFor(page, () => session?.loaded && document.getElementById('timelineMinimap'));
+    assert.equal(await page.evaluate(() => pxPerSec / ZOOM_DEFAULT), .1, 'old saved zoom below the floor is clamped on startup');
+    assert.equal(await page.$eval('#zoomLabel', label => label.textContent), '10%');
+  });
+
   test('minimap repaints immediately with a distinct background for each theme', async () => {
     const pixels = [];
     for (const theme of ['midnight', 'graphite', 'light', 'ocean', 'forest', 'sunset']) {

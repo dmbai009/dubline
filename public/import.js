@@ -168,7 +168,7 @@ window.renderCustomImportStatus = () => {
   const key = { upload: state.optimizing ? 'proxy.uploading' : 'uploading', compress: 'proxy.compressing', audio: 'proxy.audio', done: 'upload.done', cancel: 'proxy.cancelled', network: 'upload.networkFailed', error: 'error.generic' }[state.phase];
   status.textContent = t(key, { percent: state.percent, message: state.error }) +
     (state.completed && state.skipped ? ' ' + t('import.skippedTimings', { n: state.skipped }) : '');
-  status.style.color = state.error || state.phase === 'cancel' ? 'var(--danger)' : state.completed ? state.skipped ? 'var(--warning)' : 'var(--success)' : 'var(--accent)';
+  status.style.color = state.error || state.phase === 'cancel' ? 'var(--danger)' : state.completed ? state.skipped ? 'var(--warning-text)' : 'var(--success)' : 'var(--accent)';
 };
 window.addEventListener('dubline-language-changed', renderCustomImportStatus);
 window.cancelCustomImport = () => customImportRequest?.abort.abort();

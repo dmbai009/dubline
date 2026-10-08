@@ -42,6 +42,15 @@ async function main() {
       await waitFor(page, (width, height) => innerWidth === width && innerHeight === height, 5000, width, height);
     };
     if (!process.argv.includes('--functional-only')) await captureScreens(page, destination, resize);
+    await page.evaluate(() => {
+      Object.defineProperty(video, 'duration', { configurable: true, get: () => 1440 });
+      document.documentElement.dataset.theme = 'light';
+      openFilesModal(); switchFilesTab('export'); fitTimeline();
+    });
+    assert.deepEqual(await page.evaluate(() => ({ zoom: pxPerSec / ZOOM_DEFAULT, label: zoomLabel.textContent, warning: getComputedStyle(document.getElementById('longExportWarning')).color, visible: document.getElementById('longExportWarning').getBoundingClientRect().height > 0 })), { zoom: .1, label: '10%', warning: 'rgb(133, 77, 14)', visible: true }, 'native export warning uses the contrasting light-theme text and fit respects the zoom floor');
+    fs.mkdirSync(destination, { recursive: true });
+    await page.screenshot({ path: path.join(destination, 'export-warning-light.png') });
+    await page.evaluate(() => { delete video.duration; closeFilesModal(); });
     for (const theme of ['light', 'graphite']) {
       await page.evaluate(theme => { document.documentElement.dataset.theme = theme; }, theme);
       await waitFor(page, () => {
