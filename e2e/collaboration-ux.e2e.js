@@ -250,16 +250,18 @@ describe('Collaboration latency and UX', { skip: skipReason, timeout: 120000 }, 
     assert.equal(await page.$eval('#editorCharacter', node => node.disabled), false);
     assert.match(await page.$eval('#editorCaption', node => node.parentElement.dataset.tooltip), /Another participant/);
     assert.equal(await page.$eval('#editorLineForm .btn-delete', node => node.disabled), true, 'deletion conflicts with a caption lease even though independent timing/assignment remain editable');
-    await other.evaluate(() => releaseEditLease(captionLease)); await waitFor(page, () => !document.getElementById('editorCaption').readOnly);
+    await other.evaluate(() => releaseEditLease(captionLease));
+    // Lease state updates synchronously; accessible help is patched next frame.
+    await waitFor(page, () => !document.getElementById('editorCaption').readOnly && !document.getElementById('editorCaption').parentElement.hasAttribute('data-tooltip') && !document.querySelector('#editorLineForm .btn-delete').disabled);
     assert.equal(await page.$eval('#editorCaption', node => node.value), 'Local unsaved text');
     assert.equal(await page.$eval('#editorCaption', node => node.parentElement.hasAttribute('data-tooltip')), false);
     assert.equal(await page.$eval('#editorLineForm .btn-delete', node => node.disabled), false);
     assert.equal(await other.$eval('#editModeBtn', node => node.disabled), true);
     assert.match(await other.$eval('#editModeBtn', node => node.parentElement.dataset.tooltip), /host or a moderator/);
     await page.evaluate(() => socket.emit('host_grant_moderator', { nick: 'Guest' }));
-    await waitFor(other, () => !document.getElementById('editModeBtn').disabled);
+    await waitFor(other, () => !document.getElementById('editModeBtn').disabled && !document.getElementById('editModeBtn').parentElement.hasAttribute('data-tooltip'));
     assert.equal(await other.$eval('#editModeBtn', node => node.parentElement.hasAttribute('data-tooltip')), false);
-    await page.evaluate(() => socket.disconnect()); await waitFor(page, () => document.getElementById('editorCaption').readOnly);
+    await page.evaluate(() => socket.disconnect()); await waitFor(page, () => document.getElementById('editorCaption').readOnly && document.getElementById('editorCaption').parentElement.dataset.tooltip === t('help.connection'));
     assert.match(await page.$eval('#editorCaption', node => node.parentElement.dataset.tooltip), /Connection to the host is lost/);
   });
   test('RTT expires when reports stop, cannot cross rooms and resets on reconnect', async () => {

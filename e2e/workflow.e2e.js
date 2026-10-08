@@ -187,7 +187,7 @@ describe('Studio Workflow 1.3', { skip: skipReason }, () => {
 
   test('audio collapse, compact lobby and project mix persist across reload / server restart / session switches', async () => {
     const saved = await host.evaluate(() => structuredClone(session.projectAudio));
-    await host.click('[data-studio-action=audio]'); assert.equal(await host.evaluate(() => document.querySelectorAll('.studio-audio-row').length), 0);
+    await host.locator('[data-studio-action=audio]').setTimeout(5000).click(); assert.equal(await host.evaluate(() => document.querySelectorAll('.studio-audio-row').length), 0);
     await host.click('[data-studio-action=lobby]');
     await host.reload(); await waitFor(host, () => session && session.loaded);
     assert.equal(await host.evaluate(() => document.body.classList.contains('lobby-compact') && document.querySelectorAll('.studio-audio-row').length === 0), true);
@@ -200,7 +200,9 @@ describe('Studio Workflow 1.3', { skip: skipReason }, () => {
     await host.evaluate(id => socket.emit('host_switch_session', { id }), current);
     await waitFor(host, id => session.activeSessionId === id, 5000, current);
     assert.deepEqual(await host.evaluate(() => session.projectAudio), saved);
-    await host.click('[data-studio-action=audio]'); await host.click('[data-studio-action=lobby]');
+    // Session state can arrive before its scheduled timeline redraw. A locator
+    // waits for the current button before issuing the real pointer click.
+    await host.locator('[data-studio-action=audio]').setTimeout(5000).click(); await host.click('[data-studio-action=lobby]');
   });
 
   test('transport keys ignore text fields, keep editor arrows and obey watch host / guest authority', async () => {
@@ -279,6 +281,8 @@ describe('Studio Workflow 1.3', { skip: skipReason }, () => {
   });
 
   test('video-source captions follow the selected UI language without changing audio', async () => {
+    if (await host.$eval('[data-studio-action=audio]', node => node.getAttribute('aria-expanded') !== 'true')) await host.locator('[data-studio-action=audio]').setTimeout(5000).click();
+    await waitFor(host, () => !!document.querySelector('[data-audio-channel=original] .studio-wave-source'));
     const originalUrl = await host.evaluate(() => DublineProjectAudio.sources(session).original);
     for (const [language, label] of [['ru', 'Звук из видео'], ['uk', 'Звук із відео'], ['en', 'Audio from video']]) {
       await host.evaluate(language => DublineI18n.setLanguage(language), language);

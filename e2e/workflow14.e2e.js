@@ -123,7 +123,7 @@ describe('1.4 dialogs, settings and bounded timeline', { skip: skipReason, timeo
     await host.reload(); await waitFor(host, () => session?.loaded);
     assert.equal(await host.$eval('[data-character=Hero]', node => node.getBoundingClientRect().height), height);
     assert.equal(await host.evaluate(() => JSON.stringify(session.lines)), old);
-    await host.click('[data-character=Hero] .role-height-handle', { count:2 });
+    await host.locator('[data-character=Hero] .role-height-handle').setTimeout(5000).click({ count:2 });
     assert.ok(await host.$eval('[data-character=Hero]', node => node.getBoundingClientRect().height) < height);
     assert.deepEqual(host.errors, []); assert.deepEqual(guest.errors, []);
   });
