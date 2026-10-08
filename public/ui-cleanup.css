@@ -75,6 +75,15 @@ html[data-theme="light"] #transportCC.subtitles-off { color:#9a3412; }
 .export-mix-summary { color:var(--text); font-variant-numeric:tabular-nums; padding:8px 0; }
 .editor-conflict-list { max-height:40vh; overflow:auto; }
 .editor-conflict-actions { display:flex; flex-wrap:wrap; gap:8px; }
+.editor-conflict-close { display:block; margin:0 0 8px auto; font-size:18px; line-height:1; }
+select, select option, input[list] { color-scheme:inherit; }
+select option { background:var(--panel-2); color:var(--text); }
+.text-input:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.role-progress { display:flex; align-items:center; gap:6px; width:100%; min-width:0; line-height:12px; }
+.role-progress-count { color:var(--muted); font-size:10px; white-space:nowrap; font-variant-numeric:tabular-nums; }
+.role-progress-bar { flex:1; min-width:12px; height:3px; border-radius:3px; overflow:hidden; background:var(--border-strong); }
+.role-progress-bar i { display:block; height:100%; background:var(--accent); }
+.track-row[data-character] .track-label-inner { padding-top:6px; }
 .track-drag-handle { cursor:grab; touch-action:none; flex-shrink:0; }
 .char-name-row .track-drag-handle, .char-name-row .track-delete-button { padding:2px 4px; font-size:12px; width:22px; height:24px; }
 .char-name-row .char-name { flex:1; min-width:0; }

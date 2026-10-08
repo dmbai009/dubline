@@ -1,6 +1,7 @@
 (() => {
   const direct = new Map(), samples = new Map(), receiveRates = new Map(), earlyCandidates = new Map();
   let actors = new Map(), scene = null, sequence = 0, hz = 15, latest = null, timer = null, frame = null, subscription = '';
+  let jumpExpiry = null;
   let visible = true; try { visible = localStorage.getItem('dubline_cursors') !== '0'; } catch { /* private profile */ }
   const layer = document.createElement('div'); layer.id = 'collaboratorCursors'; layer.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:29;'; document.body.append(layer);
   const personal = document.createElement('label'); personal.className = 'setting-card';
@@ -10,7 +11,7 @@
   shared.innerHTML = '<span data-i18n="cursor.hz"></span><input class="text-input" type="number" min="5" max="30" step="1" value="15">';
   const rate = shared.querySelector('input'); window.addSettingsCard('player', 'room', shared); i18n.apply();
   function close(id) { const peer = direct.get(id); if (!peer) return; direct.delete(id); clearTimeout(peer.timer); try { peer.channel?.close(); peer.pc.close(); } catch { /* closed */ } }
-  function clear() { for (const id of [...direct.keys()]) close(id); samples.clear(); receiveRates.clear(); earlyCandidates.clear(); layer.replaceChildren(); latest = null; subscription = ''; }
+  function clear() { for (const id of [...direct.keys()]) close(id); samples.clear(); receiveRates.clear(); earlyCandidates.clear(); layer.replaceChildren(); latest = null; subscription = ''; clearTimeout(jumpExpiry); window.refreshCollaboratorJumpButtons?.(); }
   function rowFor(packet) {
     if (packet.rowType === 'role') return [...document.querySelectorAll('.track-row[data-character]')].find(row => row.dataset.character === packet.rowKey);
     if (packet.rowType === 'audio') return document.querySelector(`.studio-audio-row[data-audio-channel="${packet.rowKey}"]`);
@@ -26,7 +27,7 @@
     if (packet.active && rate.tokens < 1) return;
     if (packet.active) rate.tokens--;
     const previous = samples.get(id); if (previous && packet.seq <= previous.packet.seq) return;
-    if (!packet.active) { previous?.element?.remove(); samples.set(id, { packet, at: performance.now(), element: previous?.element }); return; }
+    if (!packet.active) { previous?.element?.remove(); samples.set(id, { packet, at: performance.now(), element: previous?.element }); refreshCollaboratorJumpButtons(); return; }
     let element = previous?.element;
     if (!element || !element.isConnected) {
       element = document.createElement('span'); element.className = 'collaborator-cursor';
@@ -34,6 +35,7 @@
     }
     element.style.background = playerColor(actors.get(id).nick); element.textContent = '↖ ' + actors.get(id).nick;
     samples.set(id, { packet, at: performance.now(), element, time: previous?.time ?? packet.time, relativeY: previous?.relativeY ?? packet.relativeY });
+    refreshCollaboratorJumpButtons();
     paint();
   }
   function paint() {
@@ -109,6 +111,7 @@
     for (const id of [...direct.keys()]) if (!actors.has(id)) close(id);
     for (const [id, sample] of samples) if (!actors.has(id)) { sample.element?.remove(); samples.delete(id); receiveRates.delete(id); earlyCandidates.delete(id); }
     hz = Math.max(5, Math.min(30, Number(data.hz) || 15)); rate.value = hz; rate.disabled = !amHost(); connectPeers();
+    refreshCollaboratorJumpButtons();
   });
   socket.on('cursor_packet', data => receive(data.actorId, data.packet));
   function publish(packet) {
@@ -144,11 +147,32 @@
   socket.on('session_updated', () => { if (scene !== session?.activeSessionId || session?.mode !== 'edit') { hide(); clear(); scene = session?.activeSessionId; } subscribe(); rate.disabled = !amHost(); });
   socket.on('room_users_updated', subscribe); socket.on('connect', subscribe); socket.on('disconnect', () => { clear(); actors.clear(); });
   setInterval(connectPeers, 10000); subscribe();
+  function jumpSample(nick) {
+    if (!socket.connected || session?.mode !== 'edit' || session.singlePlayer || scene !== session.activeSessionId) return null;
+    for (const [id, actor] of actors) {
+      const sample = samples.get(id);
+      if (actor.nick === nick && sample?.packet.active && sample.packet.sessionId === scene && performance.now() - sample.at < 1600 && rowFor(sample.packet)?.getClientRects().length) return sample;
+    }
+    return null;
+  }
+  window.canJumpToCollaborator = nick => !!jumpSample(nick);
+  window.refreshCollaboratorJumpButtons = function() {
+    clearTimeout(jumpExpiry);
+    for (const button of document.querySelectorAll('[data-jump-collaborator]')) {
+      const available = !!jumpSample(button.dataset.jumpCollaborator);
+      if (button.disabled === available) button.disabled = !available;
+      const title = t(available ? 'cursor.jump' : 'cursor.unavailable');
+      if (button.title !== title) { button.title = title; button.setAttribute('aria-description', title); }
+    }
+    const expires = [...samples.values()].filter(sample => sample.packet.active && sample.at + 1600 > performance.now()).map(sample => sample.at + 1600);
+    if (expires.length) jumpExpiry = setTimeout(refreshCollaboratorJumpButtons, Math.max(16, Math.min(...expires) - performance.now() + 1));
+  };
   window.jumpToCollaborator = nick => {
-    const actor = [...actors].find(([, actor]) => actor.nick === nick), sample = actor && samples.get(actor[0]);
-    if (!sample?.packet.active || performance.now() - sample.at > 1600) return;
+    const sample = jumpSample(nick);
+    if (!sample) { refreshCollaboratorJumpButtons(); return false; }
     timelineContainer.scrollLeft = Math.max(0, sample.packet.time * pxPerSec - (timelineContainer.clientWidth - labelWidth) / 2);
     rowFor(sample.packet)?.scrollIntoView({ block: 'nearest' });
+    return true;
   };
   window.DublineCursorPresence = { stats: () => ({ connections: direct.size, open: [...direct.values()].filter(peer => peer.channel?.readyState === 'open').length, actors: actors.size, hz }), samples, publish };
 })();

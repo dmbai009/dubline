@@ -4,6 +4,7 @@ const { spawn, spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const net = require('node:net');
 const AdmZip = require('adm-zip');
 
 const ROOT = path.join(__dirname, '..');
@@ -105,11 +106,18 @@ function buildFixturePack() {
 }
 
 // ---------- Server ----------
-let nextPort = 3400 + Math.floor(Math.random() * 200);
+async function freeTestPort() {
+  // Parallel node:test workers must not randomly collide within a 200-port pool.
+  const listener = net.createServer();
+  await new Promise((resolve, reject) => { listener.once('error', reject); listener.listen(0, '0.0.0.0', resolve); });
+  const port = listener.address().port;
+  await new Promise((resolve, reject) => listener.close(error => error ? reject(error) : resolve()));
+  return port;
+}
 
 // extraEnv starts the server in another mode, e.g. as the desktop app's PIN-protected room
 async function startServer(extraEnv = {}) {
-  const port = nextPort++;
+  const port = await freeTestPort();
   const base = fs.mkdtempSync(path.join(os.tmpdir(), 'dubline-e2e-'));
   const dirs = { data: path.join(base, 'data'), uploads: path.join(base, 'uploads'), packs: path.join(base, 'packs') };
   Object.values(dirs).forEach(dir => fs.mkdirSync(dir, { recursive: true }));

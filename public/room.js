@@ -216,7 +216,7 @@ function playerCardHtml(nick, stats, online) {
   const tags = [
     nick === roomHost ? `<span class="tag host">👑 ${t('lobby.host')}</span>` : '',
     moderator ? `<span class="tag moderator" title="${esc(t('moderator.title'))}" aria-label="${esc(t('moderator.title'))}">🛡</span>` : '',
-    online && !isMe && session?.mode === 'edit' ? `<button class="btn-icon" title="${esc(t('cursor.jump'))}" onclick="jumpToCollaborator(${jsArg(nick)})">↗</button>` : '',
+    online && !isMe && session?.mode === 'edit' ? `<button class="btn-icon" data-jump-collaborator="${esc(nick)}" disabled title="${esc(t('cursor.unavailable'))}" aria-label="${esc(t('cursor.jump'))}: ${esc(nick)}" onclick="jumpToCollaborator(${jsArg(nick)})">↗</button>` : '',
     isMe ? `<span class="tag you">${t('lobby.you')}</span>` : '',
     online && !isMe && amHost() && !session?.singlePlayer ? `<details class="participant-menu"><summary aria-label="${esc(t('moderator.actions'))}">⋯</summary><div><button class="btn-outline" onclick="changeModerator(${jsArg(nick)}, ${jsArg(moderator?.id || '')})">${t(moderator ? 'moderator.revoke' : 'moderator.grant')}</button><button class="btn-delete" onclick="kickPlayer(${jsArg(nick)})">${t('kick.button')}</button></div></details>` : ''
   ].join('');
@@ -231,7 +231,7 @@ function playerCardHtml(nick, stats, online) {
       (activity.buckets?.length ? '<div class="media-chunk-map">' + activity.buckets.map(value => `<i style="opacity:${.2 + value / 125}"></i>`).join('') + '</div>' : '') : '';
 
   return `
-    <div class="${classes}" title="${esc(nick)} · ${esc(t(online ? 'online' : 'studio.offline'))}">
+    <div class="${classes}" data-lobby-key="player:${esc(nick)}" title="${esc(nick)} · ${esc(t(online ? 'online' : 'studio.offline'))}">
       <div class="player-head">
         <div class="avatar" style="background:${playerColor(nick)}">${esc(initials(nick))}<span class="dot"></span></div>
         <div class="player-name" title="${esc(nick)}">${esc(nick)}</div>
@@ -254,6 +254,32 @@ function playerCardHtml(nick, stats, online) {
     </div>`;
 }
 
+// Preserve menu identity/focus, but refresh its actions from current permissions.
+function patchLobby(parent, next) {
+  const key = node => node.nodeType === 1 ? node.dataset.lobbyKey || `${node.tagName}:${node.className}` : `text:${node.nodeType}`;
+  const available = [...parent.childNodes];
+  for (const [position, fresh] of [...next.childNodes].entries()) {
+    const index = available.findIndex(node => key(node) === key(fresh));
+    const current = index < 0 ? fresh : available.splice(index, 1)[0];
+    const existing = parent.childNodes[position];
+    if (current !== existing) parent.insertBefore(current, existing || null);
+    if (current === fresh) continue;
+    if (current.nodeType !== 1) { if (current.textContent !== fresh.textContent) current.textContent = fresh.textContent; continue; }
+    for (const attribute of [...current.attributes]) if (!(current.tagName === 'DETAILS' && attribute.name === 'open') && !fresh.hasAttribute(attribute.name)) current.removeAttribute(attribute.name);
+    for (const attribute of fresh.attributes) if (current.getAttribute(attribute.name) !== attribute.value) current.setAttribute(attribute.name, attribute.value);
+    patchLobby(current, fresh);
+  }
+  available.forEach(node => node.remove());
+}
+document.addEventListener('pointerdown', event => {
+  lobbyList.querySelectorAll('.participant-menu[open]').forEach(menu => { if (!menu.contains(event.target)) menu.open = false; });
+});
+document.addEventListener('keydown', event => {
+  if (event.key !== 'Escape' || document.querySelector('dialog[open]')) return;
+  const menu = lobbyList.querySelector('.participant-menu[open]');
+  if (menu) { menu.open = false; menu.querySelector('summary').focus(); event.preventDefault(); event.stopPropagation(); }
+});
+
 function renderLobby() {
   const progress = sceneProgress();
   const pct = progress.total ? Math.round((progress.recorded / progress.total) * 100) : 0;
@@ -269,20 +295,24 @@ function renderLobby() {
   // Offline players who claimed or recorded something are shown too, so their contribution stays visible
   const offline = [...progress.perPlayer.keys()].filter(nick => !online.includes(nick)).sort((a, b) => a.localeCompare(b));
 
-  let html = `<div class="lobby-section">${t('lobby.online', { n: online.length })}</div>`;
+  let html = `<div class="lobby-section" data-lobby-key="online">${t('lobby.online', { n: online.length })}</div>`;
   html += online.map(nick => playerCardHtml(nick, progress.perPlayer.get(nick) || empty, true)).join('');
   if (offline.length) {
-    html += `<div class="lobby-section">${t('lobby.offline', { n: offline.length })}</div>`;
+    html += `<div class="lobby-section" data-lobby-key="offline">${t('lobby.offline', { n: offline.length })}</div>`;
     html += offline.map(nick => playerCardHtml(nick, progress.perPlayer.get(nick) || empty, false)).join('');
   }
   if (amHost() && !session?.singlePlayer) html += (session?.moderators || []).filter(entry => !entry.online).map(entry => `<div class="offline-moderator"><span>🛡 ${esc(entry.nick)} · ${t('studio.offline')}</span><button class="btn-outline" onclick="changeModerator(${jsArg(entry.nick)}, ${jsArg(entry.id)})">${t('moderator.revoke')}</button></div>`).join('');
-  lobbyList.innerHTML = html;
+  const next = document.createElement('div'); next.innerHTML = html;
+  patchLobby(lobbyList, next);
+  window.refreshCollaboratorJumpButtons?.();
+  window.refreshRoleProgress?.();
 }
 
 window.changeModerator = async (nick, id) => {
-  if (!amHost() || session?.singlePlayer) return;
-  if (!await askConfirm(t(id ? 'moderator.revokeConfirm' : 'moderator.grantConfirm', { nick }))) return;
   if (!amHost() || session?.singlePlayer || !socket.connected) return;
+  const room = currentRoom;
+  if (!await askConfirm(t(id ? 'moderator.revokeConfirm' : 'moderator.grantConfirm', { nick }))) return;
+  if (!amHost() || session?.singlePlayer || !socket.connected || currentRoom !== room || !id && !lastOnlineUsers.includes(nick)) return;
   const result = await new Promise(resolve => socket.timeout(5000).emit(id ? 'host_revoke_moderator' : 'host_grant_moderator', id ? { id } : { nick }, (error, value) => resolve(error ? null : value)));
   if (!result?.ok) showToast(t('moderator.failed'));
 };
@@ -416,8 +446,11 @@ socket.on('lines_restored', ({ count }) => {
 });
 
 window.kickPlayer = async function(nick) {
+  if (!amHost() || !lastOnlineUsers.includes(nick) || session?.singlePlayer) return;
+  const room = currentRoom;
   const text = t('kick.confirm', { nick }) + (session && session.hasPassword ? '' : '\n\n' + t('kick.noPassword'));
   if (!await askConfirm(text)) return;
+  if (!amHost() || currentRoom !== room || !socket.connected || !lastOnlineUsers.includes(nick) || session?.singlePlayer) return;
   socket.emit('host_kick', { nick });
 };
 

@@ -96,33 +96,32 @@ describe('UI cleanup and local audio devices', { skip: skipReason, timeout: 1200
     assert.equal(await page.$eval('#longExportWarning', node => getComputedStyle(node).display), 'none', 'short scenes still hide the warning');
   });
 
-  test('all zoom controls and both minimap edges stop at ten percent', async () => {
+  test('all zoom controls and both minimap edges respect the scene-dependent minimum', async () => {
     await page.evaluate(() => { Object.defineProperty(video, 'duration', { configurable: true, get: () => 1440 }); video.pause(); video.currentTime = 2; });
     const checkFloor = async () => {
-      assert.equal(await page.evaluate(() => pxPerSec / ZOOM_DEFAULT), .1);
-      assert.equal(await page.$eval('#zoomLabel', label => label.textContent), '10%');
+      assert.ok(await page.evaluate(() => Math.abs(pxPerSec - timelineZoomMinimum()) < 1e-8));
+      assert.notEqual(await page.$eval('#zoomLabel', label => label.textContent), '0%');
       assert.equal(await page.evaluate(() => video.currentTime), 2, 'zoom never seeks');
     };
-    await page.evaluate(() => { setTimelineZoom(6.1); });
+    await page.evaluate(() => { setTimelineZoom(timelineZoomMinimum() * 1.01); });
     await page.click('#zoomOutBtn'); await checkFloor();
     await page.evaluate(() => {
-      setTimelineZoom(6.1);
+      setTimelineZoom(timelineZoomMinimum() * 1.01);
       timelineContainer.dispatchEvent(new WheelEvent('wheel', { ctrlKey: true, deltaY: 100, cancelable: true }));
     });
     await checkFloor();
     await page.evaluate(() => fitTimeline()); await checkFloor();
     for (const edge of ['right', 'left']) {
-      await page.evaluate(() => setTimelineZoom(7));
+      await page.evaluate(() => setTimelineZoom(5));
       await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
       await page.evaluate(() => { timelineContainer.scrollLeft = 400; });
       const before = await mapView();
       await dragMap(edge === 'left' ? before.leftX : before.rightX, before.y, edge === 'left' ? before.x - 100 : before.x + before.width + 100);
-      await checkFloor();
+      assert.ok(await page.evaluate(() => Number.isFinite(pxPerSec) && pxPerSec >= timelineZoomMinimum() && pxPerSec <= ZOOM_MAX));
     }
-    await page.evaluate(() => localStorage.setItem('dubline_zoom', '2'));
+    await page.evaluate(() => localStorage.setItem('dubline_zoom', '0.00001'));
     await page.reload(); await waitFor(page, () => session?.loaded && document.getElementById('timelineMinimap'));
-    assert.equal(await page.evaluate(() => pxPerSec / ZOOM_DEFAULT), .1, 'old saved zoom below the floor is clamped on startup');
-    assert.equal(await page.$eval('#zoomLabel', label => label.textContent), '10%');
+    assert.ok(await page.evaluate(() => pxPerSec >= timelineZoomMinimum() && pxPerSec <= ZOOM_MAX), 'saved zoom is clamped to current geometry');
   });
 
   test('minimap repaints immediately with a distinct background for each theme', async () => {
@@ -145,7 +144,7 @@ describe('UI cleanup and local audio devices', { skip: skipReason, timeout: 1200
   });
 
   test('both minimap edges zoom around the opposite edge while center drag only scrolls', async () => {
-    await page.evaluate(() => { setTimelineZoom(180); video.currentTime = 2; });
+    await page.evaluate(() => { setTimelineZoom(80); video.currentTime = 2; });
     await waitFor(page, () => timeline.scrollWidth > timelineContainer.clientWidth);
     await page.evaluate(() => { timelineContainer.scrollLeft = 2 * pxPerSec; });
     const project = await page.evaluate(() => JSON.stringify([session.lines, session.projectAudio]));
@@ -171,7 +170,7 @@ describe('UI cleanup and local audio devices', { skip: skipReason, timeout: 1200
     assert.equal(await page.evaluate(() => video.currentTime), 2);
     assert.equal(await page.evaluate(() => JSON.stringify([session.lines, session.projectAudio])), project);
     assert.equal(await page.$eval('#timelineMinimap', map => map.clientHeight), 36, 'overview keeps its visual height');
-    assert.equal(Number(await page.evaluate(() => localStorage.getItem('dubline_zoom'))), Math.round(after.scale * 100) / 100);
+    assert.equal(Number(await page.evaluate(() => localStorage.getItem('dubline_zoom'))), after.scale);
   });
 
   test('minimap zoom respects limits and stops on cancellation and scene switch', async () => {
@@ -182,7 +181,7 @@ describe('UI cleanup and local audio devices', { skip: skipReason, timeout: 1200
     assert.equal((await mapView()).scale, await page.evaluate(() => ZOOM_MAX));
     before = await mapView();
     await dragMap(before.rightX, before.y, before.x + before.width + 100);
-    assert.ok((await mapView()).scale >= await page.evaluate(() => ZOOM_MIN));
+    assert.ok((await mapView()).scale >= await page.evaluate(() => timelineZoomMinimum()));
     await page.evaluate(() => setTimelineZoom(180));
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     for (const cancel of ['pointercancel', 'blur', 'scene']) {

@@ -492,8 +492,10 @@ window.addEventListener('keydown', (e) => {
     e.preventDefault(); window.openTimelineSearch?.(); return;
   }
   if (e.code === 'Escape') {
+    if (e.defaultPrevented) return;
     if (closeTextPrompt()) return;
     if (document.querySelector('dialog[open]')) return;
+    if (!modalOpen && window.closeEditorConflicts?.()) { e.preventDefault(); return; }
     if (!modalOpen && window.closeTimelineSearch?.()) return;
     if (document.body.classList.contains('video-expanded')) toggleExpandedVideo();
     closeHostingModal(); closeSettingsModal(); closeFilesModal(); closeSessionsModal();

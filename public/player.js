@@ -9,9 +9,10 @@ const labelWidth = 180;
 
 // Timeline zoom: pixels per second (Ctrl+wheel, the − / + / "Whole scene" buttons)
 const ZOOM_DEFAULT = 60;
-const ZOOM_MIN = ZOOM_DEFAULT * 0.1;
-const ZOOM_MAX = 400;
-let pxPerSec = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Number(localStorage.getItem('dubline_zoom')) || ZOOM_DEFAULT));
+const ZOOM_MAX = ZOOM_DEFAULT * 2;
+const savedTimelineZoom = Number(localStorage.getItem('dubline_zoom'));
+let pxPerSec = Number.isFinite(savedTimelineZoom) && savedTimelineZoom > 0 ? Math.min(ZOOM_MAX, savedTimelineZoom) : ZOOM_DEFAULT;
+let timelineFitActive = false;
 
 const urlParams = new URLSearchParams(window.location.search);
 const currentRoom = urlParams.get('room') || 'main';
@@ -389,8 +390,11 @@ function lineNumber(line) { return visibleLineNumbers.get(line.id) ?? line.id; }
 function renderTimeline() {
   if (window.activeEditorGesture) { cancelEditorGesture(); }
   visibleLineNumbers = window.DublineTimeline.numbers(session.lines || []);
-  const savedScrollLeft = timelineContainer.scrollLeft;
+  const oldScale = pxPerSec;
+  normalizeTimelineZoom();
+  const savedScrollLeft = timelineFitActive ? 0 : timelineContainer.scrollLeft / oldScale * pxPerSec;
   const savedScrollTop = timelineContainer.scrollTop;
+  const viewportWidth = timelineContainer.clientWidth;
   timeline.innerHTML = '';
   // Keep media choices in the fixed video panel, outside horizontal timeline scrolling.
   timeline.appendChild(playhead);
@@ -401,6 +405,10 @@ function renderTimeline() {
 
   const maxTime = timelineSeconds();
   const trackWidth = (maxTime + TIMELINE_TAIL) * pxPerSec;
+  // Clearing rows temporarily removes the native scrollbar. Use the width
+  // captured before clearing so the rebuilt wrapper cannot grow by its width.
+  timeline.style.width = `${Math.max(viewportWidth, labelWidth + trackWidth)}px`;
+  timeline.style.minWidth = `${viewportWidth}px`;
   const characters = sessionCharacters();
   const allowCharacterClaims = characters.length > 1;
   const editing = session.mode === 'edit';
@@ -781,15 +789,29 @@ const zoomLabel = document.getElementById('zoomLabel');
 let zoomFrame = null;
 
 function updateZoomLabel() {
-  zoomLabel.textContent = `${Math.round((pxPerSec / ZOOM_DEFAULT) * 100)}%`;
+  const percent = pxPerSec / ZOOM_DEFAULT * 100;
+  zoomLabel.textContent = `${percent < 1 ? Number(percent.toPrecision(2)) : Number(percent.toFixed(1))}%`;
+}
+
+function timelineFitZoom() {
+  const available = Math.max(1, timelineContainer.clientWidth - labelWidth - 16);
+  const duration = timelineSeconds() + TIMELINE_TAIL;
+  return Math.min(ZOOM_MAX, available / (Number.isFinite(duration) && duration > 0 ? duration : 35));
+}
+function timelineZoomMinimum() { return Math.min(ZOOM_DEFAULT, timelineFitZoom()); }
+function normalizeTimelineZoom() {
+  pxPerSec = timelineFitActive ? timelineFitZoom() : Math.max(timelineZoomMinimum(), Math.min(ZOOM_MAX, Number.isFinite(pxPerSec) && pxPerSec > 0 ? pxPerSec : ZOOM_DEFAULT));
+  if (localStorage.getItem('dubline_zoom') !== String(pxPerSec)) localStorage.setItem('dubline_zoom', String(pxPerSec));
+  updateZoomLabel();
 }
 
 // anchorX is the screen point whose time stays in place (the mouse cursor or the center)
 function setTimelineZoom(next, anchorX = timelineContainer.clientWidth / 2, anchorTime = Math.max(0, (timelineContainer.scrollLeft + anchorX - labelWidth) / pxPerSec)) {
-  const clamped = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, next));
-  if (Math.abs(clamped - pxPerSec) < 0.01) return;
+  timelineFitActive = false;
+  const clamped = Math.min(ZOOM_MAX, Math.max(timelineZoomMinimum(), Number.isFinite(next) ? next : pxPerSec));
+  if (Math.abs(clamped - pxPerSec) < Number.EPSILON * Math.max(1, pxPerSec)) return;
   pxPerSec = clamped;
-  localStorage.setItem('dubline_zoom', String(Math.round(pxPerSec * 100) / 100));
+  localStorage.setItem('dubline_zoom', String(pxPerSec));
   updateZoomLabel();
 
   cancelAnimationFrame(zoomFrame);
@@ -806,8 +828,8 @@ window.zoomTimeline = function(factor) {
 
 window.fitTimeline = function() {
   if (!session || !session.loaded) return;
-  const available = timelineContainer.clientWidth - labelWidth - 16;
-  setTimelineZoom(available / (timelineSeconds() + TIMELINE_TAIL), 0);
+  setTimelineZoom(timelineFitZoom(), labelWidth, 0);
+  timelineFitActive = true;
   requestAnimationFrame(() => { timelineContainer.scrollLeft = 0; });
 };
 
@@ -819,6 +841,12 @@ timelineContainer.addEventListener('wheel', (e) => {
 }, { passive: false });
 
 updateZoomLabel();
+let observedTimelineWidth = timelineContainer.clientWidth;
+new ResizeObserver(() => {
+  if (timelineContainer.clientWidth === observedTimelineWidth) return;
+  observedTimelineWidth = timelineContainer.clientWidth;
+  if (session?.loaded) scheduleTimelineRender();
+}).observe(timelineContainer);
 
 // ==========================================
 // VIDEO AUDIO TRACKS
@@ -965,8 +993,26 @@ function refreshAudioLoadingStatus() {
 for (const element of [originalTrackAudio, backing]) for (const event of ['loadstart', 'loadedmetadata', 'waiting', 'stalled', 'canplay', 'playing', 'error', 'emptied', 'timeupdate']) element.addEventListener(event, refreshAudioLoadingStatus);
 window.addEventListener('dubline-language-changed', refreshAudioLoadingStatus);
 
+function updateRoleProgress(element, character, lines) {
+  const total = lines.length, recorded = lines.filter(line => !!line.audioUrl).length, remaining = total - recorded;
+  element.querySelector('.role-progress-count').textContent = `${recorded} / ${remaining}`;
+  element.querySelector('i').style.width = `${total ? recorded / total * 100 : 0}%`;
+  element.setAttribute('role', 'progressbar'); element.setAttribute('aria-valuemin', '0');
+  element.setAttribute('aria-valuemax', String(total || 1)); element.setAttribute('aria-valuenow', String(recorded));
+  const description = t('role.progress', { name: character, recorded, remaining, total });
+  element.setAttribute('aria-label', description); element.setAttribute('aria-valuetext', description);
+}
+window.refreshRoleProgress = () => {
+  const roles = new Map();
+  for (const line of session?.lines || []) { if (!roles.has(line.character)) roles.set(line.character, []); roles.get(line.character).push(line); }
+  for (const row of timeline.querySelectorAll('.track-row[data-character]')) {
+    const element = row.querySelector('.role-progress'); if (element) updateRoleProgress(element, row.dataset.character, roles.get(row.dataset.character) || []);
+  }
+};
+
 // The same builder is used for structural full render and affected-row updates.
 function buildRoleRow(char, trackWidth, allowCharacterClaims, editing) {
+    const charLines = session.lines.filter(line => line.character === char);
     const row = document.createElement('div');
     row.className = 'track-row';
     row.dataset.character = char; // drop target when dragging lines between roles
@@ -977,7 +1023,7 @@ function buildRoleRow(char, trackWidth, allowCharacterClaims, editing) {
     const charClaimedBy = session.characterClaims ? session.characterClaims[char] : null;
 
     let roleHtml = '';
-    const hasLines = session.lines.some(l => l.character === char);
+    const hasLines = charLines.length > 0;
     if (allowCharacterClaims && !editing && hasLines && !session.singlePlayer) {
       if (!charClaimedBy) {
         roleHtml = `<button class="role-btn" onclick="claimCharacter(${jsArg(char)})">${t('claimRoleShort')}</button>`;
@@ -1000,6 +1046,10 @@ function buildRoleRow(char, trackWidth, allowCharacterClaims, editing) {
         ${roleHtml}
       </div>
     `;
+    const progress = document.createElement('div'); progress.className = 'role-progress';
+    progress.innerHTML = '<span class="role-progress-bar"><i></i></span><span class="role-progress-count"></span>';
+    label.querySelector('.char-name-row').after(progress);
+    updateRoleProgress(progress, char, charLines);
     if (editing) window.addTrackEditorControls?.(label, char);
 
     const trackArea = document.createElement('div');
@@ -1026,7 +1076,6 @@ function buildRoleRow(char, trackWidth, allowCharacterClaims, editing) {
       createEditorLineAt(char, window.DublineTimeline.coordinate(event.clientX, trackArea.getBoundingClientRect().left, pxPerSec));
     };
 
-    const charLines = session.lines.filter(l => l.character === char);
     // Lines overlapping in time are placed into sub-lanes (like clips on neighboring tracks),
     // otherwise they are drawn on top of each other. Uses real time, so the layout doesn't jump when zooming.
     const laneOf = assignLanes(charLines);
@@ -1130,4 +1179,5 @@ window.refreshEditorRows = function(lines) {
     if (label) label.textContent = '#' + lineNumber(line);
   }
   window.refreshStudioWaves?.();
+  window.refreshRoleProgress?.();
 };

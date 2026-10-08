@@ -121,6 +121,7 @@ function editorResult(result) {
 const editorQueue = [];
 const editorConflicts = [];
 const editorAuthoritative = new Map((session?.lines || []).map(line => [line.id, { ...line }]));
+let editorAuthoritativeTracks = [...(session?.trackOrder || [])];
 let editorScene = session?.activeSessionId;
 let editorProtocolReceivedAt = performance.now();
 let editorPumping = false;
@@ -191,8 +192,16 @@ function editorRevisionTargets(operation) {
 function rebuildEditorOverlay() {
   if (!session || session.activeSessionId !== editorScene) return;
   const visible = new Map([...editorAuthoritative].map(([id, line]) => [id, { ...line }]));
+  let tracks = [...editorAuthoritativeTracks];
   for (const operation of editorQueue) {
     if (operation.sessionId !== editorScene) continue;
+    if (operation.event === 'editor_reorder_track' && JSON.stringify(tracks) === JSON.stringify(operation.payload.trackOrder)) {
+      const { character, before } = operation.payload;
+      if (tracks.includes(character) && before !== character && (before === null || tracks.includes(before))) {
+        tracks = tracks.filter(name => name !== character);
+        tracks.splice(before === null ? tracks.length : tracks.indexOf(before), 0, character);
+      }
+    }
     for (const patch of editorUpdates(operation)) {
       const line = visible.get(patch.lineId);
       if (!line) continue;
@@ -203,6 +212,7 @@ function rebuildEditorOverlay() {
     }
   }
   session.lines = [...visible.values()].sort((a, b) => a.start - b.start || a.id - b.id);
+  session.trackOrder = tracks;
   if (selectedLine) selectedLine = visible.get(selectedLine.id) || null;
 }
 
@@ -212,6 +222,7 @@ window.acceptEditorSnapshot = function(data) {
   const changed = editorScene !== data.activeSessionId;
   if (changed) { editorDrafts.clear(); editorScene = data.activeSessionId; }
   editorAuthoritative.clear();
+  editorAuthoritativeTracks = [...(data.trackOrder || [])];
   for (const line of data.lines || []) editorAuthoritative.set(line.id, { ...line });
   for (const key of editorDrafts.keys()) if (!editorAuthoritative.has(Number(key.split(':').pop()))) editorDrafts.delete(key);
   const oldForm = inspector.querySelector('#editorLineForm');
@@ -255,7 +266,17 @@ function renderEditorConflicts() {
     <button class="btn-play" data-retry-operation="${operation.id}" ${editorReviewBusy || operation.sessionId !== session?.activeSessionId || session?.mode !== 'edit' ? 'disabled' : ''}>${t('editor.keepMine')}</button>
     <button class="btn-outline" data-discard-operation="${operation.id}" ${editorReviewBusy ? 'disabled' : ''}>${t('editor.discardPending')}</button></div>`).join('') + '</div>';
   panel.querySelector('.editor-conflict-list').scrollTop = scroll;
+  const close = document.createElement('button'); close.type = 'button'; close.className = 'btn-icon editor-conflict-close';
+  close.dataset.closeEditorConflicts = ''; close.textContent = '×'; close.title = close.ariaLabel = t('close');
+  close.onclick = () => closeEditorConflicts(); panel.prepend(close);
 }
+window.closeEditorConflicts = function() {
+  const panel = document.getElementById('editorConflictPanel');
+  if (panel.hidden) return false;
+  const focused = panel.contains(document.activeElement); panel.hidden = true;
+  if (focused) document.getElementById('editorSyncState').focus();
+  return true;
+};
 window.reviewEditorConflicts = function() {
   const panel = document.getElementById('editorConflictPanel'); panel.hidden = !panel.hidden; renderEditorConflicts();
 };

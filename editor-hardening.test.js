@@ -148,6 +148,21 @@ describe('Editor operation protocol and semantic history', () => {
     assert.ok(!JSON.stringify(persisted).includes('actorId'));
   });
 
+  test('selection leases expire without a clear and sequence numbers reject delayed states', async () => {
+    const alice = await scene(), bob = await join(alice.room, 'Bob'), snapshot = await state(alice);
+    const selection = (seq, lineIds) => alice.socket.emit('selection_update', { sessionId: snapshot.activeSessionId, seq, lineIds });
+    selection(10, [1, 2, 3, 4]); await waitUntil(() => bob.presence?.selections[0]?.seq === 10);
+    selection(12, []); await waitUntil(() => !bob.presence.selections.length);
+    selection(11, [1, 2, 3, 4]); await state(alice); await wait(80);
+    assert.equal(bob.presence.selections.length, 0, 'delayed pre-clear state cannot resurrect selection');
+    selection(20, [1, 2]); await waitUntil(() => bob.presence.selections[0]?.seq === 20);
+    await waitUntil(() => !bob.presence.selections.length, 9000);
+    selection(19, [1]); await state(alice); await wait(80);
+    assert.equal(bob.presence.selections.length, 0, 'expiry retains the connection sequence watermark');
+    selection(21, [3]); await waitUntil(() => bob.presence.selections[0]?.seq === 21);
+    assert.deepEqual(bob.presence.selections[0].lineIds, [3]);
+  });
+
   test('confirmed claim is scene-bound, atomic under two actor race, and preserves take authors', async () => {
     const alice = await scene(), bob = await join(alice.room, 'Bob');
     alice.socket.emit('set_session_mode', { mode: 'dub', sessionId: (await state(alice)).activeSessionId });

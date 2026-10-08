@@ -47,7 +47,11 @@ async function main() {
       document.documentElement.dataset.theme = 'light';
       openFilesModal(); switchFilesTab('export'); fitTimeline();
     });
-    assert.deepEqual(await page.evaluate(() => ({ zoom: pxPerSec / ZOOM_DEFAULT, label: zoomLabel.textContent, warning: getComputedStyle(document.getElementById('longExportWarning')).color, visible: document.getElementById('longExportWarning').getBoundingClientRect().height > 0 })), { zoom: .1, label: '10%', warning: 'rgb(133, 77, 14)', visible: true }, 'native export warning uses the contrasting light-theme text and fit respects the zoom floor');
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    try { await waitFor(page, () => Math.abs(pxPerSec - timelineFitZoom()) < 1e-8 && timeline.scrollWidth <= timelineContainer.clientWidth + 1); }
+    catch (error) { console.error('Fit geometry:', await page.evaluate(() => ({ scale: pxPerSec, fit: timelineFitZoom(), active: timelineFitActive, scroll: timeline.scrollWidth, client: timelineContainer.clientWidth, children: [...timeline.children].map(node => ({ class: node.className, width: node.getBoundingClientRect().width, scroll: node.scrollWidth })) }))); throw error; }
+    const fitted = await page.evaluate(() => ({ scale: pxPerSec, fit: timelineFitZoom(), width: timeline.scrollWidth, available: timelineContainer.clientWidth, label: zoomLabel.textContent, warning: getComputedStyle(document.getElementById('longExportWarning')).color, visible: document.getElementById('longExportWarning').getBoundingClientRect().height > 0 }));
+    assert.equal(fitted.scale <= 120 && fitted.label !== '0%' && fitted.warning === 'rgb(133, 77, 14)' && fitted.visible, true, `native whole-scene fit and contrasting warning: ${JSON.stringify(fitted)}`);
     fs.mkdirSync(destination, { recursive: true });
     await page.screenshot({ path: path.join(destination, 'export-warning-light.png') });
     await page.evaluate(() => { delete video.duration; closeFilesModal(); });
@@ -59,16 +63,43 @@ async function main() {
         return String([...map.getContext('2d').getImageData(Math.floor(map.width / 2), 0, 1, 1).data]) === String([...expected.getImageData(0, 0, 1, 1).data]);
       });
     }
-    await page.evaluate(() => { setTimelineZoom(180); video.pause(); video.currentTime = 2; });
-    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-    const overview = await page.evaluate(() => {
-      const box = document.getElementById('timelineMinimap').getBoundingClientRect();
-      return { x: box.left + Math.min(1, (timelineContainer.scrollLeft + timelineContainer.clientWidth - labelWidth) / pxPerSec / (timelineSeconds() + TIMELINE_TAIL)) * box.width, y: box.top + 18, scale: pxPerSec };
-    });
-    await page.mouse.move(overview.x, overview.y); await page.mouse.down(); await page.mouse.move(overview.x + 40, overview.y, { steps: 8 }); await page.mouse.up();
-    const resizedOverview = await page.evaluate(() => ({ scale: pxPerSec, time: video.currentTime }));
-    assert.equal(resizedOverview.scale < overview.scale && resizedOverview.time === 2, true, `native minimap edge zoom does not seek: ${JSON.stringify(resizedOverview)}`);
+    for (const [width, height] of [[1024, 768], [1280, 720], [1920, 1080]]) {
+      await resize(width, height);
+      for (const edge of ['left', 'right']) {
+        await page.evaluate(() => { setTimelineZoom(120); video.pause(); video.currentTime = 2; });
+        await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        await page.evaluate(() => { timelineContainer.scrollLeft = 4 * pxPerSec; });
+        const overview = await page.evaluate(edge => {
+          const map = document.getElementById('timelineMinimap'), box = map.getBoundingClientRect(), total = timelineSeconds() + TIMELINE_TAIL;
+          const left = timelineContainer.scrollLeft / pxPerSec, right = left + (timelineContainer.clientWidth - labelWidth) / pxPerSec;
+          const x = box.left + (edge === 'left' ? left : right) / total * box.width, y = box.top + box.height / 2;
+          return { x, y, total, width: box.width, left, right, scale: pxPerSec, hit: document.elementFromPoint(x, y) === map };
+        }, edge);
+        assert.equal(overview.hit, true, `native minimap edge hit at ${width}: ${JSON.stringify(overview)}`);
+        await page.mouse.move(overview.x, overview.y);
+        await waitFor(page, () => getComputedStyle(document.getElementById('timelineMinimap')).cursor === 'ew-resize');
+        const delta = edge === 'left' ? -40 : 40;
+        await page.mouse.down(); await page.mouse.move(overview.x + delta, overview.y, { steps: 8 }); await page.mouse.up();
+        // CDP input completion need not mean the renderer's queued frame painted.
+        await waitFor(page, scale => pxPerSec < scale, 5000, overview.scale);
+        await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        const after = await page.evaluate(() => ({ scale: pxPerSec, time: video.currentTime, left: timelineContainer.scrollLeft / pxPerSec, right: (timelineContainer.scrollLeft + timelineContainer.clientWidth - labelWidth) / pxPerSec }));
+        assert.equal(after.time, 2, 'minimap zoom never seeks');
+        assert.ok(Math.abs((edge === 'left' ? after.right - overview.right : after.left - overview.left)) < .03, `native fixed opposite edge ${width}/${edge}: ${JSON.stringify(after)}`);
+        const expected = overview.scale * (overview.right - overview.left) / (overview.right - overview.left + 40 / overview.width * overview.total);
+        assert.ok(Math.abs(after.scale - expected) < .02, `native edge changes the actual scale by the requested distance: ${after.scale} vs ${expected}`);
+      }
+    }
     await page.evaluate(() => setStudioMode('edit')); await waitFor(page, () => session.mode === 'edit');
+    await page.evaluate(() => selectLine(session.lines[0]));
+    for (const theme of ['midnight', 'graphite', 'light', 'ocean', 'forest', 'sunset']) {
+      await page.evaluate(theme => { document.documentElement.dataset.theme = theme; }, theme);
+      assert.equal(await page.$eval('[data-editor-field="character"]', node => getComputedStyle(node).colorScheme), theme === 'light' ? 'light' : 'dark', `native single character picker ${theme}`);
+    }
+    await page.evaluate(() => { document.documentElement.dataset.theme = 'light'; multiSelection.clear(); multiSelection.add(1); multiSelection.add(3); refreshMultiSelection(); });
+    assert.equal(await page.$eval('#multiCharInput', node => getComputedStyle(node).colorScheme), 'light', 'native bulk character picker follows theme');
+    await page.focus('#multiCharInput'); await page.keyboard.press('ArrowDown'); await page.keyboard.press('Escape');
+    await page.evaluate(() => { clearMultiSelection(); document.documentElement.dataset.theme = 'graphite'; });
     await page.evaluate(() => timelineContainer.focus());
     assert.equal(await page.evaluate(() => getComputedStyle(timelineContainer).outlineStyle === 'none' && getComputedStyle(document.querySelector('.timeline-panel')).boxShadow === 'none'), true);
     fs.mkdirSync(destination, { recursive: true });
@@ -104,6 +135,9 @@ async function main() {
       await runtime.inspector.evaluate("require('electron').BrowserWindow.getAllWindows().find(window => /^http:/.test(window.webContents.getURL())).webContents.setZoomFactor(1.5)");
       await wait(100);
       assert.equal(await page.evaluate(() => document.querySelector('header').scrollWidth > document.querySelector('header').clientWidth + 1), false, `native zoom ${width}`);
+      await page.evaluate(() => fitTimeline());
+      await waitFor(page, () => timeline.scrollWidth <= timelineContainer.clientWidth + 1);
+      assert.equal(await page.evaluate(() => pxPerSec <= 120 && pxPerSec > 0), true, `native whole scene at 150% UI scale ${width}`);
       await runtime.inspector.evaluate("require('electron').BrowserWindow.getAllWindows().find(window => /^http:/.test(window.webContents.getURL())).webContents.setZoomFactor(1)");
     }
     await resize(1280, 720); await page.evaluate(() => { desktopInviteCollapsed = true; renderDesktopInvite(); toggleExpandedVideo(); });

@@ -51,6 +51,23 @@ describe('Track structure, protected timings and room moderators on the real ser
     assert.equal((await ack(host, 'editor_reorder_track', operation(saved, { character: 'Hero', before: 'Friend', trackOrder: initial.trackOrder }))).reason, 'conflict');
     assert.equal((await ack(guest, 'editor_undo', operation(saved))).undone, 1); assert.deepEqual((await state(host)).trackOrder, initial.trackOrder);
   });
+  test('concurrent reorders and active structural leases preserve cues and give exact rejection reasons', async () => {
+    const host = await scene(), guest = await join(host.room, 'Guest'), third = await join(host.room, 'Third');
+    await ack(host, 'editor_add_track', operation(await state(host), { character: 'Empty' }));
+    const initial = await state(host);
+    const requests = [operation(initial, { character: 'Empty', before: 'Hero', trackOrder: initial.trackOrder }), operation(initial, { character: 'Friend', before: 'Hero', trackOrder: initial.trackOrder })];
+    const results = await Promise.all([ack(guest, 'editor_reorder_track', requests[0]), ack(third, 'editor_reorder_track', requests[1])]);
+    assert.equal(results.filter(result => result.ok).length, 1); assert.equal(results.find(result => !result.ok).reason, 'conflict');
+    assert.deepEqual((await state(host)).lines, initial.lines);
+    const saved = await state(host);
+    assert.equal((await ack(host, 'editor_reorder_track', operation(saved, { character: 'Hero', before: 'Hero', trackOrder: saved.trackOrder }))).reason, 'invalid');
+    const lease = await ack(guest, 'edit_lease_acquire', { sessionId: saved.activeSessionId, targets: [{ type: 'line', key: 1, group: 'caption' }] }); assert.equal(lease.ok, true);
+    assert.equal((await ack(host, 'editor_reorder_track', operation(saved, { character: 'Hero', before: null, trackOrder: saved.trackOrder }))).reason, 'locked');
+    guest.socket.emit('edit_lease_release', { token: lease.token }); await state(guest);
+    host.socket.emit('set_session_mode', { mode: 'dub', sessionId: saved.activeSessionId }); await waitUntil(async () => (await state(host)).mode === 'dub');
+    assert.equal((await ack(host, 'editor_reorder_track', operation(await state(host), { character: 'Hero', before: null, trackOrder: saved.trackOrder }))).reason, 'mode');
+  });
+
   test('empty track deletion and Undo preserve original insertion order', async () => {
     const host = await scene(); await ack(host, 'editor_add_track', operation(await state(host), { character: 'Empty' }));
     const snapshot = await state(host); assert.equal((await ack(host, 'editor_delete_track', operation(snapshot, deletion(snapshot, 'Empty')))).ok, true);

@@ -22,6 +22,12 @@
     close(action === 'cancel' ? null : { action, target: name, createTarget: !target });
   });
   const allowed = () => !!session?.loaded && session.mode === 'edit' && socket.connected && !window.snapshotFrozen;
+  function reorderResult(result) {
+    if (result?.ok) return true;
+    const reason = result?.reason || 'timeout';
+    const key = ['conflict', 'invalid', 'mode', 'locked', 'session', 'cancelled', 'timeout', 'expired'].includes(reason) ? reason : 'failed';
+    showToast(t('track.reorder.' + key)); return false;
+  }
   function base(character) { return { character, trackOrder: [...session.trackOrder], lines: session.lines.filter(line => line.character === character).map(line => ({ lineId: line.id, revision: line.revision || 0, audioUrl: line.audioUrl || null, takeMixRevision: line.takeMixRevision || 0, claimedBy: line.claimedBy || null })) }; }
   window.deleteEditorTrack = async character => {
     if (!allowed() || !session.trackOrder.includes(character)) return;
@@ -41,7 +47,7 @@
       const order = [...session.trackOrder], index = order.indexOf(character), destination = index + (event.key === 'ArrowUp' ? -1 : 1);
       if (destination < 0 || destination >= order.length) return;
       order.splice(index, 1); order.splice(destination, 0, character);
-      queueEditorRequest(() => ['editor_reorder_track', { character, before: order[destination + 1] || null, trackOrder: session.trackOrder }]).then(editorResult);
+      queueEditorRequest(() => ['editor_reorder_track', { character, before: order[destination + 1] || null, trackOrder: session.trackOrder }]).then(reorderResult);
     };
     const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'btn-icon track-delete-button'; remove.textContent = '×'; remove.title = remove.ariaLabel = t('track.delete');
     remove.onclick = event => { event.preventDefault(); event.stopPropagation(); deleteEditorTrack(character); };
@@ -63,8 +69,11 @@
     const timer = setInterval(() => { if (!last || !moved) return; const bounds = scroller.getBoundingClientRect(), delta = last.clientY < bounds.top + 35 ? -12 : last.clientY > bounds.bottom - 35 ? 12 : 0; if (delta) { scroller.scrollTop += delta; move(last); } }, 30);
     const cleanup = () => { clearInterval(timer); clear(); window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', end); window.removeEventListener('pointercancel', cleanup); if (window.activeEditorGesture?.cleanup === cleanup) window.activeEditorGesture = null; if (deferredEditorRender) { deferredEditorRender = false; renderTimeline(); } };
     const end = () => {
-      cleanup(); if (!moved || !allowed() || session.activeSessionId !== id || JSON.stringify(order) !== JSON.stringify(session.trackOrder) || before === (order[order.indexOf(character) + 1] || null)) return;
-      queueEditorRequest(() => ['editor_reorder_track', { character, before, trackOrder: order }]).then(editorResult);
+      cleanup(); if (!moved) return;
+      if (!allowed() || session.activeSessionId !== id) { reorderResult({ reason: 'session' }); return; }
+      if (JSON.stringify(order) !== JSON.stringify(session.trackOrder)) { reorderResult({ reason: 'conflict' }); return; }
+      if (before === (order[order.indexOf(character) + 1] || null)) return;
+      queueEditorRequest(() => ['editor_reorder_track', { character, before, trackOrder: order }]).then(reorderResult);
     };
     window.activeEditorGesture = { cleanup, type: 'track', lineIds: new Set() }; window.addEventListener('pointermove', move); window.addEventListener('pointerup', end); window.addEventListener('pointercancel', cleanup);
   }
