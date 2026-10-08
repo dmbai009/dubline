@@ -28,7 +28,8 @@ header { flex-wrap:wrap; gap:8px 12px; flex-shrink:0; }
 #settingsModal .modal-card { width:min(900px, calc(100vw - 32px)); max-width:900px; }
 .settings-categories { display:flex; flex-wrap:wrap; gap:6px; padding-bottom:4px; }
 .settings-categories .active { background:var(--accent-soft); border-color:var(--accent); color:var(--accent-2); }
-.settings-category { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); align-items:start; gap:12px; }
+.settings-category { display:block; columns:2; column-gap:12px; }
+.settings-category > .setting-card { break-inside:avoid; margin-bottom:12px; }
 #settingsModal [hidden] { display:none !important; }
 #settingsModal .setting-card { min-width:0; padding:14px; gap:10px; }
 #settingsModal .setting-card-row { min-width:0; gap:12px; }
@@ -48,13 +49,16 @@ header { flex-wrap:wrap; gap:8px 12px; flex-shrink:0; }
 .setting-unit-field input { width:85px !important; }
 .switch-ui input:focus-visible + .switch-slider { outline:2px solid var(--accent-2); outline-offset:3px; }
 .switch-ui input:disabled + .switch-slider { opacity:.5; cursor:not-allowed; }
-.settings-wide { grid-column:1/-1; }
+.settings-wide { column-span:all; }
 .audio-device-fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; }
 .audio-device-fields > label { display:flex; flex-direction:column; gap:8px; min-width:0; font-size:12px; }
 #transportSeek { order:-1; flex:1 0 calc(100% - 2px); width:100%; min-width:0; max-width:none; margin:2px 0 4px; }
 .transport-master { margin-left:auto; gap:6px; }
 .transport-master output { display:inline-block; flex:0 0 4ch; width:4ch; text-align:right; font-variant-numeric:tabular-nums; }
 #masterVolume { flex:0 0 70px; min-width:70px; }
+#editorCaption { resize:vertical; width:100%; max-width:100%; min-width:0; }
+#transportCC.subtitles-off { color:#fb923c; border-color:#f97316; background:rgba(249,115,22,.15); box-shadow:0 0 10px rgba(249,115,22,.45); }
+.transport-display-actions { display:inline-flex; align-items:center; gap:8px; margin-left:auto; flex-shrink:0; }
 #filesModal .files-card { width:820px; max-width:calc(100vw - 32px); }
 #filesModal .tab-content { min-width:0; }
 #filesModal .setting-card { margin:0 0 12px; padding:16px; }
@@ -91,7 +95,8 @@ header { flex-wrap:wrap; gap:8px 12px; flex-shrink:0; }
 .session-title, .session-meta { overflow-wrap:anywhere; }
 #textPromptTitle { overflow-wrap:anywhere; }
 @media (max-width:700px) {
-  .settings-category, .help-steps, .audio-device-fields { grid-template-columns:minmax(0,1fr); }
+  .settings-category { column-count:1; }
+  .help-steps, .audio-device-fields { grid-template-columns:minmax(0,1fr); }
   #settingsModal .modal-card { padding:16px; }
   #settingsModal .setting-card-row { flex-wrap:wrap; }
   #settingsModal select.text-input { max-width:100%; }

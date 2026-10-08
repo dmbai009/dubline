@@ -21,7 +21,14 @@
   masterSlider.addEventListener('input', () => { master = Number(masterSlider.value) / 100; try { localStorage.setItem('dubline_master_volume', String(master)); } catch { /* private mode */ } masterValue.textContent = masterSlider.value + '%'; applyVolumes(); window.dispatchEvent(new Event('dubline-listening-volume-changed'));  });
   transport.append(masterLabel);
   const cc = document.createElement('button'); cc.className = 'btn-icon'; cc.id = 'transportCC'; cc.textContent = 'CC'; cc.setAttribute('aria-label', t('playback.cc'));
-  function syncCC() { cc.classList.toggle('active', prompterEnabled); cc.setAttribute('aria-pressed', String(prompterEnabled)); }
+  function syncCC() {
+    cc.classList.toggle('subtitles-off', !prompterEnabled);
+    cc.setAttribute('aria-pressed', String(prompterEnabled));
+    cc.title = t(prompterEnabled ? 'playback.ccOn' : 'playback.ccOff');
+    cc.setAttribute('aria-label', cc.title);
+    document.getElementById('settingsPrompter').checked = prompterEnabled;
+    document.getElementById('prompterSubRow').style.opacity = prompterEnabled ? '1' : '0.45';
+  }
   cc.addEventListener('click', () => { prompterEnabled = !prompterEnabled; try { localStorage.setItem('dubline_prompter', prompterEnabled ? '1' : '0'); } catch { /* private mode */ } updatePrompter(); syncCC(); });
   transport.append(cc); syncCC(); document.getElementById('settingsPrompter').addEventListener('change', syncCC);
   const speed = document.createElement('select'); speed.id = 'previewRate'; speed.className = 'text-input'; speed.setAttribute('aria-label', t('playback.speed'));
@@ -37,6 +44,9 @@
     return true;
   };
   speed.addEventListener('change', () => { if (!setPreviewRate(Number(speed.value))) speed.value = String(video.playbackRate); }); transport.append(speed);
+  const displayActions = document.createElement('span'); displayActions.className = 'transport-display-actions';
+  displayActions.append(document.getElementById('transportExpandBtn'), transport.querySelector('[data-studio-action="fullscreen"]'));
+  transport.append(displayActions);
   const seek = document.createElement('input'); Object.assign(seek, { type: 'range', id: 'transportSeek', min: '0', max: '1', step: '0.001', value: '0' }); seek.setAttribute('aria-label', t('playback.seek'));
   seek.addEventListener('input', () => { if (studioCanTransport()) { window.transportScrubbing = true; video.currentTime = Number(seek.value); window.sendHostSync?.(true); } });
   const finishSeek = () => { if (window.transportScrubbing) { window.transportScrubbing = false; window.sendHostSync?.(false); } };
@@ -44,7 +54,8 @@
   for (const event of ['pointerup', 'pointercancel', 'blur']) window.addEventListener(event, finishSeek);
   transport.prepend(seek);
   window.addEventListener('dubline-language-changed', () => {
-    for (const [control, key] of [[masterSlider, 'master'], [cc, 'cc'], [speed, 'speed'], [seek, 'seek']]) control.setAttribute('aria-label', t('playback.' + key));
+    for (const [control, key] of [[masterSlider, 'master'], [speed, 'speed'], [seek, 'seek']]) control.setAttribute('aria-label', t('playback.' + key));
+    syncCC();
   });
   function refresh() {
     seek.max = String(Number.isFinite(video.duration) ? video.duration : 0);

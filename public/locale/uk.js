@@ -669,6 +669,8 @@ window.DublineLocales.uk = {
   "editor.locked": "{name} редагує це поле.",
   "playback.master": "Загальна гучність",
   "playback.cc": "Показати субтитри",
+  "playback.ccOn": "Субтитри увімкнено — вимкнути",
+  "playback.ccOff": "Субтитри вимкнено — увімкнути",
   "playback.speed": "Швидкість перегляду",
   "playback.seek": "Перемотування",
   "find.all": "Усі дублі",

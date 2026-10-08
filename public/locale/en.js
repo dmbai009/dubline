@@ -669,6 +669,8 @@ window.DublineLocales.en = {
   "editor.locked": "{name} is editing this field.",
   "playback.master": "Master volume",
   "playback.cc": "Show captions",
+  "playback.ccOn": "Captions on — turn off",
+  "playback.ccOff": "Captions off — turn on",
   "playback.speed": "Preview speed",
   "playback.seek": "Seek",
   "find.all": "All takes",

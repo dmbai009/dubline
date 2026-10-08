@@ -669,6 +669,8 @@ window.DublineLocales.ru = {
   "editor.locked": "{name} редактирует это поле.",
   "playback.master": "Общая громкость",
   "playback.cc": "Показать субтитры",
+  "playback.ccOn": "Субтитры включены — выключить",
+  "playback.ccOff": "Субтитры выключены — включить",
   "playback.speed": "Скорость просмотра",
   "playback.seek": "Перемотка",
   "find.all": "Все дубли",

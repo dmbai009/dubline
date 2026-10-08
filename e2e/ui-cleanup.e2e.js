@@ -44,6 +44,93 @@ describe('UI cleanup and local audio devices', { skip: skipReason, timeout: 1200
   });
   afterEach(async () => { assert.deepEqual(page.errors, []); await page.browserContext().close(); });
 
+  test('host and moderator actions follow accepted mode changes without reloading', async () => {
+    const moderator = await openPlayer(browser, server.url(`ui-cleanup-${serial}`), 'Moderator');
+    try {
+      await waitFor(moderator, () => session?.loaded);
+      await page.evaluate(() => { changeModerator('Moderator', null); });
+      await waitFor(page, () => document.querySelector('dialog.text-prompt').open);
+      await page.click('#textPromptSave');
+      await waitFor(moderator, () => amModerator());
+      for (const mode of ['edit', 'dub', 'edit', 'dub']) {
+        await page.evaluate(mode => setStudioMode(mode), mode);
+        for (const client of [page, moderator]) {
+          await waitFor(client, mode => session?.mode === mode, 5000, mode);
+          const actions = await client.evaluate(() => ({ cast: !!hostPanel.querySelector('.cast'), reset: !!hostPanel.querySelector('.reset'), watch: !!hostPanel.querySelector('[onclick="hostWatchStart()"]') }));
+          assert.equal(actions.cast, mode === 'dub'); assert.equal(actions.reset, mode === 'dub');
+          assert.equal(actions.watch, client === page && mode === 'dub');
+        }
+      }
+      assert.deepEqual(moderator.errors, []);
+    } finally { await moderator.browserContext().close(); }
+  });
+
+  test('caption resize stays vertical and within a narrow inspector', async () => {
+    await page.evaluate(() => setStudioMode('edit')); await waitFor(page, () => session.mode === 'edit');
+    await page.click('#line-block-1');
+    for (const width of [1024, 1280, 1920]) {
+      await page.setViewport({ width, height: 768 });
+      const bounds = await page.$eval('#editorCaption', node => {
+        const box = node.getBoundingClientRect(), form = node.closest('form').getBoundingClientRect();
+        return { resize: getComputedStyle(node).resize, contained: box.left >= form.left && box.right <= form.right };
+      });
+      assert.deepEqual(bounds, { resize: 'vertical', contained: true });
+    }
+  });
+
+  test('CC off glows, describes its state and stays in sync with settings and reload', async () => {
+    await page.click('#transportCC');
+    const state = () => page.$eval('#transportCC', node => ({ off: node.classList.contains('subtitles-off'), pressed: node.getAttribute('aria-pressed'), shadow: getComputedStyle(node).boxShadow, title: node.title }));
+    assert.equal((await state()).off, true); assert.equal((await state()).pressed, 'false'); assert.notEqual((await state()).shadow, 'none');
+    await page.reload(); await waitFor(page, () => session?.loaded);
+    assert.equal((await state()).off, true);
+    for (const language of ['ru', 'en', 'uk']) {
+      await page.evaluate(language => i18n.setLanguage(language), language);
+      assert.equal((await state()).title, await page.evaluate(() => t('playback.ccOff')));
+    }
+    await page.evaluate(() => { openSettingsModal(); openSettingsCategory('user', 'interface'); });
+    assert.equal(await page.$eval('#settingsPrompter', input => input.checked), false);
+    await page.click('#settingsPrompter + .switch-slider');
+    assert.equal((await state()).off, false); assert.equal((await state()).pressed, 'true'); assert.equal((await state()).shadow, 'none');
+    await page.evaluate(() => closeSettingsModal()); await page.click('#transportCC');
+    assert.equal(await page.$eval('#settingsPrompter', input => input.checked), false);
+  });
+
+  test('settings cards pack without row-height gaps across locales, sizes and Solo visibility', async () => {
+    await page.evaluate(() => openSettingsModal());
+    for (const language of ['ru', 'en', 'uk']) {
+      await page.evaluate(language => i18n.setLanguage(language), language);
+      for (const [width, height] of [[650, 768], [1024, 768], [1280, 720], [1920, 1080]]) {
+        await page.setViewport({ width, height });
+        for (const solo of [false, true]) {
+          await page.evaluate(solo => document.body.classList.toggle('single-player', solo), solo);
+          for (const category of ['audio', 'interface', 'storage']) {
+            await page.evaluate(category => openSettingsCategory('user', category), category);
+            const failures = await page.evaluate(category => {
+              const panel = document.getElementById(`settings-user-${category}`), columns = new Map(), failures = [];
+              const bounds = panel.getBoundingClientRect();
+              for (const card of panel.children) {
+                const r = card.getBoundingClientRect(); if (!r.width || card.classList.contains('settings-wide')) continue;
+                if (card.getClientRects().length !== 1 || r.left < bounds.left - 1 || r.right > bounds.right + 1) failures.push('split or overflow');
+                const key = Math.round(r.left); if (!columns.has(key)) columns.set(key, []); columns.get(key).push(r);
+              }
+              for (const stack of columns.values()) {
+                stack.sort((a, b) => a.top - b.top);
+                for (let index = 1; index < stack.length; index++) {
+                  const gap = stack[index].top - stack[index - 1].bottom;
+                  if (gap < 11 || gap > 13) failures.push(`gap ${gap}`);
+                }
+              }
+              return failures;
+            }, category);
+            assert.deepEqual(failures, [], `${language} ${width} ${category} solo=${solo}`);
+          }
+        }
+      }
+    }
+    await page.evaluate(() => document.body.classList.remove('single-player'));
+  });
+
   test('header has accessible, nonoverlapping actions at three sizes, three locales and 150% UI scale', async () => {
     await page.evaluate(() => { session.title = 'A very long session — Длинное название проекта '.repeat(8); renderSessions(); });
     for (const language of ['ru', 'en', 'uk']) {
@@ -196,6 +283,12 @@ describe('UI cleanup and local audio devices', { skip: skipReason, timeout: 1200
     async function check() {
       const sizes = await page.evaluate(() => ({ seek: document.getElementById('transportSeek').getBoundingClientRect().width, bar: document.querySelector('.studio-transport').getBoundingClientRect().width }));
       assert.ok(sizes.seek >= sizes.bar - 32, JSON.stringify(sizes));
+      const actions = await page.evaluate(() => {
+        const speed = document.getElementById('previewRate'), expand = document.getElementById('transportExpandBtn'), fullscreen = document.querySelector('[data-studio-action=fullscreen]');
+        const a = expand.getBoundingClientRect(), b = fullscreen.getBoundingClientRect(), bar = document.querySelector('.studio-transport').getBoundingClientRect();
+        return { order: !!(speed.compareDocumentPosition(expand) & Node.DOCUMENT_POSITION_FOLLOWING), aligned: a.right <= b.left && b.right <= bar.right && b.right >= bar.right - 16 };
+      });
+      assert.deepEqual(actions, { order: true, aligned: true });
     }
     for (const [width, height] of [[1024, 768], [1280, 720], [1920, 1080]]) { await page.setViewport({ width, height }); await check(); }
     await page.evaluate(() => toggleExpandedVideo()); await check();

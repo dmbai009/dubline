@@ -521,15 +521,8 @@ function amHost() {
 function amModerator() { return !!myName && !amHost() && !!session?.moderators?.some(entry => entry.online && entry.nick === myName); }
 function canModerate() { return amHost() || amModerator(); }
 
-// The timeline and inspector depend on host rights (role release buttons), so they are
-// redrawn only when those rights actually change, not on every player join
-let renderedAsHost = null;
-
-function updateHostUi() {
-  const single = !!session?.singlePlayer;
-  document.body.classList.toggle('single-player', single);
-  document.getElementById('singleMultiplayerBtn').hidden = !single;
-  document.getElementById('singleModeLabel').hidden = !single;
+// Refresh mode-dependent actions independently of settings and inspector drafts.
+function updateHostPanel() {
   if (amHost()) {
     hostPanel.className = 'host-panel';
     const watchBtn = session && session.mode === 'edit' ? '' : watchMode
@@ -559,7 +552,16 @@ function updateHostUi() {
     hostPanel.className = 'host-panel';
     hostPanel.innerHTML = t('host.name', { name: esc(roomHost) });
   }
+}
 
+// Redraw the timeline and inspector only when permissions actually change.
+let renderedAsHost = null;
+function updateHostUi() {
+  const single = !!session?.singlePlayer;
+  document.body.classList.toggle('single-player', single);
+  document.getElementById('singleMultiplayerBtn').hidden = !single;
+  document.getElementById('singleModeLabel').hidden = !single;
+  updateHostPanel();
   renderSessions();
   updateRoomSecurityUi();
   renderTrackPicker();
@@ -655,6 +657,7 @@ function applySessionUpdate(data) {
   session = data;
   window.DublineCpuJobs?.cancelStale();
   window.acceptEditorSnapshot?.(data);
+  updateHostPanel();
   if (!session || !session.loaded) {
     // The room has no session (e.g. the last one was deleted): clear the studio
     cancelMediaDownload();

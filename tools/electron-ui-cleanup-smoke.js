@@ -26,6 +26,16 @@ async function main() {
     await page.evaluate(() => { modalNickInput.value = 'Native UI'; handleNickSubmit(new Event('submit', { cancelable: true })); localStorage.setItem('dubline_help_seen', '1'); closeHelpModal(); });
     await waitFor(page, () => amHost() && myName === 'Native UI');
     await (await page.$('#zipInput')).uploadFile(buildFixturePack()); await waitFor(page, () => session?.loaded && session.lines.length === 4 && video.readyState >= 2, 30000);
+    for (const mode of ['edit', 'dub', 'edit', 'dub']) {
+      await page.evaluate(mode => setStudioMode(mode), mode); await waitFor(page, mode => session.mode === mode, 5000, mode);
+      assert.equal(await page.evaluate(() => !!hostPanel.querySelector('.cast')), mode === 'dub', 'native host actions follow mode without reload');
+    }
+    await page.evaluate(() => { closeHostingModal(); closeFilesModal(); });
+    await page.click('#transportCC');
+    const captionState = await page.$eval('#transportCC', button => ({ off: button.classList.contains('subtitles-off'), pressed: button.getAttribute('aria-pressed'), shadow: getComputedStyle(button).boxShadow, hit: document.elementFromPoint(button.getBoundingClientRect().x + 5, button.getBoundingClientRect().y + 5)?.outerHTML.slice(0, 300) }));
+    assert.equal(captionState.off && captionState.shadow !== 'none', true, JSON.stringify(captionState));
+    await page.click('#transportCC');
+    assert.equal(await page.$eval('#transportCC', button => button.getAttribute('aria-pressed')), 'true');
     const destination = path.join(root, 'build', 'ui-cleanup-qa', 'electron');
     const resize = async (width, height) => {
       await runtime.inspector.evaluate(`require('electron').BrowserWindow.getAllWindows().find(window => /^http:/.test(window.webContents.getURL())).setContentSize(${width}, ${height})`);
@@ -65,6 +75,10 @@ async function main() {
       await runtime.inspector.evaluate("require('electron').BrowserWindow.getAllWindows().find(window => /^http:/.test(window.webContents.getURL())).webContents.setZoomFactor(1)");
     }
     await resize(1280, 720); await page.evaluate(() => { desktopInviteCollapsed = true; renderDesktopInvite(); toggleExpandedVideo(); });
+    assert.equal(await page.evaluate(() => {
+      const speed = document.getElementById('previewRate').getBoundingClientRect(), expand = document.getElementById('transportExpandBtn').getBoundingClientRect(), fullscreen = document.querySelector('[data-studio-action=fullscreen]').getBoundingClientRect();
+      return speed.right <= expand.left && expand.right <= fullscreen.left;
+    }), true, 'native display actions sit to the right of speed');
     await page.$eval('[data-studio-action=fullscreen]', button => button.click()); await waitFor(page, () => !!document.fullscreenElement);
     assert.equal(await page.evaluate(() => document.getElementById('transportSeek').getBoundingClientRect().width >= document.querySelector('.studio-transport').getBoundingClientRect().width - 32), true);
     await page.evaluate(() => document.exitFullscreen());
