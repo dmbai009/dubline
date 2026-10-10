@@ -157,14 +157,9 @@ window.copyDesktopInvite = async function() {
 window.copyDesktopInviteWithPin = async function() {
   const url = desktopPublicInviteUrl();
   if (!url || !desktopInviteState?.pin) return;
-  const mode = desktopMode();
-  const key = mode === 'porthole' ? 'desktop.shareText.porthole'
-    : mode === 'vpn' ? 'desktop.shareText.vpn' : 'desktop.shareText';
-  await window.dublineDesktop.copyText(t(key, {
+  await window.dublineDesktop.copyText(t('desktop.shareText', {
     url,
-    pin: desktopInviteState.pin,
-    port: desktopInviteState.port,
-    mode: desktopModeName(mode)
+    pin: desktopInviteState.pin
   }));
   showToast(t('desktop.copiedAll'));
 };
@@ -819,7 +814,9 @@ window.closeHelpModal = function() {
 
 // Show the rules on the first visit (after entering a nick, if there isn't one yet)
 function maybeShowHelp() {
-  if (!localStorage.getItem('dubline_help_seen') && myName) openHelpModal();
+  if (!myName || localStorage.getItem('dubline_help_seen') || sessionStorage.getItem('dubline_help_shown')) return;
+  sessionStorage.setItem('dubline_help_shown', '1');
+  openHelpModal();
 }
 
 const settingsCue = document.getElementById('settingsCue');

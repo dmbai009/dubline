@@ -223,8 +223,8 @@ function playerCardHtml(nick, stats, online) {
 
   const extra = [
     recordingLine ? `<span class="tag rec">${t('lobby.recording', { id: recordingLine[0] })}</span>` : '',
-    seedingNicks.has(nick) ? `<span class="tag seed">${t('lobby.seeding')}</span>` : '',
-    activity ? `<span class="tag seed">${t('media.' + activity.state, { pct: Math.round(activity.pct) })}</span>` : ''
+    seedingNicks.has(nick) ? `<span class="tag seed" title="${esc(t('lobby.seeding') + (activity?.state === 'ready' ? ' · ' + t('media.ready') : ''))}">${t('lobby.seeding')}</span>` : '',
+    activity && !(seedingNicks.has(nick) && activity.state === 'ready') ? `<span class="tag seed">${t('media.' + activity.state, { pct: Math.round(activity.pct) })}</span>` : ''
   ].filter(Boolean).join(' ');
   const activityProgress = activity && activity.state === 'downloading'
     ? `<div class="progress"><div style="width:${activity.pct}%;background:var(--accent)"></div></div>` +
@@ -241,14 +241,14 @@ function playerCardHtml(nick, stats, online) {
       <div class="player-stats"><span>${t('lobby.recorded', { n: stats.recorded })}</span><span>${t('lobby.claimed', { n: stats.claimed })}</span></div>
       <div class="progress"><div style="width:${pct}%"></div></div>
       <div class="player-status-icons">
-        ${nick === roomHost ? `<span title="${esc(t('lobby.host'))}">👑</span>` : ''}
-        ${moderator ? `<span title="${esc(t('moderator.title'))}">🛡</span>` : ''}
-        ${isMe ? `<span title="${esc(t('lobby.you'))}">●</span>` : ''}
-        ${recordingLine ? `<span title="${esc(t('lobby.recording', { id: recordingLine[0] }))}">🎙</span>` : ''}
-        ${seedingNicks.has(nick) ? `<span title="${esc(t('lobby.seeding'))}">↑</span>` : ''}
-        ${activity && activity.state === 'downloading' ? `<span title="${esc(t('lobby.downloading', { pct: activity.pct }))}">↓${activity.pct}%</span>` : ''}
-        ${!online ? `<span title="${esc(t('studio.offline'))}">○</span>` : ''}
-        ${stats.claimed && stats.recorded >= stats.claimed ? `<span title="${esc(t('studio.done'))}">✓</span>` : ''}
+        ${nick === roomHost ? `<span class="player-status-compact" title="${esc(t('lobby.host'))}">👑</span>` : ''}
+        ${moderator ? `<span class="player-status-compact" title="${esc(t('moderator.title'))}">🛡</span>` : ''}
+        ${isMe ? `<span class="player-status-compact" title="${esc(t('lobby.you'))}">●</span>` : ''}
+        ${recordingLine ? `<span class="player-status-compact" title="${esc(t('lobby.recording', { id: recordingLine[0] }))}">🎙</span>` : ''}
+        ${seedingNicks.has(nick) ? `<span class="player-status-compact" title="${esc(t('lobby.seeding'))}">↑</span>` : ''}
+        ${activity && activity.state === 'downloading' ? `<span class="player-status-compact" title="${esc(t('lobby.downloading', { pct: activity.pct }))}">↓${activity.pct}%</span>` : ''}
+        ${!online ? `<span class="player-status-compact" title="${esc(t('studio.offline'))}">○</span>` : ''}
+        ${stats.claimed && stats.recorded >= stats.claimed ? `<span class="player-status-complete" title="${esc(t('studio.done'))}">✓</span>` : ''}
       </div>
       ${activityProgress}
       ${extra ? `<div class="player-status-text">${extra}</div>` : ''}
@@ -471,6 +471,7 @@ function updateRoomSecurityUi() {
   status.textContent = (has ? t('pw.statusOn') : t('pw.statusOff')) + (host ? '' : ' · ' + t('pw.onlyHost'));
   const unban = document.getElementById('unbanBtn');
   const banned = (session && session.bannedCount) || 0;
+  document.getElementById('roomBanSettings').style.display = host && banned ? '' : 'none';
   unban.style.display = host && banned ? '' : 'none';
   unban.textContent = t('pw.unban', { n: banned });
 }
@@ -567,7 +568,6 @@ function updateHostPanel() {
       <button class="btn-host cast" onclick="randomCast()">${t('randomCast')}</button>
       ${(session && (session.blindMode || (session.blindPlayers || []).length)) ? `<button class="btn-host reveal" onclick="revealAllTakes()">${t('blind.reveal')}</button>` : ''}
       <button class="btn-host pause" onclick="hostForcePause()">${t('host.pause')}</button>
-      <span class="host-sep"></span>
       <button class="btn-host reset" onclick="hostResetClaims()">${t('host.reset')}</button>`;
     hostPanel.innerHTML = `
       ${t('host.you')}

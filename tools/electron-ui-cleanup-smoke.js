@@ -6,7 +6,7 @@ const os = require('node:os');
 const assert = require('node:assert/strict');
 const puppeteer = require('puppeteer-core');
 const { launch, wait } = require('./packaged-test-driver');
-const { buildFixturePack, claimAndSelect, recordTake, waitFor, waitUntil } = require('../e2e/helpers');
+const { buildFixturePack, claimAndSelect, recordTake, waitFor, waitUntil, launchBrowser, openPlayer } = require('../e2e/helpers');
 const { captureScreens } = require('./visual-ui-cleanup');
 const root = path.join(__dirname, '..');
 async function main() {
@@ -26,6 +26,34 @@ async function main() {
     await page.evaluate(() => { modalNickInput.value = 'Native UI'; handleNickSubmit(new Event('submit', { cancelable: true })); localStorage.setItem('dubline_help_seen', '1'); closeHelpModal(); });
     await waitFor(page, () => amHost() && myName === 'Native UI');
     await (await page.$('#zipInput')).uploadFile(buildFixturePack()); await waitFor(page, () => session?.loaded && session.lines.length === 4 && video.readyState >= 2, 30000);
+    // Use the real Electron host/preload and a separately authenticated guest.
+    // The existing ban protocol stays unchanged; exercise actual menu/settings clicks.
+    const guestBrowser = await launchBrowser(Number(new URL(page.url()).port));
+    try {
+      const guest = await openPlayer(guestBrowser, page.url().replace(/([?&])desktopHost=[^&]+/, '$1'), 'Unban guest');
+      const admit = async () => {
+        await waitFor(guest, () => passwordModal.style.display === 'flex');
+        await guest.type('#passwordInput', await page.evaluate(() => desktopInviteState.pin));
+        await guest.click('#passwordModal button[type=submit]'); await waitFor(guest, () => session?.loaded);
+      };
+      await admit();
+      await guest.evaluate(() => { openSettingsModal(); switchSettingsTab('player'); });
+      assert.equal(await guest.$eval('#roomBanSettings', node => getComputedStyle(node).display), 'none');
+      await page.evaluate(() => { closeHostingModal(); closeFilesModal(); closeSettingsModal(); });
+      await page.click('[data-lobby-key="player:Unban guest"] .participant-menu summary');
+      await page.click('[data-lobby-key="player:Unban guest"] .participant-menu .btn-delete');
+      await waitFor(page, () => document.querySelector('dialog[open]')); await page.click('#textPromptSave');
+      await waitFor(guest, () => deniedModal.style.display === 'flex'); await waitFor(page, () => session.bannedCount === 1);
+      await page.click('header [onclick="openSettingsModal()"]'); await page.click('#tabBtnPlayer');
+      await page.click('#settings-player-room-tab');
+      assert.equal(await page.$eval('#roomSecuritySettings', node => getComputedStyle(node).display), 'none');
+      assert.ok(await page.$eval('#unbanBtn', node => node.getBoundingClientRect().height > 0 && !node.disabled), 'native desktop unban button is visible to the host');
+      await page.locator('#unbanBtn').click();
+      await waitFor(page, () => !session.bannedCount && getComputedStyle(document.getElementById('roomBanSettings')).display === 'none');
+      await guest.reload(); await admit();
+      assert.deepEqual(guest.errors, []);
+      await page.evaluate(() => closeSettingsModal());
+    } finally { await guestBrowser.close(); }
     for (const mode of ['edit', 'dub', 'edit', 'dub']) {
       await page.evaluate(mode => setStudioMode(mode), mode); await waitFor(page, mode => session.mode === mode, 5000, mode);
       assert.equal(await page.evaluate(() => !!hostPanel.querySelector('.cast')), mode === 'dub', 'native host actions follow mode without reload');

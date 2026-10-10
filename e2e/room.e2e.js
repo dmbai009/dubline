@@ -258,8 +258,11 @@ describe('room', { skip: skipReason }, () => {
     await waitFor(carol, () => document.getElementById('deniedModal').style.display === 'flex', 5000);
     assert.equal(await carol.evaluate(() => session), null);
 
-    await host.evaluate(() => unbanAll());
+    await host.evaluate(() => { openSettingsModal(); switchSettingsTab('player'); openSettingsCategory('player', 'room'); });
+    await host.locator('#unbanBtn').click();
     await waitFor(host, () => !session.bannedCount, 5000);
+    assert.equal(await host.$eval('#roomBanSettings', node => getComputedStyle(node).display), 'none', 'empty ban controls take no space');
+    await host.evaluate(() => closeSettingsModal());
     await carol.reload();
     await waitFor(carol, () => document.getElementById('passwordModal').style.display === 'flex', 5000);
     await carol.evaluate(() => { document.getElementById('passwordInput').value = 'secret123'; submitRoomPassword(new Event('submit')); });

@@ -239,6 +239,7 @@
     .tag.you { background: var(--accent-soft); color: var(--accent-2); }
     .tag.rec { background: rgba(239, 68, 68, 0.2); color: #fca5a5; }
     .tag.seed { background: rgba(34, 211, 238, 0.14); color: #67e8f9; }
+    html[data-theme=light] .tag.seed { color: #0e5966; }
     .player-stats { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
     .player-latency { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--muted); }
     .player-latency b { color: var(--text); font-variant-numeric: tabular-nums; min-width: 54px; }
@@ -761,7 +762,7 @@
             </div>
             <input type="range" id="settingsAutoDuckAmount" data-reset-value="40" min="0" max="80" step="5" value="40" style="width: 100%; cursor: pointer;">
           </div>
-          <div class="setting-card-row" style="margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border);">
+          <div class="setting-card-row" style="margin-top: 10px;">
             <div>
               <div class="setting-label" data-i18n="autoDuck.local">My own auto-ducking</div>
               <div class="setting-sub" data-i18n="autoDuck.local.help">Only for what you hear. Export always uses the project setting above.</div>
@@ -808,7 +809,10 @@
             <button class="btn-outline" id="removePasswordBtn" data-i18n="pw.remove" onclick="removeRoomPassword()">Remove</button>
           </div>
           <div id="passwordStatus" class="setting-sub"></div>
-          <button class="btn-outline" id="unbanBtn" onclick="unbanAll()" style="display: none; align-self: flex-start;"></button>
+        </div>
+
+        <div class="setting-card" id="roomBanSettings" style="display: none;">
+          <button class="btn-outline" id="unbanBtn" onclick="unbanAll()" style="align-self: flex-start;"></button>
         </div>
 
         <div class="setting-card">

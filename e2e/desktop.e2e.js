@@ -1,7 +1,7 @@
 // Desktop-only invitation controls, exercised with a safe mock of the Electron preload bridge.
 const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
-const { skipReason, launchBrowser, startServer, waitFor } = require('./helpers');
+const { skipReason, launchBrowser, startServer, waitFor, openPlayer, loadFixture } = require('./helpers');
 
 describe('desktop invitation', { skip: skipReason }, () => {
   let server;
@@ -97,6 +97,30 @@ describe('desktop invitation', { skip: skipReason }, () => {
     assert.match(result.url, /^http:\/\/26\.10\.20\.30:38500\/\?room=desktop$/);
   });
 
+  test('copies exactly two invitation lines in every language and connection mode', async () => {
+    await page.setViewport({ width: 1280, height: 900 });
+    await page.evaluate(() => closeHostingModal());
+    await page.type('#modalNickInput', 'Desktop host');
+    await page.click('#nickForm button[type=submit]');
+    await waitFor(page, () => amHost());
+    await page.click('#helpModal [data-i18n="help.ok"]');
+    for (const language of ['ru', 'uk', 'en']) {
+      for (const [mode, url] of [['cloudflare', 'https://quiet.trycloudflare.com'], ['porthole', 'http://localhost:38500'], ['vpn', 'http://26.10.20.30:38500']]) {
+        await page.evaluate((language, mode, url) => {
+          i18n.setLanguage(language);
+          Object.assign(__desktopStatus, { mode, publicUrl: url, state: 'ready' });
+          handleDesktopStatus(__desktopStatus);
+        }, language, mode, url);
+        await page.locator('#desktopCopyAllBtn').click();
+        assert.equal(await page.evaluate(() => __desktopClipboard), `${url}/?room=desktop\nPIN: 7K9A`);
+        await page.$eval('.desktop-invite-toggle', button => { if (document.getElementById('desktopInvitePanel').classList.contains('collapsed')) button.click(); });
+        await page.locator('#desktopCopyBtn').click();
+        assert.equal(await page.evaluate(() => __desktopClipboard), `${url}/?room=desktop`, 'link-only copy is unchanged');
+      }
+    }
+    await page.evaluate(() => i18n.setLanguage('en'));
+  });
+
   test('single promotion clears solo state; tabs remain clickable during delayed requests and old replies cannot change the selected mode', async () => {
     await page.evaluate(() => {
       handleDesktopStatus({ ...__desktopStatus, mode:'single', singlePlayer:true, state:'local' });
@@ -128,5 +152,43 @@ describe('desktop invitation', { skip: skipReason }, () => {
     assert.equal(await page.$eval('#appUpdateBanner', node => node.classList.contains('show')), false);
     await page.evaluate(() => openProjectPage());
     await waitFor(page, () => window.__projectOpened === true);
+  });
+
+  test('desktop host can unban through the visible settings button; guests and moderators cannot', async () => {
+    await page.setViewport({ width: 1280, height: 900 });
+    await page.evaluate(() => { closeHostingModal(); closeSettingsModal(); });
+    await loadFixture(page);
+    const guest = await openPlayer(browser, server.url('desktop'), 'Guest');
+    const victim = await openPlayer(browser, server.url('desktop'), 'Victim');
+    try {
+      await waitFor(page, () => lastOnlineUsers.includes('Guest') && lastOnlineUsers.includes('Victim'));
+      const card = '[data-lobby-key="player:Victim"]';
+      await page.click(`${card} .participant-menu summary`);
+      await page.click(`${card} .btn-delete`);
+      await waitFor(page, () => document.querySelector('dialog[open]'));
+      await page.click('#textPromptSave');
+      await waitFor(victim, () => deniedModal.style.display === 'flex');
+      await waitFor(page, () => session.bannedCount === 1);
+      await page.evaluate(() => { openSettingsModal(); switchSettingsTab('player'); openSettingsCategory('player', 'room'); });
+      assert.equal(await page.$eval('#roomSecuritySettings', node => getComputedStyle(node).display), 'none', 'password stays hidden on desktop');
+      assert.ok(await page.$eval('#unbanBtn', node => node.getBoundingClientRect().height > 0 && !node.disabled));
+      await guest.evaluate(() => { openSettingsModal(); switchSettingsTab('player'); });
+      assert.equal(await guest.$eval('#roomBanSettings', node => getComputedStyle(node).display), 'none');
+      await page.evaluate(() => closeSettingsModal());
+      await page.click('[data-lobby-key="player:Guest"] .participant-menu summary');
+      await page.click('[data-lobby-key="player:Guest"] .participant-menu .btn-outline');
+      await waitFor(page, () => document.querySelector('dialog[open]')); await page.click('#textPromptSave');
+      await waitFor(guest, () => amModerator());
+      assert.equal(await guest.$eval('#roomBanSettings', node => getComputedStyle(node).display), 'none', 'moderation does not grant unban rights');
+      await guest.evaluate(() => socket.emit('host_unban_all'));
+      await guest.evaluate(() => new Promise(resolve => socket.emit('time_sync', Date.now(), resolve)));
+      assert.equal(await page.evaluate(() => session.bannedCount), 1, 'server still rejects moderator unban');
+      await victim.reload(); await waitFor(victim, () => deniedModal.style.display === 'flex');
+      await page.evaluate(() => { openSettingsModal(); switchSettingsTab('player'); openSettingsCategory('player', 'room'); });
+      await page.locator('#unbanBtn').click();
+      await waitFor(page, () => !session.bannedCount && getComputedStyle(document.getElementById('roomBanSettings')).display === 'none');
+      await victim.reload(); await waitFor(victim, () => session?.loaded && socket.connected && lastOnlineUsers.includes('Victim'));
+      assert.deepEqual(guest.errors, []); assert.deepEqual(victim.errors, []);
+    } finally { await guest.browserContext().close(); await victim.browserContext().close(); }
   });
 });

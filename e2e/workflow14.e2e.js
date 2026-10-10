@@ -99,19 +99,25 @@ describe('1.4 dialogs, settings and bounded timeline', { skip: skipReason, timeo
     assert.deepEqual(await host.evaluate(() => session.lines.filter(line => multiSelection.has(line.id)).map(line => ({ id: line.id, character: line.character, start: line.start }))), before);
   });
   test('vertical pointer drag locks time; deliberate horizontal movement releases it', async () => {
-    await host.evaluate(() => { pxPerSec = 60; timelineContainer.scrollLeft = 0; renderTimeline(); clearMultiSelection(); selectLine(session.lines[0]); });
+    // The preceding keyboard move reveals another role. Reset the viewport before
+    // hitting the clip; its taller label must not turn this into a ruler click.
+    await host.evaluate(() => { pxPerSec = 60; timelineContainer.scrollLeft = 0; renderTimeline(); clearMultiSelection(); selectLine(session.lines[0]); timelineContainer.scrollTop = 0; });
     let positions = await host.evaluate(() => { const line = session.lines[0], block = document.getElementById('line-block-' + line.id).getBoundingClientRect(), row = document.querySelector('[data-character=Friend] .track-timeline').getBoundingClientRect(); return { x:block.left + 15, y:block.top + 15, targetY:row.top + 20, start:line.start }; });
+    const hit = await host.evaluate(({ x, y }) => ({ hit: document.elementFromPoint(x, y)?.closest('.line-block')?.id, scroll: timelineContainer.scrollTop, bounds: timelineContainer.getBoundingClientRect().toJSON(), point: { x, y } }), positions);
+    assert.equal(hit.hit, 'line-block-1', JSON.stringify(hit));
     await host.mouse.move(positions.x, positions.y); await host.mouse.down(); await host.mouse.move(positions.x + 3, positions.targetY, { steps:6 });
-    assert.equal(await host.$eval('#line-block-1', node => node.classList.contains('axis-locked')), true);
-    await host.mouse.up(); await waitFor(host, () => session.lines[0].character === 'Friend');
+    try { assert.equal(await host.$eval('#line-block-1', node => node.classList.contains('axis-locked')), true); }
+    finally { await host.mouse.up(); }
+    await waitFor(host, () => session.lines[0].character === 'Friend');
     assert.equal(await host.evaluate(() => session.lines[0].start), positions.start);
     await host.evaluate(() => editorUndo()); await waitFor(host, () => session.lines[0].character === 'Hero');
     // Moving the selected clip reveals its destination; Undo can therefore change
     // viewport geometry. Hit the current clip rather than stale screen coordinates.
-    positions = await host.evaluate(() => { const line = session.lines[0], block = document.getElementById('line-block-' + line.id).getBoundingClientRect(), row = document.querySelector('[data-character=Friend] .track-timeline').getBoundingClientRect(); return { x:block.left + 15, y:block.top + 15, targetY:row.top + 20, start:line.start }; });
+    positions = await host.evaluate(() => { timelineContainer.scrollTop = 0; const line = session.lines[0], block = document.getElementById('line-block-' + line.id).getBoundingClientRect(), row = document.querySelector('[data-character=Friend] .track-timeline').getBoundingClientRect(); return { x:block.left + 15, y:block.top + 15, targetY:row.top + 20, start:line.start }; });
     await host.mouse.move(positions.x, positions.y); await host.mouse.down(); await host.mouse.move(positions.x + 25, positions.targetY, { steps:6 });
-    assert.equal(await host.$eval('#line-block-1', node => node.classList.contains('axis-locked')), false);
-    await host.mouse.up(); await waitFor(host, start => session.lines[0].start > start, 10000, positions.start);
+    try { assert.equal(await host.$eval('#line-block-1', node => node.classList.contains('axis-locked')), false); }
+    finally { await host.mouse.up(); }
+    await waitFor(host, start => session.lines[0].start > start, 10000, positions.start);
   });
   test('individual track height changes locally, persists and resets without changing lines', async () => {
     await waitFor(host, () => editorQueue.length === 0);

@@ -72,6 +72,133 @@ describe('UI cleanup and local audio devices', { skip: skipReason, timeout: 1200
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   }
 
+  test('help auto-opens once per tab even if reloaded before dismissal; manual opening remains available', async () => {
+    const reader = await openPlayer(browser, server.url('help-first'), 'Reader', { helpSeen: false });
+    let nextTab;
+    try {
+      await waitFor(reader, () => helpModal.style.display === 'flex');
+      assert.equal(await reader.evaluate(() => localStorage.getItem('dubline_help_seen')), null);
+      await reader.reload(); await waitFor(reader, () => !!window.openHelpModal && socket.connected);
+      assert.equal(await reader.$eval('#helpModal', node => getComputedStyle(node).display), 'none');
+      nextTab = await openPlayer(browser, server.url('help-new-tab'), 'Reader', { helpSeen: false, context: reader.browserContext() });
+      await waitFor(nextTab, () => helpModal.style.display === 'flex');
+      await nextTab.click('#helpModal [data-i18n="help.ok"]');
+      await nextTab.reload(); await waitFor(nextTab, () => !!window.openHelpModal && socket.connected);
+      assert.equal(await nextTab.$eval('#helpModal', node => getComputedStyle(node).display), 'none');
+      await nextTab.click('header [onclick="openHelpModal()"]');
+      assert.equal(await nextTab.$eval('#helpModal', node => getComputedStyle(node).display), 'flex');
+      await reader.reload(); await waitFor(reader, () => !!window.openHelpModal && socket.connected);
+      assert.equal(await reader.$eval('#helpModal', node => getComputedStyle(node).display), 'none', 'permanent acknowledgement survives in other tabs');
+      assert.deepEqual(reader.errors, []); assert.deepEqual(nextTab.errors, []);
+    } finally { await reader.browserContext().close(); }
+    const fresh = await openPlayer(browser, server.url('help-fresh-window'), 'New reader', { helpSeen: false });
+    try { await waitFor(fresh, () => helpModal.style.display === 'flex'); } finally { await fresh.browserContext().close(); }
+  });
+
+  test('participant cards retain actions and compact statuses without repeated expanded badges', async () => {
+    const peer = await openPlayer(browser, server.url(await page.evaluate(() => currentRoom)), 'Peer');
+    try {
+      await waitFor(page, () => lastOnlineUsers.includes('Peer'));
+      await page.click('[data-lobby-key="player:Peer"] .participant-menu summary');
+      await page.click('[data-lobby-key="player:Peer"] .participant-menu .btn-outline');
+      await waitFor(page, () => document.querySelector('dialog[open]')); await page.click('#textPromptSave');
+      await waitFor(page, () => session.moderators.some(entry => entry.nick === 'Peer'));
+      await page.click('[data-lobby-key="player:Peer"] .participant-menu summary');
+      await page.focus('[data-lobby-key="player:Peer"] .participant-menu .btn-outline');
+      await page.evaluate(() => {
+        window.polishMenu = document.querySelector('[data-lobby-key="player:Peer"] details'); window.polishFocus = document.activeElement;
+        liveRecordings.set(2, 'Peer'); seedingNicks.add('Alice');
+        playerActivities.set('Alice', { state: 'ready', pct: 100 });
+        playerActivities.set('Peer', { state: 'downloading', pct: 42 }); renderLobby();
+      });
+      assert.equal(await page.evaluate(() => polishMenu === document.querySelector('[data-lobby-key="player:Peer"] details') && polishMenu.open && polishFocus === document.activeElement), true);
+      const visible = await page.evaluate(() => {
+        const shown = node => getComputedStyle(node).display !== 'none' && node.getBoundingClientRect().height > 0;
+        const host = document.querySelector('[data-lobby-key="player:Alice"]'), peer = document.querySelector('[data-lobby-key="player:Peer"]');
+        return { duplicateIcons: [...document.querySelectorAll('.player-status-compact')].filter(shown).length,
+          seedTags: host.querySelectorAll('.tag.seed').length, seeding: host.innerText.includes(t('lobby.seeding')),
+          recording: !!peer.querySelector('.tag.rec'), downloading: peer.innerText.includes(t('media.downloading', { pct: 42 })),
+          network: shown(host.querySelector('.player-network')), menu: shown(peer.querySelector('summary')),
+          jump: !!peer.querySelector('[data-jump-collaborator]'), gap: getComputedStyle(host).gap };
+      });
+      assert.equal(visible.duplicateIcons, 0); assert.equal(visible.seedTags, 1);
+      assert.equal(visible.seeding && visible.recording && visible.downloading && visible.network && visible.menu, true);
+      assert.equal(visible.gap, '4px');
+      await page.evaluate(() => { playerActivities.set('Peer', { state: 'ready', pct: 100 }); renderLobby(); });
+      assert.equal(await page.$eval('[data-lobby-key="player:Peer"] .tag.seed', node => node.textContent), 'Ready');
+      for (const theme of ['midnight', 'graphite', 'light', 'ocean', 'forest', 'sunset']) {
+        await page.evaluate(theme => { document.documentElement.dataset.theme = theme; }, theme);
+        const color = await page.$eval('.tag.seed', node => getComputedStyle(node).color);
+        assert.equal(color, theme === 'light' ? 'rgb(14, 89, 102)' : 'rgb(103, 232, 249)', 'other themes retain their colour');
+        if (theme === 'light') {
+          for (const tag of await page.$$('.tag.seed')) assert.ok(await tag.evaluate(textContrast) >= 4.5);
+        }
+      }
+      await page.evaluate(() => {
+        document.body.classList.add('lobby-compact'); liveRecordings.set(2, 'Peer');
+        playerActivities.set('Peer', { state: 'downloading', pct: 42 }); renderLobby();
+      });
+      const compact = await page.evaluate(() => {
+        const card = document.querySelector('[data-lobby-key="player:Peer"]');
+        return { width: document.getElementById('lobbyPanel').getBoundingClientRect().width,
+          overflow: lobbyList.scrollWidth > lobbyList.clientWidth,
+          icons: [...document.querySelectorAll('.player-status-compact')].every(node => getComputedStyle(node).display !== 'none' && node.getBoundingClientRect().height > 0 && !!node.title),
+          recording: [...card.querySelectorAll('.player-status-compact')].some(node => node.textContent === '🎙'),
+          downloading: [...card.querySelectorAll('.player-status-compact')].some(node => node.textContent.includes('42%')) };
+      });
+      assert.equal(compact.width, 68); assert.equal(compact.overflow, false);
+      assert.equal(compact.icons && compact.recording && compact.downloading, true, JSON.stringify(compact));
+      await page.evaluate(() => { document.body.classList.remove('lobby-compact'); liveRecordings.clear(); seedingNicks.clear(); playerActivities.clear(); renderLobby(); });
+      assert.equal(await page.evaluate(() => polishMenu.open && polishMenu === document.querySelector('[data-lobby-key="player:Peer"] details')), true);
+      assert.equal(await page.$('#hostPanel .host-sep'), null);
+      await page.click('#editModeBtn');
+      await waitFor(page, () => session.mode === 'edit' && !!document.querySelector('[data-jump-collaborator="Peer"]'));
+      assert.ok(await page.$eval('[data-jump-collaborator="Peer"]', node => node.getBoundingClientRect().height > 0), 'cursor jump action is retained');
+      await page.evaluate(() => { openSettingsModal(); openSettingsCategory('user', 'audio'); });
+      assert.equal(await page.$eval('#settingsLocalDuck', node => getComputedStyle(node.closest('.setting-card-row')).borderTopWidth), '0px');
+    } finally { await peer.browserContext().close(); }
+  });
+
+  test('role controls fit the minimum height, old preferences and overlaps; resizing still persists', async () => {
+    const peer = await openPlayer(browser, server.url(await page.evaluate(() => currentRoom)), 'Peer');
+    const check = async () => {
+      const rows = await page.$$eval('.track-row[data-character]', nodes => nodes.map(row => {
+        const box = row.getBoundingClientRect(), label = row.querySelector('.track-label').getBoundingClientRect();
+        return { name: row.dataset.character, height: box.height, fits: [...row.querySelector('.track-label-inner').children].every(node => {
+          const item = node.getBoundingClientRect(); return item.top >= label.top && item.bottom <= label.bottom - 6 && item.right <= label.right + 1;
+        }) };
+      }));
+      for (const row of rows) { assert.ok(row.height >= 80 && row.height <= 114, JSON.stringify(rows)); assert.ok(row.fits, JSON.stringify(rows)); }
+    };
+    try {
+      await page.evaluate(() => { roleHeights[roleHeightKey('Hero')] = 60; localStorage.setItem('dubline_role_heights', JSON.stringify(roleHeights)); renderTimeline(); timelineContainer.scrollTop = 0; });
+      await check();
+      await page.locator('[data-character="Hero"] .role-btn').click();
+      await waitFor(page, () => session.characterClaims.Hero === 'Alice' && !!document.querySelector('[data-character="Hero"] .role-badge.me'));
+      await peer.locator('[data-character="Friend"] .role-btn').click();
+      await waitFor(page, () => session.characterClaims.Friend === 'Peer' && !!document.querySelector('[data-character="Friend"] .role-badge.other'));
+      await check();
+      await page.evaluate(() => {
+        // Presentation fixture: long role names and overlapping cues, with the
+        // same production row builder and geometry used for server snapshots.
+        session.lines.filter(line => line.character === 'Hero').forEach(line => { line.character = 'A very long character name beyond the label'; line.start = 3; line.end = 4.5; });
+        session.trackOrder = ['A very long character name beyond the label', 'Friend'];
+        session.characterClaims['A very long character name beyond the label'] = 'Alice'; renderTimeline(); timelineContainer.scrollTop = 0;
+      });
+      await check();
+      assert.equal(await page.$$eval('[data-character="A very long character name beyond the label"] .line-block', nodes => new Set(nodes.map(node => node.style.top)).size), 2);
+      await page.reload(); await waitFor(page, () => session?.loaded && !!document.querySelector('[data-character="Hero"] .role-badge.me'));
+      assert.equal(await page.$eval('[data-character="Hero"]', node => node.getBoundingClientRect().height), 80);
+      const handle = await page.$('[data-character="Hero"] .role-height-handle'); await handle.scrollIntoView(); const box = await handle.boundingBox();
+      await page.mouse.move(box.x + 12, box.y + 2); await page.mouse.down(); await page.mouse.move(box.x + 12, box.y + 36, { steps: 5 }); await page.mouse.up();
+      const resized = await page.$eval('[data-character="Hero"]', node => node.getBoundingClientRect().height);
+      assert.ok(resized > 80);
+      await page.reload(); await waitFor(page, () => session?.loaded && !!document.querySelector('[data-character="Hero"]'));
+      assert.equal(await page.$eval('[data-character="Hero"]', node => node.getBoundingClientRect().height), resized);
+      assert.deepEqual(peer.errors, []);
+    } finally { await peer.browserContext().close(); }
+  });
+
   test('long-export warnings contrast with their actual backgrounds in every theme and language', async () => {
     await page.evaluate(() => {
       // Only metadata is substituted: exercise the real duration warning and CSS.

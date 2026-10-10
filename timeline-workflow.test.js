@@ -16,6 +16,8 @@ test('role lane geometry divides extra height, preserves padding and expands for
   }
   assert.equal(timeline.laneGeometry(1, 210).cueHeight, 198);
   assert.equal(timeline.laneGeometry(2, 210).cueHeight, 96);
+  assert.equal(timeline.laneGeometry(1, 60).height, 80, 'old small preferences fit the role controls without being rewritten');
+  assert.equal(timeline.laneGeometry(2).height, 114, 'overlap lanes still determine larger minimums');
 });
 
 test('timeline creation uses real duration, including the last fraction of a second', () => {

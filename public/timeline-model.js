@@ -42,7 +42,8 @@
   function coordinate(clientX, originLeft, pixelsPerSecond) { return (clientX - originLeft) / pixelsPerSecond; }
   function laneGeometry(laneCount, preferredHeight) {
     const count = Number.isSafeInteger(laneCount) && laneCount > 0 ? laneCount : 1;
-    const padding = 6, gap = 6, minimum = padding * 2 + count * 48 + (count - 1) * gap;
+    // Leave room for the role name, progress and claim button/badge as well as cues.
+    const padding = 6, gap = 6, minimum = Math.max(80, padding * 2 + count * 48 + (count - 1) * gap);
     const preferred = Number.isFinite(preferredHeight) && preferredHeight > 0 ? Math.min(600, preferredHeight) : minimum;
     const height = Math.max(minimum, preferred);
     const cueHeight = (height - padding * 2 - (count - 1) * gap) / count;
