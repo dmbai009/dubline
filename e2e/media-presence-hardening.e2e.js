@@ -362,6 +362,6 @@ describe('Media/presence recovery and local timeline controls', { skip: skipReas
       return { ...before, sameBlock: block === document.getElementById('line-block-1'), resetCue: block.getBoundingClientRect().height };
     });
     assert.equal(result.row, 210); assert.equal(result.cue, 198); assert.equal(result.font, '11px');
-    assert.equal(result.sameBlock, true); assert.equal(result.resetCue, 48);
+    assert.equal(result.sameBlock, true); assert.equal(result.resetCue, 68, 'the 80px minimum role retains 6px padding above and below its cue');
   });
 });

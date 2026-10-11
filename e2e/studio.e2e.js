@@ -861,10 +861,13 @@ describe('studio', { skip: skipReason }, () => {
     await waitFor(alice, id => !session.lines.some(line => line.id === id), 5000, created.line.id);
   });
 
-  test('Edit Mode: drag lines onto another role track; "Add role" under the tracks', async () => {
+  test('Edit Mode: drag lines onto another role track; "Add role" under the tracks', async t => {
     await waitFor(bob, () => session.mode === 'edit');
+    const viewport = bob.viewport();
+    const previousTop = await bob.evaluate(() => layout.top);
+    t.after(async () => { await bob.setViewport(viewport); await bob.evaluate(top => { layout.top = top; applyLayout(); }, previousTop); });
     // A tall timeline: every track fits on screen and no tile hides under the sticky ruler
-    await bob.evaluate(() => document.documentElement.style.setProperty('--top-h', '120px'));
+    await bob.evaluate(() => { layout.top = 200; applyLayout(); });
     await bob.evaluate(() => { localStorage.setItem('dubline_audio_collapsed', '1'); renderTimeline(); });
     // Drag a tile vertically with the real mouse: it lands on the track under the pointer
     const dragTo = async (page, lineId, character) => {
@@ -878,14 +881,29 @@ describe('studio', { skip: skipReason }, () => {
         const r = row.querySelector('.track-timeline').getBoundingClientRect();
         return r.y + 14; // the upper part: the bottom edge of the timeline would start auto-scrolling
       }, character);
+      const destination = await page.evaluate((x, y) => ({ row: document.elementFromPoint(x, y)?.closest('.track-row')?.dataset.character,
+        hit: document.elementFromPoint(x, y)?.className, x, y, width: innerWidth, height: innerHeight,
+        scrollerBottom: document.getElementById('timelineContainer').getBoundingClientRect().bottom
+      }), from.x, toY);
+      assert.equal(destination.row, character, `the destination is a visible role, not the footer: ${JSON.stringify(destination)}`);
       await page.mouse.move(from.x, from.y);
+      assert.equal(await page.evaluate((id, x, y) => document.elementFromPoint(x, y)?.closest('.line-block')?.id === `line-block-${id}`, lineId, from.x, from.y), true, 'gesture starts on the actual cue');
       await page.mouse.down();
-      await page.mouse.move(from.x, (from.y + toY) / 2, { steps: 4 });
-      await page.mouse.move(from.x, toY, { steps: 4 });
-      const highlighted = await page.evaluate(() => document.querySelector('.track-row.drop-target')?.dataset.character);
-      await page.mouse.up();
-      await page.evaluate(() => editorQueue);
-      return highlighted;
+      try {
+        await waitFor(page, () => activeEditorGesture && DublineEditLeases.stats().own > 0);
+        await page.mouse.move(from.x, (from.y + toY) / 2, { steps: 4 });
+        await page.mouse.move(from.x, toY, { steps: 4 });
+        await waitFor(page, name => document.querySelector('.track-row.drop-target')?.dataset.character === name, 5000, character);
+        return await page.evaluate(() => document.querySelector('.track-row.drop-target')?.dataset.character);
+      } catch (error) {
+        const geometry = await page.evaluate((x, y) => ({ x, y, hit: document.elementFromPoint(x, y)?.className,
+          target: document.querySelector('.track-row.drop-target')?.dataset.character,
+          gesture: window.activeEditorGesture?.type,
+          rows: [...document.querySelectorAll('.track-row')].map(row => ({ name: row.dataset.character, top: row.getBoundingClientRect().top, bottom: row.getBoundingClientRect().bottom })),
+          scroller: (() => { const node = document.getElementById('timelineContainer'), rect = node.getBoundingClientRect(); return { top: rect.top, bottom: rect.bottom, scrollTop: node.scrollTop }; })()
+        }), from.x, toY);
+        throw new Error(`${error.message}; drag geometry: ${JSON.stringify(geometry)}`, { cause: error });
+      } finally { await page.mouse.up(); }
     };
 
     // A new role, added from the button on the left of the timeline
@@ -894,6 +912,17 @@ describe('studio', { skip: skipReason }, () => {
     await answerTextPrompt(bob, 'Shion');
     await waitFor(alice, () => [...document.querySelectorAll('.track-row')].some(r => r.dataset.character === 'Shion'));
     await waitFor(bob, () => [...document.querySelectorAll('.track-row')].some(r => r.dataset.character === 'Shion'));
+    // Stage 1 increased the minimum role height. Make all fixture roles visible
+    // rather than aiming at an off-screen row and triggering endless edge scroll.
+    const extraHeight = await bob.evaluate(() => {
+      document.getElementById('timelineContainer').scrollTop = 0;
+      const bottom = Math.max(...[...document.querySelectorAll('.track-row')].map(row => row.getBoundingClientRect().bottom));
+      return Math.ceil(Math.max(0, bottom + 40 - document.getElementById('timelineContainer').getBoundingClientRect().bottom));
+    });
+    if (extraHeight) {
+      await bob.setViewport({ ...viewport, height: viewport.height + extraHeight });
+      await waitFor(bob, height => innerHeight === height && document.querySelector('.studio').getBoundingClientRect().height > height / 2, 5000, viewport.height + extraHeight);
+    }
 
     // Alice owns the role: a line dropped onto it becomes hers
     const [first, second, third] = await bob.evaluate(() => [...session.lines].sort((a, b) => a.start - b.start).map(l => l.id));
@@ -928,7 +957,6 @@ describe('studio', { skip: skipReason }, () => {
     await waitFor(bob, () => sessionCharacters().includes('Satoko'));
     await alice.evaluate(() => setStudioMode('edit'));
     await waitFor(bob, () => session.mode === 'edit');
-    await bob.evaluate(() => document.documentElement.style.removeProperty('--top-h'));
   });
 
   test('Edit Mode: undo own edits, keyboard moves, mode notice in chat', async () => {
