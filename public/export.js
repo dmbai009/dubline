@@ -33,7 +33,7 @@ window.closeRenderModal = function() {
 
 function readRenderGains(scene = session) {
   const mix = window.DublineProjectAudio.normalize(scene);
-  return { ...window.DublineProjectAudio.gains(mix), mix };
+  return { ...window.DublineProjectAudio.gains(mix, window.DublineProjectAudio.sources(scene)), mix };
 }
 
 function downloadBlob(blob, ext, title = session.title) {

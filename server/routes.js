@@ -35,7 +35,7 @@ app.use((req, res, next) => {
   const finish = () => { if (!completed) { completed = true; activeMediaRequests--; } };
   res.once('finish', finish); res.once('close', finish); next();
 });
-module.exports.isMediaBusy = () => activeMediaRequests > 0 || workshopDownloads.size > 0 || packExports.size > 0 || projectExports.size > 0 || projectImports.size > 0 || customImports.size > 0;
+module.exports.isMediaBusy = () => activeMediaRequests > 0 || workshopDownloads.size > 0 || packExports.size > 0 || projectExports.size > 0 || projectImports.size > 0 || customImports.size > 0 || require('./backing-source').isBusy();
 
 app.get('/api/media-manifest', async (req, res) => {
   const roomId = resolveRoomId(req.query.room), member = Object.values(roomSockets[roomId] || {}).find(item => item.clientId === req.query.clientId && item.nick);
@@ -49,6 +49,20 @@ app.get('/api/media-manifest', async (req, res) => {
     if (room.activeSessionId !== sessionId || !Object.values(roomSockets[roomId] || {}).some(item => item.clientId === req.query.clientId && item.nick)) return res.status(409).json({ error: 'Scene changed' });
     res.setHeader('Cache-Control', 'no-store'); res.json({ ...manifest, sessionId, url });
   } catch { res.status(404).json({ error: 'Media unavailable' }); }
+});
+
+app.get('/api/video-diagnostics', async (req, res) => {
+  const roomId = resolveRoomId(req.query.room), room = rooms[roomId];
+  const member = () => Object.values(roomSockets[roomId] || {}).some(value => value.nick && value.clientId === req.query.clientId);
+  if (!room || !member()) return res.status(403).json({ key: 'onlyHost' });
+  const sessionId = room.activeSessionId, videoUrl = room.videoUrl;
+  if (!room.loaded || req.query.sessionId !== sessionId) return res.status(409).json({ key: 'error.importSceneChanged' });
+  try {
+    const info = await require('./video-compatibility').inspectVideo(diskPathForUrl(videoUrl));
+    if (room.activeSessionId !== sessionId || room.videoUrl !== videoUrl || !member()) return res.status(409).json({ key: 'error.importSceneChanged' });
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ sessionId, videoUrl, ...info, workingCopy: !!room.originalVideoUrl, requiresCompatibilityCopy: require('./video-compatibility').requiresCompatibleProxy(info) });
+  } catch (error) { sendError(res, error instanceof HttpError ? error : new HttpError(404, 'Video unavailable', 'media.unsupported')); }
 });
 
 app.get('/api/audio-waveform', async (req, res) => {
@@ -592,8 +606,10 @@ app.post('/api/upload-custom', (req,res,next) => {
     let subtitleBuffer = subFile ? fs.readFileSync(subFile.path) : null;
     let subtitleName = subFile ? subFile.originalname : '';
 
+    const videoInfo = await require('./video-compatibility').inspectVideo(videoFile.path, { signal: req.uploadAbort.signal });
+    const compatibilityCopy = require('./video-compatibility').requiresCompatibleProxy(videoInfo);
     let originalVideoUrl = '', originalVideoName = '', proxy = null;
-    if (req.query.optimize === '1') {
+    if (req.query.optimize === '1' || compatibilityCopy) {
       const sourceName = 'source_video' + (isMkvFile(videoFile) ? '.mkv' : '.mp4');
       const sourcePath = path.join(targetDir, sourceName);
       require('./video-proxy').checkSpace(targetDir,videoFile.size + MAX_VIDEO_MB * 1024 * 1024);
@@ -638,7 +654,6 @@ app.post('/api/upload-custom', (req,res,next) => {
       }
     } else {
       fs.copyFileSync(videoFile.path, videoPath);
-      await runFfmpeg(['-i', videoPath, '-map', '0:v:0', '-frames:v', '1', '-an', '-f', 'null', '-'], 'Could not read scene video', {signal:req.uploadAbort.signal});
     }
 
     if (fs.statSync(videoPath).size > MAX_VIDEO_MB * 1024 * 1024) throw new HttpError(413, 'Converted video exceeds the video limit', 'error.videoTooBig', {max:MAX_VIDEO_MB});
@@ -701,6 +716,7 @@ app.post('/api/upload-custom', (req,res,next) => {
   }
 });
 require('./video-export');
+require('./backing-source');
 
 // Take upload
 app.post('/api/upload-line-audio', acceptFile('audio', MAX_TAKE_MB, requireConfirmedNick), (req, res) => {

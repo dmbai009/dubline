@@ -31,6 +31,19 @@ test('stale waiting on a decodable paused player does not invent a buffering fai
   const f = fixture(); f.video.paused = true; f.update(); f.video.dispatchEvent(new Event('waiting'));
   assert.equal(f.latest().state, 'ready'); assert.equal(f.overlay.hidden, true);
 });
+
+test('network, decoder and unsupported-source failures explain the observed MediaError independently', () => {
+  for (const [code, key] of [[1, 'media.aborted'], [2, 'media.networkFailed'], [3, 'media.decodeFailed'], [4, 'media.unsupported']]) {
+    const f = fixture(); f.video.error = { code }; f.video.dispatchEvent(new Event('error'));
+    assert.equal(f.latest().state, 'failed'); assert.equal(f.overlay.textContent, key);
+  }
+});
+
+test('watching the host hides only the player obstruction while retaining actual download presence', () => {
+  const f = fixture(); f.context.window.isWatchingHostMedia = () => true;
+  f.context.window.updateMediaTransfer({ downloading: true, pct: 42 });
+  assert.equal(f.latest().state, 'downloading'); assert.equal(f.latest().pct, 42); assert.equal(f.overlay.hidden, true);
+});
 test('decodable media keeps actual ongoing download progress visible until transfer completion', () => {
   const f = fixture(); f.update(); f.context.window.updateMediaTransfer({ downloading: true, pct: 42 });
   assert.equal(f.latest().state, 'downloading'); assert.equal(f.latest().pct, 42);

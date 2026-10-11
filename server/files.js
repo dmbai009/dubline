@@ -4,10 +4,10 @@ const path = require('path');
 const crypto = require('crypto');
 const { UPLOAD_DIR, PACKS_DIR } = require('./config');
 
-// The scene folder inside uploads (pack_… or custom_…) if the url points into one
+// Owned scene/source folder inside uploads, including separately prepared backgrounds.
 function sceneDirOf(url) {
   const match = /^\/uploads\/([^/]+)\//.exec(decodeURIComponent(url || ''));
-  return match && /^(pack_|custom_)/.test(match[1]) ? match[1] : null;
+  return match && /^(pack_|custom_|backing_[a-f0-9-]+$)/.test(match[1]) ? match[1] : null;
 }
 
 // Media file sizes are shown on the download buttons. They are cached so the disk is not hit

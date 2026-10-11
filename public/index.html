@@ -1214,12 +1214,19 @@
             <button class="btn-icon" data-studio-action="fullscreen" data-i18n-title="studio.fullscreen" title="Fullscreen (F)">⛶</button>
           </div>
 
-          <!-- Audio track picker when the video has several tracks -->
+            <!-- Moved into the timeline Audio group when a scene is displayed. -->
           <div class="track-picker" id="trackPicker" style="display: none;">
             <label><span data-i18n="tracks.original">🎧 Original</span> <select id="originalTrackSelect"></select></label>
             <label><span data-i18n="tracks.backing">🎵 Background</span> <select id="backingTrackSelect"></select></label>
             <span id="trackPickerNote" class="track-note"></span>
           </div>
+            <div id="backingSourceControls" class="studio-backing-source" hidden>
+              <span id="backingSourceName"></span>
+              <button id="backingUploadBtn" class="btn-outline" onclick="chooseBackingSource()" data-i18n="backing.add"></button>
+              <button id="backingRemoveBtn" class="btn-outline" onclick="removeBackingSource()" data-i18n="backing.remove"></button>
+              <input id="backingSourceInput" type="file" accept=".wav,.mp3,.m4a,.aac,.ogg,.oga,.opus,.flac" hidden>
+              <span id="backingSourceStatus" role="status"></span>
+            </div>
         </div>
 
         <div class="splitter splitter-x" data-resize="inspector" data-dir="-1" data-i18n-title="splitter.hint" title="Drag to resize · double-click to reset"></div>
@@ -1315,6 +1322,7 @@
   <script src="track-editor.js"></script>
   <script src="selection-presence.js"></script>
   <script src="studio.js"></script>
+  <script src="backing-source.js"></script>
   <script src="features.js"></script>
   <script src="media-readiness.js"></script>
   <script src="transfer-utils.js"></script>

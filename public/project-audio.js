@@ -29,13 +29,14 @@
     }
     return { original, backing: session.backingUrl || '' };
   }
-  function gains(mix) {
-    const solo = CHANNELS.some(channel => mix[channel].solo);
+  function gains(mix, source = null) {
+    const available = channel => channel === 'dub' || !source || !!source[channel];
+    const solo = CHANNELS.some(channel => available(channel) && mix[channel].solo);
     return Object.fromEntries(CHANNELS.map(channel => [channel,
-      mix[channel].muted || (solo && !mix[channel].solo) ? 0 : mix[channel].volume]));
+      !available(channel) || mix[channel].muted || (solo && !mix[channel].solo) ? 0 : mix[channel].volume]));
   }
   function preparationStatus(session, elements) {
-    const source = sources(session), gain = gains(normalize(session));
+    const source = sources(session), gain = gains(normalize(session), source);
     const audible = ['original', 'backing'].filter(channel => source[channel] && gain[channel] > 0);
     const failed = audible.filter(channel => elements[channel]?.error);
     const buffering = audible.filter(channel => !elements[channel]?.error && (elements[channel]?.readyState || 0) < 3);

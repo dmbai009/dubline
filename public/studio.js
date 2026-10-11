@@ -52,7 +52,7 @@
     return { autoDuckEnabled: mix.autoDuckEnabled, autoDuckAmount: mix.autoDuckAmount };
   };
   window.studioPlaybackVolumes = () => {
-    const gain = model.gains(mixMode === 'monitor' ? personal() : project());
+    const gain = model.gains(mixMode === 'monitor' ? personal() : project(), model.sources(session || {}));
     const master = window.localMasterVolume?.() ?? 1;
     return { original: gain.original * master, backing: gain.backing * master, recorded: gain.dub * master, isMuted: volumes.isMuted };
   };
@@ -130,6 +130,7 @@
     if (action === 'back' || action === 'forward') video.currentTime = Math.max(0, Math.min(Number.isFinite(video.duration) ? video.duration : 43200, video.currentTime + (action === 'back' ? -3 : 3)));
   };
   function refreshTransport() {
+    window.refreshBackingSource?.();
     window.refreshPlaybackTransport?.();
     const recordButton = document.getElementById('recBtn'); if (recordButton) recordButton.disabled = renderInProgress;
     const exportButton = document.getElementById('startRenderBtn'); if (exportButton) exportButton.disabled = renderInProgress || recordState !== 'idle' || !!(session?.hasOriginalVideo && !amHost());
@@ -174,29 +175,51 @@
   video.addEventListener('playing', () => window.syncProjectSources(true));
   // The audio group starts collapsed: the role tracks with the lines are what most people need
   const audioCollapsed = () => localStorage.getItem('dubline_audio_collapsed') !== '0';
-  window.renderStudioAudio = trackWidth => {
-    // Detach the persistent picker before the timeline's next innerHTML reset.
-    const header = document.createElement('div'); header.className = 'studio-audio-header';
-    header.style.width = `${timelineContainer.clientWidth}px`;
+  const displayedAudio = () => model.sources(session).backing
+    ? [['original', 'original'], ['backing', 'backing'], ['dub', 'dub']]
+    : [['original', 'backing'], ['dub', 'dub']];
+  let audioControlState = '';
+  window.renderStudioAudio = (trackWidth, viewportWidth = timelineContainer.clientWidth) => {
+    let header = timeline.querySelector('.studio-audio-header');
+    if (!header) { header = document.createElement('div'); header.className = 'studio-audio-header'; timeline.appendChild(header); }
+    header.style.width = `${viewportWidth}px`;
     const collapsed = audioCollapsed();
-    header.innerHTML = `<button class="btn-icon" data-studio-action="audio" aria-expanded="${!collapsed}">${collapsed ? '▶' : '▼'} ${esc(t('studio.audio'))}</button>
+    const headerKey = JSON.stringify([collapsed, t('studio.audio'), t('studio.projectMix'), t('studio.monitor'), t('studio.monitorReset')]);
+    if (header.dataset.layout !== headerKey) header.innerHTML = `<button class="btn-icon" data-studio-action="audio" aria-expanded="${!collapsed}">${collapsed ? '▶' : '▼'} ${esc(t('studio.audio'))}</button>
       <select class="text-input studio-select" data-studio-mix aria-label="${esc(t('studio.mixMode'))}"><option value="project">${esc(t('studio.projectMix'))}</option><option value="monitor">${esc(t('studio.monitor'))}</option></select>
       <button class="btn-icon" data-studio-action="monitor-reset" title="${esc(t('studio.monitorReset'))}">⟲</button><span class="studio-mix-note"></span>`;
-    timeline.appendChild(header);
-    trackPicker.hidden = false;
-    if (!collapsed) for (const channel of model.CHANNELS) {
-      const row = document.createElement('div'); row.className = 'studio-audio-row'; row.dataset.audioChannel = channel;
-      const names = { original: t('studio.original'), backing: t('studio.backing'), dub: t('studio.dub') };
+    header.dataset.layout = headerKey;
+    let sourceControls = timeline.querySelector('.studio-audio-sources');
+    if (!sourceControls) { sourceControls = document.createElement('div'); sourceControls.className = 'studio-audio-sources'; timeline.appendChild(sourceControls); }
+    sourceControls.style.width = `${viewportWidth}px`;
+    if (trackPicker.parentNode !== sourceControls) sourceControls.append(trackPicker, backingSourceControls);
+    trackPicker.hidden = collapsed;
+    sourceControls.hidden = collapsed;
+    const channels = collapsed ? [] : displayedAudio();
+    for (const row of timeline.querySelectorAll('.studio-audio-row')) if (!channels.some(([channel]) => channel === row.dataset.audioChannel)) row.remove();
+    for (const [channel, name] of channels) {
+      let row = timeline.querySelector(`.studio-audio-row[data-audio-channel="${channel}"]`);
+      if (!row) {
+        row = document.createElement('div'); row.className = 'studio-audio-row'; row.dataset.audioChannel = channel;
+        const following = channels.slice(channels.findIndex(([key]) => key === channel) + 1).map(([key]) => timeline.querySelector(`.studio-audio-row[data-audio-channel="${key}"]`)).find(Boolean);
+        timeline.insertBefore(row, following || null);
+      }
+      const names = { [channel]: t('studio.' + name) };
       const ids = { original: 'volOriginal', backing: 'volBacking', dub: 'volRecorded' };
-      row.innerHTML = `<div class="track-label"><div class="studio-channel-head"><b>${names[channel]}</b>
+      const rowKey = JSON.stringify([names[channel], t('studio.mute'), t('studio.solo'), t('studio.offset')]);
+      if (row.dataset.layout !== rowKey) row.innerHTML = `<div class="track-label"><div class="studio-channel-head"><b>${esc(names[channel])}</b>
         <button class="btn-icon" data-audio-field="muted" title="${esc(t('studio.mute'))}">M</button><button class="btn-icon" data-audio-field="solo" title="${esc(t('studio.solo'))}">S</button></div>
         <label class="studio-channel-volume"><input type="range" id="${ids[channel]}" min="0" max="${model.MAX_VOLUME * 100}" data-audio-field="volume" data-reset-resolver="audio-volume" aria-label="${names[channel]} volume"><output></output></label>
         ${channel !== 'dub' ? `<label class="studio-channel-offset"><span>${esc(t('studio.offset'))}</span><input class="text-input" type="number" min="-43200" max="43200" step="0.001" data-audio-field="offset" aria-label="${names[channel]} offset"><span>s</span></label>` : ''}
         </div><div class="studio-wave-area" style="width:${trackWidth}px"><canvas></canvas><span class="studio-wave-status"></span><div class="studio-wave-source"></div></div>`;
-      timeline.appendChild(row);
+      row.dataset.layout = rowKey;
+      row.querySelector('.studio-wave-area').style.width = `${trackWidth}px`;
     }
-    refreshControls(); drawWaves();
+    const state = JSON.stringify([headerKey, channels, sceneId, project(), personal(), mixMode, canMix(), [...pending], inFlight, session.audioMetadata, model.sources(session)]);
+    if (audioControlState !== state) { audioControlState = state; window.refreshBackingSource?.(); refreshControls(); }
   };
+  // Paint once at the final scroll position, after the timeline geometry is restored.
+  window.paintStudioTimelineWaves = drawWaves;
   function refreshControls() {
     if (!session) return;
     const mix = mixMode === 'monitor' ? personal() : project();
@@ -228,9 +251,9 @@
       }
       row.querySelector('output').textContent = Math.round(project()[channel].volume * 100) + '%';
     }
-    const gain = model.gains(project());
+    const gain = model.gains(project(), model.sources(session));
     const summary = document.getElementById('exportMixSummary');
-    if (summary) summary.textContent = ['original', 'backing', 'dub'].map(channel => `${t('studio.' + channel)}: ${Math.round(gain[channel] * 100)}%`).join(' · ');
+    if (summary) summary.textContent = displayedAudio().map(([channel, name]) => `${t('studio.' + name)}: ${Math.round(gain[channel] * 100)}%`).join(' · ');
     for (const [id, channel] of [['renderOrig', 'original'], ['renderBacking', 'backing'], ['renderDub', 'dub']]) {
       const slider = document.querySelector(`#${id}Vol`), label = document.querySelector(`#${id}Val`);
       if (slider) { slider.value = Math.round(gain[channel] * 100); slider.disabled = true; }
@@ -351,6 +374,8 @@
   const fitAudioHeader = () => {
     const header = timeline.querySelector('.studio-audio-header');
     if (header) header.style.width = `${timelineContainer.clientWidth}px`;
+    const sources = timeline.querySelector('.studio-audio-sources');
+    if (sources) sources.style.width = `${timelineContainer.clientWidth}px`;
   };
   if (window.ResizeObserver) new ResizeObserver(() => { fitAudioHeader(); drawWaves(); }).observe(timelineContainer);
   timelineContainer.addEventListener('scroll', () => { cancelAnimationFrame(waveFrame); waveFrame = requestAnimationFrame(drawWaves); });

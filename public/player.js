@@ -58,10 +58,17 @@ let revealLineId = null; // line to scroll the timeline to after a redraw (its c
 let localMedia = null; // { forVideoUrl, videoUrl, videoBlob, backingUrl, backingBlob, size }
 let loadedVideoUrl = null;
 let loadedMediaSources = null;
+let loadedMediaSessionId = null;
+
+function audioMediaType(url) {
+  const extension = String(url || '').split(/[?#]/)[0].split('.').pop().toLowerCase();
+  return ({ m4a: 'audio/mp4', mp4: 'audio/mp4', wav: 'audio/wav', mp3: 'audio/mpeg', aac: 'audio/aac', ogg: 'audio/ogg', oga: 'audio/ogg', opus: 'audio/ogg', flac: 'audio/flac' })[extension] || 'application/octet-stream';
+}
 
 function mediaUrl(serverUrl) {
   if (!serverUrl) return serverUrl;
   if (localMedia && localMedia.forVideoUrl === (state.session && state.session.videoUrl)) {
+    if (serverUrl === state.session.videoUrl && localMedia.playbackFromHost) return serverUrl;
     if (localMedia.assets?.[serverUrl]) return localMedia.assets[serverUrl].url;
     if (serverUrl === state.session.videoUrl) return localMedia.videoUrl;
     if (serverUrl === localMedia.backingSourceUrl && localMedia.backingUrl) return localMedia.backingUrl;
@@ -395,9 +402,11 @@ function renderTimeline() {
   const savedScrollLeft = timelineFitActive ? 0 : timelineContainer.scrollLeft / oldScale * pxPerSec;
   const savedScrollTop = timelineContainer.scrollTop;
   const viewportWidth = timelineContainer.clientWidth;
-  timeline.innerHTML = '';
-  // Keep media choices in the fixed video panel, outside horizontal timeline scrolling.
-  timeline.appendChild(playhead);
+  // Audio controls and waveform bitmaps survive zooms, including keyboard focus.
+  for (const child of [...timeline.children]) {
+    if (child !== playhead && !child.matches('.studio-audio-header,.studio-audio-sources,.studio-audio-row')) child.remove();
+  }
+  timeline.prepend(playhead);
 
   if (!session.lines) return;
 
@@ -444,8 +453,8 @@ function renderTimeline() {
 
   rulerRow.appendChild(rulerCorner);
   rulerRow.appendChild(rulerTicks);
-  timeline.appendChild(rulerRow);
-  if (window.renderStudioAudio) window.renderStudioAudio(trackWidth);
+  timeline.insertBefore(rulerRow, timeline.querySelector('.studio-audio-header'));
+  if (window.renderStudioAudio) window.renderStudioAudio(trackWidth, viewportWidth);
 
   characters.forEach(char => timeline.appendChild(buildRoleRow(char, trackWidth, allowCharacterClaims, editing)));
 
@@ -459,6 +468,7 @@ function renderTimeline() {
 
   timelineContainer.scrollLeft = savedScrollLeft;
   timelineContainer.scrollTop = savedScrollTop;
+  window.paintStudioTimelineWaves?.();
   if (revealLineId != null) {
     const tile = document.getElementById(`line-block-${revealLineId}`);
     revealLineId = null;
@@ -889,6 +899,7 @@ new ResizeObserver(() => {
 // with the video, and the video's own sound is muted (the browser player can play only one track).
 // ==========================================
 const trackPicker = document.getElementById('trackPicker');
+const backingSourceControls = document.getElementById('backingSourceControls');
 const originalTrackSelect = document.getElementById('originalTrackSelect');
 const backingTrackSelect = document.getElementById('backingTrackSelect');
 const trackPickerNote = document.getElementById('trackPickerNote');

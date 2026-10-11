@@ -37,6 +37,7 @@ async function main() {
     await page.evaluate(() => closeSettingsModal());
     await waitFor(page, () => amHost() && myName === 'Native UI');
     await (await page.$('#zipInput')).uploadFile(buildFixturePack()); await waitFor(page, () => session?.loaded && session.lines.length === 4 && video.readyState >= 2, 30000);
+    await require('./media-source-smoke')(page, profile);
     // Use the real Electron host/preload and a separately authenticated guest.
     // The existing ban protocol stays unchanged; exercise actual menu/settings clicks.
     const guestBrowser = await launchBrowser(Number(new URL(page.url()).port));

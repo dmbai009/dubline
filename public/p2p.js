@@ -554,9 +554,11 @@ async function downloadFile({ url, size, hash, type, direct }, onProgress, abort
 }
 
 // ---------- Scene media loading ----------
-function setHostSources() {
-  video.src = mediaUrl(session.videoUrl);
-  backing.src = mediaUrl(session.backingUrl);
+function setHostSources(preservePlayback = false) {
+  const url = preservePlayback ? session.videoUrl : mediaUrl(session.videoUrl);
+  if (preservePlayback) swapVideoSource(url);
+  else if (video.getAttribute('src') !== url) video.src = url;
+  setMediaSource(backing, mediaUrl(session.backingUrl));
 }
 
 function cancelMediaDownload() {
@@ -569,6 +571,8 @@ function cancelMediaDownload() {
 
 // Called when the room's scene video changes
 async function loadSceneMedia() {
+  const watchingHost = !!((mediaDownload?.sessionId === session.activeSessionId && mediaDownload.videoUrl === session.videoUrl && mediaDownload.watchingHost) ||
+    (localMedia?.forVideoUrl === session.videoUrl && localMedia.playbackFromHost));
   cancelMediaDownload();
   for (const release of mediaPins.values()) release(); mediaPins.clear();
   ++announceGeneration; clearTimeout(announceTimer); announceTimer = null;
@@ -590,12 +594,12 @@ async function loadSceneMedia() {
 
   // Download it all (from players, the rest from the host), then play locally and share it ourselves
   const abort = new AbortController();
-  const download = { abort, videoUrl: current.videoUrl };
+  const download = { abort, videoUrl: current.videoUrl, sessionId: current.activeSessionId, watchingHost };
   mediaDownload = download;
   window.reportPlayerActivity?.('downloading', 0, true);
   const files = [{ url: current.videoUrl, size: current.videoSize, hash: current.videoHash, type: 'video/mp4', role: 'video' }];
   if (current.backingUrl && current.backingSize) {
-    files.push({ url: current.backingUrl, size: current.backingSize, hash: current.backingHash, type: 'audio/mpeg', role: 'backing' });
+    files.push({ url: current.backingUrl, size: current.backingSize, hash: current.backingHash, type: audioMediaType(current.backingUrl), role: 'backing' });
   }
   for (const [role, url] of Object.entries(DublineProjectAudio.sources(current))) {
     if (!url || files.some(file => file.url === url)) continue;
@@ -604,7 +608,7 @@ async function loadSceneMedia() {
       if (!response.ok) throw new Error('Audio manifest unavailable');
       const manifest = await response.json();
       if (!DublineMediaCache.valid(manifest) || manifest.sessionId !== current.activeSessionId) throw new Error('Audio manifest mismatch');
-      files.push({ url, size: manifest.size, hash: manifest.sha256, type: 'audio/mpeg', role });
+      files.push({ url, size: manifest.size, hash: manifest.sha256, type: audioMediaType(url), role });
     } catch (error) { if (abort.signal.aborted) return; console.info('[DubLine] Audio source will stream from host:', error.message); }
   }
   const direct = current.workshopSource;
@@ -617,6 +621,7 @@ async function loadSceneMedia() {
         if (!archive) archive = (async () => {
           const url = new URL(direct.downloadUrl);
           if (url.protocol !== 'https:' || !['voxalike.com', 'www.voxalike.com'].includes(url.hostname) || url.username || url.password || url.port || !/^\/workshop\/[a-z0-9_/-]+\/download$/.test(url.pathname)) throw new Error('Invalid Voxalike URL');
+          if (mediaDownload !== download || abort.signal.aborted) throw new Error('cancelled');
           p2pStatus = { state: 'direct' }; updateP2pStatus();
           const response = await fetch(url, { credentials: 'omit', signal: AbortSignal.any([abort.signal, AbortSignal.timeout(15000)]) });
           if (!response.ok || !response.body) throw new Error('Voxalike download failed');
@@ -643,7 +648,7 @@ async function loadSceneMedia() {
           const blob = new Blob([await item.async('arraybuffer')], { type: file.type });
           if (blob.size !== file.size || await sha256Hex(blob) !== file.hash) throw new Error('Voxalike asset changed');
           return { blob, p2pBytes: 0, httpBytes: 0, directBytes: blob.size, peers: 0 };
-        } catch (error) { p2pStatus = { state: 'fallback' }; updateP2pStatus(); throw error; }
+        } catch (error) { if (mediaDownload === download && !abort.signal.aborted) { p2pStatus = { state: 'fallback' }; updateP2pStatus(); } throw error; }
       };
     }
   }
@@ -681,6 +686,7 @@ async function loadSceneMedia() {
         updateP2pStatus();
         window.reportPlayerActivity?.('downloading', p2pStatus.pct);
       }, abort);
+      if (mediaDownload !== download || abort.signal.aborted || session.activeSessionId !== download.sessionId) return;
       results[file.role] = result.blob;
       assets[file.url] = result.blob;
       doneBytes += file.size;
@@ -689,9 +695,9 @@ async function loadSceneMedia() {
       totals.http += result.httpBytes;
       socket.emit('p2p_report', { url: file.url, p2pBytes: result.p2pBytes, httpBytes: result.httpBytes, peers: result.peers });
     }
-    if (mediaDownload !== download || session.videoUrl !== download.videoUrl) return;
+    if (mediaDownload !== download || session.videoUrl !== download.videoUrl || session.activeSessionId !== download.sessionId) return;
     mediaDownload = null;
-    setLocalMedia({ video: results.video, backing: results.backing || null, assets, source: 'p2p', videoSourceUrl: current.videoUrl, backingSourceUrl: current.backingUrl });
+    setLocalMedia({ video: results.video, backing: results.backing || null, assets, source: 'p2p', videoSourceUrl: current.videoUrl, backingSourceUrl: current.backingUrl, activatePlayback: !download.watchingHost });
     window.updateMediaTransfer?.({ downloading: false, fallback: false, pct: 100, buckets: new Array(96).fill(100) });
     p2pStatus = { state: 'done', direct: totals.direct, p2p: totals.p2p, http: totals.http, size: totalSize };
   } catch (err) {
@@ -700,18 +706,20 @@ async function loadSceneMedia() {
     console.warn('[Dubline] Could not preload the video, watching from the host:', err.message);
     p2pStatus = { state: 'failed' };
     window.updateMediaTransfer?.({ downloading: false, fallback: true });
-    setHostSources();
+    setHostSources(download.watchingHost);
   }
   updateP2pStatus();
   window.reportPlayerActivity?.('idle', 100, true);
 }
 
 window.watchFromHostNow = function() {
-  cancelMediaDownload();
-  p2pStatus = null;
-  setHostSources();
+  if (!session?.loaded) return;
+  if (mediaDownload) mediaDownload.watchingHost = true;
+  if (localMedia?.forVideoUrl === session.videoUrl) localMedia.playbackFromHost = true;
+  setHostSources(true);
   updateP2pStatus();
 };
+window.isWatchingHostMedia = () => !!(mediaDownload?.watchingHost || localMedia?.playbackFromHost);
 
 function updateP2pStatus() {
   const lines = [];
@@ -722,7 +730,7 @@ function updateP2pStatus() {
   else if (p2pStatus && p2pStatus.state === 'fetching') {
     lines.push(t('p2p.fetching', { pct: p2pStatus.pct, p2p: formatSize(p2pStatus.p2p) || '0', http: formatSize(p2pStatus.http) || '0' }));
     pct = p2pStatus.pct;
-    showWatchNow = true;
+    showWatchNow = !mediaDownload?.watchingHost;
   } else if (p2pStatus && p2pStatus.state === 'done') {
     const share = p2pStatus.size ? Math.round((p2pStatus.p2p / p2pStatus.size) * 100) : 0;
     lines.push(t('p2p.done', { size: formatSize(p2pStatus.size), pct: share }));

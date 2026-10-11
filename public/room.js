@@ -725,14 +725,18 @@ function applySessionUpdate(data) {
   // Don't reload the video if the pack hasn't changed (e.g. on role changes)
   const mediaSources = JSON.stringify([session.activeSessionId, session.videoUrl, window.DublineProjectAudio.sources(session)]);
   if (loadedVideoUrl !== session.videoUrl || loadedMediaSources !== mediaSources) {
+    const sceneChanged = loadedVideoUrl !== session.videoUrl || loadedMediaSessionId !== session.activeSessionId;
     loadedVideoUrl = session.videoUrl;
+    loadedMediaSessionId = session.activeSessionId;
     loadedMediaSources = mediaSources;
     // A new pack: watch-together of the old one is definitely over
-    if (watchMode) exitWatchMode();
+    if (watchMode && sceneChanged) exitWatchMode();
     forgetStaleLocalMedia();
     loadSceneMedia();
-    selectedLine = null;
-    inspector.innerHTML = `<h3>${t('inspector.title')}</h3><p style="color: #71717a;">${t('inspector.empty')}</p>`;
+    if (sceneChanged) {
+      selectedLine = null;
+      inspector.innerHTML = `<h3>${t('inspector.title')}</h3><p style="color: #71717a;">${t('inspector.empty')}</p>`;
+    }
   }
 
   updateDownloadButtons();

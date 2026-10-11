@@ -256,22 +256,28 @@ function updateLocalMediaStatus() {
 }
 
 // The video (and background) now play from browser memory: from the player's disk or received over P2P
-function setLocalMedia({ video: videoBlob, backing: backingBlob, source, assets = {}, videoSourceUrl = session.videoUrl, backingSourceUrl = session.backingUrl }) {
+function setLocalMedia({ video: videoBlob, backing: backingBlob, source, assets = {}, videoSourceUrl = session.videoUrl, backingSourceUrl = session.backingUrl, activatePlayback = true }) {
   if (videoSourceUrl !== session.videoUrl) return;
   cancelMediaDownload();
-  revokeLocalMedia();
+  const previous = localMedia;
+  const reuse = source === 'p2p' && previous?.source === 'p2p' && previous.forVideoUrl === videoSourceUrl && previous.videoHash === session.videoHash;
   localMedia = {
     forVideoUrl: videoSourceUrl,
+    videoHash: session.videoHash,
+    playbackFromHost: !activatePlayback,
     backingSourceUrl,
-    videoBlob,
-    videoUrl: URL.createObjectURL(videoBlob),
+    videoBlob: reuse ? previous.videoBlob : videoBlob,
+    videoUrl: reuse ? previous.videoUrl : URL.createObjectURL(videoBlob),
     backingBlob,
-    backingUrl: backingBlob ? URL.createObjectURL(backingBlob) : null,
+    backingUrl: backingBlob ? reuse && previous.backingSourceUrl === backingSourceUrl && previous.backingUrl ? previous.backingUrl : URL.createObjectURL(backingBlob) : null,
     size: videoBlob.size,
     source
   };
-  localMedia.assets = Object.fromEntries(Object.entries(assets).map(([url, blob]) => [url, { blob, url: URL.createObjectURL(blob) }]));
-  swapVideoSource();
+  localMedia.assets = Object.fromEntries(Object.entries(assets).map(([url, blob]) => [url, reuse && previous.assets?.[url] || { blob, url: URL.createObjectURL(blob) }]));
+  // An audio-only update must not reload the same verified video or audio asset.
+  const retained = new Set([localMedia.videoUrl, localMedia.backingUrl, ...Object.values(localMedia.assets).map(asset => asset.url)]);
+  if (previous) for (const url of [previous.videoUrl, previous.backingUrl, ...Object.values(previous.assets || {}).map(asset => asset.url)]) if (url && !retained.has(url)) URL.revokeObjectURL(url);
+  if (activatePlayback) swapVideoSource();
   updateLocalMediaStatus();
 }
 
@@ -292,18 +298,21 @@ async function extractMediaFromZip(file) {
   return {
     videoSourceUrl, backingSourceUrl,
     video: new Blob([await videoEntry.async('arraybuffer')], { type: 'video/mp4' }),
-    backing: backingEntry ? new Blob([await backingEntry.async('arraybuffer')], { type: 'audio/mpeg' }) : null
+    backing: backingEntry ? new Blob([await backingEntry.async('arraybuffer')], { type: audioMediaType(backingEntry.name) }) : null
   };
 }
 
 // Switch the video source without losing the playback position
-function swapVideoSource() {
+function swapVideoSource(url = mediaUrl(session.videoUrl)) {
+  if (video.getAttribute('src') === url) return;
+  const sessionId = session.activeSessionId;
   const time = video.currentTime;
   const wasPlaying = !video.paused;
   video.pause();
-  video.src = mediaUrl(session.videoUrl);
-  if (session.backingUrl) backing.src = mediaUrl(session.backingUrl);
+  video.src = url;
+  setMediaSource(backing, mediaUrl(session.backingUrl));
   video.addEventListener('loadedmetadata', () => {
+    if (session.activeSessionId !== sessionId || video.getAttribute('src') !== url) return;
     video.currentTime = time;
     if (wasPlaying) video.play().catch(() => {});
   }, { once: true });

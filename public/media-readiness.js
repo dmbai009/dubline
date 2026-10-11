@@ -2,6 +2,8 @@
   let sceneId = null, sourceId = '', hadReady = false, waiting = false, sample = null;
   let transfer = { downloading: false, fallback: false, pct: 0, buckets: [], downloadRate: 0 };
   let latest = null, lastSent = 0, renderTimer = null;
+  let diagnosticGeneration = 0;
+  window.videoPlaybackDiagnostic = null;
   const overlay = document.createElement('div'); overlay.id = 'mediaReadinessOverlay'; overlay.setAttribute('role', 'status'); overlay.hidden = true;
   document.querySelector('.video-wrapper').append(overlay);
   function bufferedSeconds() {
@@ -12,9 +14,10 @@
     if (sceneId !== session?.activeSessionId) {
       sceneId = session?.activeSessionId; sourceId = ''; hadReady = false; waiting = false; sample = null;
       transfer = { downloading: false, fallback: false, pct: 0, buckets: [], downloadRate: 0 };
+      diagnosticGeneration++; window.videoPlaybackDiagnostic = null;
     }
     const source = video.currentSrc || video.getAttribute('src') || '';
-    if (source !== sourceId) { sourceId = source; waiting = false; sample = null; hadReady = false; }
+    if (source !== sourceId) { sourceId = source; waiting = false; sample = null; hadReady = false; diagnosticGeneration++; window.videoPlaybackDiagnostic = null; }
   }
   function advancing() {
     const now = performance.now(), previous = sample;
@@ -39,13 +42,31 @@
       bufferedSeconds: bufferedSeconds(), buckets: transfer.buckets, downloadRate: transfer.downloadRate,
       uploadRate: window.mediaUploadRate?.() || 0 };
     const changed = latest?.state !== state || latest?.sessionId !== sceneId;
-    overlay.hidden = ['ready', 'fallback'].includes(state);
-    overlay.textContent = t('media.' + state, { pct: Math.round(pct) });
+    overlay.hidden = ['ready', 'fallback'].includes(state) || state === 'downloading' && decodable && window.isWatchingHostMedia?.();
+    const errorKey = { 1: 'media.aborted', 2: 'media.networkFailed', 3: 'media.decodeFailed', 4: 'media.unsupported' }[video.error?.code];
+    overlay.textContent = t(state === 'failed' && errorKey ? errorKey : 'media.' + state, { pct: Math.round(pct) });
+    const info = window.videoPlaybackDiagnostic;
+    overlay.title = info?.codec ? `${info.codec} / ${info.profile} / ${info.pixelFormat}; HTTP ${info.status ?? '—'}; ${info.mime || '—'}; Range ${info.range || '—'}` : '';
     if (!force && !changed && performance.now() - lastSent < 1000) return;
     latest = data; lastSent = performance.now();
     socket.emit('media_presence_update', data);
   }
   window.updateMediaTransfer = data => { scope(); transfer = { ...transfer, ...data }; report(true); };
+  video.addEventListener('error', async () => {
+    scope();
+    if (typeof fetch !== 'function' || typeof clientId === 'undefined' || !session?.loaded || !socket.connected) return;
+    const generation = ++diagnosticGeneration, id = session.activeSessionId, source = sourceId, url = session.videoUrl;
+    const diagnostic = { code: video.error?.code };
+    try {
+      const response = await fetch(`/api/video-diagnostics?${new URLSearchParams({ room: currentRoom, sessionId: id, clientId })}`);
+      if (response.ok) Object.assign(diagnostic, await response.json());
+      const range = await fetch(url, { headers: { Range: 'bytes=0-1' } });
+      Object.assign(diagnostic, { status: range.status, mime: range.headers.get('Content-Type'), range: range.headers.get('Content-Range') });
+      await range.body?.cancel();
+    } catch { /* The MediaError still explains the observed failure when diagnostics are unavailable. */ }
+    if (generation !== diagnosticGeneration || session.activeSessionId !== id || sourceId !== source) return;
+    window.videoPlaybackDiagnostic = diagnostic; report(true);
+  });
   for (const event of ['loadstart', 'emptied', 'seeking']) video.addEventListener(event, () => { sample = null; if (event !== 'seeking') { waiting = false; hadReady = false; } });
   for (const event of ['loadedmetadata', 'loadstart', 'emptied', 'error', 'progress', 'seeked']) video.addEventListener(event, () => report(true));
   for (const event of ['waiting', 'stalled']) video.addEventListener(event, () => { sample = null; waiting = true; report(true); });

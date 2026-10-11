@@ -49,7 +49,7 @@ describe('solo feedback: numbering, fixed media controls, loading and QHD wavefo
   await page.evaluate(()=>document.exitFullscreen());await waitFor(page,()=>!document.fullscreenElement && document.querySelector('.studio-transport').parentElement.classList.contains('video-box'));
   assert.equal(await page.evaluate(()=>document.querySelector('.studio-transport').parentElement.classList.contains('video-box')),true);
  });
- test('multi-track choice stays below video during redraw and horizontal scrolling, and preparation is visible',async()=>{
+ test('multi-track choice stays in Audio during redraw and horizontal scrolling, and preparation is visible',async()=>{
   await page.evaluate(()=>{window.audioPrepEvents=[];socket.on('session_updated',state=>{if(state.audioTracksPending)audioPrepEvents.push({visible:!document.getElementById('audioLoadingStatus').hidden,text:document.getElementById('audioLoadingStatus').textContent});});openFilesModal();});
   await (await page.$('#customVideoInput')).uploadFile(buildMultiTrackVideo());await page.evaluate(()=>uploadCustomScene());
   await waitFor(page,()=>session.audioTracks?.length===2&&originalTrackAudio.readyState>=3,20000);await page.evaluate(()=>closeFilesModal());
@@ -57,7 +57,9 @@ describe('solo feedback: numbering, fixed media controls, loading and QHD wavefo
   const left=await page.$eval('#trackPicker',el=>el.getBoundingClientRect().left);
   await page.evaluate(()=>{timelineContainer.scrollLeft=500;renderTimeline();});
   assert.ok(Math.abs(await page.$eval('#trackPicker',el=>el.getBoundingClientRect().left)-left)<1);
-  assert.equal(await page.$eval('#trackPicker',el=>el.parentElement.classList.contains('video-box')),true);
+  assert.equal(await page.$eval('#trackPicker',el=>el.parentElement.classList.contains('studio-audio-sources')),true);
+  await page.locator('[data-studio-action=audio]').click();
+  assert.equal(await page.$eval('#trackPicker',el=>getComputedStyle(el).display),'none');
   await page.locator('[data-studio-action=audio]').click();
   assert.equal(await page.$eval('#trackPicker',el=>getComputedStyle(el).display),'flex');
   await waitFor(page,()=>document.getElementById('audioLoadingStatus').hidden);

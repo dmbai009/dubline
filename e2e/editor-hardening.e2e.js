@@ -521,8 +521,10 @@ describe('Collaborative editor hardening', { skip: skipReason }, () => {
     const themeRenders = await page.evaluate(() => Number(originalWaveCanvas.dataset.waveRender));
     await page.evaluate(() => updateProjectAudio('original', 'offset', 0.25));
     await waitFor(page, count => Number(originalWaveCanvas.dataset.waveRender) > count, 5000, themeRenders);
+    const preZoomRenders = await page.evaluate(() => Number(originalWaveCanvas.dataset.waveRender));
     await page.evaluate(() => zoomTimeline(1.25));
-    await waitFor(page, () => document.querySelector('[data-audio-channel=original] canvas') !== originalWaveCanvas);
+    await waitFor(page, count => Number(originalWaveCanvas.dataset.waveRender) > count, 5000, preZoomRenders);
+    assert.equal(await page.evaluate(() => document.querySelector('[data-audio-channel=original] canvas') === originalWaveCanvas), true, 'zoom redraws the retained waveform bitmap');
     const beforeResize = await page.$eval('[data-audio-channel=original] canvas', canvas => canvas.width);
     await page.setViewport({ width: 2300, height: 1400, deviceScaleFactor: dpr === 1 ? 2 : 1 });
     await waitFor(page, old => document.querySelector('[data-audio-channel=original] canvas').width !== old, 5000, beforeResize);

@@ -2,7 +2,7 @@
 const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto');
 const {Transform}=require('node:stream');const {pipeline}=require('node:stream/promises');const multer=require('multer');
 const {DATA_DIR,MAX_VIDEO_MB,MAX_SUBTITLE_MB,HttpError}=require('./config');
-function diskUpload(fields,authorize){
+function diskUpload(fields,authorize,{maxFileBytes=Infinity}={}){
   const storage={
     _handleFile(req,file,callback){
       let target;
@@ -11,10 +11,10 @@ function diskUpload(fields,authorize){
         target=path.join(req.uploadDirectory,crypto.randomUUID());
       }catch(error){return callback(error);}
       let size=0;
-      const max=file.fieldname==='video'&&req.query.optimize!=='1'?MAX_VIDEO_MB*1024*1024:file.fieldname==='subtitles'?MAX_SUBTITLE_MB*1024*1024:Infinity;
+      const max=file.fieldname==='video'&&req.query.optimize!=='1'?MAX_VIDEO_MB*1024*1024:file.fieldname==='subtitles'?MAX_SUBTITLE_MB*1024*1024:maxFileBytes;
       const limit=new Transform({transform(chunk,encoding,done){
         size+=chunk.length;
-        if(size>max)return done(new HttpError(413,'Uploaded file exceeds its limit',file.fieldname==='video'?'error.videoTooBig':'error.subtitlesTooBig',{max:file.fieldname==='video'?MAX_VIDEO_MB:MAX_SUBTITLE_MB}));
+        if(size>max)return done(new HttpError(413,'Uploaded file exceeds its limit',file.fieldname==='video'?'error.videoTooBig':file.fieldname==='subtitles'?'error.subtitlesTooBig':'error.fileTooBig',{max:Math.ceil(max/1024/1024)}));
         done(null,chunk);
       }});
       pipeline(file.stream,limit,fs.createWriteStream(target,{flags:'wx'}),{signal:req.uploadAbort.signal})
@@ -23,7 +23,7 @@ function diskUpload(fields,authorize){
     _removeFile(req,file,callback){fs.unlink(file.path,error=>callback(error?.code==='ENOENT'?null:error));}
   };
   const handler=multer({storage,limits:{files:fields.length,fields:8,fieldSize:4096},fileFilter(req,file,callback){
-    try{authorize(req);callback(null,true);}catch(error){callback(error);}
+    try{authorize(req,file);callback(null,true);}catch(error){callback(error);}
   }}).fields(fields.map(name=>({name,maxCount:1})));
   return (req,res,next)=>{
     req.uploadAbort=new AbortController();let cleanup;
