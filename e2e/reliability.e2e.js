@@ -61,6 +61,52 @@ describe('Studio failure recovery', { skip: skipReason }, () => {
     });
   }
 
+  test('proxy audio recovery preserves every original stream, selected sources and exported sound across restarts', async () => {
+    const file = path.join(server.dirs.data, 'two-streams.mp4');
+    const generated = spawnSync(require('ffmpeg-static'), ['-hide_banner', '-loglevel', 'error', '-y',
+      '-f', 'lavfi', '-i', 'testsrc=size=160x90:rate=25:duration=1',
+      '-f', 'lavfi', '-i', 'sine=frequency=440:duration=1',
+      '-f', 'lavfi', '-i', 'sine=frequency=880:duration=1',
+      '-map', '0:v', '-map', '1:a', '-map', '2:a', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'alac',
+      '-metadata:s:a:0', 'language=eng', '-metadata:s:a:1', 'language=jpn', '-shortest', file]);
+    assert.equal(generated.status, 0, String(generated.stderr));
+    const status = await page.evaluate(async base64 => {
+      const data = new FormData(); data.append('clientId', clientId);
+      data.append('video', new Blob([Uint8Array.from(atob(base64), c => c.charCodeAt(0))], { type: 'video/mp4' }), 'two-streams.mp4');
+      return (await fetch(`/api/upload-custom?room=${encodeURIComponent(currentRoom)}`, { method: 'POST', body: data })).status;
+    }, fs.readFileSync(file).toString('base64'));
+    assert.equal(status, 200);
+    await waitFor(page, () => session.hasOriginalVideo && session.audioTracks.length === 2);
+    await page.evaluate(() => socket.emit('host_set_audio_tracks', { sessionId: session.activeSessionId, original: 1, backing: 0 }));
+    await waitFor(page, () => session.originalTrack === 1 && session.backingTrack === 0);
+    const expected = await page.evaluate(() => ({ tracks: session.audioTracks, sources: DublineProjectAudio.sources(session),
+      sessionId: session.activeSessionId, videoUrl: session.videoUrl }));
+    const audioFiles = expected.tracks.map(track => path.join(server.dirs.uploads, decodeURIComponent(track.url.slice('/uploads/'.length))));
+    const bytes = audioFiles.map(file => fs.readFileSync(file));
+    await wait(1300); await server.stop();
+    const roomsFile = path.join(server.dirs.data, 'rooms.json');
+    const rooms = JSON.parse(fs.readFileSync(roomsFile, 'utf8')), room = rooms[await page.evaluate(() => currentRoom)];
+    for (const target of [room, room.sessions[room.activeSessionId]]) {
+      target.audioTracks = []; delete target.videoHasAudio;
+    }
+    fs.writeFileSync(roomsFile, JSON.stringify(rooms));
+    // Force the second stream to be extracted again; it does not exist in the proxy.
+    fs.unlinkSync(audioFiles[1]);
+    await server.start();
+    for (let restart = 0; restart < 2; restart++) {
+      await waitFor(page, () => socket.connected && session.videoHasAudio === true && !session.audioTracksPending);
+      assert.deepEqual(await page.evaluate(() => ({ tracks: session.audioTracks, sources: DublineProjectAudio.sources(session),
+        sessionId: session.activeSessionId, videoUrl: session.videoUrl })), expected);
+      for (let i = 0; i < audioFiles.length; i++) assert.deepEqual(fs.readFileSync(audioFiles[i]), bytes[i], `audio stream ${i} retains its content`);
+      const peak = await page.evaluate(async () => {
+        const rendered = await mixSoundtrack(1, readRenderGains(), () => {});
+        return rendered.getChannelData(0).reduce((peak, value) => Math.max(peak, Math.abs(value)), 0);
+      });
+      assert.ok(peak > 0.05, 'the selected audio remains present in the exported mix');
+      if (!restart) await server.restart();
+    }
+  });
+
   test('a delayed discarded recorder cannot stop or contaminate the next recording', async () => {
     await loadFixture(page); await claimAndSelect(page, 1);
     await page.evaluate(() => handleStudioRecord(1)); await wait(350);

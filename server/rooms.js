@@ -354,14 +354,18 @@ function ensureAudioTracks(roomId) {
   if (failure && Date.now() < failure.retryAt) return;
   const sessionId = room.activeSessionId;
   const videoUrl = room.videoUrl;
+  // A working copy may contain only the first audio stream. Recover the same
+  // original streams used at import, rather than replacing them with proxy audio.
+  const originalVideoUrl = room.originalVideoUrl || '';
+  const sourcePath = originalVideoUrl ? diskPathForUrl(originalVideoUrl) : null;
   room.audioTracksPending = videoUrl;
   delete room.audioTracksError;
   emitSession(roomId);
-  extractAudioTracks(videoUrl).then(tracks => {
+  extractAudioTracks(videoUrl, sourcePath).then(tracks => {
     audioTrackFailures.delete(videoUrl);
     const target = room.activeSessionId === sessionId ? room : room.sessions[sessionId];
     if (room.audioTracksPending === videoUrl) delete room.audioTracksPending;
-    if (!target || target.videoUrl !== videoUrl) return;
+    if (!target || target.videoUrl !== videoUrl || (target.originalVideoUrl || '') !== originalVideoUrl) return;
     target.audioTracks = tracks;
     target.videoHasAudio = tracks.length > 0;
     if (target.originalTrack === undefined) target.originalTrack = 0;
