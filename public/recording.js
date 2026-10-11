@@ -493,30 +493,20 @@ function newUploadId() {
 }
 
 const takeStore = (() => {
-  async function run(mode, action) {
+  const table = window.DublineLocalDatabase.store('pendingTakes');
+  async function run(action) {
     try {
-      const database = await window.DublineLocalDatabase.open();
-      return await new Promise((resolve, reject) => {
-        const tx = database.transaction('pendingTakes', mode);
-        const request = action(tx.objectStore('pendingTakes'));
-        tx.oncomplete = () => resolve(request ? request.result : undefined);
-        tx.onerror = () => reject(tx.error);
-      });
+      return await action();
     } catch (err) {
       return null; // private mode etc.: keep the queue in memory only
     }
   }
   return {
-    put: entry => run('readwrite', store => store.put(entry)),
-    remove: id => run('readwrite', store => store.delete(id)),
-    all: () => run('readonly', store => store.getAll())
+    put: entry => run(() => table.put(entry)),
+    remove: id => run(() => table.remove(id)),
+    all: () => run(() => table.all())
   };
 })();
-
-function isPendingLine(lineId) {
-  const sessionId = session && session.activeSessionId;
-  return [...pendingTakes.values()].some(entry => entry.lineId === lineId && (!entry.sessionId || entry.sessionId === sessionId));
-}
 
 function refreshPendingUi(lineId) {
   pendingTakeLines.clear();

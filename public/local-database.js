@@ -9,16 +9,22 @@
     opening = new Promise((resolve, reject) => {
       if (!root.indexedDB) return reject(new Error('IndexedDB unavailable'));
       const request = root.indexedDB.open('dubline', SCHEMA_VERSION);
+      let abandoned = false;
       request.onupgradeneeded = () => {
         for (const [name, keyPath] of Object.entries(STORES)) {
           if (!request.result.objectStoreNames.contains(name)) request.result.createObjectStore(name, { keyPath });
         }
       };
       request.onerror = () => reject(request.error);
-      request.onblocked = () => reject(new Error('Close other DubLine tabs to upgrade local storage'));
+      request.onblocked = () => { abandoned = true; reject(new Error('Close other DubLine tabs to upgrade local storage')); };
       request.onsuccess = () => {
-        connection = request.result;
-        connection.onversionchange = () => { connection.close(); connection = null; opening = null; };
+        const database = request.result;
+        if (abandoned) { database.close(); return; }
+        connection = database;
+        database.onversionchange = () => {
+          database.close();
+          if (connection === database) { connection = null; opening = null; }
+        };
         resolve(connection);
       };
     }).catch(error => { opening = null; throw error; });
