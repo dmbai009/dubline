@@ -31,7 +31,7 @@ function probeAudioStreams(file) {
   return streams;
 }
 
-const audioTrackJobs = new Map(); // videoUrl -> Promise (so the same video is not extracted twice)
+const audioTrackJobs = new Map(); // videoUrl -> active Promise (deduplicate concurrent extraction)
 
 function extractAudioTracks(videoUrl, sourcePath = null, signal) {
   if (audioTrackJobs.has(videoUrl)) return audioTrackJobs.get(videoUrl);
@@ -66,9 +66,8 @@ function extractAudioTracks(videoUrl, sourcePath = null, signal) {
     return tracks;
   })().catch(err => {
     logEvent(null, `⚠ Audio tracks were not extracted: ${err.message}`, 'warn');
-    audioTrackJobs.delete(videoUrl);
     throw err;
-  });
+  }).finally(() => { if (audioTrackJobs.get(videoUrl) === job) audioTrackJobs.delete(videoUrl); });
   audioTrackJobs.set(videoUrl, job);
   return job;
 }

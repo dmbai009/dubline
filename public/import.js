@@ -302,20 +302,24 @@ async function extractMediaFromZip(file) {
   };
 }
 
+let restoreVideoMetadata = null;
 // Switch the video source without losing the playback position
 function swapVideoSource(url = mediaUrl(session.videoUrl)) {
   if (video.getAttribute('src') === url) return;
+  if (restoreVideoMetadata) video.removeEventListener('loadedmetadata', restoreVideoMetadata);
   const sessionId = session.activeSessionId;
   const time = video.currentTime;
   const wasPlaying = !video.paused;
   video.pause();
   video.src = url;
   setMediaSource(backing, mediaUrl(session.backingUrl));
-  video.addEventListener('loadedmetadata', () => {
+  restoreVideoMetadata = () => {
+    restoreVideoMetadata = null;
     if (session.activeSessionId !== sessionId || video.getAttribute('src') !== url) return;
     video.currentTime = time;
     if (wasPlaying) video.play().catch(() => {});
-  }, { once: true });
+  };
+  video.addEventListener('loadedmetadata', restoreVideoMetadata, { once: true });
 }
 
 localMediaInput.addEventListener('change', async () => {
