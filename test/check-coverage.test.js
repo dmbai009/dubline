@@ -11,7 +11,13 @@ test('syntax checking discovers new owned scripts while excluding vendor and use
   const source = fs.readFileSync('tools/check.js','utf8');
   const run = () => {
     let status=0,stderr='';
-    vm.runInNewContext(source,{__dirname:path.join(root,'tools'),require,process:{execPath:process.execPath,stderr:{write(text){stderr+=text;}},exit(code){status=code;}}});
+    vm.runInNewContext(source,{__dirname:path.join(root,'tools'),require(name){
+      if(name==='fs')return {...fs,readdirSync(directory,options){
+        assert.ok(!/^public[\\/](?:vendor|uploads|packs)(?:[\\/]|$)/.test(path.relative(root,directory)),'external directories must not even be traversed');
+        return fs.readdirSync(directory,options);
+      }};
+      return require(name);
+    },process:{execPath:process.execPath,stderr:{write(text){stderr+=text;}},exit(code){status=code;}}});
     return {status,stderr};
   };
   assert.deepEqual(run(),{status:0,stderr:''});

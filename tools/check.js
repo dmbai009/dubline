@@ -5,11 +5,20 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 const root = path.join(__dirname, '..');
 const directories = ['server', 'public', 'test', 'e2e', 'tools'];
+function scriptsIn(directory) {
+  const files = [];
+  for (const entry of fs.readdirSync(path.join(root, directory), { withFileTypes: true })) {
+    if (directory === 'public' && ['uploads', 'packs', 'vendor'].includes(entry.name)) continue;
+    const name = path.join(directory, entry.name);
+    if (entry.isDirectory()) files.push(...scriptsIn(name));
+    else if (entry.isFile() && entry.name.endsWith('.js')) files.push(name);
+  }
+  return files;
+}
 const files = [
   ...fs.readdirSync(root).filter(name => name.endsWith('.js')),
-  ...directories.flatMap(directory => fs.readdirSync(path.join(root, directory), { recursive: true })
-    .map(name => path.join(directory, name).split(path.sep).join('/')))
-].filter(name => name.endsWith('.js') && !/^public\/(?:uploads|packs|vendor)\//.test(name)).sort();
+  ...directories.flatMap(scriptsIn)
+].sort();
 let failed = 0;
 for (const file of files) {
   const result = spawnSync(process.execPath, ['--check', file], { cwd: root, encoding: 'utf8' });

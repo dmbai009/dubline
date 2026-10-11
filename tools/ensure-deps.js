@@ -36,5 +36,6 @@ if (result.status !== 0) {
   process.exit(1);
 }
 
-fs.writeFileSync(marker, wanted);
+// npm may normalize or update the lockfile during installation.
+fs.writeFileSync(marker, depsFingerprint());
 console.log('[Dubline] Dependencies installed.');
