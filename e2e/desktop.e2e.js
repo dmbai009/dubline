@@ -12,6 +12,7 @@ describe('desktop invitation', { skip: skipReason }, () => {
     server = await startServer();
     browser = await launchBrowser(server.port);
     page = await browser.newPage();
+    await page.setViewport({ width: 1280, height: 900 });
     await page.evaluateOnNewDocument(() => {
       window.__desktopClipboard = '';
       window.__desktopStatus = {
@@ -63,6 +64,16 @@ describe('desktop invitation', { skip: skipReason }, () => {
     await page.goto(server.url('desktop'), { waitUntil: 'domcontentloaded' });
     await waitFor(page, () => document.body.classList.contains('desktop-mode')
       && !document.getElementById('desktopCopyAllBtn').disabled);
+    // Desktop status can arrive before the room handshake. Complete mandatory
+    // dialogs before testing the invitation, which closes on outside focus.
+    await waitFor(page, () => getComputedStyle(nickModal).display === 'flex');
+    await page.type('#modalNickInput', 'Desktop host');
+    await page.click('#nickForm button[type=submit]');
+    await waitFor(page, () => amHost() && getComputedStyle(helpModal).display === 'flex');
+    await page.click('#helpModal [data-i18n="help.ok"]');
+    await waitFor(page, () => p2pConsentDialog.open);
+    await page.click('#p2pConsentDecline');
+    assert.equal(await page.evaluate(() => p2pEnabled || peers.size > 0 || settingsP2P.checked), false);
   });
 
   after(async () => {
@@ -80,19 +91,21 @@ describe('desktop invitation', { skip: skipReason }, () => {
     assert.equal(initial.details, 'none');
     assert.equal(initial.pin, '••••');
 
-    await page.$eval('#desktopCopyAllBtn', button => button.click());
+    await page.click('#desktopInviteToggle');
+    assert.equal(await page.$eval('.desktop-invite-details', element => getComputedStyle(element).display), 'flex');
+    await page.click('#desktopCopyAllBtn');
     const copied = await page.evaluate(() => window.__desktopClipboard);
     assert.match(copied, /https:\/\/quiet\.trycloudflare\.com\/\?room=desktop/);
     assert.match(copied, /7K9A/);
     assert.equal(await page.$eval('#desktopPinCode', element => element.textContent), '••••');
 
-    await page.$eval('.desktop-invite-toggle', button => button.click());
-    assert.equal(await page.$eval('.desktop-invite-details', element => getComputedStyle(element).display), 'flex');
+    await page.click('#desktopInviteToggle');
+    assert.equal(await page.$eval('.desktop-invite-details', element => getComputedStyle(element).display), 'none');
   });
 
   test('switches the connection method without leaving the room', async () => {
-    await page.evaluate(() => openHostingModal());
-    await page.$eval('[data-hosting-mode="vpn"]', button => button.click());
+    await page.click('#desktopConnectionSettings');
+    await page.click('[data-hosting-mode="vpn"]');
     await waitFor(page, () => document.querySelector('[data-hosting-mode="vpn"]').classList.contains('active'));
     const result = await page.evaluate(() => ({
       modal: getComputedStyle(document.getElementById('hostingModal')).display,
@@ -109,13 +122,6 @@ describe('desktop invitation', { skip: skipReason }, () => {
   test('copies exactly two invitation lines in every language and connection mode', async () => {
     await page.setViewport({ width: 1280, height: 900 });
     await page.evaluate(() => closeHostingModal());
-    await page.type('#modalNickInput', 'Desktop host');
-    await page.click('#nickForm button[type=submit]');
-    await waitFor(page, () => amHost());
-    await page.click('#helpModal [data-i18n="help.ok"]');
-    await waitFor(page, () => p2pConsentDialog.open);
-    await page.click('#p2pConsentDecline');
-    assert.equal(await page.evaluate(() => p2pEnabled || peers.size > 0 || settingsP2P.checked), false);
     for (const language of ['ru', 'uk', 'en']) {
       for (const [mode, url] of [['cloudflare', 'https://quiet.trycloudflare.com'], ['porthole', 'http://localhost:38500'], ['vpn', 'http://26.10.20.30:38500']]) {
         await page.evaluate((language, mode, url) => {
