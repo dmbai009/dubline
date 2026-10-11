@@ -83,7 +83,30 @@ if (!process.versions.electron) {
       win.webContents.setZoomFactor(1);
       await evaluate("document.body.classList.remove('lobby-compact');");
       await evaluate("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
-      for (const earlyRelease of [true, false]) {
+      for (const [width, height, earlyRelease] of [[1024, 768, true], [1024, 768, false], [1600, 1000, true], [1600, 1000, false]]) {
+        win.setContentSize(width, height);
+        await waitFor(`innerWidth === ${width} && innerHeight === ${height}`);
+        // Each viewport uses its normal fresh-window panel proportions, not
+        // the video height retained from the previous larger viewport.
+        await evaluate("resetLayout(); void 0;");
+        // The runner's available screen can clip role rows beneath the minimap.
+        // Scroll the actual cue into view before delivering native mouse input.
+        await evaluate("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
+        await waitFor(`(() => {
+          const block = document.getElementById('line-block-1');
+          block.scrollIntoView({block:'center',inline:'nearest',behavior:'instant'});
+          const box = block.getBoundingClientRect();
+          return block.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2));
+        })()`);
+        const point = await evaluate(`(() => {
+          const block = document.getElementById('line-block-1'), box = block.getBoundingClientRect();
+          const x = box.x + box.width / 2, y = box.y + box.height / 2;
+          const hit = document.elementFromPoint(x, y);
+          return { x, y, cue: hit?.closest('.line-block')?.id, target: hit?.id || hit?.className,
+            viewport: [innerWidth, innerHeight] };
+        })()`);
+        assert.equal(point.cue, 'line-block-1', `Native drag must hit the visible cue: ${JSON.stringify(point)}`);
+        const location = { x: point.x, y: point.y };
         await evaluate(`(() => {
           window.nativeLeaseEmit = socket.emit; let first = true;
           socket.emit = function(event, ...args) {
@@ -91,7 +114,6 @@ if (!process.versions.electron) {
             return nativeLeaseEmit.call(this, event, ...args);
           };
         })()`);
-        const location = await evaluate("(() => { const box=document.getElementById('line-block-1').getBoundingClientRect(); return {x:box.x+box.width/2,y:box.y+box.height/2}; })()");
         await win.webContents.debugger.sendCommand('Input.dispatchMouseEvent', { type: 'mouseMoved', ...location });
         await win.webContents.debugger.sendCommand('Input.dispatchMouseEvent', { type: 'mousePressed', ...location, button: 'left', clickCount: 1 });
         await win.webContents.debugger.sendCommand('Input.dispatchMouseEvent', { type: 'mouseMoved', x: location.x + 40, y: location.y, button: 'left', buttons: 1 });
@@ -110,8 +132,11 @@ if (!process.versions.electron) {
           await waitFor("session.lines.find(line => line.id === 1).start > 3 && !editorQueue.length && !activeEditorGesture");
         }
         await evaluate("socket.emit = nativeLeaseEmit; void 0;");
+        if (!earlyRelease) {
+          await evaluate("editorUndo(); void 0;");
+          await waitFor("session.lines.find(line => line.id === 1).start === 3 && !editorQueue.length");
+        }
       }
-      await evaluate("editorUndo(); void 0;"); await waitFor("session.lines.find(line => line.id === 1).start === 3 && !editorQueue.length");
       await evaluate("document.querySelector('.track-add-btn').click();");
       await answer('Electron role');
       await waitFor("session.trackOrder.includes('Electron role')");
