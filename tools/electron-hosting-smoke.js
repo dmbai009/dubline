@@ -48,6 +48,8 @@ async function main() {
     await waitFor(page, () => socket.connected && session && nickModal.style.display === 'flex');
     await page.type('#modalNickInput', 'Native host'); await page.click('#nickForm button[type=submit]'); await waitFor(page, () => amHost());
     await page.click('#helpModal [data-i18n="help.ok"]');
+    await waitFor(page, () => document.getElementById('p2pConsentDialog').open);
+    await page.click('#p2pConsentDecline');
     await (await page.$('#zipInput')).uploadFile(buildFixturePack());
     await waitFor(page, () => session?.loaded && session.lines.length === 4, 30000);
     const initial = await page.evaluate(() => ({ port: desktopInviteState.port, pin: desktopInviteState.pin, scene: session.activeSessionId }));

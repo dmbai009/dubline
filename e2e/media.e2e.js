@@ -17,7 +17,7 @@ describe('media', { skip: skipReason }, () => {
   const pages = [];
 
   // "Tunnel" players use the second address: P2P is deliberately not used on localhost
-  const remote = nick => openPlayer(browser, server.url(room, 'dubline.test'), nick);
+  const remote = nick => openPlayer(browser, server.url(room, 'dubline.test'), nick, { p2pConsent: 'accepted' });
   const report = nick => (server.log.match(new RegExp(`${nick} received dub_video\\.mp4: ([\\d.]+) MB from players \\((\\d+)\\), ([\\d.]+) MB from the server`)) || []).slice(1).map(Number);
 
   before(async () => {

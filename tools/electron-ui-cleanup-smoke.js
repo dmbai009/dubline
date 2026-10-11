@@ -24,6 +24,17 @@ async function main() {
     page.errors = []; page.on('pageerror', error => page.errors.push(error.message));
     await waitFor(page, () => !!window.dublineDesktop && !!session && document.body.classList.contains('desktop-mode'), 15000);
     await page.evaluate(() => { modalNickInput.value = 'Native UI'; handleNickSubmit(new Event('submit', { cancelable: true })); localStorage.setItem('dubline_help_seen', '1'); closeHelpModal(); });
+    await waitFor(page, () => document.getElementById('p2pConsentDialog').open);
+    assert.equal(await page.evaluate(() => p2pEnabled || p2pAllowed() || peers.size > 0 || settingsP2P.checked), false, 'native fresh profile cannot share before consent');
+    await page.click('#p2pConsentDecline');
+    await page.evaluate(() => { openSettingsModal(); openSettingsCategory('user', 'storage'); });
+    await page.click('.switch-ui:has(#settingsP2P)'); await waitFor(page, () => p2pConsentDialog.open);
+    await page.keyboard.press('Escape'); await waitFor(page, () => p2pConsent === 'declined' && !p2pConsentDialog.open);
+    await page.click('.switch-ui:has(#settingsP2P)'); await page.click('#p2pConsentAccept');
+    await waitFor(page, () => p2pAllowed() && settingsP2P.checked);
+    await page.click('.switch-ui:has(#settingsP2P)');
+    assert.equal(await page.evaluate(() => p2pEnabled || p2pAllowed() || peers.size > 0 || settingsP2P.checked), false, 'native disabled setting closes P2P');
+    await page.evaluate(() => closeSettingsModal());
     await waitFor(page, () => amHost() && myName === 'Native UI');
     await (await page.$('#zipInput')).uploadFile(buildFixturePack()); await waitFor(page, () => session?.loaded && session.lines.length === 4 && video.readyState >= 2, 30000);
     // Use the real Electron host/preload and a separately authenticated guest.

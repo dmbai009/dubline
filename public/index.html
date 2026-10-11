@@ -470,12 +470,17 @@
     .modal-overlay { position: fixed; inset: 0; background: rgba(5, 5, 10, 0.75); backdrop-filter: blur(10px); display: flex; align-items: center; justify-content: center; z-index: 1000; }
     .modal-card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 24px; width: 440px; box-shadow: var(--shadow); text-align: center; display: flex; flex-direction: column; gap: 12px; }
     .modal-card h2 { font-size: 18px; }
+    .p2p-consent { margin: auto; color: var(--text); text-align: left; max-width: calc(100vw - 32px); max-height: calc(100vh - 32px); overflow-y: auto; }
+    .p2p-consent:not([open]) { display: none; }
+    .p2p-consent::backdrop { background: rgba(5, 5, 10, 0.75); backdrop-filter: blur(6px); }
+    .p2p-consent .insp-actions { flex-wrap: wrap; }
     .modal-card p { color: var(--muted); }
     .modal-card.modal-large { width: 580px; max-width: 95vw; max-height: 85vh; overflow-y: auto; text-align: left; }
     .modal-header-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
     .modal-header-row h2 { font-size: 17px; }
     .modal-close-icon { background: transparent; color: var(--muted); font-size: 18px; padding: 2px 8px; line-height: 1; }
     .modal-close-icon:hover { color: #fff; background: var(--panel-3); }
+    .p2p-consent .modal-close-icon:hover { color: var(--text); }
     .modal-tabs { display: flex; gap: 4px; background: var(--panel-2); padding: 4px; border-radius: 999px; margin-bottom: 8px; }
     .modal-tab-btn { flex: 1; background: transparent; color: var(--muted); padding: 7px 12px; font-size: 12px; border-radius: 999px; }
     .modal-tab-btn:hover { color: #fff; }
@@ -561,6 +566,15 @@
   <link rel="stylesheet" href="studio.css">
 </head>
 <body>
+
+  <dialog id="p2pConsentDialog" class="modal-card p2p-consent" aria-labelledby="p2pConsentTitle" aria-describedby="p2pConsentDescription p2pConsentPrivacy p2pConsentSettings">
+    <div class="modal-header-row"><h2 id="p2pConsentTitle" data-i18n="p2p.consent.title">Video sharing between participants (P2P)</h2><button id="p2pConsentClose" type="button" class="modal-close-icon" data-i18n-title="close" title="Close">×</button></div>
+    <p id="p2pConsentDescription" data-i18n="p2p.consent.description">DubLine can send parts of videos directly to other participants in your room. This speeds up downloads and reduces the load on the host.</p>
+    <p id="p2pConsentPrivacy" data-i18n="p2p.consent.privacy">P2P uses your outgoing internet traffic. Participants in a direct connection may learn your IP address.</p>
+    <p id="p2pConsentSettings" data-i18n="p2p.consent.settings">You can disable P2P in Settings at any time.</p>
+    <p id="p2pConsentError" role="alert" data-i18n="p2p.consent.storageError" hidden>P2P remains off because your choice could not be saved. Check browser storage and try again.</p>
+    <div class="insp-actions"><button id="p2pConsentDecline" type="button" class="btn-outline" data-i18n="p2p.consent.decline">Keep disabled</button><button id="p2pConsentAccept" type="button" class="btn-play" data-i18n="p2p.consent.accept">Enable P2P</button></div>
+  </dialog>
 
   <!-- First-visit modal -->
   <div id="nickModal" class="modal-overlay" style="display: none;">
@@ -847,7 +861,7 @@
               <div class="setting-label" data-i18n="p2p.setting">Share video with friends (P2P)</div>
               <div class="setting-sub" data-i18n="p2p.setting.help">When you have the scene video, you pass it to other players directly in pieces, so the host does not have to send it to everyone.</div>
             </div>
-            <label class="switch-ui"><input type="checkbox" id="settingsP2P" checked><span class="switch-slider"></span></label>
+            <label class="switch-ui"><input type="checkbox" id="settingsP2P"><span class="switch-slider"></span></label>
           </div>
         </div>
 

@@ -10,7 +10,9 @@
   const shared = document.createElement('label'); shared.className = 'setting-card';
   shared.innerHTML = '<span data-i18n="cursor.hz"></span><input class="text-input" type="number" min="5" max="30" step="1" value="15">';
   const rate = shared.querySelector('input'); rate.dataset.hostOnly = ''; window.addSettingsCard('player', 'room', shared); i18n.apply();
-  function close(id) { const peer = direct.get(id); if (!peer) return; direct.delete(id); clearTimeout(peer.timer); try { peer.channel?.close(); peer.pc.close(); } catch { /* closed */ } }
+  function directAllowed() { return window.DublineP2P?.allowed() === true; }
+  function current(peer, id) { return directAllowed() && direct.get(id) === peer && peer.sessionId === scene; }
+  function close(id, expected) { const peer = direct.get(id); if (!peer || expected && expected !== peer) return; direct.delete(id); clearTimeout(peer.timer); try { peer.channel?.close(); peer.pc.close(); } catch { /* closed */ } }
   function clear() { for (const id of [...direct.keys()]) close(id); samples.clear(); receiveRates.clear(); earlyCandidates.clear(); layer.replaceChildren(); latest = null; subscription = ''; clearTimeout(jumpExpiry); window.refreshCollaboratorJumpButtons?.(); }
   function rowFor(packet) {
     if (packet.rowType === 'role') return [...document.querySelectorAll('.track-row[data-character]')].find(row => row.dataset.character === packet.rowKey);
@@ -56,33 +58,34 @@
       if (animating) paint();
     });
   }
-  function signal(id, data) { if (scene === session?.activeSessionId) socket.emit('cursor_signal', { to: id, sessionId: scene, signal: data }); }
+  function signal(id, data) { if (directAllowed() && scene === session?.activeSessionId) socket.emit('cursor_signal', { to: id, sessionId: scene, signal: data }); }
   function attach(peer, channel, id) {
-    if (channel.label !== 'dubline-presence') { channel.close(); return; }
+    if (!current(peer, id) || channel.label !== 'dubline-presence') { channel.close(); return; }
     peer.channel = window.DublineNetwork.channel(channel);
     channel.onopen = () => clearTimeout(peer.timer);
-    channel.onclose = () => close(id);
+    channel.onclose = () => close(id, peer);
     channel.onmessage = event => { if (typeof event.data !== 'string' || event.data.length > 2048) return; try { receive(id, JSON.parse(event.data)); } catch { /* malformed volatile sample */ } };
   }
   function create(id, offer) {
-    if (direct.has(id) || direct.size >= 8 || typeof RTCPeerConnection === 'undefined') return null;
+    if (!directAllowed() || direct.has(id) || direct.size >= 8 || typeof RTCPeerConnection === 'undefined') return null;
     const early = earlyCandidates.get(id); earlyCandidates.delete(id);
     const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS }), peer = { pc, candidates: early && early.at > performance.now() - 6000 ? early.candidates : [], remote: false, sessionId: scene };
     direct.set(id, peer); peer.timer = setTimeout(() => close(id), 6000);
-    pc.onicecandidate = event => { if (event.candidate && peer.sessionId === scene) signal(id, { kind: 'candidate', candidate: event.candidate }); };
-    pc.onconnectionstatechange = () => { if (['failed', 'closed'].includes(pc.connectionState)) close(id); };
+    pc.onicecandidate = event => { if (event.candidate && current(peer, id)) signal(id, { kind: 'candidate', candidate: event.candidate }); };
+    pc.onconnectionstatechange = () => { if (['failed', 'closed'].includes(pc.connectionState)) close(id, peer); };
     pc.ondatachannel = event => attach(peer, event.channel, id);
     if (offer) {
       attach(peer, pc.createDataChannel('dubline-presence', { ordered: false, maxRetransmits: 0 }), id);
-      pc.createOffer().then(description => pc.setLocalDescription(description)).then(() => signal(id, { kind: 'offer', sdp: pc.localDescription })).catch(() => close(id));
+      pc.createOffer().then(description => { if (!current(peer, id)) throw new Error('P2P disabled'); return pc.setLocalDescription(description); }).then(() => { if (current(peer, id)) signal(id, { kind: 'offer', sdp: pc.localDescription }); }).catch(() => close(id, peer));
     }
     return peer;
   }
   socket.on('cursor_signal', async data => {
-    if (data.sessionId !== scene || !actors.has(data.actorId) || session?.mode !== 'edit') return;
+    if (!directAllowed() || data.sessionId !== scene || !actors.has(data.actorId) || session?.mode !== 'edit') return;
     const id = data.actorId, message = data.signal;
+    let peer;
     try {
-      const peer = direct.get(id) || (message.kind === 'offer' ? create(id, false) : null);
+      peer = direct.get(id) || (message.kind === 'offer' ? create(id, false) : null);
       if (!peer) {
         if (message.kind === 'candidate' && earlyCandidates.size < 8) {
           const early = earlyCandidates.get(id) || { at: performance.now(), candidates: [] };
@@ -94,14 +97,19 @@
       if (message.kind === 'candidate') {
         if (peer.remote) await peer.pc.addIceCandidate(message.candidate); else if (peer.candidates.length < 64) peer.candidates.push(message.candidate);
       } else {
-        await peer.pc.setRemoteDescription(message.sdp); peer.remote = true;
+        await peer.pc.setRemoteDescription(message.sdp);
+        if (!current(peer, id)) return;
+        peer.remote = true;
         for (const candidate of peer.candidates.splice(0)) await peer.pc.addIceCandidate(candidate).catch(() => {});
-        if (message.kind === 'offer') { await peer.pc.setLocalDescription(await peer.pc.createAnswer()); signal(id, { kind: 'answer', sdp: peer.pc.localDescription }); }
+        if (message.kind === 'offer') {
+          const answer = await peer.pc.createAnswer(); if (!current(peer, id)) return;
+          await peer.pc.setLocalDescription(answer); if (current(peer, id)) signal(id, { kind: 'answer', sdp: peer.pc.localDescription });
+        }
       }
-    } catch { close(id); }
+    } catch { if (peer) close(id, peer); }
   });
   function connectPeers() {
-    if (session?.mode !== 'edit' || session.singlePlayer) return;
+    if (!directAllowed() || session?.mode !== 'edit' || session.singlePlayer) return;
     for (const id of actors.keys()) if (id > socket.id && direct.size < 8) create(id, true);
   }
   socket.on('cursor_roster', data => {
@@ -118,7 +126,7 @@
     if (!socket.connected || session?.mode !== 'edit' || session.singlePlayer) return;
     const data = { ...packet, sessionId: session.activeSessionId, seq: ++sequence }, text = JSON.stringify(data), fallback = [];
     for (const [id, actor] of actors) if (actor.receive) {
-      const channel = direct.get(id)?.channel;
+      const channel = directAllowed() && direct.get(id)?.channel;
       if (channel?.readyState === 'open') { if (channel.bufferedAmount < 32768) try { channel.send(text); } catch { close(id); fallback.push(id); } }
       else fallback.push(id);
     }
@@ -155,6 +163,10 @@
   socket.on('session_updated', () => { if (scene !== session?.activeSessionId || session?.mode !== 'edit') { hide(); clear(); scene = session?.activeSessionId; } subscribe(); rate.disabled = !amHost(); });
   socket.on('room_users_updated', subscribe); socket.on('connect', subscribe); socket.on('disconnect', () => { clear(); actors.clear(); });
   setInterval(connectPeers, 10000); subscribe();
+  window.addEventListener('dubline-p2p-changed', () => {
+    for (const id of [...direct.keys()]) close(id);
+    earlyCandidates.clear(); connectPeers();
+  });
   function jumpSample(nick) {
     if (!socket.connected || session?.mode !== 'edit' || session.singlePlayer || scene !== session.activeSessionId) return null;
     for (const [id, actor] of actors) {

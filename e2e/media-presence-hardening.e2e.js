@@ -152,7 +152,10 @@ describe('Media/presence recovery and local timeline controls', { skip: skipReas
   });
 
   test('semantic cursors use independent direct channels, hide on leave and keep selection safety when disabled', async () => {
-    const guest = await openPlayer(browser, server.url(`media-presence-${serial}`), 'Bob');
+    await page.evaluate(() => { settingsP2P.checked = true; settingsP2P.dispatchEvent(new Event('change')); });
+    await waitFor(page, () => p2pConsentDialog.open);
+    await page.click('#p2pConsentAccept');
+    const guest = await openPlayer(browser, server.url(`media-presence-${serial}`), 'Bob', { p2pConsent: 'accepted' });
     try {
       await waitFor(guest, () => session?.loaded && session.mode === 'edit' && DublineCursorPresence.stats().actors === 1);
       await waitFor(page, () => DublineCursorPresence.stats().open === 1, 10000);
@@ -278,7 +281,7 @@ describe('Media/presence recovery and local timeline controls', { skip: skipReas
     await waitFor(page, () => session.videoSize > 3 * 1024 * 1024);
     let seed, receiver;
     try {
-      seed = await openPlayer(browser, server.url(room, 'dubline.test'), 'Seed', { beforeLoad: async remote => {
+      seed = await openPlayer(browser, server.url(room, 'dubline.test'), 'Seed', { p2pConsent: 'accepted', beforeLoad: async remote => {
         await remote.evaluateOnNewDocument(() => {
           const nativeFetch = window.fetch;
           window.fetch = async (url, options) => {
@@ -293,7 +296,7 @@ describe('Media/presence recovery and local timeline controls', { skip: skipReas
       await waitFor(seed, () => !!window.releaseMediaRange && [...partialFiles.values()].some(file => file.durable.size > 0 && file.durable.size < file.manifest.chunks.length));
       await wait(400);
       assert.equal(await seed.evaluate(() => !!mediaDownload && !localMedia), true);
-      receiver = await openPlayer(browser, server.url(room, 'dubline.test'), 'Receiver');
+      receiver = await openPlayer(browser, server.url(room, 'dubline.test'), 'Receiver', { p2pConsent: 'accepted' });
       await waitFor(receiver, () => !!localMedia?.videoBlob, 20000);
       const result = await receiver.evaluate(() => ({ p2p: p2pStatus.p2p, http: p2pStatus.http }));
       assert.ok(result.p2p > 0, JSON.stringify(result)); assert.ok(result.http > 0, JSON.stringify(result));

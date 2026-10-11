@@ -59,7 +59,7 @@ if (!process.versions.electron) {
     };
     try {
       await win.loadURL(process.env.DUBLINE_EDITOR_SMOKE_URL);
-      await evaluate("localStorage.setItem('dubline_nick', 'Electron host'); localStorage.setItem('dubline_help_seen', '1'); localStorage.setItem('dubline_language', 'en');");
+      await evaluate("localStorage.setItem('dubline_nick', 'Electron host'); localStorage.setItem('dubline_help_seen', '1'); localStorage.setItem('dubline_language', 'en'); localStorage.setItem('dubline_p2p_consent_v1', 'declined');");
       await win.loadURL(process.env.DUBLINE_EDITOR_SMOKE_URL);
       await waitFor("socket.connected && myName === 'Electron host' && session");
       const unsupported = await evaluate("(() => { try { prompt('test'); return false; } catch (error) { return /not supported/.test(error.message); } })()");

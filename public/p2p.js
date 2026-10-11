@@ -15,7 +15,17 @@ const p2pStatusText = document.getElementById('p2pStatusText');
 const p2pProgressBar = document.getElementById('p2pProgressBar');
 const settingsP2P = document.getElementById('settingsP2P');
 
-let p2pEnabled = localStorage.getItem('dubline_p2p') !== '0';
+const P2P_CONSENT_KEY = 'dubline_p2p_consent_v1';
+let p2pConsent = 'undecided', p2pEnabled = false;
+let p2pJoined = false, p2pGeneration = 0;
+function readP2pPreference() {
+  try {
+    const choice = localStorage.getItem(P2P_CONSENT_KEY);
+    p2pConsent = ['accepted', 'declined'].includes(choice) ? choice : 'undecided';
+    p2pEnabled = p2pConsent === 'accepted' && localStorage.getItem('dubline_p2p') === '1';
+  } catch { p2pConsent = 'undecided'; p2pEnabled = false; }
+}
+readP2pPreference();
 const peers = new Map();           // `${role}:${socketId}` -> { pc, channel, pending: [], remoteSet }
 let mediaDownload = null;          // current scene video download
 let p2pStatus = null;              // what to show in the lobby footer
@@ -28,13 +38,96 @@ let announceTimer = null, announceGeneration = 0;
 let availabilitySequence = 0;
 function scheduleAnnounce() { if (announceTimer === null) announceTimer = setTimeout(() => { announceTimer = null; announceHave(); }, 300); }
 
-settingsP2P.checked = p2pEnabled;
+const p2pConsentDialog = document.getElementById('p2pConsentDialog');
+let p2pConsentRequested = false, p2pConsentFocus = null, p2pExpectedCloses = 0;
+let lastP2pAllowed = false;
+function p2pAllowed() { return p2pConsent === 'accepted' && p2pEnabled && !p2pConsentDialog.open && p2pJoined && socket.connected && session && !session.singlePlayer; }
+window.DublineP2P = Object.freeze({ allowed: p2pAllowed });
+function currentP2pPeer(peer, key) { return p2pAllowed() && peer?.generation === p2pGeneration && peer.sessionId === session.activeSessionId && peers.get(key) === peer; }
+function syncP2pSetting() {
+  settingsP2P.checked = p2pConsent === 'accepted' && p2pEnabled && !session?.singlePlayer;
+  const allowed = !!p2pAllowed();
+  if (allowed !== lastP2pAllowed) { lastP2pAllowed = allowed; window.dispatchEvent(new CustomEvent('dubline-p2p-changed')); }
+}
+function stopP2pPeers() {
+  ++p2pGeneration; ++announceGeneration;
+  for (const key of [...peers.keys()]) closePeer(key);
+}
+function hideP2pConsent() {
+  if (!p2pConsentDialog.open) return;
+  ++p2pExpectedCloses;
+  p2pConsentDialog.close();
+  if (p2pConsentFocus?.isConnected) p2pConsentFocus.focus();
+}
+function maybeShowP2pConsent() {
+  syncP2pSetting();
+  const blocked = [...document.querySelectorAll('.modal-overlay, dialog[open]')].some(node => node !== p2pConsentDialog &&
+    !(p2pConsentRequested && node.id === 'settingsModal') && node.getClientRects().length && getComputedStyle(node).visibility !== 'hidden');
+  if (!p2pJoined || !socket.connected || session?.singlePlayer || blocked) {
+    if (p2pConsentDialog.open) { ++p2pExpectedCloses; p2pConsentDialog.close(); }
+    return;
+  }
+  if (p2pConsentDialog.open || p2pConsent !== 'undecided' && !p2pConsentRequested) return;
+  p2pConsentFocus = document.activeElement;
+  document.getElementById('p2pConsentError').hidden = true;
+  p2pConsentDialog.showModal();
+  document.getElementById('p2pConsentDecline').focus();
+}
+function decideP2pConsent(accepted) {
+  if (accepted && !p2pConsentDialog.open) return;
+  stopP2pPeers(); p2pEnabled = false;
+  try {
+    // Write the setting before consent: interrupted storage must never opt in.
+    localStorage.setItem('dubline_p2p', accepted ? '1' : '0');
+    localStorage.setItem(P2P_CONSENT_KEY, accepted ? 'accepted' : 'declined');
+    if (localStorage.getItem(P2P_CONSENT_KEY) !== (accepted ? 'accepted' : 'declined') || localStorage.getItem('dubline_p2p') !== (accepted ? '1' : '0')) throw new Error('Preference was not stored');
+  } catch {
+    try { localStorage.removeItem(P2P_CONSENT_KEY); } catch { /* fail closed in this page */ }
+    p2pConsent = 'undecided';
+    syncP2pSetting();
+    if (accepted) { document.getElementById('p2pConsentError').hidden = false; announceHave(true); return; }
+    showToast(t('p2p.consent.storageError'));
+  }
+  p2pConsent = accepted ? 'accepted' : 'declined'; p2pEnabled = accepted;
+  p2pConsentRequested = false;
+  hideP2pConsent(); syncP2pSetting(); announceHave(true);
+}
+document.getElementById('p2pConsentAccept').onclick = () => decideP2pConsent(true);
+document.getElementById('p2pConsentDecline').onclick = document.getElementById('p2pConsentClose').onclick = () => decideP2pConsent(false);
+p2pConsentDialog.addEventListener('cancel', event => { event.preventDefault(); decideP2pConsent(false); });
+p2pConsentDialog.addEventListener('close', () => { if (p2pExpectedCloses) --p2pExpectedCloses; else decideP2pConsent(false); });
+// Observe only dialog visibility, never timeline or participant DOM updates.
+const p2pDialogObserver = new MutationObserver(maybeShowP2pConsent);
+document.querySelectorAll('.modal-overlay, dialog.text-prompt').forEach(node => p2pDialogObserver.observe(node, { attributes: true, attributeFilter: ['style', 'hidden', 'open'] }));
+syncP2pSetting();
 settingsP2P.addEventListener('change', () => {
-  p2pEnabled = settingsP2P.checked;
-  localStorage.setItem('dubline_p2p', p2pEnabled ? '1' : '0');
-  if (!p2pEnabled) for (const key of [...peers.keys()]) closePeer(key);
+  const requested = settingsP2P.checked;
+  if (requested && p2pConsent !== 'accepted') {
+    p2pEnabled = false; syncP2pSetting(); p2pConsentRequested = true; maybeShowP2pConsent(); return;
+  }
+  stopP2pPeers(); p2pEnabled = false;
+  try {
+    localStorage.setItem('dubline_p2p', requested ? '1' : '0');
+    if (localStorage.getItem('dubline_p2p') !== (requested ? '1' : '0')) throw new Error('Preference was not stored');
+    p2pEnabled = requested;
+  }
+  catch { try { localStorage.removeItem(P2P_CONSENT_KEY); } catch {} p2pConsent = 'undecided'; showToast(t('p2p.consent.storageError')); }
+  syncP2pSetting();
   announceHave(true);
 });
+window.addEventListener('storage', event => {
+  if (event.key !== null && ![P2P_CONSENT_KEY, 'dubline_p2p'].includes(event.key)) return;
+  stopP2pPeers(); readP2pPreference();
+  if (p2pConsent !== 'undecided') { p2pConsentRequested = false; hideP2pConsent(); }
+  syncP2pSetting(); announceHave(true);
+});
+socket.on('session_updated', () => {
+  p2pJoined = true;
+  if (session?.singlePlayer) { p2pConsentRequested = false; stopP2pPeers(); }
+  maybeShowP2pConsent(); announceHave(true);
+});
+function leaveP2pRoom() { p2pJoined = false; p2pConsentRequested = false; stopP2pPeers(); if (p2pConsentDialog.open) { ++p2pExpectedCloses; p2pConsentDialog.close(); } syncP2pSetting(); }
+socket.on('disconnect', leaveP2pRoom); socket.on('join_denied', leaveP2pRoom);
 
 function isOnServerMachine() {
   return ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
@@ -54,7 +147,7 @@ async function announceHave(force = false) {
   if (!socket.connected) return;
   const generation = ++announceGeneration, sessionId = session?.activeSessionId;
   const files = [];
-  if (p2pEnabled && window.crypto?.subtle) {
+  if (p2pAllowed() && window.crypto?.subtle) {
     for (const [url, blob] of heldFiles()) {
       let manifest = heldManifests.get(url);
       if (!manifest) {
@@ -62,6 +155,7 @@ async function announceHave(force = false) {
           const response = await fetch(`/api/media-manifest?${new URLSearchParams({ room: currentRoom, sessionId, clientId, url })}`);
           if (!response.ok) continue; manifest = await response.json();
           if (!DublineMediaCache.valid(manifest) || manifest.size !== blob.size || await sha256Hex(blob) !== manifest.sha256) continue;
+          if (!p2pAllowed() || generation !== announceGeneration || session?.activeSessionId !== sessionId) return;
           heldManifests.set(url, manifest);
         } catch { continue; }
       }
@@ -84,25 +178,28 @@ socket.on('p2p_seeders', (summary) => {
 });
 
 function findSeeders(url) {
+  if (!p2pAllowed()) return Promise.resolve([]);
+  const generation = p2pGeneration;
   return new Promise(resolve => {
     const timer = setTimeout(() => resolve([]), 3000);
     socket.emit('p2p_find', { url, detailed: true, sessionId: session?.activeSessionId }, ids => {
       clearTimeout(timer);
-      resolve(Array.isArray(ids) ? ids : []);
+      resolve(p2pAllowed() && generation === p2pGeneration && Array.isArray(ids) ? ids : []);
     });
   });
 }
 
 // ---------- WebRTC signaling through the server ----------
 function signal(to, data, sessionId = session?.activeSessionId) {
-  if (sessionId !== session?.activeSessionId) return;
+  if (!p2pAllowed() || sessionId !== session?.activeSessionId) return;
   socket.emit('p2p_signal', { to, data, sessionId });
 }
 
-function closePeer(key) {
+function closePeer(key, expected) {
   const peer = peers.get(key);
-  if (!peer) return;
+  if (!peer || expected && expected !== peer) return;
   peers.delete(key);
+  peer.uploadAbort?.abort(); peer.cancel?.();
   try { peer.channel && peer.channel.close(); } catch (e) {}
   try { peer.pc.close(); } catch (e) {}
 }
@@ -120,31 +217,39 @@ async function markRemoteSet(peer) {
 }
 
 socket.on('p2p_signal', async ({ from, data, sessionId }) => {
-  if (!data || !from || sessionId !== session?.activeSessionId) return;
+  if (!p2pAllowed() || !data || !from || sessionId !== session?.activeSessionId) return;
 
   if (data.kind === 'offer') {
     // We are asked to share a file
-    if (!p2pEnabled || !window.crypto?.subtle || (!heldFiles().size && !partialFiles.size) || [...peers.keys()].filter(key => key.startsWith('seed:')).length >= P2P_MAX_PEERS) return;
+    if (!window.crypto?.subtle || (!heldFiles().size && !partialFiles.size) || [...peers.keys()].filter(key => key.startsWith('seed:')).length >= P2P_MAX_PEERS) return;
     const key = `seed:${from}`;
     closePeer(key);
     const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
-    const peer = { pc, channel: null, pending: [], remoteSet: false, sessionId };
+    const peer = { pc, channel: null, pending: [], remoteSet: false, sessionId, generation: p2pGeneration };
     peers.set(key, peer);
-    pc.onicecandidate = e => { if (e.candidate) signal(from, { kind: 'candidate', from: 'seed', candidate: e.candidate }, sessionId); };
-    pc.onconnectionstatechange = () => { if (['failed', 'closed', 'disconnected'].includes(pc.connectionState)) closePeer(key); };
+    pc.onicecandidate = e => { if (e.candidate && currentP2pPeer(peer, key)) signal(from, { kind: 'candidate', from: 'seed', candidate: e.candidate }, sessionId); };
+    pc.onconnectionstatechange = () => { if (['failed', 'closed', 'disconnected'].includes(pc.connectionState)) closePeer(key, peer); };
     pc.ondatachannel = e => {
+      if (!currentP2pPeer(peer, key)) { e.channel.close(); return; }
       peer.channel = window.DublineNetwork.channel(e.channel);
       serveChannel(e.channel, key);
     };
-    await pc.setRemoteDescription(data.sdp);
-    await markRemoteSet(peer);
-    await pc.setLocalDescription(await pc.createAnswer());
-    signal(from, { kind: 'answer', sdp: pc.localDescription }, sessionId);
+    try {
+      await pc.setRemoteDescription(data.sdp);
+      if (!currentP2pPeer(peer, key)) return;
+      await markRemoteSet(peer);
+      const answer = await pc.createAnswer();
+      if (!currentP2pPeer(peer, key)) return;
+      await pc.setLocalDescription(answer);
+      if (currentP2pPeer(peer, key)) signal(from, { kind: 'answer', sdp: pc.localDescription }, sessionId);
+    } catch { closePeer(key, peer); }
   } else if (data.kind === 'answer') {
-    const peer = peers.get(`leech:${from}`);
+    const key = `leech:${from}`, peer = peers.get(key);
     if (!peer) return;
-    await peer.pc.setRemoteDescription(data.sdp);
-    await markRemoteSet(peer);
+    try {
+      await peer.pc.setRemoteDescription(data.sdp);
+      if (currentP2pPeer(peer, key)) await markRemoteSet(peer);
+    } catch { closePeer(key, peer); }
   } else if (data.kind === 'candidate') {
     // A candidate from the sharer goes to our downloading connection, and vice versa
     const peer = peers.get(data.from === 'seed' ? `leech:${from}` : `seed:${from}`);
@@ -154,6 +259,8 @@ socket.on('p2p_signal', async ({ from, data, sessionId }) => {
 
 // ---------- Sharing: answer piece requests ----------
 function serveChannel(channel, key) {
+  const peer = peers.get(key);
+  if (!currentP2pPeer(peer, key) || peer.channel !== channel) { channel.close(); return; }
   channel.binaryType = 'arraybuffer';
   channel.bufferedAmountLowThreshold = 256 * 1024;
   let file = null;
@@ -161,6 +268,7 @@ function serveChannel(channel, key) {
   const queue = [];
   let sending = false;
   const uploadAbort = new AbortController();
+  peer.uploadAbort = uploadAbort;
   channel.addEventListener('close', () => uploadAbort.abort(), { once: true });
 
   const waitForBuffer = () => new Promise(resolve => {
@@ -173,9 +281,9 @@ async function pump() {
     if (sending) return;
     sending = true;
     try {
-      while (queue.length && channel.readyState === 'open' && (file || partial)) {
+      while (currentP2pPeer(peer, key) && queue.length && channel.readyState === 'open' && (file || partial)) {
         if (channel.bufferedAmount > 1024 * 1024) { await waitForBuffer(); if (channel.bufferedAmount > 1024 * 1024) continue; }
-        if (channel.readyState !== 'open') break;
+        if (!currentP2pPeer(peer, key) || channel.readyState !== 'open') break;
         const index = queue.shift();
         const chunk = Math.floor(index / 4);
         if (!file && !partial.durable.has(chunk)) continue;
@@ -185,12 +293,12 @@ async function pump() {
         new DataView(packet.buffer).setUint32(0, index);
         packet.set(data, 4);
         await window.mediaUploadLimiter?.take(data.byteLength, uploadAbort.signal);
-        if (channel.readyState !== 'open') break;
+        if (!currentP2pPeer(peer, key) || channel.readyState !== 'open') break;
         channel.send(packet);
         uploadedBytes += data.byteLength;
       }
     } catch (err) {
-      closePeer(key);
+      closePeer(key, peer);
     } finally {
       sending = false;
       updateP2pStatus();
@@ -198,6 +306,7 @@ async function pump() {
   }
 
   channel.onmessage = e => {
+    if (!currentP2pPeer(peer, key)) return;
     if (typeof e.data !== 'string' || e.data.length > 4096) return;
     let msg;
     try { msg = JSON.parse(e.data); } catch (err) { return; }
@@ -213,40 +322,44 @@ async function pump() {
       pump();
     }
   };
-  channel.onclose = () => closePeer(key);
+  channel.onclose = () => closePeer(key, peer);
 }
 
 // ---------- Downloading: from players, the rest from the host ----------
 function connectToSeeder(peerId) {
+  if (!p2pAllowed()) return Promise.reject(new Error('P2P disabled'));
   return new Promise((resolve, reject) => {
     const key = `leech:${peerId}`;
     closePeer(key);
     const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
     const channel = window.DublineNetwork.channel(pc.createDataChannel('dubline', { ordered: true }));
     channel.binaryType = 'arraybuffer';
-    const peer = { pc, channel, pending: [], remoteSet: false, key, sessionId: session?.activeSessionId };
+    const peer = { pc, channel, pending: [], remoteSet: false, key, sessionId: session?.activeSessionId, generation: p2pGeneration };
     peers.set(key, peer);
 
     const fail = (reason) => {
       clearTimeout(timer);
-      closePeer(key);
+      closePeer(key, peer);
       reject(new Error(reason));
     };
     const timer = setTimeout(() => fail('timeout'), P2P_CONNECT_TIMEOUT);
-    pc.onicecandidate = e => { if (e.candidate) signal(peerId, { kind: 'candidate', from: 'leech', candidate: e.candidate }, peer.sessionId); };
+    peer.cancel = () => { clearTimeout(timer); reject(new Error('P2P connection closed')); };
+    pc.onicecandidate = e => { if (e.candidate && currentP2pPeer(peer, key)) signal(peerId, { kind: 'candidate', from: 'leech', candidate: e.candidate }, peer.sessionId); };
     pc.onconnectionstatechange = () => { if (['failed', 'closed'].includes(pc.connectionState)) fail(pc.connectionState); };
     channel.onopen = () => {
+      if (!currentP2pPeer(peer, key)) return fail('P2P disabled');
       clearTimeout(timer);
       resolve(peer);
     };
     pc.createOffer()
-      .then(offer => pc.setLocalDescription(offer))
-      .then(() => signal(peerId, { kind: 'offer', sdp: pc.localDescription }, peer.sessionId))
+      .then(offer => { if (!currentP2pPeer(peer, key)) throw new Error('P2P disabled'); return pc.setLocalDescription(offer); })
+      .then(() => { if (currentP2pPeer(peer, key)) signal(peerId, { kind: 'offer', sdp: pc.localDescription }, peer.sessionId); })
       .catch(err => fail(err.message));
   });
 }
 
 function runPeer(peer, job) {
+  if (!currentP2pPeer(peer, peer.key) || job.manifest.sessionId !== session?.activeSessionId) { closePeer(peer.key, peer); return Promise.resolve(); }
   return new Promise(resolve => {
     const channel = peer.channel;
     const inflight = new Map(); // index -> { timer, startedAt }
@@ -264,13 +377,13 @@ function runPeer(peer, job) {
         if (!job.parts[index]) job.pending.unshift(index);
       }
       inflight.clear();
-      closePeer(peer.key);
+      closePeer(peer.key, peer);
       resolve();
     };
 
     const fill = () => {
       if (ended) return;
-      if (job.cancelled) return finish();
+      if (job.cancelled || !currentP2pPeer(peer, peer.key)) return finish();
       while (opened && job.pending.length) {
         const next = job.scheduler.pick(peer.key, job.pending, video.currentTime || 0, session?.videoDuration);
         if (next === -1) break;
@@ -283,6 +396,7 @@ function runPeer(peer, job) {
     };
 
     channel.onmessage = e => {
+      if (!currentP2pPeer(peer, peer.key)) return finish();
       if (typeof e.data === 'string') {
         let msg;
         try { msg = JSON.parse(e.data); } catch (err) { return finish(); }
@@ -315,13 +429,14 @@ function runPeer(peer, job) {
     const openTimer = setTimeout(() => { if (!opened) finish(); }, 4000);
     let refreshing = false;
     const availabilityTimer = setInterval(async () => {
-      if (refreshing || ended || job.cancelled) return;
+      if (refreshing || ended || job.cancelled || !currentP2pPeer(peer, peer.key)) return;
       refreshing = true;
       try {
         const latest = (await findSeeders(job.url)).find(entry => entry.socketId === peer.key.slice(6) && entry.id === job.manifest.id);
         if (!ended && latest && job.scheduler.availability(peer.key, latest.ranges)) fill();
       } finally { refreshing = false; }
     }, 1500);
+    peer.cancel = finish;
     channel.send(JSON.stringify({ t: 'open', url: job.url, id: job.manifest.id }));
   });
 }
@@ -414,7 +529,7 @@ async function downloadFile({ url, size, hash, type, direct }, onProgress, abort
     }
     onProgress({ ...job, uniqueBytes: size }); return { ...result, cachedBytes: 0 };
   } catch (error) { if (abort.signal.aborted) throw error; console.info('[Dubline] Voxalike direct unavailable; using peers / host.'); } }
-  const seeders = p2pEnabled && window.crypto?.subtle && window.RTCPeerConnection && job.pending.length ? (await findSeeders(url)).slice(0, P2P_MAX_PEERS) : [];
+  const seeders = p2pAllowed() && window.crypto?.subtle && window.RTCPeerConnection && job.pending.length ? (await findSeeders(url)).slice(0, P2P_MAX_PEERS) : [];
   await Promise.all(seeders.filter(peer => peer.id === manifest.id).map(peer => connectToSeeder(peer.socketId).then(connection => runPeer(connection, job)).catch(() => {})));
   await Promise.all(verification.values());
   // Corrupt peers cannot poison the cache or prevent recovery from canonical HTTP.
@@ -457,6 +572,7 @@ async function loadSceneMedia() {
   cancelMediaDownload();
   for (const release of mediaPins.values()) release(); mediaPins.clear();
   ++announceGeneration; clearTimeout(announceTimer); announceTimer = null;
+  ++p2pGeneration;
   for (const key of [...peers.keys()]) closePeer(key);
   partialFiles.clear(); heldManifests.clear();
   p2pStatus = null;

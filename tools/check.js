@@ -18,6 +18,7 @@ extraChecks.push('e2e/group-reliability.e2e.js');
 extraChecks.push('e2e/editor-outcomes.e2e.js');
 extraChecks.push('test/network-metrics.test.js', 'e2e/collaboration-ux.e2e.js');
 extraChecks.push('test/hosting-lifecycle.test.js', 'tools/electron-hosting-smoke.js');
+extraChecks.push('test/p2p-consent.test.js', 'e2e/p2p-consent.e2e.js');
 extraChecks.push('transfer-utils.test.js', 'e2e/media-presence-hardening.e2e.js');
 extraChecks.push('electron-project-open.js', 'electron-project-open.test.js', 'tools/electron-shell-smoke.js',
   'electron-distribution.js', 'electron-managed-files.js', 'electron-installed-update.js', 'electron-installed-update.test.js',
