@@ -1,6 +1,6 @@
 const { describe, test, before, after, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
-const { skipReason, startServer, launchBrowser, openPlayer, loadFixture, waitFor, wait, claimAndSelect } = require('./helpers');
+const { skipReason, startServer, launchBrowser, openPlayer, loadFixture, waitFor, wait, claimAndSelect, recordTake } = require('./helpers');
 
 describe('Collaboration latency and UX', { skip: skipReason, timeout: 120000 }, () => {
   let server, browser, page, serial = 0; const guests = [];
@@ -28,6 +28,86 @@ describe('Collaboration latency and UX', { skip: skipReason, timeout: 120000 }, 
     await page.mouse.move(rect.x, rect.y); await page.mouse.down(); await page.mouse.move(rect.x + 40, rect.y + dy);
     return rect;
   }
+  test('moderator trash UI restores cues and immediately closes when authority is revoked', async () => {
+    const other = await guest('Moderator');
+    await page.evaluate(() => socket.emit('host_grant_moderator', { nick: 'Moderator' }));
+    await waitFor(other, () => canModerate());
+    await page.evaluate(() => socket.emit('host_delete_lines', { sessionId: session.activeSessionId, lineIds: [1] }));
+    await waitFor(other, () => session.trashCount === 1);
+    await other.click('#undoDeleteBtn'); await waitFor(other, () => !!document.querySelector('#trashList input[data-id="1"]'));
+    await other.click('#trashList input[data-id="1"]'); await other.click('#trashRestoreBtn');
+    await waitFor(page, () => session.lines.some(line => line.id === 1));
+    await page.evaluate(() => socket.emit('host_delete_lines', { sessionId: session.activeSessionId, lineIds: [1] }));
+    await waitFor(other, () => session.trashCount === 1);
+    await page.evaluate(() => socket.emit('host_revoke_moderator', { id: session.moderators.find(item => item.nick === 'Moderator').id }));
+    await waitFor(other, () => !canModerate() && getComputedStyle(trashModal).display === 'none');
+    assert.equal(await other.$eval('#undoDeleteBtn', node => getComputedStyle(node).display), 'none');
+    await other.evaluate(() => selectLine(session.lines.find(line => line.id === 2)));
+    assert.equal(await other.$eval('#editorCaption', node => node.readOnly), false, 'ordinary collaborators retain text editing');
+  });
+  test('protected timing attempts notify without mutation while selection and role transfer remain allowed', async () => {
+    await page.evaluate(() => toggleProtectTimings()); await waitFor(page, () => session.protectTimings);
+    const before = await page.evaluate(() => session.lines.map(({ id, start, end }) => ({ id, start, end })));
+    await page.evaluate(() => { window.protectedToasts = 0; const original = showToast; showToast = (...args) => { protectedToasts++; return original(...args); }; });
+    await page.click('#line-block-1'); assert.equal(await page.evaluate(() => protectedToasts), 0);
+    await page.keyboard.press('ArrowRight');
+    assert.match(await page.$eval('#toast', node => node.textContent), /Timing protection/);
+    await page.evaluate(() => { createLineAtPlayhead(); createEditorLineAt('Hero', 2); });
+    assert.equal(await page.evaluate(() => protectedToasts), 1, 'repeated attempts share a cooldown');
+    assert.deepEqual(await page.evaluate(() => session.lines.map(({ id, start, end }) => ({ id, start, end }))), before);
+    assert.equal(await page.$eval('#editorCaption', node => node.readOnly), false);
+    await page.keyboard.down('Alt'); await page.keyboard.press('ArrowDown'); await page.keyboard.up('Alt');
+    await waitFor(page, () => session.lines.find(line => line.id === 1).character === 'Friend');
+  });
+  test('captured pointer publishes its actual track to two collaborators and clears outside the timeline', async () => {
+    const second = await guest('Second'), third = await guest('Third');
+    await waitFor(page, () => DublineCursorPresence.stats().actors === 2);
+    await page.bringToFront();
+    const rect = await beginDrag();
+    const row = await page.$eval('.track-row[data-character="Friend"]', node => { const box = node.getBoundingClientRect(); return { y: box.top + box.height / 2 }; });
+    await page.mouse.move(rect.x, row.y, { steps: 4 });
+    for (const other of [second, third]) await waitFor(other, () => [...DublineCursorPresence.samples.values()].some(sample => sample.packet.active && sample.packet.rowKey === 'Friend'));
+    await page.mouse.move(rect.x, 5); await page.mouse.up();
+    for (const other of [second, third]) await waitFor(other, () => [...DublineCursorPresence.samples.values()].every(sample => !sample.packet.active));
+  });
+  test('host and moderator drag foreign takes; guests and Shift do not, and revocation cancels a gesture', async () => {
+    const owner = await guest('Owner'), mod = await guest('Moderator');
+    await page.evaluate(() => setStudioMode('dub')); await waitFor(owner, () => session.mode === 'dub');
+    await claimAndSelect(owner, 1); await recordTake(owner, 1); await waitFor(page, () => !!session.lines.find(line => line.id === 1).audioUrl);
+    await page.evaluate(() => socket.emit('host_grant_moderator', { nick: 'Moderator' })); await waitFor(mod, () => canModerate());
+    const stranger = await guest('Stranger');
+    assert.equal(await stranger.$eval('#line-block-1', node => node.classList.contains('draggable')), false);
+    const initial = await page.evaluate(() => ({ start: session.lines[0].start, end: session.lines[0].end, audioStart: rawTakeStart(session.lines[0]) }));
+    for (const actor of [page, mod]) {
+      await actor.bringToFront();
+      const box = await actor.$eval('#line-block-1', node => { const rect = node.getBoundingClientRect(); return { x: rect.x + 10, y: rect.y + 12 }; });
+      const before = await actor.evaluate(() => rawTakeStart(session.lines[0]));
+      await actor.mouse.move(box.x, box.y); await actor.mouse.down(); await actor.mouse.move(box.x + 25, box.y); await actor.mouse.up();
+      await waitFor(actor, value => rawTakeStart(session.lines[0]) > value, 5000, before);
+    }
+    await owner.bringToFront();
+    const ownBox = await owner.$eval('#line-block-1', node => { const rect = node.getBoundingClientRect(); return { x: rect.x + 10, y: rect.y + 12 }; });
+    const latency = await owner.evaluate(() => latencyFor(myName));
+    await owner.keyboard.down('Shift'); await owner.mouse.move(ownBox.x, ownBox.y); await owner.mouse.down(); await owner.mouse.move(ownBox.x + 20, ownBox.y);
+    await owner.evaluate(() => window.dispatchEvent(new PointerEvent('pointercancel', { pointerId: 1 }))); await owner.mouse.up();
+    assert.equal(await owner.evaluate(() => latencyFor(myName)), latency, 'cancelled own latency gesture never saves');
+    await owner.mouse.move(ownBox.x, ownBox.y); await owner.mouse.down(); await owner.mouse.move(ownBox.x + 20, ownBox.y); await owner.mouse.up(); await owner.keyboard.up('Shift');
+    await waitFor(owner, previous => latencyFor(myName) !== previous, 5000, latency);
+    await mod.bringToFront();
+    const box = await mod.$eval('#line-block-1', node => { const rect = node.getBoundingClientRect(); return { x: rect.x + 10, y: rect.y + 12 }; });
+    const audioStart = await mod.evaluate(() => rawTakeStart(session.lines[0]));
+    await mod.mouse.move(box.x, box.y); await mod.mouse.down(); await mod.mouse.move(box.x + 20, box.y);
+    await owner.evaluate(() => setTakeProps(1, { pan: .3 })); await waitFor(mod, () => session.lines[0].pan === .3); await mod.mouse.up();
+    assert.equal(await mod.evaluate(() => rawTakeStart(session.lines[0])), audioStart, 'changed takeMixRevision cancels stale placement');
+    const before = await mod.evaluate(() => JSON.stringify(session.lines[0]));
+    await mod.keyboard.down('Shift'); await mod.mouse.move(box.x, box.y); await mod.mouse.down(); await mod.mouse.move(box.x + 20, box.y); await mod.mouse.up(); await mod.keyboard.up('Shift');
+    assert.equal(await mod.evaluate(() => JSON.stringify(session.lines[0])), before);
+    await mod.mouse.move(box.x, box.y); await mod.mouse.down(); await mod.mouse.move(box.x + 30, box.y);
+    await page.evaluate(() => socket.emit('host_revoke_moderator', { id: session.moderators.find(item => item.nick === 'Moderator').id }));
+    await waitFor(mod, () => !canModerate()); await mod.mouse.up();
+    assert.equal(await mod.evaluate(() => JSON.stringify(session.lines[0])), before);
+    assert.deepEqual(await page.evaluate(() => ({ start: session.lines[0].start, end: session.lines[0].end })), { start: initial.start, end: initial.end });
+  });
   test('disabled slider help preserves its existing label, value handler and full-width seek layout', async () => {
     const result = await page.evaluate(() => {
       const label = document.createElement('label'), input = document.createElement('input'), output = document.createElement('output');

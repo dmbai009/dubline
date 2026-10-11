@@ -2,7 +2,7 @@
 // existing handlers/server. Only editor fields add local availability gates.
 (() => {
   let frame = 0;
-  const scope = '#inspector, #settingsModal, #filesModal, #modeSwitch, .timeline-toolbar, .studio-transport, .studio-audio-row';
+  const scope = '#inspector, #settingsModal, #filesModal, #trashModal, #modeSwitch, .timeline-toolbar, .studio-transport, .studio-audio-row';
   const base = () => !session?.loaded ? 'help.scene' : !socket.connected ? 'help.connection' : window.snapshotFrozen ? 'snapshot.frozen' : '';
   function availability(control, property, value) { if (control[property] !== value) control[property] = value; }
   function explain(control, key) { window.setControlHelp(control, key ? t(key) : ''); }
@@ -38,6 +38,7 @@
       let reason = '';
       if (control.matches('#modeSwitch button, #protectTimingsBtn')) reason = common || (!canModerate() ? 'help.moderator' : '');
       else if (control.id === 'addEditorLineBtn') reason = common || (session.mode !== 'edit' ? 'help.mode' : session.protectTimings ? 'help.protected' : '');
+      else if (control.id === 'undoDeleteBtn' || ['trashRestoreBtn', 'trashRestoreAllBtn', 'trashPurgeBtn'].includes(control.id)) reason = common || (session?.mode !== 'edit' ? 'help.mode' : !canModerate() ? 'help.moderator' : control.disabled ? 'help.selection' : '');
       else if (control.id === 'recBtn') reason = ['recording', 'preparing'].includes(recordState) ? '' : common || (renderInProgress ? 'help.busy' : session.mode !== 'dub' ? 'help.dub' : watchMode ? 'watch.noRecord' : line && getLineOwner(line) !== myName ? 'help.owner' : '');
       else if (control.id === 'projectInput' || control.id === 'customUploadBtn') reason = !socket.connected ? 'help.connection' : projectImportBusy || customImportStatus?.active || renderInProgress ? 'help.busy' : recordState !== 'idle' ? 'help.recording' : !amHost() ? 'help.host' : '';
       else if (control.id === 'packExportBtn' || control.id === 'projectExportBtn') reason = common || (projectImportBusy || projectExportBusy || customImportStatus?.active ? 'help.busy' : !amHost() ? 'help.host' : '');
@@ -45,6 +46,7 @@
       else if (control.matches('#transportSeek, #previewRate, [data-studio-action=play], [data-studio-action=back], [data-studio-action=forward]')) reason = common || (renderInProgress ? 'help.busy' : recordState !== 'idle' ? 'help.recording' : watchMode && !amHost() ? 'watch.hostControls' : '');
       else if (control.closest('#passwordHostControls')) reason = !socket.connected ? 'help.connection' : !amHost() ? 'help.host' : '';
       else if (control.id === 'settingsBlindMode') reason = common || (!canModerate() ? 'help.moderator' : '');
+      else if (control.hasAttribute('data-host-only')) reason = common || (!amHost() ? 'help.host' : '');
       else if (control.hasAttribute('data-project-field') || control.dataset.audioField === 'offset' || ['settingsAutoDuck', 'settingsAutoDuckAmount'].includes(control.id)) reason = common || (control.disabled ? 'studio.mixLocked' : '');
       else if (control.hasAttribute('data-clip-field') || control.closest('[data-take-mix]')) reason = common || (control.closest('[data-take-mix]')?.dataset.pending ? 'help.busy' : control.disabled ? 'clip.readOnly' : '');
       else if (control.matches('[data-studio-setting=latency]')) reason = !socket.connected ? 'help.connection' : recordState !== 'idle' ? 'help.recording' : !myName ? 'help.selection' : '';

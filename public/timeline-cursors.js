@@ -9,7 +9,7 @@
   const toggle = personal.querySelector('input'); toggle.checked = visible; window.addSettingsCard('user', 'interface', personal); toggle.setAttribute('aria-label', t('cursor.show')); window.addEventListener('dubline-language-changed', () => toggle.setAttribute('aria-label', t('cursor.show')));
   const shared = document.createElement('label'); shared.className = 'setting-card';
   shared.innerHTML = '<span data-i18n="cursor.hz"></span><input class="text-input" type="number" min="5" max="30" step="1" value="15">';
-  const rate = shared.querySelector('input'); window.addSettingsCard('player', 'room', shared); i18n.apply();
+  const rate = shared.querySelector('input'); rate.dataset.hostOnly = ''; window.addSettingsCard('player', 'room', shared); i18n.apply();
   function close(id) { const peer = direct.get(id); if (!peer) return; direct.delete(id); clearTimeout(peer.timer); try { peer.channel?.close(); peer.pc.close(); } catch { /* closed */ } }
   function clear() { for (const id of [...direct.keys()]) close(id); samples.clear(); receiveRates.clear(); earlyCandidates.clear(); layer.replaceChildren(); latest = null; subscription = ''; clearTimeout(jumpExpiry); window.refreshCollaboratorJumpButtons?.(); }
   function rowFor(packet) {
@@ -127,7 +127,15 @@
   function flush() { timer = null; if (latest) { publish(latest); latest = null; } }
   timelineContainer.addEventListener('pointermove', event => {
     if (session?.mode !== 'edit' || document.querySelector('.modal-overlay[style*="display: flex"]')) return;
-    const row = event.target.closest('.track-row[data-character],.studio-audio-row,.ruler-row'); if (!row) { hide(); return; }
+    const bounds = timelineContainer.getBoundingClientRect();
+    if (event.clientX < bounds.left + labelWidth || event.clientX >= bounds.right || event.clientY < bounds.top || event.clientY >= bounds.bottom) { hide(); return; }
+    // Pointer capture and translated cue previews retain the source element.
+    // Track geometry follows the real pointer, including scrolling and zoom.
+    const row = [...timeline.querySelectorAll('.track-row[data-character],.studio-audio-row,.ruler-row')].find(item => {
+      const box = item.getBoundingClientRect();
+      return event.clientY >= box.top && event.clientY < box.bottom && box.width > 0;
+    });
+    if (!row) { hide(); return; }
     const rect = row.getBoundingClientRect(), origin = timeline.getBoundingClientRect();
     if (event.clientX < timelineContainer.getBoundingClientRect().left + labelWidth) { hide(); return; }
     latest = { active: true, time: Math.max(0, Math.min(43200, (event.clientX - origin.left - labelWidth) / pxPerSec)), rowType: row.dataset.character ? 'role' : row.dataset.audioChannel ? 'audio' : 'ruler', rowKey: row.dataset.character || row.dataset.audioChannel || 'ruler', relativeY: Math.max(0, Math.min(1, (event.clientY - rect.top) / Math.max(1, rect.height))) };

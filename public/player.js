@@ -517,7 +517,7 @@ function updateLineBlockVisual(el, line) {
     el.title = t('blind.hidden');
   }
   if (session.mode === 'edit') window.enableLineEditDrag?.(el, line.id);
-  else if (line.audioUrl && owner === myName) enableTakeDrag(el, line.id);
+  else if (line.audioUrl && canEditTake(line)) enableTakeDrag(el, line.id);
   window.renderRemoteSelection?.(el);
   window.renderEditLease?.(el);
 }
@@ -532,10 +532,15 @@ function enableTakeDrag(el, lineId) {
   el.onpointerdown = (e) => {
     if (e.button !== 0) return;
     const line = session.lines.find(l => l.id === lineId);
-    if (!line) return;
+    if (!line?.audioUrl || session.mode !== 'dub' || !socket.connected || !canEditTake(line)) return;
 
     // Shift moves all your takes at once: that is the microphone delay correction
-    if (e.shiftKey) return startLatencyDrag(e, el);
+    if (e.shiftKey) {
+      if (line.recordedBy !== myName) { showToast(t('take.foreignLatency')); return; }
+      return startLatencyDrag(e, el);
+    }
+
+    window.cancelTakeGesture?.();
 
     const startX = e.clientX;
     const identity = { sessionId: session.activeSessionId, audioUrl: line.audioUrl, takeMixRevision: line.takeMixRevision || 0 };
@@ -546,8 +551,15 @@ function enableTakeDrag(el, lineId) {
     const canvas = el.querySelector('.wave-canvas');
     const hint = document.createElement('span');
     hint.className = 'drag-hint';
+    const pointerId = e.pointerId;
+    const valid = () => {
+      const current = session?.activeSessionId === identity.sessionId && session.lines.find(item => item.id === lineId);
+      return socket.connected && session?.mode === 'dub' && current?.audioUrl === identity.audioUrl && (current.takeMixRevision || 0) === identity.takeMixRevision && canEditTake(current) && el.isConnected;
+    };
 
     const onMove = (ev) => {
+      if (ev.pointerId !== pointerId) return;
+      if (!valid()) { onUp(); return; }
       const dx = ev.clientX - startX;
       if (!moved && Math.abs(dx) < 4) return;
       if (!moved) {
@@ -562,16 +574,25 @@ function enableTakeDrag(el, lineId) {
     };
 
     const onUp = (event = {}) => {
+      if (event.pointerId !== undefined && event.pointerId !== pointerId) return;
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
       window.removeEventListener('pointercancel', onUp); window.removeEventListener('blur', onUp);
       el.classList.remove('dragging');
       hint.remove();
-      const current = session?.activeSessionId === identity.sessionId && session.lines.find(item => item.id === lineId);
-      if (!moved || event.type !== 'pointerup' || !current || current.audioUrl !== identity.audioUrl || (current.takeMixRevision || 0) !== identity.takeMixRevision || !el.isConnected) return;
+      for (const event of ['session_updated', 'line_updated', 'takes_updated']) socket.off(event, checkGesture);
+      socket.off('disconnect', onUp);
+      if (window.cancelTakeGesture === cancel) window.cancelTakeGesture = null;
+      if (canvas) canvas.style.left = `${(origRaw - latency - line.start) * pxPerSec}px`;
+      if (!moved || event.type !== 'pointerup' || !valid()) return;
       el.dataset.justDragged = '1';
       socket.emit('set_take_props', { lineId, audioStart: Number(newRaw.toFixed(3)), ...identity });
     };
+    const cancel = () => onUp();
+    const checkGesture = () => { if (!valid()) cancel(); };
+    window.cancelTakeGesture = cancel;
+    for (const event of ['session_updated', 'line_updated', 'takes_updated']) socket.on(event, checkGesture);
+    socket.on('disconnect', onUp);
 
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
@@ -581,17 +602,23 @@ function enableTakeDrag(el, lineId) {
 
 // Shift+drag: shifts all of the player's takes at once and saves it as their delay
 function startLatencyDrag(e, grabbed) {
+  window.cancelTakeGesture?.();
   const sessionId = session.activeSessionId, actor = myName;
+  const pointerId = e.pointerId;
   const startX = e.clientX;
   const origMs = Math.round(latencyFor(myName) * 1000);
   let newMs = origMs;
   let moved = false;
   const mine = session.lines.filter(l => l.audioUrl && l.recordedBy === myName);
+  const identities = mine.map(line => ({ id: line.id, audioUrl: line.audioUrl, revision: line.takeMixRevision || 0 }));
   const tiles = mine.map(line => ({ line, el: document.getElementById(`line-block-${line.id}`) })).filter(item => item.el);
   const hint = document.createElement('span');
   hint.className = 'drag-hint latency';
+  const valid = () => socket.connected && session?.activeSessionId === sessionId && session.mode === 'dub' && myName === actor && grabbed.isConnected && identities.every(identity => session.lines.some(line => line.id === identity.id && line.recordedBy === actor && line.audioUrl === identity.audioUrl && (line.takeMixRevision || 0) === identity.revision));
 
   const onMove = (ev) => {
+    if (ev.pointerId !== pointerId) return;
+    if (!valid()) return onUp();
     const dx = ev.clientX - startX;
     if (!moved && Math.abs(dx) < 4) return;
     if (!moved) {
@@ -608,18 +635,25 @@ function startLatencyDrag(e, grabbed) {
     hint.innerText = t('latency.value', { ms: `${newMs > 0 ? '+' : ''}${newMs}` });
   };
 
-  const onUp = () => {
+  const onUp = (event = {}) => {
+    if (event.pointerId !== undefined && event.pointerId !== pointerId) return;
     window.removeEventListener('pointermove', onMove);
     window.removeEventListener('pointerup', onUp);
+    window.removeEventListener('pointercancel', onUp); window.removeEventListener('blur', onUp);
+    socket.off('disconnect', onUp);
+    if (window.cancelTakeGesture === cancel) window.cancelTakeGesture = null;
     tiles.forEach(item => item.el.classList.remove('latency-drag'));
     hint.remove();
-    if (!moved || session?.activeSessionId !== sessionId || myName !== actor || !grabbed.isConnected) return;
+    tiles.forEach(({ line, el }) => { const canvas = el.querySelector('.wave-canvas'); if (canvas) canvas.style.left = `${(rawTakeStart(line) - origMs / 1000 - line.start) * pxPerSec}px`; });
+    if (!moved || event.type !== 'pointerup' || !valid()) return;
     grabbed.dataset.justDragged = '1';
     setMyLatency(newMs);
   };
+  const cancel = () => onUp(); window.cancelTakeGesture = cancel;
 
   window.addEventListener('pointermove', onMove);
   window.addEventListener('pointerup', onUp);
+  window.addEventListener('pointercancel', onUp); window.addEventListener('blur', onUp); socket.on('disconnect', onUp);
 }
 
 window.setMyLatency = function(ms) {

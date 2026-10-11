@@ -3,7 +3,7 @@ const { MAX_UNDO_BATCHES } = require('../config');
 const { logEvent } = require('../log');
 const { deleteTakeFile } = require('../files');
 const { saveRooms, getRoom, snapshotActive, insertLineInOrder, emitSession, dropEmptyRoleClaims } = require('../rooms');
-const { isHost } = require('../auth');
+const { isHost, canModerate } = require('../auth');
 
 module.exports = function registerTrashHandlers(socket, conn) {
   // The host deletes selected lines (e.g. on-screen signs that should not be dubbed)
@@ -54,7 +54,7 @@ module.exports = function registerTrashHandlers(socket, conn) {
     logEvent(conn.roomId, `↶ ${conn.nick} restored deleted lines: ${restored.length}`);
   });
 
-  // ---------- Trash of deleted lines (host only) ----------
+  // ---------- Trash of deleted lines (host and moderators) ----------
   function trashEntries(room) {
     const list = [];
     (room.deletedLines || []).forEach(batch => batch.lines.forEach(entry => list.push({
@@ -91,14 +91,14 @@ module.exports = function registerTrashHandlers(socket, conn) {
     const reply = typeof ack === 'function' ? ack : (typeof payload === 'function' ? payload : () => {});
     if (!conn.roomId) return reply([]);
     const room = getRoom(conn.roomId);
-    if (!isHost(room, conn.clientId)) return reply([]);
+    if (!canModerate(room, conn.clientId)) return reply([]);
     reply(trashEntries(room));
   });
 
-  socket.on('host_trash_restore', ({ lineIds } = {}) => {
+  socket.on('host_trash_restore', ({ lineIds, sessionId, entries } = {}) => {
     if (!conn.roomId || !Array.isArray(lineIds)) return;
     const room = getRoom(conn.roomId);
-    if (!isHost(room, conn.clientId) || room.mode !== 'edit') return;
+    if (!canModerate(room, conn.clientId) || room.mode !== 'edit' || !currentEntries(room, lineIds, sessionId, entries)) return;
     const existing = new Set(room.lines.map(line => line.id));
     const taken = takeFromTrash(room, lineIds).filter(item => !existing.has(item.entry.line.id));
     if (!taken.length) return;
@@ -118,15 +118,16 @@ module.exports = function registerTrashHandlers(socket, conn) {
   });
 
   // Permanent deletion from the trash: only then are take files erased
+  function currentEntries(room, lineIds, sessionId, entries) {
+    if (sessionId !== undefined && sessionId !== room.activeSessionId) return false;
+    if (entries === undefined) return true; // Compatibility with existing clients.
+    const current = trashEntries(room);
+    return Array.isArray(entries) && entries.length === lineIds.length && new Set(lineIds).size === lineIds.length && new Set(entries.map(item => item?.lineId)).size === entries.length && entries.every(expected => lineIds.includes(expected?.lineId) && current.some(item => item.lineId === expected.lineId && item.at === expected.at && item.revision === expected.revision && item.audioUrl === expected.audioUrl));
+  }
   socket.on('host_trash_purge', ({ lineIds, sessionId, entries } = {}) => {
     if (!conn.roomId || !Array.isArray(lineIds)) return;
     const room = getRoom(conn.roomId);
-    if (!isHost(room, conn.clientId) || room.mode !== 'edit') return;
-    if (sessionId !== undefined && sessionId !== room.activeSessionId) return;
-    if (entries !== undefined) {
-      const current = trashEntries(room);
-      if (!Array.isArray(entries) || entries.length !== lineIds.length || entries.some(expected => !current.some(item => item.lineId === expected.lineId && item.at === expected.at && item.revision === expected.revision && item.audioUrl === expected.audioUrl))) return;
-    }
+    if (!canModerate(room, conn.clientId) || room.mode !== 'edit' || !currentEntries(room, lineIds, sessionId, entries)) return;
     const taken = takeFromTrash(room, lineIds);
     if (!taken.length) return;
     taken.forEach(item => deleteTakeFile(item.entry.line.audioUrl));

@@ -201,6 +201,8 @@ window.DublineLocales.en = {
   "you": "You",
   "lineFallback": "(line)",
   "dragTitle": "Drag to shift this take",
+  "take.foreignLatency": "Shift+drag only corrects your own microphone delay. Drag normally to move this take.",
+  "editor.protectedAttempt": "🔒 Timing protection is enabled. You cannot create lines or change their timing.",
   "record.retry": "🎙️ Record again",
   "record.trim": "✂ Detecting speech…",
   "record.saving": "Saving…",

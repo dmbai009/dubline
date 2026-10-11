@@ -42,6 +42,39 @@ describe('Track structure, protected timings and room moderators on the real ser
     return { character, action, target, createTarget: true, trackOrder: snapshot.trackOrder, expectedClaims: { from: snapshot.characterClaims[character] || null, to: snapshot.characterClaims[target] || null },
       lines: snapshot.lines.filter(line => line.character === character).map(line => ({ lineId: line.id, revision: line.revision || 0, audioUrl: line.audioUrl, takeMixRevision: line.takeMixRevision || 0, claimedBy: line.claimedBy })) };
   }
+  test('trash moderation checks current entries and does not grant active deletion rights', async () => {
+    const host = await scene('dub'), mod = await join(host.room, 'Moderator'), other = await join(host.room, 'Other');
+    const take = await upload(host, 1); const granted = await grant(host, mod);
+    host.socket.emit('set_session_mode', { sessionId: (await state(host)).activeSessionId, mode: 'edit' });
+    await waitUntil(async () => (await state(host)).mode === 'edit');
+    const initial = await state(host);
+    mod.socket.emit('host_delete_lines', { sessionId: initial.activeSessionId, lineIds: [1] });
+    assert.ok((await state(mod)).lines.some(line => line.id === 1));
+    host.socket.emit('host_delete_lines', { sessionId: initial.activeSessionId, lineIds: [1] });
+    await waitUntil(async () => !(await state(host)).lines.some(line => line.id === 1));
+    const entries = await ack(mod, 'host_trash_list'); assert.equal(entries.length, 1);
+    assert.deepEqual(await ack(other, 'host_trash_list'), []);
+    const request = { sessionId: initial.activeSessionId, lineIds: [1], entries };
+    other.socket.emit('host_trash_restore', request); assert.equal((await state(other)).lines.some(line => line.id === 1), false);
+    mod.socket.emit('host_trash_restore', { ...request, entries: [{ ...entries[0], revision: entries[0].revision + 1 }] });
+    assert.equal((await state(mod)).lines.some(line => line.id === 1), false);
+    mod.socket.emit('host_trash_restore', request);
+    await waitUntil(async () => (await state(host)).lines.some(line => line.id === 1));
+    assert.equal((await state(host)).lines.find(line => line.id === 1).audioUrl, take.audioUrl);
+    mod.socket.emit('host_trash_purge', request); assert.ok((await state(mod)).lines.find(line => line.id === 1).audioUrl);
+    host.socket.emit('host_delete_lines', { sessionId: initial.activeSessionId, lineIds: [1] });
+    await waitUntil(async () => (await ack(mod, 'host_trash_list')).length === 1);
+    mod.socket.emit('host_trash_purge', request); assert.equal((await ack(mod, 'host_trash_list')).length, 1, 'old deletion generation is rejected');
+    assert.equal((await ack(host, 'host_revoke_moderator', { id: granted.id })).ok, true);
+    mod.socket.emit('host_trash_purge', { ...request, entries: await ack(host, 'host_trash_list') });
+    assert.equal((await ack(mod, 'host_trash_list')).length, 0);
+    assert.equal((await ack(host, 'host_trash_list')).length, 1);
+    await grant(host, mod);
+    const current = { ...request, entries: await ack(mod, 'host_trash_list') };
+    mod.socket.emit('host_trash_purge', current);
+    await waitUntil(async () => !(await ack(host, 'host_trash_list')).length);
+    mod.socket.emit('host_trash_purge', current); assert.deepEqual(await ack(mod, 'host_trash_list'), []);
+  });
   test('reorder is idempotent, scoped, synchronized, undoable and does not alter any cue', async () => {
     const host = await scene(), guest = await join(host.room, 'Guest'), initial = await state(host);
     const request = operation(initial, { character: 'Friend', before: 'Hero', trackOrder: initial.trackOrder });

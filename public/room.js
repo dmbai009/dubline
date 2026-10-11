@@ -329,10 +329,11 @@ window.undoDelete = function() {
 function updateUndoButton() {
   const button = document.getElementById('undoDeleteBtn');
   const count = (session && session.trashCount) || 0;
-  button.style.display = amHost() && count ? '' : 'none';
+  button.style.display = canModerate() && count ? '' : 'none';
+  button.disabled = !socket.connected || session?.mode !== 'edit';
   button.textContent = t('trash.button', { n: count });
   if (trashModal.style.display === 'flex') {
-    if (amHost()) loadTrash();
+    if (canModerate() && session?.mode === 'edit' && socket.connected) loadTrash();
     else closeTrashModal();
   }
 }
@@ -348,6 +349,7 @@ let trashItems = [];
 const trashSelected = new Set();
 
 window.openTrashModal = function() {
+  if (!canModerate() || session?.mode !== 'edit' || !socket.connected) return;
   trashSelected.clear();
   trashFilter.value = '';
   trashModal.style.display = 'flex';
@@ -361,7 +363,7 @@ window.closeTrashModal = function() {
 function loadTrash() {
   const sessionId = session?.activeSessionId;
   socket.emit('host_trash_list', {}, list => {
-    if (session?.activeSessionId !== sessionId) return;
+    if (session?.activeSessionId !== sessionId || !canModerate() || trashModal.style.display !== 'flex') return;
     trashItems = Array.isArray(list) ? list : [];
     const alive = new Set(trashItems.map(item => item.lineId));
     [...trashSelected].forEach(id => { if (!alive.has(id)) trashSelected.delete(id); });
@@ -414,28 +416,33 @@ trashSelectAll.addEventListener('change', () => {
 trashFilter.addEventListener('input', renderTrash);
 
 window.restoreTrashSelected = function() {
-  if (!trashSelected.size) return;
-  socket.emit('host_trash_restore', { lineIds: [...trashSelected], sessionId: session?.activeSessionId });
+  if (!trashSelected.size || !canModerate() || session?.mode !== 'edit' || !socket.connected) return;
+  socket.emit('host_trash_restore', trashRequest([...trashSelected]));
   trashSelected.clear();
 };
 
 window.restoreTrashAll = function() {
-  if (!trashItems.length) return;
-  socket.emit('host_trash_restore', { lineIds: trashItems.map(item => item.lineId), sessionId: session?.activeSessionId });
+  if (!trashItems.length || !canModerate() || session?.mode !== 'edit' || !socket.connected) return;
+  socket.emit('host_trash_restore', trashRequest(trashItems.map(item => item.lineId)));
   trashSelected.clear();
 };
 
 window.purgeTrashSelected = async function() {
-  if (!trashSelected.size) return;
+  if (!trashSelected.size || !canModerate() || session?.mode !== 'edit' || !socket.connected) return;
   const sessionId = session.activeSessionId;
   const lineIds = [...trashSelected];
   const entries = trashItems.filter(item => lineIds.includes(item.lineId)).map(item => ({ lineId: item.lineId, at: item.at, revision: item.revision, audioUrl: item.audioUrl }));
   const takes = trashItems.filter(item => trashSelected.has(item.lineId) && item.hasTake).length;
   if (!await askConfirm(t('trash.purgeConfirm', { n: trashSelected.size, takes }))) return;
+  if (!canModerate() || session?.mode !== 'edit' || !socket.connected) return;
   if (session.activeSessionId !== sessionId || entries.some(entry => !trashItems.some(item => item.lineId === entry.lineId && item.at === entry.at && item.revision === entry.revision && item.audioUrl === entry.audioUrl))) return showToast(t('editor.dialogChanged'));
   socket.emit('host_trash_purge', { lineIds, sessionId, entries });
   trashSelected.clear();
 };
+
+function trashRequest(lineIds) {
+  return { lineIds, sessionId: session?.activeSessionId, entries: trashItems.filter(item => lineIds.includes(item.lineId)).map(({ lineId, at, revision, audioUrl }) => ({ lineId, at, revision, audioUrl })) };
+}
 
 socket.on('lines_deleted', ({ count }) => {
   // In Edit Mode anyone may delete, and everyone undoes their own deletion

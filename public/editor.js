@@ -688,8 +688,16 @@ window.addEditorTrack = async function() {
   return queueEditorRequest(() => ['editor_add_track', { character: name.trim() }]).then(editorResult);
 };
 
+let timingProtectionNoticeAt = -Infinity;
+function warnProtectedTimings() {
+  if (performance.now() - timingProtectionNoticeAt < 1500) return;
+  timingProtectionNoticeAt = performance.now();
+  showToast(t('editor.protectedAttempt'));
+}
+
 window.createLineAtPlayhead = function(character = '') {
-  if (!session || session.mode !== 'edit' || session.protectTimings) return;
+  if (!session || session.mode !== 'edit') return;
+  if (session.protectTimings) return warnProtectedTimings();
   const tracks = sessionCharacters();
   const selectedTrack = character || (selectedLine && selectedLine.character) || tracks[0];
   if (!selectedTrack) return addEditorTrack();
@@ -697,7 +705,8 @@ window.createLineAtPlayhead = function(character = '') {
 };
 
 window.createEditorLineAt = function(character, time) {
-  if (!session || session.mode !== 'edit' || session.protectTimings || !session.loaded || !sessionCharacters().includes(character)) return;
+  if (!session || session.mode !== 'edit' || !session.loaded || !sessionCharacters().includes(character)) return;
+  if (session.protectTimings) return warnProtectedTimings();
   if (!Number.isFinite(time) || time < 0 || time > 43200) return;
   const bounds = window.DublineTimeline.create(time, editorVideoDuration());
   if (!bounds) return showToast(t('timeline.outsideCreate'));
@@ -985,7 +994,7 @@ window.enableLineEditDrag = function(el, lineId) {
     if (event.ctrlKey || event.metaKey || event.shiftKey) return; // with a modifier the click selects
     const line = session.lines.find(item => item.id === lineId);
     if (!line || session.mode !== 'edit') return;
-    if (edge && session.protectTimings) return;
+    if (edge && session.protectTimings) return warnProtectedTimings();
     cancelEditorGesture();
     // Dragging one of several selected lines moves the whole selection
     const group = !edge && multiSelection.size >= 2 && multiSelection.has(lineId)
@@ -1067,6 +1076,7 @@ window.enableLineEditDrag = function(el, lineId) {
     let moved = false;
     let axisReleased = false;
     let roleChanges = null;
+    let protectionWarned = false;
 
     const setTarget = row => {
       if (row === targetRow) return;
@@ -1100,6 +1110,9 @@ window.enableLineEditDrag = function(el, lineId) {
       lastPointer = { clientX: moveEvent.clientX, clientY: moveEvent.clientY };
       const dx = moveEvent.clientX - originX;
       const dy = moveEvent.clientY - originY + (scroller.scrollTop - scrollOrigin);
+      if (session.protectTimings && !protectionWarned && Math.abs(dx) >= 14 && Math.abs(dx) > Math.abs(dy)) {
+        protectionWarned = true; warnProtectedTimings();
+      }
       if (!moved && Math.abs(dx) < 3 && Math.abs(dy) < 3) return;
       moved = true;
       const shift = dx / pxPerSec;
@@ -1224,7 +1237,7 @@ window.handleEditorKey = function(e) {
   // ←/→ move the selected lines in time (instead of seeking the video)
   if ((e.code === 'ArrowLeft' || e.code === 'ArrowRight') && !e.altKey && !e.ctrlKey && !e.metaKey) {
     e.preventDefault();
-    if (session.protectTimings) return true;
+    if (session.protectTimings) { warnProtectedTimings(); return true; }
     const step = (e.shiftKey ? 1 : 0.1) * (e.code === 'ArrowLeft' ? -1 : 1);
     const shift = window.DublineTimeline.move(lines, step, editorVideoDuration());
     if (!shift) return true;
