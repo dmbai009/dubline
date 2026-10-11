@@ -333,8 +333,6 @@ function getLineOwner(line) {
 }
 
 const MIN_TILE_PX = 22;
-const LANE_HEIGHT = 54;  // tile height 48 + gap 6
-const ROW_PADDING = 6;
 let roleHeights = {};
 try { roleHeights = JSON.parse(localStorage.getItem('dubline_role_heights') || '{}') || {}; } catch { /* invalid preference */ }
 if (typeof roleHeights !== 'object' || Array.isArray(roleHeights)) roleHeights = {};

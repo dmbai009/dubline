@@ -498,8 +498,6 @@ window.DublineLocales.ru = {
   "desktop.instructions.radmin": "Создайте сеть Radmin и пригласите друзей.|Дождитесь, пока Dubline определит VPN-адрес.|Друзья открывают Dubline.exe → «Войти гостем», вставляют адрес и вводят PIN.",
   "desktop.instructions.hamachi": "Создайте сеть Hamachi и пригласите друзей.|Дождитесь, пока Dubline определит VPN-адрес.|Друзья открывают Dubline.exe → «Войти гостем», вставляют адрес и вводят PIN.",
   "desktop.instructions.vpn": "Откройте Radmin VPN или Hamachi и создайте общую сеть.|Дождитесь, пока Dubline определит активный VPN и покажет его адрес.|Друзья открывают Dubline.exe → «Войти гостем», вставляют адрес и вводят PIN.",
-  "desktop.shareText.porthole": "{url}\nPIN: {pin}",
-  "desktop.shareText.vpn": "{url}\nPIN: {pin}",
   "desktop.hostingFailed": "{mode} не готов. Открыта инструкция по подключению.",
   "desktop.hostingChangeError": "Не удалось сменить способ подключения: {message}",
   "desktop.update.title": "Готова новая версия Dubline",

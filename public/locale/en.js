@@ -500,8 +500,6 @@ window.DublineLocales.en = {
   "desktop.instructions.radmin": "Create a Radmin network and invite your friends.|Wait until Dubline detects its VPN address.|Friends open Dubline.exe → Join as a guest, paste the copied address, then enter the PIN.",
   "desktop.instructions.hamachi": "Create a Hamachi network and invite your friends.|Wait until Dubline detects its VPN address.|Friends open Dubline.exe → Join as a guest, paste the copied address, then enter the PIN.",
   "desktop.instructions.vpn": "Open Radmin VPN or Hamachi and create a shared network.|Wait until Dubline detects the active VPN and shows its address.|Friends open Dubline.exe → Join as a guest, paste the copied address, then enter the PIN.",
-  "desktop.shareText.porthole": "{url}\nPIN: {pin}",
-  "desktop.shareText.vpn": "{url}\nPIN: {pin}",
   "desktop.hostingFailed": "{mode} is not ready. Instructions have been opened.",
   "desktop.hostingChangeError": "Could not change connection method: {message}",
   "desktop.update.title": "A new Dubline version is ready",

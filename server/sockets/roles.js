@@ -1,7 +1,6 @@
 // Roles and lines: claim/release, line characters, take settings, recording status
 const { VOICE_EFFECTS, MAX_PITCH, MAX_TAKE_SHIFT } = require('../config');
 const { recordingNow } = require('../state');
-const { io } = require('../app');
 const { sanitizeChatText } = require('../sanitize');
 const { logEvent } = require('../log');
 const { saveRooms, flushRooms, getRoom, emitSession, dropEmptyRoleClaims, snapshotActive } = require('../rooms');

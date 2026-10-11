@@ -187,9 +187,6 @@ function acceptFile(field, maxMb, authorize) {
   return uploadErrorHandler(handler, maxMb);
 }
 
-// Multipart boundaries, headers and the text fields around the files
-const MULTIPART_OVERHEAD = 1024 * 1024;
-
 // The client shows `key` translated into the player's language and falls back to the English `error`
 function sendJsonError(res, status, message, key = null, params = {}) {
   res.status(status).json({ error: message, key, params });

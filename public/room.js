@@ -200,14 +200,9 @@ function initials(nick) {
   return letters.toUpperCase();
 }
 
-function formatMs(ms) {
-  return t('latency.value', { ms: `${ms > 0 ? '+' : ''}${ms}` });
-}
-
 function playerCardHtml(nick, stats, online) {
   const isMe = nick === myName;
   const recordingLine = [...liveRecordings.entries()].find(([, who]) => who === nick);
-  const latencyMs = Math.round(latencyFor(nick) * 1000);
   const pct = stats.claimed ? Math.round((stats.recorded / stats.claimed) * 100) : (stats.recorded ? 100 : 0);
   const activity = playerActivities.get(nick);
   const moderator = online && session?.moderators?.find(entry => entry.online && entry.nick === nick);
