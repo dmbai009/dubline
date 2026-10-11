@@ -176,6 +176,8 @@ describe('Collaborative editor hardening', { skip: skipReason }, () => {
   for (const event of ['pointercancel', 'blur']) test(`${event} removes guides, target, classes and listeners without committing`, async () => {
     const origin = await point();
     await page.mouse.move(origin.x, origin.y); await page.mouse.down(); await page.mouse.move(origin.x + 25, origin.y + 10);
+    // Mouse dispatch may finish before the host grants the asynchronous edit lease.
+    await waitFor(page, () => document.querySelectorAll('.editor-drag-guides').length === 1);
     assert.equal(await page.evaluate(() => document.querySelectorAll('.editor-drag-guides').length), 1);
     await page.evaluate(event => window.dispatchEvent(new Event(event)), event);
     await page.mouse.move(origin.x + 80, origin.y + 20); await page.mouse.up();
