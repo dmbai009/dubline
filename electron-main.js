@@ -45,6 +45,7 @@ let serverChild = null;
 let tunnelChild = null;
 let tunnelTimeout = null;
 let tunnelGeneration = 0;
+let cloudflareEnabled = false;
 let shuttingDown = false;
 let shutdownComplete = false;
 let hostStarting = false;
@@ -231,7 +232,7 @@ async function currentNetworkTools() {
 }
 
 async function getHostingStatus() {
-  if (hostingMode === 'single') return { isDesktop: true, singlePlayer: true, room: ROOM_ID, pin: '', port: localPort, mode: 'single', state: serverFailure ? 'error' : 'local', error: serverFailure, publicUrl: '' };
+  if (hostingMode === 'single') return { isDesktop: true, singlePlayer: true, room: ROOM_ID, pin: '', port: localPort, mode: 'single', state: serverFailure ? 'error' : 'local', error: serverFailure, publicUrl: '', cloudflare: { state: 'idle', enabled: false, publicUrl: '' }, connections: {} };
   const tools = await currentNetworkTools();
   const activeVpn = [
     { ...tools.radmin, provider: 'radmin' },
@@ -251,19 +252,18 @@ async function getHostingStatus() {
     portRange: `${PORT_MIN}-${PORT_MAX}`, mode: hostingMode,
     provider: hostingMode === 'vpn' ? vpnTool.provider : '', firstGuestConnected, tools
   };
-  if (serverFailure) return { ...base, state: 'error', publicUrl: '', error: serverFailure };
-  if (hostingMode === 'cloudflare') return { ...base, ...tunnelStatus };
-
-  const tool = hostingMode === 'vpn' ? vpnTool : tools[hostingMode] || {};
-  let publicUrl = '';
-  if (hostingMode === 'porthole' && localPort) publicUrl = `http://localhost:${localPort}`;
-  if (hostingMode === 'vpn' && tool.ip && localPort) publicUrl = `http://${tool.ip}:${localPort}`;
-  let state = 'needsSetup';
-  if (!tool.installed) state = 'missing';
-  else if (!tool.running) state = 'stopped';
-  else if (hostingMode === 'vpn' && !tool.ip) state = 'needsSetup';
-  else state = firstGuestConnected ? 'ready' : 'waitingGuest';
-  return { ...base, state, publicUrl, error: '' };
+  const localConnection = (mode, tool) => ({
+    state: !tool.installed ? 'missing' : !tool.running ? 'stopped' : mode === 'vpn' && !tool.ip ? 'needsSetup' : firstGuestConnected ? 'ready' : 'waitingGuest',
+    publicUrl: mode === 'porthole' && localPort ? `http://localhost:${localPort}` : tool.ip && localPort ? `http://${tool.ip}:${localPort}` : '',
+    provider: mode === 'vpn' ? vpnTool.provider : '', error: ''
+  });
+  const connections = {
+    cloudflare: { ...tunnelStatus, enabled: cloudflareEnabled },
+    porthole: localConnection('porthole', tools.porthole || {}),
+    vpn: localConnection('vpn', vpnTool)
+  };
+  if (serverFailure) for (const value of Object.values(connections)) Object.assign(value, { state: 'error', publicUrl: '', error: serverFailure });
+  return { ...base, ...connections[hostingMode], connections, cloudflare: connections.cloudflare };
 }
 
 function publishHostingStatus() {
@@ -340,31 +340,39 @@ function killProcessTree(child) {
 }
 
 function stopTunnel(resetStatus = true) {
+  cloudflareEnabled = false;
   tunnelGeneration++;
   clearTimeout(tunnelTimeout);
   tunnelTimeout = null;
   if (tunnelChild) killProcessTree(tunnelChild);
   tunnelChild = null;
+  tunnelStatus.publicUrl = '';
   if (resetStatus) setTunnelStatus('idle');
 }
 
 function startTunnel(port) {
+  if (cloudflareEnabled && tunnelChild && ['connecting', 'ready'].includes(tunnelStatus.state)) return;
   stopTunnel(false);
+  cloudflareEnabled = true;
   const generation = tunnelGeneration;
   const cloudflared = app.isPackaged ? resourcePath('bin', 'cloudflared.exe') : resourcePath('cloudflared.exe');
   if (!fs.existsSync(cloudflared)) {
+    cloudflareEnabled = false;
     setTunnelStatus('error', '', 'cloudflared.exe is missing. Run npm run prepare:cloudflared.');
     return;
   }
   setTunnelStatus('connecting');
   tunnelTimeout = setTimeout(() => {
-    if (generation === tunnelGeneration && hostingMode === 'cloudflare' && !tunnelStatus.publicUrl) {
+    if (generation === tunnelGeneration && cloudflareEnabled && !tunnelStatus.publicUrl) {
+      stopTunnel(false);
       setTunnelStatus('error', '', 'Cloudflare did not create a public address within 30 seconds.');
     }
   }, 30000);
-  tunnelChild = spawn(cloudflared, ['tunnel', '--url', `http://127.0.0.1:${port}`, '--no-autoupdate'], {
-    windowsHide: true, stdio: ['ignore', 'pipe', 'pipe']
-  });
+  try {
+    tunnelChild = spawn(cloudflared, ['tunnel', '--url', `http://127.0.0.1:${port}`, '--no-autoupdate'], {
+      windowsHide: true, stdio: ['ignore', 'pipe', 'pipe']
+    });
+  } catch (error) { stopTunnel(false); setTunnelStatus('error', '', error.message); return; }
 
   let output = '';
   let addressFound = false;
@@ -382,9 +390,10 @@ function startTunnel(port) {
   };
   tunnelChild.stdout.on('data', inspect);
   tunnelChild.stderr.on('data', inspect);
-  tunnelChild.once('error', err => { if (generation === tunnelGeneration) setTunnelStatus('error', '', err.message); });
+  tunnelChild.once('error', err => { if (generation === tunnelGeneration) { stopTunnel(false); setTunnelStatus('error', '', err.message); } });
   tunnelChild.once('exit', code => {
-    if (!shuttingDown && generation === tunnelGeneration && hostingMode === 'cloudflare') {
+    if (!shuttingDown && generation === tunnelGeneration && cloudflareEnabled) {
+      stopTunnel(false);
       setTunnelStatus('error', '', `Cloudflare tunnel stopped with code ${code}.`);
     }
   });
@@ -399,9 +408,15 @@ async function setHostingMode(mode) {
     await requestServer('enable-multiplayer');
   }
   if (request !== hostingModeRequest) return getHostingStatus();
-  if (mode !== hostingMode) firstGuestConnected = false;
   hostingMode = mode;
   if (mode === 'cloudflare') startTunnel(localPort);
+  return getHostingStatus();
+}
+
+function setCloudflareEnabled(enabled) {
+  if (typeof enabled !== 'boolean') throw new Error('Invalid Cloudflare state.');
+  if (enabled && (hostingMode === 'single' || !serverChild || shuttingDown)) throw new Error('Start multiplayer before enabling Cloudflare.');
+  if (enabled) startTunnel(localPort);
   else stopTunnel();
   return getHostingStatus();
 }
@@ -612,7 +627,7 @@ async function launchWorkspace(mode, projectPath = '') {
     else if (mode === 'single') await requestServer('new-single-project');
     createHostWindow(localPort);
     if (mode === 'cloudflare') startTunnel(localPort);
-    else setTunnelStatus('idle');
+    else stopTunnel();
     return { ok: true, port: localPort };
   } catch (err) {
     killProcessTree(serverChild);
@@ -708,7 +723,13 @@ ipcMain.handle('desktop:set-hosting-mode', (event, mode) => {
 });
 ipcMain.handle('desktop:retry-hosting', event => {
   if (!isHostSender(event)) throw new Error('Untrusted host request.');
-  return setHostingMode(hostingMode);
+  if (hostingMode === 'single') return getHostingStatus();
+  stopTunnel(false);
+  return setCloudflareEnabled(true);
+});
+ipcMain.handle('desktop:set-cloudflare-enabled', (event, enabled) => {
+  if (!isHostSender(event) || event.senderFrame !== event.sender.mainFrame) throw new Error('Untrusted host request.');
+  return setCloudflareEnabled(enabled);
 });
 ipcMain.handle('desktop:open-network-tool', async (event, tool) => {
   if (!isHostSender(event) && !isLauncherSender(event)) throw new Error('Untrusted external-link request.');

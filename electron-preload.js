@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('dublineDesktop', Object.freeze({
   chooseStorage: () => ipcRenderer.invoke('app:choose-storage'),
   getStatus: () => ipcRenderer.invoke('desktop:get-status'),
   setHostingMode: mode => ipcRenderer.invoke('desktop:set-hosting-mode', mode),
+  setCloudflareEnabled: enabled => ipcRenderer.invoke('desktop:set-cloudflare-enabled', enabled),
   retryHosting: () => ipcRenderer.invoke('desktop:retry-hosting'),
   openNetworkTool: tool => ipcRenderer.invoke('desktop:open-network-tool', tool),
   copyText: value => ipcRenderer.invoke('desktop:copy-text', value),

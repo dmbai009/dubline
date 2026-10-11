@@ -28,6 +28,7 @@
     "test:electron:take-mix": "node tools/electron-take-mix-smoke.js",
     "test:ui": "node --test --test-concurrency=1 e2e/ui-cleanup.e2e.js e2e/editor-improvements.e2e.js e2e/group-reliability.e2e.js",
     "test:electron:ui": "node tools/electron-ui-cleanup-smoke.js",
+    "test:electron:hosting": "node tools/electron-hosting-smoke.js",
     "qa:ui": "node tools/visual-ui-cleanup.js",
     "test:electron:storage": "node tools/electron-storage-smoke.js",
     "test:electron:projects": "node tools/electron-project-smoke.js",

@@ -22,6 +22,11 @@ describe('desktop invitation', { skip: skipReason }, () => {
         mode: 'cloudflare',
         port: 38500,
         publicUrl: 'https://quiet.trycloudflare.com',
+        connections: {
+          cloudflare: { enabled: true, state: 'ready', publicUrl: 'https://quiet.trycloudflare.com' },
+          porthole: { state: 'waitingGuest', publicUrl: 'http://localhost:38500' },
+          vpn: { state: 'waitingGuest', publicUrl: 'http://26.10.20.30:38500', provider: 'radmin' }
+        },
         tools: {}
       };
       window.dublineDesktop = {
@@ -37,6 +42,10 @@ describe('desktop invitation', { skip: skipReason }, () => {
           return { ...window.__desktopStatus };
         },
         retryHosting: async () => ({ ...window.__desktopStatus }),
+        setCloudflareEnabled: async enabled => {
+          __desktopStatus.connections.cloudflare = { enabled, state: enabled ? 'ready' : 'idle', publicUrl: enabled ? 'https://new.trycloudflare.com' : '' };
+          return { ...__desktopStatus };
+        },
         openNetworkTool: async () => true,
         copyText: async value => {
           window.__desktopClipboard = String(value);
@@ -110,6 +119,8 @@ describe('desktop invitation', { skip: skipReason }, () => {
           i18n.setLanguage(language);
           Object.assign(__desktopStatus, { mode, publicUrl: url, state: 'ready' });
           handleDesktopStatus(__desktopStatus);
+          selectDesktopInviteMode(mode);
+          if (desktopInviteCollapsed) toggleDesktopInvitePanel();
         }, language, mode, url);
         await page.locator('#desktopCopyAllBtn').click();
         assert.equal(await page.evaluate(() => __desktopClipboard), `${url}/?room=desktop\nPIN: 7K9A`);
@@ -121,25 +132,59 @@ describe('desktop invitation', { skip: skipReason }, () => {
     await page.evaluate(() => i18n.setLanguage('en'));
   });
 
-  test('single promotion clears solo state; tabs remain clickable during delayed requests and old replies cannot change the selected mode', async () => {
+  test('connection tabs only change displayed information and never start tools or stop Cloudflare', async () => {
     await page.evaluate(() => {
-      handleDesktopStatus({ ...__desktopStatus, mode:'single', singlePlayer:true, state:'local' });
-      window.__pendingModes = [];
-      window.__oldSetHostingMode = dublineDesktop.setHostingMode;
-      dublineDesktop.setHostingMode = mode => new Promise(resolve => __pendingModes.push({ mode, resolve }));
+      window.__modeCalls = 0; window.__oldSetHostingMode = dublineDesktop.setHostingMode;
+      dublineDesktop.setHostingMode = () => { __modeCalls++; throw Error('Tabs must not change hosting'); };
       openHostingModal();
     });
     await page.click('[data-hosting-mode=porthole]');
-    assert.equal(await page.$eval('[data-hosting-mode=cloudflare]', node => node.disabled), false);
     await page.click('[data-hosting-mode=cloudflare]');
     assert.equal(await page.$eval('[data-hosting-mode=cloudflare]', node => node.classList.contains('active')), true);
     await page.click('[data-hosting-mode=vpn]');
-    await page.evaluate(() => __pendingModes[2].resolve({ ...__desktopStatus, mode:'vpn', singlePlayer:false, state:'waitingGuest' }));
-    await waitFor(page, () => desktopInviteState.mode === 'vpn' && !desktopInviteState.singlePlayer);
-    await page.evaluate(() => { __pendingModes[1].resolve({ ...__desktopStatus, mode:'cloudflare' }); __pendingModes[0].resolve({ ...__desktopStatus, mode:'porthole' }); });
     assert.equal(await page.$eval('[data-hosting-mode=vpn]', node => node.classList.contains('active')), true);
-    assert.equal(await page.$eval('#desktopInvitePanel', node => getComputedStyle(node).display), 'flex');
+    assert.equal(await page.evaluate(() => __modeCalls), 0);
+    assert.equal(await page.evaluate(() => desktopConnection('cloudflare').enabled), true);
     await page.evaluate(() => { dublineDesktop.setHostingMode = __oldSetHostingMode; });
+  });
+  test('popover keeps header geometry, masks PIN, closes by keyboard/outside and has independent connection settings', async () => {
+    await page.evaluate(() => { closeHostingModal(); closeSettingsModal(); closeDesktopInvite(false); });
+    for (const [width, height] of [[1024, 768], [1280, 720], [1920, 1080]]) {
+      await page.setViewport({ width, height });
+      const before = await page.$eval('header', node => ({ height: node.getBoundingClientRect().height, room: document.querySelector('.room-badge').getBoundingClientRect().x }));
+      await page.click('#desktopInviteToggle');
+      const result = await page.evaluate(() => {
+        const header = document.querySelector('header').getBoundingClientRect(), pop = document.getElementById('desktopInvitePopover'), box = pop.getBoundingClientRect();
+        return { height: header.height, room: document.querySelector('.room-badge').getBoundingClientRect().x, left: box.left, right: box.right, bottom: box.bottom, top: box.top, fixed: getComputedStyle(pop).position, parent: pop.parentElement.tagName };
+      });
+      assert.equal(result.height, before.height); assert.equal(result.room, before.room); assert.equal(result.fixed, 'fixed'); assert.equal(result.parent, 'BODY');
+      assert.ok(result.left >= 0 && result.right <= width && result.top >= 0 && result.bottom <= height, JSON.stringify(result));
+      await page.click('#desktopPinEye'); assert.equal(await page.$eval('#desktopPinCode', node => node.textContent), '7K9A');
+      await page.keyboard.press('Escape'); assert.equal(await page.$eval('#desktopPinCode', node => node.textContent), '••••');
+      assert.equal(await page.evaluate(() => document.activeElement.id), 'desktopInviteToggle');
+      await page.click('#desktopInviteToggle'); assert.equal(await page.$eval('#desktopPinCode', node => node.textContent), '••••');
+      await page.click('#desktopConnectionSettings');
+      assert.equal(await page.$eval('#desktopInvitePopover', node => node.hidden), true);
+      assert.equal(await page.$eval('#hostingModal', node => getComputedStyle(node).display), 'flex'); await page.evaluate(() => closeHostingModal());
+      await page.click('#desktopInviteToggle'); await page.click('.brand'); assert.equal(await page.$eval('#desktopInvitePopover', node => node.hidden), true);
+    }
+  });
+  test('Cloudflare can be disabled while VPN remains copyable; status errors never open the menu or reveal PIN', async () => {
+    await page.evaluate(() => { closeDesktopInvite(false); selectDesktopInviteMode('cloudflare'); });
+    await page.click('#desktopInviteToggle'); await page.click('#desktopCloudflareToggle');
+    await waitFor(page, () => desktopConnection('cloudflare').state === 'idle');
+    assert.equal(await page.$eval('#desktopCopyBtn', node => node.disabled), true);
+    assert.equal(await page.$eval('#desktopInviteUrl', node => node.value), '');
+    await page.click('[data-invite-mode=vpn]'); await page.click('#desktopCopyBtn');
+    assert.equal(await page.evaluate(() => __desktopClipboard), 'http://26.10.20.30:38500/?room=desktop');
+    await page.click('[data-invite-mode=cloudflare]'); await page.click('#desktopCloudflareToggle');
+    await waitFor(page, () => desktopConnection('cloudflare').state === 'ready'); await page.click('#desktopCopyBtn');
+    assert.equal(await page.evaluate(() => __desktopClipboard), 'https://new.trycloudflare.com/?room=desktop');
+    await page.keyboard.press('Escape');
+    await page.evaluate(() => handleDesktopStatus({ ...__desktopStatus, state: 'error', error: 'Connection stopped' }));
+    assert.equal(await page.$eval('#desktopInvitePopover', node => node.hidden), true);
+    assert.equal(await page.$eval('#desktopPinCode', node => node.textContent), '••••');
+    assert.equal(await page.$eval('#hostingModal', node => getComputedStyle(node).display), 'none');
   });
 
   test('keeps the update notice optional and non-blocking', async () => {

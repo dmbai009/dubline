@@ -21,3 +21,4 @@ jobs:
       - run: npm run test:e2e
       - run: npm run test:electron:editor
       - run: npm run test:electron:ui
+      - run: npm run test:electron:hosting

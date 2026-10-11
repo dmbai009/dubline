@@ -33,7 +33,8 @@ let desktopHostingRequest = 0;
 let desktopHostingRequestedMode = null;
 let desktopFutureHostingMode = 'cloudflare', desktopMultiplayerStarting = false;
 let desktopCopyTimer = null;
-let desktopInviteCollapsed = localStorage.getItem('dubline_invite_collapsed') !== '0';
+let desktopInviteCollapsed = true;
+let desktopInviteMode = null, desktopPinRevealed = false;
 let desktopFailureNotice = '';
 let appUpdateState = null;
 let appUpdateDismissed = false;
@@ -41,46 +42,67 @@ let appUpdateDismissed = false;
 const DESKTOP_MODES = ['cloudflare', 'porthole', 'vpn'];
 
 function desktopMode() {
-  return desktopInviteState?.mode || 'cloudflare';
+  return desktopInviteState?.singlePlayer ? 'single' : desktopInviteMode || desktopInviteState?.mode || 'cloudflare';
+}
+
+function desktopConnection(mode = desktopMode()) {
+  return desktopInviteState?.connections?.[mode] || (mode === 'cloudflare' ? desktopInviteState?.cloudflare : null) || (mode === desktopInviteState?.mode ? desktopInviteState : null) || { state: 'idle', publicUrl: '' };
 }
 
 function desktopModeName(mode = desktopMode()) {
-  if (mode === 'vpn' && ['radmin', 'hamachi'].includes(desktopInviteState?.provider)) {
-    return t(`desktop.mode.${desktopInviteState.provider}`);
+  if (mode === 'vpn' && ['radmin', 'hamachi'].includes(desktopConnection(mode)?.provider)) {
+    return t(`desktop.mode.${desktopConnection(mode).provider}`);
   }
   return t(`desktop.mode.${mode}`);
 }
 
-function desktopStatusText() {
-  const state = desktopInviteState?.state || 'connecting';
+function desktopStatusText(mode = desktopMode()) {
+  const state = desktopConnection(mode)?.state || 'connecting';
   return t(`desktop.status.${state}`);
 }
 
 function desktopPublicInviteUrl() {
-  if (!desktopInviteState || !desktopInviteState.publicUrl) return '';
-  return `${desktopInviteState.publicUrl.replace(/\/$/, '')}/?room=${encodeURIComponent(desktopInviteState.room || currentRoom)}`;
+  const connection = desktopConnection();
+  if (!desktopInviteState || desktopInviteState.singlePlayer || !connection.publicUrl || desktopMode() === 'cloudflare' && connection.state !== 'ready') return '';
+  return `${connection.publicUrl.replace(/\/$/, '')}/?room=${encodeURIComponent(desktopInviteState.room || currentRoom)}`;
 }
 
 function renderDesktopInvite() {
   if (!desktopInviteState) return;
+  document.getElementById('desktopConnectionSettings').setAttribute('aria-label', t('desktop.connectionSettings'));
   const panel = document.getElementById('desktopInvitePanel');
-  if (desktopInviteState.singlePlayer) { panel.style.display = 'none'; renderDesktopHostingModal(); return; }
+  if (desktopInviteState.singlePlayer) { closeDesktopInvite(false); panel.style.display = 'none'; renderDesktopHostingModal(); return; }
   const status = document.getElementById('desktopTunnelStatus');
   const input = document.getElementById('desktopInviteUrl');
   const copy = document.getElementById('desktopCopyBtn');
   const copyAll = document.getElementById('desktopCopyAllBtn');
-  const showPin = document.getElementById('desktopPinVisible').checked;
+  const connection = desktopConnection();
   panel.style.display = 'flex';
   panel.classList.toggle('collapsed', desktopInviteCollapsed);
-  status.className = `desktop-invite-status ${desktopInviteState.state || ''}`;
+  status.className = `desktop-invite-status ${connection.state || ''}`;
   status.textContent = desktopStatusText();
   document.getElementById('desktopModePort').textContent = `${desktopModeName()} · ${desktopInviteState.port || '—'}`;
   const inviteUrl = desktopPublicInviteUrl();
   input.value = inviteUrl;
   input.placeholder = t('desktop.linkPending');
   copy.disabled = !inviteUrl;
-  copyAll.disabled = !inviteUrl;
-  document.getElementById('desktopPinCode').textContent = showPin ? desktopInviteState.pin : '••••';
+  copyAll.disabled = !inviteUrl || !desktopInviteState.pin;
+  window.setControlHelp?.(copy, inviteUrl ? '' : t('desktop.noAddress'));
+  window.setControlHelp?.(copyAll, copyAll.disabled ? t('desktop.noAddress') : '');
+  document.getElementById('desktopPinCode').textContent = desktopPinRevealed && !desktopInviteCollapsed ? desktopInviteState.pin : '••••';
+  const eye = document.getElementById('desktopPinEye');
+  eye.setAttribute('aria-pressed', String(desktopPinRevealed));
+  eye.setAttribute('aria-label', t(desktopPinRevealed ? 'desktop.hidePin' : 'desktop.showPin'));
+  eye.title = eye.getAttribute('aria-label');
+  document.getElementById('desktopInvitePopover').setAttribute('aria-label', t('desktop.invite'));
+  document.querySelector('#desktopInvitePopover [role="group"]').setAttribute('aria-label', t('desktop.hosting.title'));
+  document.querySelectorAll('[data-invite-mode]').forEach(button => { const active = button.dataset.inviteMode === desktopMode(); button.classList.toggle('active', active); button.setAttribute('aria-pressed', String(active)); });
+  document.getElementById('desktopInviteDescription').textContent = t(`desktop.inviteNote.${desktopMode()}`);
+  const toggle = document.getElementById('desktopCloudflareToggle');
+  toggle.hidden = desktopMode() !== 'cloudflare';
+  toggle.textContent = t(connection.state === 'error' ? 'desktop.retry' : connection.enabled || ['ready', 'connecting'].includes(connection.state) ? 'desktop.cloudflareOff' : 'desktop.cloudflareOn');
+  toggle.setAttribute('aria-pressed', String(!!connection.enabled));
+  syncDesktopPopover();
   renderDesktopHostingModal();
 }
 
@@ -90,8 +112,9 @@ function renderDesktopHostingModal() {
   document.querySelectorAll('[data-hosting-mode]').forEach(button => button.classList.toggle('active', button.dataset.hostingMode === mode));
   document.getElementById('desktopHostingModeTitle').textContent = desktopModeName(mode);
   const status = document.getElementById('desktopHostingStatus');
-  status.className = `hosting-mode-status ${['ready'].includes(desktopInviteState.state) ? 'ready' : ['error', 'missing', 'stopped'].includes(desktopInviteState.state) ? 'error' : ''}`;
-  status.textContent = desktopStatusText();
+  const connection = desktopConnection(mode);
+  status.className = `hosting-mode-status ${connection.state === 'ready' ? 'ready' : ['error', 'missing', 'stopped'].includes(connection.state) ? 'error' : ''}`;
+  status.textContent = desktopInviteState.singlePlayer ? t('desktop.status.local') : desktopStatusText(mode);
   document.getElementById('desktopHostingPort').textContent = desktopInviteState.port || '—';
   document.getElementById('desktopHostingDescription').textContent = t(`desktop.description.${mode}`);
   const instructions = document.getElementById('desktopHostingInstructions');
@@ -102,7 +125,9 @@ function renderDesktopHostingModal() {
   openTool.style.display = mode === 'cloudflare' ? 'none' : '';
   openTool.textContent = mode === 'vpn' ? t('desktop.openRadmin') : t('desktop.openTool');
   document.getElementById('desktopOpenHamachiBtn').style.display = mode === 'vpn' ? '' : 'none';
-  document.getElementById('desktopRetryHostingBtn').style.display = mode === 'cloudflare' && !session?.singlePlayer ? '' : 'none';
+  const cloudflare = document.getElementById('desktopRetryHostingBtn');
+  cloudflare.style.display = mode === 'cloudflare' && !desktopInviteState.singlePlayer ? '' : 'none';
+  cloudflare.textContent = t(connection.state === 'error' ? 'desktop.retry' : connection.enabled || ['ready', 'connecting'].includes(connection.state) ? 'desktop.cloudflareOff' : 'desktop.cloudflareOn');
   const start = document.getElementById('desktopStartMultiplayerBtn');
   start.style.display = session?.singlePlayer ? '' : 'none';
   start.disabled = desktopMultiplayerStarting || desktopTransitionBusy();
@@ -111,15 +136,14 @@ function renderDesktopHostingModal() {
 function handleDesktopStatus(nextStatus) {
   if (desktopHostingRequestedMode && nextStatus.mode !== desktopHostingRequestedMode) return;
   if (!desktopInviteState) desktopInviteState = {};
+  if (!desktopInviteMode || desktopInviteState.singlePlayer && nextStatus.mode !== 'single') desktopInviteMode = DESKTOP_MODES.includes(nextStatus.mode) ? nextStatus.mode : 'cloudflare';
   Object.assign(desktopInviteState, nextStatus, { singlePlayer: nextStatus.mode === 'single' });
-  const failed = ['error', 'missing', 'stopped'].includes(desktopInviteState.state);
-  const noticeKey = `${desktopMode()}:${desktopInviteState.state}:${desktopInviteState.error || ''}`;
+  const failure = desktopConnection('cloudflare').state === 'error' ? desktopConnection('cloudflare') : desktopInviteState;
+  const failed = ['error', 'missing', 'stopped'].includes(failure.state);
+  const noticeKey = `${failure === desktopInviteState ? desktopInviteState.mode : 'cloudflare'}:${failure.state}:${failure.error || ''}`;
   if (failed && desktopFailureNotice !== noticeKey) {
     desktopFailureNotice = noticeKey;
-    desktopInviteCollapsed = false;
-    localStorage.setItem('dubline_invite_collapsed', '0');
-    showToast(t('desktop.hostingFailed', { mode: desktopModeName() }));
-    openHostingModal();
+    showToast(t('desktop.hostingFailed', { mode: failure === desktopInviteState ? desktopModeName(desktopInviteState.mode) : 'Cloudflare' }));
   }
   if (!failed) desktopFailureNotice = '';
   renderDesktopInvite();
@@ -128,6 +152,7 @@ function handleDesktopStatus(nextStatus) {
 async function initDesktopInvite() {
   if (!window.dublineDesktop) return;
   document.body.classList.add('desktop-mode');
+  document.body.appendChild(document.getElementById('desktopInvitePopover'));
   document.getElementById('roomSecuritySettings').style.display = 'none';
   handleDesktopStatus(await window.dublineDesktop.getStatus());
   window.dublineDesktop.onTunnelStatus(handleDesktopStatus);
@@ -136,12 +161,54 @@ async function initDesktopInvite() {
   }, 4000);
 }
 
-window.toggleDesktopPin = renderDesktopInvite;
+window.toggleDesktopPin = function() { desktopPinRevealed = !desktopPinRevealed; renderDesktopInvite(); };
+
+function syncDesktopPopover() {
+  const popover = document.getElementById('desktopInvitePopover'), button = document.getElementById('desktopInviteToggle');
+  popover.hidden = desktopInviteCollapsed;
+  button.setAttribute('aria-expanded', String(!desktopInviteCollapsed));
+  if (popover.hidden) return;
+  const box = button.getBoundingClientRect();
+  const viewportWidth = document.documentElement.clientWidth, viewportHeight = document.documentElement.clientHeight;
+  const availableBelow = viewportHeight - box.bottom - 8, availableAbove = box.top - 8;
+  popover.style.maxHeight = `${Math.max(48, Math.max(availableBelow, availableAbove) - 4)}px`;
+  const size = popover.getBoundingClientRect();
+  popover.style.left = `${Math.max(8, Math.min(viewportWidth - size.width - 8, box.left))}px`;
+  popover.style.top = `${availableBelow >= size.height || availableBelow >= availableAbove ? box.bottom + 4 : Math.max(8, box.top - size.height - 4)}px`;
+}
+window.closeDesktopInvite = function(restoreFocus = true) {
+  const wasOpen = !desktopInviteCollapsed;
+  desktopInviteCollapsed = true; desktopPinRevealed = false;
+  document.getElementById('desktopPinCode').textContent = '••••';
+  document.getElementById('desktopPinEye').setAttribute('aria-pressed', 'false');
+  document.getElementById('desktopPinEye').setAttribute('aria-label', t('desktop.showPin'));
+  document.getElementById('desktopPinEye').title = t('desktop.showPin');
+  syncDesktopPopover();
+  document.getElementById('desktopInvitePanel').classList.add('collapsed');
+  if (wasOpen && restoreFocus) document.getElementById('desktopInviteToggle').focus();
+};
+window.selectDesktopInviteMode = function(mode) {
+  if (!DESKTOP_MODES.includes(mode) || desktopInviteState?.singlePlayer) return;
+  desktopInviteMode = mode; desktopPinRevealed = false; renderDesktopInvite();
+};
+document.addEventListener('pointerdown', event => {
+  if (!desktopInviteCollapsed && !event.target.closest('#desktopInvitePopover,#desktopInvitePanel')) closeDesktopInvite(false);
+});
+document.addEventListener('keydown', event => {
+  if (!desktopInviteCollapsed && event.key === 'Escape') { event.preventDefault(); event.stopImmediatePropagation(); closeDesktopInvite(); }
+}, true);
+document.addEventListener('focusin', event => {
+  if (!desktopInviteCollapsed && !event.target.closest('#desktopInvitePopover,#desktopInvitePanel')) closeDesktopInvite(false);
+});
+window.addEventListener('resize', syncDesktopPopover);
+window.addEventListener('scroll', syncDesktopPopover, true);
 
 window.toggleDesktopInvitePanel = function() {
   desktopInviteCollapsed = !desktopInviteCollapsed;
-  localStorage.setItem('dubline_invite_collapsed', desktopInviteCollapsed ? '1' : '0');
+  if (desktopInviteState?.singlePlayer) return closeDesktopInvite(false);
+  desktopPinRevealed = false;
   renderDesktopInvite();
+  if (!desktopInviteCollapsed) document.querySelector('#desktopInvitePopover button').focus();
 };
 
 window.copyDesktopInvite = async function() {
@@ -166,6 +233,7 @@ window.copyDesktopInviteWithPin = async function() {
 
 window.openHostingModal = function() {
   if (!window.dublineDesktop) return;
+  closeDesktopInvite(false);
   renderDesktopHostingModal();
   document.getElementById('hostingModal').style.display = 'flex';
 };
@@ -176,7 +244,7 @@ window.closeHostingModal = function() {
 
 window.selectDesktopHostingMode = async function(mode) {
   if (session?.singlePlayer) { if (DESKTOP_MODES.includes(mode) && !desktopMultiplayerStarting) { desktopFutureHostingMode = mode; renderDesktopHostingModal(); } return; }
-  return applyDesktopHostingMode(mode);
+  selectDesktopInviteMode(mode);
 };
 function desktopTransitionBusy() { return recordState !== 'idle' || pendingTakeLines.size > 0 || renderInProgress || projectImportBusy || projectExportBusy || window.snapshotFrozen; }
 window.startDesktopMultiplayer = async function() {
@@ -203,6 +271,14 @@ async function applyDesktopHostingMode(mode) {
 window.retryDesktopHosting = async function() {
   try { handleDesktopStatus(await window.dublineDesktop.retryHosting()); }
   catch (err) { showToast(t('desktop.hostingChangeError', { message: err.message })); }
+};
+
+window.toggleDesktopCloudflare = async function() {
+  const connection = desktopConnection('cloudflare');
+  try {
+    if (connection.state === 'error') return await retryDesktopHosting();
+    handleDesktopStatus(await window.dublineDesktop.setCloudflareEnabled(!(connection.enabled || ['ready', 'connecting'].includes(connection.state))));
+  } catch (err) { showToast(t('desktop.hostingChangeError', { message: err.message })); }
 };
 
 window.openDesktopNetworkTool = function(tool = '') {
@@ -497,7 +573,7 @@ window.addEventListener('keydown', (e) => {
     closeHelpModal(); closeTrashModal(); clearMultiSelection();
     return;
   }
-  if (editingText || e.target.isContentEditable || modalOpen || e.defaultPrevented || e.ctrlKey && e.code !== 'KeyZ' || e.metaKey && e.code !== 'KeyZ') return;
+  if (editingText || e.target.isContentEditable || modalOpen || !desktopInviteCollapsed || e.defaultPrevented || e.ctrlKey && e.code !== 'KeyZ' || e.metaKey && e.code !== 'KeyZ') return;
 
   // Edit Mode has its own keys for the selected lines (move, change role, delete, undo)
   if (window.handleEditorKey && handleEditorKey(e)) return;

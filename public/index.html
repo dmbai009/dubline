@@ -159,7 +159,7 @@
     .btn-share { background: var(--accent-soft); color: var(--accent-2); padding: 4px 10px; border-radius: 999px; font-size: 11px; }
     .users-online { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--success); background: var(--success-soft); padding: 5px 10px; border-radius: 999px; font-weight: 600; white-space: nowrap; }
 
-    .desktop-invite { display: none; width: 336px; padding: 5px 7px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel-2); flex-direction: column; gap: 5px; }
+    .desktop-invite { display: none; width: auto; padding: 3px; border: 1px solid var(--border); border-radius: var(--radius); background: transparent; }
     .desktop-mode .desktop-invite { display: flex; }
     .desktop-mode .users-online, .desktop-mode .room-badge .btn-share { display: none; }
     .desktop-invite-row { display: flex; align-items: center; gap: 5px; min-width: 0; }
@@ -168,9 +168,15 @@
     .desktop-invite-toggle:hover:not(:disabled) { background: var(--panel-3); }
     .desktop-invite-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .desktop-invite-chevron { color: var(--muted); margin-left: auto; transition: transform 0.15s; }
-    .desktop-invite-details { display: flex; flex-direction: column; gap: 5px; }
-    .desktop-invite.collapsed { width: auto; min-width: 150px; padding: 3px; background: transparent; }
-    .desktop-invite.collapsed .desktop-invite-details { display: none; }
+    .desktop-invite-details { position: fixed; display: flex; flex-direction: column; gap: 10px; width: 326px; max-width: calc(100vw - 16px); padding: 12px; box-sizing: border-box; background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 8px 28px #0005; overflow: auto; z-index: 90; }
+    .desktop-invite-details[hidden] { display: none; }
+    .desktop-invite.collapsed { width: auto; padding: 3px; background: transparent; }
+    .desktop-connection-settings { display:none; }
+    .desktop-mode .desktop-connection-settings { display:inline-flex; }
+    .desktop-invite-tabs { display:flex; gap:4px; }
+    .desktop-invite-tabs button { flex:1; padding:6px; background:var(--panel-2); color:var(--muted); border:1px solid var(--border); }
+    .desktop-invite-tabs button.active { background:var(--accent-soft); color:var(--accent-2); border-color:var(--accent); }
+    .desktop-invite-note { margin:0; color:var(--muted); font-size:11px; line-height:1.5; }
     .desktop-invite.collapsed .desktop-invite-chevron { transform: rotate(-90deg); }
     .desktop-copy-all-btn { padding: 4px 8px; background: var(--accent-soft); color: var(--accent-2); border: 1px solid rgba(139, 92, 246, 0.35); white-space: nowrap; }
     .desktop-invite-status { color: var(--warning-text); font-size: 10px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -614,7 +620,7 @@
         <div class="hosting-actions">
           <button id="desktopOpenToolBtn" class="btn-outline" onclick="openDesktopNetworkTool()">Open / install</button>
           <button id="desktopOpenHamachiBtn" class="btn-outline" onclick="openDesktopNetworkTool('hamachi')" data-i18n="desktop.openHamachi">Open Hamachi</button>
-          <button id="desktopRetryHostingBtn" class="btn-play" onclick="retryDesktopHosting()" data-i18n="desktop.retry">Retry</button>
+          <button id="desktopRetryHostingBtn" class="btn-play" onclick="toggleDesktopCloudflare()">Cloudflare</button>
           <button id="desktopStartMultiplayerBtn" class="btn-play" onclick="startDesktopMultiplayer()" data-i18n="desktop.startMultiplayer" style="display:none">Start Multiplayer</button>
         </div>
       </div>
@@ -1099,24 +1105,29 @@
       <div class="brand"><img class="brand-logo" src="/icon-64.png" alt=""> Dubline <small>Studio</small></div>
       <div class="desktop-invite collapsed" id="desktopInvitePanel">
         <div class="desktop-invite-summary">
-          <button class="desktop-invite-toggle" onclick="toggleDesktopInvitePanel()" data-i18n-title="desktop.toggle" title="Show or hide invitation">
+          <button id="desktopInviteToggle" class="desktop-invite-toggle" onclick="toggleDesktopInvitePanel()" aria-haspopup="dialog" aria-expanded="false" aria-controls="desktopInvitePopover" data-i18n-title="desktop.toggle" title="Show or hide invitation">
             <span>🔗</span><span class="desktop-invite-title" data-i18n="desktop.invite">Invitation</span><span class="desktop-invite-chevron">▾</span>
           </button>
-          <button id="desktopCopyAllBtn" class="desktop-copy-all-btn" onclick="copyDesktopInviteWithPin()" data-i18n-title="desktop.copyAll" title="Copy link and PIN" disabled>PIN ⧉</button>
         </div>
-        <div class="desktop-invite-details">
+        <div class="desktop-invite-details" id="desktopInvitePopover" role="dialog" aria-label="Invitation" data-i18n-aria="desktop.invite" hidden>
+          <div class="desktop-invite-tabs" role="group" data-i18n-aria="desktop.hosting.title">
+            <button data-invite-mode="cloudflare" onclick="selectDesktopInviteMode('cloudflare')">Cloudflare</button><button data-invite-mode="porthole" onclick="selectDesktopInviteMode('porthole')">Porthole</button><button data-invite-mode="vpn" onclick="selectDesktopInviteMode('vpn')">VPN</button>
+          </div>
           <div class="desktop-invite-row">
             <span id="desktopTunnelStatus" class="desktop-invite-status"></span>
             <span id="desktopModePort" class="desktop-mode-port"></span>
-            <label class="desktop-pin"><span data-i18n="desktop.pin">PIN</span> <span id="desktopPinCode" class="desktop-pin-code">••••</span><input id="desktopPinVisible" type="checkbox" onchange="toggleDesktopPin()"><span data-i18n="desktop.showPin">Show</span></label>
           </div>
+          <button id="desktopCloudflareToggle" class="btn-outline" onclick="toggleDesktopCloudflare()"></button>
+          <p id="desktopInviteDescription" class="desktop-invite-note"></p>
           <div class="desktop-invite-row">
             <input id="desktopInviteUrl" class="desktop-link-input" type="text" readonly data-i18n-placeholder="desktop.linkPending" placeholder="The public link will appear here…">
             <button id="desktopCopyBtn" class="desktop-copy-btn" onclick="copyDesktopInvite()" disabled><span id="desktopCopyLabel" data-i18n="desktop.copy">Copy link</span></button>
-            <button class="btn-icon" onclick="openHostingModal()" data-i18n-title="desktop.hosting.title" title="Connection method">&#9881;</button>
           </div>
+          <div class="desktop-invite-row"><span class="desktop-pin"><span data-i18n="desktop.pin">PIN</span> <span id="desktopPinCode" class="desktop-pin-code">••••</span><button id="desktopPinEye" class="btn-icon" onclick="toggleDesktopPin()" aria-pressed="false"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button></span></div>
+          <button id="desktopCopyAllBtn" class="desktop-copy-all-btn" onclick="copyDesktopInviteWithPin()" data-i18n="desktop.copyAll" disabled>Copy link and PIN</button>
         </div>
       </div>
+      <button id="desktopConnectionSettings" class="btn-header-action desktop-connection-settings" onclick="openHostingModal()" data-i18n-title="desktop.connectionSettings" data-i18n-aria="desktop.connectionSettings" title="Connection settings">&#9881;</button>
       <div class="room-badge">
         <span data-i18n="room">Room:</span> <span id="roomNameLabel">main</span><span id="roomLockIcon" style="display: none;" data-i18n-title="pw.statusOn" title="The room is password-protected">🔒</span>
         <span id="singleModeLabel" hidden data-i18n="single.title"></span><button id="singleMultiplayerBtn" hidden class="btn-share" data-i18n="single.host" onclick="openHostingModal()"></button><button class="btn-share" data-i18n="share" data-i18n-title="share.title" onclick="copyInviteLink()" title="Copy invitation link">🔗 Share</button>
