@@ -45,7 +45,7 @@ describe('audit: actual editor controls and recording queue', { skip: skipReason
   }
 
   test('Alt+arrows move a selected line; text entry, track boundaries and Dub Mode are respected', async () => {
-    await edit(); await guest.click('#line-block-1');
+    await edit(); await guest.locator('#line-block-1').click();
     await alt(guest, 'ArrowDown');
     await waitFor(host, () => session.lines.find(line => line.id === 1).character === 'Friend');
     await guest.evaluate(() => editorQueue);

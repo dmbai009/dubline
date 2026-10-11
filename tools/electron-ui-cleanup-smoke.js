@@ -144,7 +144,7 @@ async function main() {
     fs.mkdirSync(destination, { recursive: true });
     await page.screenshot({ path: path.join(destination, 'minimap-graphite.png') });
     await page.evaluate(() => setStudioMode('dub')); await waitFor(page, () => session.mode === 'dub');
-    await page.evaluate(() => { openSettingsModal(); openSettingsCategory('user', 'audio'); });
+    await page.evaluate(() => { openSettingsModal(); switchSettingsTab('user'); openSettingsCategory('user', 'audio'); });
     await page.click('#audioDeviceRefresh');
     await waitFor(page, () => !document.getElementById('audioDeviceRefresh').disabled);
     const audioDevices = await page.evaluate(async () => {

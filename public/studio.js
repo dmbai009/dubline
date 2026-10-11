@@ -130,6 +130,7 @@
     if (action === 'back' || action === 'forward') video.currentTime = Math.max(0, Math.min(Number.isFinite(video.duration) ? video.duration : 43200, video.currentTime + (action === 'back' ? -3 : 3)));
   };
   function refreshTransport() {
+    window.refreshPlaybackTransport?.();
     const recordButton = document.getElementById('recBtn'); if (recordButton) recordButton.disabled = renderInProgress;
     const exportButton = document.getElementById('startRenderBtn'); if (exportButton) exportButton.disabled = renderInProgress || recordState !== 'idle' || !!(session?.hasOriginalVideo && !amHost());
     const time = value => `${Math.floor((value || 0) / 60)}:${String(Math.floor((value || 0) % 60)).padStart(2, '0')}`;

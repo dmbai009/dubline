@@ -1,8 +1,10 @@
-const { describe, test, before, after, beforeEach, afterEach } = require('node:test');
+const { describe, test: nodeTest, before, after, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
 const { skipReason, startServer, launchBrowser, openPlayer, loadFixture, waitFor, wait, claimAndSelect, recordTake } = require('./helpers');
 
-describe('Collaboration latency and UX', { skip: skipReason, timeout: 120000 }, () => {
+// Bound each scenario, not the sum of all deliberate lease/TTL delay scenarios.
+const test = (name, run) => nodeTest(name, { timeout: 30000 }, run);
+describe('Collaboration latency and UX', { skip: skipReason }, () => {
   let server, browser, page, serial = 0; const guests = [];
   before(async () => { server = await startServer(); browser = await launchBrowser(server.port); });
   after(async () => { await browser?.close(); await server?.cleanup(); });
@@ -126,12 +128,15 @@ describe('Collaboration latency and UX', { skip: skipReason, timeout: 120000 }, 
     const reasons = await page.evaluate(() => {
       const panel = document.createElement('section'); panel.dataset.takeMix = ''; panel.dataset.pending = 'true';
       const input = document.createElement('input'); input.dataset.clipField = 'pan'; input.disabled = true; panel.append(input); document.getElementById('inspector').append(panel);
+      video.pause(); video.dispatchEvent(new Event('timeupdate'));
       recordState = 'preparing'; refreshStudioTransport(); refreshActionHelp();
+      const disabledNow = document.getElementById('transportSeek').disabled;
       return new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => {
-        const result = { mix: input.parentElement.dataset.tooltip, transport: document.getElementById('transportSeek').parentElement.dataset.tooltip };
+        const result = { disabledNow, mix: input.parentElement.dataset.tooltip, transport: document.getElementById('transportSeek').parentElement.dataset.tooltip };
         panel.remove(); recordState = 'idle'; refreshStudioTransport(); refreshActionHelp(); resolve(result);
       })));
     });
+    assert.equal(reasons.disabledNow, true, 'record preparation disables seek immediately, even while the video is paused');
     assert.match(reasons.mix, /current operation/); assert.match(reasons.transport, /recording to finish/);
     await page.click('[data-studio-action=fullscreen]'); await waitFor(page, () => document.fullscreenElement?.contains(document.getElementById('dublineTooltip')));
     await page.$eval('#transportSeek', input => { input.disabled = true; setControlHelp(input, 'Temporarily unavailable'); input.parentElement.focus(); });

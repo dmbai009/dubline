@@ -63,6 +63,7 @@
     if (!window.transportScrubbing) seek.value = String(video.currentTime);
     seek.disabled = !studioCanTransport(); speed.disabled = recordState !== 'idle' || !!(watchMode && !amHost()) || !!renderInProgress;
   }
+  window.refreshPlaybackTransport = refresh;
   for (const event of ['timeupdate', 'loadedmetadata', 'play', 'pause', 'ratechange']) video.addEventListener(event, refresh);
   let sceneId = session?.activeSessionId;
   socket.on('session_updated', () => { if (sceneId !== session?.activeSessionId) { finishSeek(); sceneId = session?.activeSessionId; setPreviewRate(1, true); } refresh(); });

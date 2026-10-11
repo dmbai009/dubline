@@ -113,6 +113,9 @@ describe('desktop invitation', { skip: skipReason }, () => {
     await page.click('#nickForm button[type=submit]');
     await waitFor(page, () => amHost());
     await page.click('#helpModal [data-i18n="help.ok"]');
+    await waitFor(page, () => p2pConsentDialog.open);
+    await page.click('#p2pConsentDecline');
+    assert.equal(await page.evaluate(() => p2pEnabled || peers.size > 0 || settingsP2P.checked), false);
     for (const language of ['ru', 'uk', 'en']) {
       for (const [mode, url] of [['cloudflare', 'https://quiet.trycloudflare.com'], ['porthole', 'http://localhost:38500'], ['vpn', 'http://26.10.20.30:38500']]) {
         await page.evaluate((language, mode, url) => {
