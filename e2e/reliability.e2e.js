@@ -83,6 +83,16 @@ describe('Studio failure recovery', { skip: skipReason }, () => {
       sessionId: session.activeSessionId, videoUrl: session.videoUrl }));
     const audioFiles = expected.tracks.map(track => path.join(server.dirs.uploads, decodeURIComponent(track.url.slice('/uploads/'.length))));
     const bytes = audioFiles.map(file => fs.readFileSync(file));
+    let epoch = await page.evaluate(() => session.editorProtocol.epoch);
+    // A connected transport can still show the previous room snapshot. Delay
+    // the real reconnect handshake so the test must wait for fresh authority.
+    await page.evaluate(() => {
+      const emit = socket.emit;
+      socket.emit = function(event, ...args) {
+        if (event === 'join_room') { setTimeout(() => emit.call(this, event, ...args), 500); return this; }
+        return emit.call(this, event, ...args);
+      };
+    });
     await wait(1300); await server.stop();
     const roomsFile = path.join(server.dirs.data, 'rooms.json');
     const rooms = JSON.parse(fs.readFileSync(roomsFile, 'utf8')), room = rooms[await page.evaluate(() => currentRoom)];
@@ -94,7 +104,7 @@ describe('Studio failure recovery', { skip: skipReason }, () => {
     fs.unlinkSync(audioFiles[1]);
     await server.start();
     for (let restart = 0; restart < 2; restart++) {
-      await waitFor(page, () => socket.connected && session.videoHasAudio === true && !session.audioTracksPending);
+      await waitFor(page, epoch => socket.connected && session.editorProtocol.epoch !== epoch && session.videoHasAudio === true && !session.audioTracksPending, 10000, epoch);
       assert.deepEqual(await page.evaluate(() => ({ tracks: session.audioTracks, sources: DublineProjectAudio.sources(session),
         sessionId: session.activeSessionId, videoUrl: session.videoUrl })), expected);
       for (let i = 0; i < audioFiles.length; i++) assert.deepEqual(fs.readFileSync(audioFiles[i]), bytes[i], `audio stream ${i} retains its content`);
@@ -103,7 +113,7 @@ describe('Studio failure recovery', { skip: skipReason }, () => {
         return rendered.getChannelData(0).reduce((peak, value) => Math.max(peak, Math.abs(value)), 0);
       });
       assert.ok(peak > 0.05, 'the selected audio remains present in the exported mix');
-      if (!restart) await server.restart();
+      if (!restart) { epoch = await page.evaluate(() => session.editorProtocol.epoch); await server.restart(); }
     }
   });
 
