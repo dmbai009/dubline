@@ -770,7 +770,7 @@ app.post('/api/upload-line-audio', acceptFile('audio', MAX_TAKE_MB, requireConfi
     line.uploadId = uploadId || null;
     line.takeSequence = takeSequence;
     line.blindRevealed = false;
-    line.needsRetake = false;
+    require('./retakes').clear(line);
     target.updatedAt = Date.now();
     // The chosen voice (effect/pitch) survives re-recording the take
     const hasTrim = trimStart !== null && trimEnd !== null && trimStart >= 0 && trimEnd > trimStart;
@@ -812,6 +812,7 @@ app.post('/api/delete-line-audio', (req, res) => {
     deleteTakeFile(line.audioUrl);
     const { effect, pitch, trimEnabled, volume = 1, pan = 0, effectAmount = 1 } = line;
     Object.assign(line, emptyTake(), { effect: effect || 'none', pitch: pitch || 0, trimEnabled: trimEnabled !== false, volume, pan, effectAmount });
+    require('./retakes').clear(line);
 
     flushRooms();
     require('./sessionScope').emitLines(roomId, [line]);

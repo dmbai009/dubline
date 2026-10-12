@@ -102,9 +102,7 @@ function normalizeEditorState(session) {
   session.lines.forEach(line => {
     maxId = Math.max(maxId, Number(line.id) || 0);
     const mix = takeMix.normalize(line);
-    const needsRetake = !!line.audioUrl && line.needsRetake === true;
-    if (line.needsRetake !== needsRetake) repairedOnLoad = true;
-    line.needsRetake = needsRetake;
+    if (require('./retakes').normalize(line)) repairedOnLoad = true;
     if (Object.keys(mix).some(field => line[field] !== mix[field])) repairedOnLoad = true;
     Object.assign(line, mix);
     if (!Number.isSafeInteger(line.takeMixRevision) || line.takeMixRevision < 0) {

@@ -71,6 +71,21 @@ describe('Collaborative actor workflow', { skip: skipReason }, () => {
     await actor.evaluate(() => document.exitFullscreen());
     await actor.click('#watchLeaveBtn'); await waitFor(actor, () => !watchMode && document.getElementById('watchTransport').hidden);
   });
+  test('Space keeps text, modal and focused-button behavior during an active recording', async () => {
+    await claimAndSelect(host, 1); await recordTake(host, 1);
+    await host.focus('#timelineContainer'); await host.keyboard.press('KeyR'); await waitFor(host, () => recordState === 'recording');
+    await host.focus('[data-retake-comment="1"]'); await host.keyboard.press('Space');
+    assert.equal(await host.evaluate(() => recordState), 'recording');
+    assert.equal(await host.$eval('[data-retake-comment="1"]', node => node.value), ' ');
+    await host.evaluate(() => openSettingsModal()); await host.keyboard.press('Space');
+    assert.equal(await host.evaluate(() => recordState), 'recording');
+    await host.keyboard.press('Escape');
+    await host.focus('#transportCC'); await host.keyboard.press('Space');
+    assert.equal(await host.evaluate(() => recordState), 'recording');
+    await host.focus('#timelineContainer'); await host.keyboard.press('KeyR');
+    await waitFor(host, () => recordState === 'idle' && !processingRecordings.size && !pendingTakeLines.size);
+    await host.click('[data-retake-discard="1"]'); await waitFor(host, () => !hasRetakeDrafts());
+  });
   test('offline assignments without contributions remain distinct from a new actor using the same name', async () => {
     const first = await guest('Namesake');
     await host.evaluate(() => new Promise(resolve => socket.emit('host_grant_moderator', { nick: 'Namesake' }, resolve)));
@@ -109,6 +124,67 @@ describe('Collaborative actor workflow', { skip: skipReason }, () => {
     assert.deepEqual(await actor.evaluate(() => DublineTimelineFilters.ids()), [3, 4]);
     await loadFixture(host); await waitFor(actor, () => document.getElementById('timelineScopeFilter').value === 'all');
     assert.deepEqual(await actor.evaluate(() => DublineTimelineFilters.ids()), [1, 2, 3, 4]);
+  });
+  test('Mine plus retakes follows current ownership rather than the author and never changes the shared mix', async () => {
+    const actor = await guest('Retake filter');
+    await claimAndSelect(actor, 1); await recordTake(actor, 1);
+    await host.evaluate(() => new Promise(resolve => {
+      const line = session.lines.find(line => line.id === 1);
+      socket.emit('set_needs_retake', { sessionId: session.activeSessionId, lineId: 1, audioUrl: line.audioUrl, takeMixRevision: line.takeMixRevision || 0, value: true }, resolve);
+    }));
+    await waitFor(actor, () => session.lines[0].needsRetake);
+    await actor.select('#timelineScopeFilter', 'mine'); await actor.select('#timelineStatusFilter', 'retake');
+    assert.deepEqual(await actor.evaluate(() => DublineTimelineFilters.ids()), [1]);
+    const before = await host.evaluate(() => JSON.stringify(session.projectAudio));
+    await actor.evaluate(() => unclaimSingleLine(1)); await waitFor(actor, () => !DublineTimelineFilters.ids().length);
+    assert.equal(await actor.$eval('.track-row[data-character="Hero"]', node => getComputedStyle(node).display), 'none');
+    assert.equal(await actor.evaluate(() => session.lines[0].recordedBy), 'Retake filter');
+    assert.equal(await host.evaluate(() => JSON.stringify(session.projectAudio)), before);
+  });
+  test('Dub inspector moves a recorded line without editing its timing or opening bulk tools', async () => {
+    const actor = await guest('Mover'); await claimAndSelect(actor, 1); await recordTake(actor, 1);
+    const before = await actor.evaluate(() => structuredClone(session.lines.find(line => line.id === 1)));
+    await actor.select('#charInput', 'Friend'); await actor.click('.insp-char-form button[type=submit]');
+    await waitFor(host, () => session.lines.find(line => line.id === 1).character === 'Friend');
+    const after = await host.evaluate(() => session.lines.find(line => line.id === 1));
+    for (const field of ['id', 'caption', 'start', 'end', 'audioUrl', 'recordedBy', 'effect', 'pitch', 'volume', 'pan', 'audioStart']) assert.equal(after[field], before[field], field);
+    assert.equal(await actor.evaluate(() => session.mode), 'dub');
+    assert.equal(await actor.$$eval('#multiCharInput', nodes => nodes.length), 0);
+    const stranger = await guest('Stranger'); await stranger.evaluate(() => selectLine(session.lines.find(line => line.id === 1)));
+    assert.equal(await stranger.$$eval('#charInput', nodes => nodes.length), 0);
+  });
+  test('retake comments notify only their current owner, survive redraw/reload, and close with the next take', async () => {
+    const actor = await guest('Actor'), other = await guest('Other'); await claimAndSelect(actor, 1); await recordTake(actor, 1);
+    await host.evaluate(() => selectLine(session.lines.find(line => line.id === 1)));
+    await host.type('[data-retake-comment="1"]', 'Больше эмоций <img src=x onerror=alert(1)>');
+    await host.click('[data-retake-form="1"] button[type=submit]');
+    await waitFor(actor, () => session.lines[0].needsRetake && session.lines[0].retakeComment.includes('Больше'));
+    await waitFor(actor, () => document.getElementById('toast').textContent.includes('requested a retake'));
+    assert.equal(await other.evaluate(() => document.getElementById('toast').textContent.includes('requested a retake')), false);
+    assert.equal(await actor.$eval('#myRetakeCount', node => node.hidden), false);
+    await actor.click('#myRetakeCount'); assert.equal(await actor.$eval('[data-retake-comment="1"]', node => node.value), 'Больше эмоций <img src=x onerror=alert(1)>');
+    assert.equal(await actor.$$eval('.retake-controls img', nodes => nodes.length), 0);
+    await actor.reload(); await waitFor(actor, () => session?.loaded && !document.getElementById('myRetakeCount').hidden);
+    await actor.click('#myRetakeCount'); await actor.focus('[data-retake-comment="1"]'); await actor.keyboard.press('End'); await actor.keyboard.type(' Ещё замечание');
+    await host.evaluate(() => renderLobby());
+    await actor.evaluate(() => showInspector(selectedLine)); assert.equal(await actor.evaluate(() => document.activeElement.dataset.retakeComment), '1');
+    assert.ok(await actor.$eval('[data-retake-comment="1"]', node => node.value.endsWith('Ещё замечание')));
+    await actor.click('[data-retake-form="1"] button[type=submit]');
+    await waitFor(host, () => session.lines[0].retakeComment.endsWith('Ещё замечание'));
+    await recordTake(actor, 1); await waitFor(host, () => !session.lines[0].needsRetake && !session.lines[0].retakeComment);
+    assert.equal(await actor.$eval('#myRetakeCount', node => node.hidden), true);
+  });
+  test('an offline owner finds remarks on return without repeating notifications on snapshots or reconnect', async () => {
+    const actor = await guest('Returning'); await claimAndSelect(actor,1); await recordTake(actor,1);
+    await actor.evaluate(() => socket.disconnect());
+    await host.evaluate(() => selectLine(session.lines[0])); await host.type('[data-retake-comment="1"]','Исправить интонацию');
+    await host.click('[data-retake-form="1"] button[type=submit]'); await waitFor(host,()=>session.lines[0].needsRetake);
+    await actor.reload(); await waitFor(actor,()=>session?.loaded && !document.getElementById('myRetakeCount').hidden);
+    await waitFor(actor,()=>document.getElementById('toast').textContent.includes('You have 1'));
+    await actor.evaluate(() => { window.testNotices=[]; const original=showToast; showToast=(...args)=>{ testNotices.push(args[0]);return original(...args); }; socket.emit('editor_resync',{},result=>socket.emit('editor_resync',{})); });
+    await actor.evaluate(() => { socket.disconnect(); socket.connect(); }); await waitFor(actor,()=>hasSceneMediaAccess());
+    assert.deepEqual(await actor.evaluate(()=>testNotices.filter(text=>text.includes('retake')||text.includes('You have'))),[]);
+    await actor.click('#myRetakeCount'); assert.equal(await actor.$eval('[data-retake-comment="1"]',node=>node.value),'Исправить интонацию');
   });
   test('the filter picker stays within the window across six themes, three languages and 100–150 percent layout scale', async () => {
     await host.select('#timelineScopeFilter','choose'); await host.click('#timelineChooseFilter');

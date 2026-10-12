@@ -623,8 +623,9 @@ window.addEventListener('keydown', (e) => {
 });
 
 function showInspector(line) {
+  const retakeFocus = window.DublineRetakes?.captureFocus(line);
   if (multiSelection.size >= 2) return showMultiInspector();
-  if (session.mode === 'edit') return window.showEditorInspector(line);
+  if (session.mode === 'edit') { const result = window.showEditorInspector(line); window.DublineRetakes?.restoreFocus(retakeFocus); return result; }
   const duration = Number((line.end - line.start).toFixed(2));
   const characters = sessionCharacters();
   const allowCharacterClaims = characters.length > 1;
@@ -697,14 +698,13 @@ function showInspector(line) {
       <span id="gainDisplay" class="take-val">${Math.round(userMicGain * 100)}%</span>
     </div>` : '';
 
-  // The character can be changed by the host, the line's owner, or anyone if the line is free
-  const canRename = false;
+  // Dub Mode permits only an Inspector transfer by a moderator or the current owner.
+  const canRename = canModerate() || isOwnedByMe;
   const characterNames = sessionCharacters().sort((a, b) => a.localeCompare(b));
   const characterRow = canRename ? `
     <form class="insp-row insp-char-form" onsubmit="saveLineCharacter(event, ${line.id})" title="${esc(t('char.rename'))}">
       <span class="insp-label">🎭</span>
-      <input id="charInput" class="text-input" list="charList" maxlength="40" value="${esc(line.character)}" placeholder="${esc(t('char.placeholder'))}">
-      <datalist id="charList">${characterNames.map(name => `<option value="${esc(name)}"></option>`).join('')}</datalist>
+      <select id="charInput" class="text-input" aria-label="${esc(t('char.rename'))}">${characterNames.map(name => `<option value="${esc(name)}"${name === line.character ? ' selected' : ''}>${esc(name)}</option>`).join('')}</select>
       <button type="submit" class="btn-outline">${t('char.apply')}</button>
     </form>` : '';
   const deleteLineBtn = '';
@@ -726,6 +726,7 @@ function showInspector(line) {
     ${micRow}
     ${takePanelHtml(line, canEditTake(line))}
   `;
+  window.DublineRetakes?.restoreFocus(retakeFocus);
 }
 
 // Inspector for several selected lines: assign a character in bulk
@@ -784,7 +785,7 @@ window.startCharacterEdit = function(lineId) {
   }
 };
 
-window.saveLineCharacter = function(e, lineId) {
+window.saveLineCharacter = async function(e, lineId) {
   e.preventDefault();
   const line = session.lines.find(l => l.id === lineId);
   const name = document.getElementById('charInput').value.trim();
@@ -793,6 +794,17 @@ window.saveLineCharacter = function(e, lineId) {
   if (roleOwner && roleOwner !== myName && !canModerate()) {
     showToast(t('char.roleTaken', { name, owner: roleOwner }));
     return;
+  }
+  if (session.mode === 'dub') {
+    const binding = { sessionId: session.activeSessionId, revision: line.revision || 0, expectedOwner: getLineOwner(line), expectedTargetOwner: session.singlePlayer ? myName : roleOwner || null,
+      audioUrl: line.audioUrl, takeCounter: line.takeCounter || 0 };
+    if (recordState !== 'idle' || pendingTakeLines.has(lineId)) return showToast(t('assignment.pending'));
+    if (!await askConfirm(t('assignment.confirm', { id: lineNumber(line), from: line.character, to: name }) + (binding.expectedTargetOwner && binding.expectedTargetOwner !== binding.expectedOwner ? ' ' + t('assignment.transfer', { owner: binding.expectedTargetOwner }) : ''))) return;
+    if (session.activeSessionId !== binding.sessionId || session.mode !== 'dub') return showToast(t('editor.dialogChanged'));
+    revealLineId = lineId;
+    const result = await queueEditorRequest(() => ['set_line_character', { ...binding, lineId, character: name, dubAssignment: true }]);
+    if (result?.reason === 'pending') return showToast(t('assignment.pending'));
+    return editorResult(result);
   }
   revealLineId = lineId; // after the redraw, scroll to the line on its new track
   queueEditorRequest(() => ['set_line_character', { lineId, revision: lineRevision(lineId), character: name }]).then(editorResult);
@@ -1073,6 +1085,7 @@ function canEditTake(line) {
   return window.DublineTakeMix.canEdit(line, myName, canModerate(), getLineOwner(line));
 }
 function retakeControlHtml(line) {
+  if (window.DublineRetakes) return window.DublineRetakes.controlHtml(line);
   if (!line.audioUrl) return '';
   const allowed = session.mode === 'edit' || canEditTake(line);
   return '<label class="insp-check"><input type="checkbox" ' + (line.needsRetake ? 'checked ' : '') + (allowed ? '' : 'disabled ') +
@@ -1082,6 +1095,7 @@ function retakeControlHtml(line) {
 document.addEventListener('change', event => {
   const input = event.target.closest('[data-retake-line]');
   if (!input || input.dataset.retakeSession !== session?.activeSessionId) return;
+  if (window.DublineRetakes) { window.DublineRetakes.change(input); return; }
   input.disabled = true;
   socket.timeout(5000).emit('set_needs_retake', { sessionId: input.dataset.retakeSession,
     lineId: Number(input.dataset.retakeLine), audioUrl: input.dataset.retakeUrl,

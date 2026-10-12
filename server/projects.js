@@ -10,7 +10,7 @@ const { UPLOAD_DIR, MAX_VIDEO_MB, MAX_CAPTION_LENGTH, VOICE_EFFECTS, MAX_PITCH, 
 const { diskPathForUrl } = require('./files');
 
 const FORMAT = 'dubline-project';
-const VERSION = 4;
+const VERSION = 5;
 const takeMix = require('../public/take-mix');
 // Production save/open uses project-archive.js and bounded streams.
 const MAX_VIDEO_BYTES = MAX_VIDEO_MB * 1024 * 1024;
@@ -109,6 +109,7 @@ function captureProject(session, resolveAsset = diskPathForUrl, snapshotDir = nu
       id: line.id, character: line.character, caption: line.caption || '', start: line.start, end: line.end,
       claimedBy: line.claimedBy || null, reference: asset(line.originalAudioUrl),
       ...(line.audioUrl && line.needsRetake === true ? { needsRetake: true } : {}),
+      ...(line.audioUrl && line.needsRetake === true && line.retakeComment ? { retakeComment: line.retakeComment } : {}),
       take: {
         asset: asset(line.audioUrl, true), audioStart: line.audioStart ?? null,
         recordedStart: line.recordedStart ?? null, trimStart: line.trimStart ?? null, trimEnd: line.trimEnd ?? null,
@@ -122,7 +123,7 @@ function captureProject(session, resolveAsset = diskPathForUrl, snapshotDir = nu
     project.media.originalVideo = asset(session.originalVideoUrl);
     project.media.originalVideoName = String(session.originalVideoName || 'source').slice(0, 200);
   }
-  const manifest = { format: FORMAT, formatVersion: project.lines.some(line => line.needsRetake === true) ? 4 : project.lines.some(line => Object.entries(takeMix.DEFAULTS).some(([key, value]) => line.take[key] !== value)) ? 3 : (session.originalVideoUrl ? 2 : 1), project, assets };
+  const manifest = { format: FORMAT, formatVersion: project.lines.some(line => line.retakeComment || line.take.effect === 'telephone') ? 5 : project.lines.some(line => line.needsRetake === true) ? 4 : project.lines.some(line => Object.entries(takeMix.DEFAULTS).some(([key, value]) => line.take[key] !== value)) ? 3 : (session.originalVideoUrl ? 2 : 1), project, assets };
   if (manifest.formatVersion < 3) project.lines.forEach(line => Object.keys(takeMix.DEFAULTS).forEach(field => { delete line.take[field]; }));
   const manifestBytes = Buffer.from(JSON.stringify(manifest), 'utf8');
   if (manifestBytes.length > MAX_MANIFEST_BYTES) fail('Project manifest is too large');
@@ -148,7 +149,7 @@ function safeArchivePath(name) {
 
 function validateManifest(manifest) {
   if (!object(manifest) || manifest.format !== FORMAT) fail('Invalid project manifest');
-  if (![1, 2, 3, VERSION].includes(manifest.formatVersion)) throw new HttpError(400, 'Unsupported project version', 'project.unsupportedVersion');
+  if (![1, 2, 3, 4, VERSION].includes(manifest.formatVersion)) throw new HttpError(400, 'Unsupported project version', 'project.unsupportedVersion');
   if (manifest.project?.protectTimings !== undefined && typeof manifest.project.protectTimings !== 'boolean') fail('Invalid timing protection');
   if (!Array.isArray(manifest.assets) || !manifest.assets.length || manifest.assets.length >= MAX_ENTRIES) fail('Invalid project assets');
   const assets = new Map();
@@ -215,6 +216,8 @@ function validateManifest(manifest) {
     ids.add(line.id); ref(line.reference);
     const take = line.take;
     if (line.needsRetake !== undefined && (manifest.formatVersion < 4 || typeof line.needsRetake !== 'boolean' || (line.needsRetake && !take?.asset))) fail('Invalid retake marker');
+    if (line.retakeComment !== undefined && (manifest.formatVersion < 5 || typeof line.retakeComment !== 'string' || line.retakeComment.length > require('./retakes').MAX_COMMENT || !line.needsRetake || !take?.asset)) fail('Invalid retake comment');
+    if (take?.effect === 'telephone' && manifest.formatVersion < 5) fail('Telephone requires project version 5');
     if (!object(take) || !VOICE_EFFECTS.includes(take.effect) || !finite(take.pitch, -MAX_PITCH, MAX_PITCH) ||
         typeof take.trimEnabled !== 'boolean' || !(take.recordedBy === null || text(take.recordedBy, 16, true))) fail('Invalid project take');
     for (const [field, fallback] of Object.entries(takeMix.DEFAULTS)) {
@@ -305,7 +308,8 @@ function fieldsForProject(project, urls) {
       audioStart: line.take.audioStart, recordedStart: line.take.recordedStart,
       trimStart: line.take.trimStart, trimEnd: line.take.trimEnd, trimEnabled: line.take.trimEnabled,
       effect: line.take.effect, pitch: line.take.pitch, recordedBy: line.take.recordedBy,
-      ...takeMix.normalize(line.take), needsRetake: !!line.take.asset && line.needsRetake === true
+      ...takeMix.normalize(line.take), needsRetake: !!line.take.asset && line.needsRetake === true,
+      retakeComment: line.retakeComment || '', retakeRevision: 0
       // Fresh session/sequence identity: old queued uploads must never target these takes.
     }))
   };

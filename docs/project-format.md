@@ -1,6 +1,6 @@
-# Dubline Project formats 1, 2, 3 and 4
+# Dubline Project formats 1–5
 
-An archive uses the `.dubline` extension and a standard ZIP container. `project.json` is UTF-8 JSON with `format: "dubline-project"`, required `formatVersion: 1`, `2`, `3` or `4`, `project`, and `assets`. The serializer is `server/projects.js`; it never exports raw room persistence.
+An archive uses the `.dubline` extension and a standard ZIP container. `project.json` is UTF-8 JSON with `format: "dubline-project"`, required `formatVersion: 1`, `2`, `3`, `4` or `5`, `project`, and `assets`. The serializer is `server/projects.js`; it never exports raw room persistence.
 
 ## Manifest
 
@@ -42,3 +42,9 @@ When any clip has non-default volume, pan or effectAmount, the writer emits form
 ## Retake marker in version 4
 
 When a recorded line has Needs Retake, the writer emits format 4 and includes its boolean needsRetake flag. The flag requires a recorded take. Format 4 retains format-3 clip fields and optional original/proxy assets. Formats 1/2/3 import missing markers as false; they cannot silently contain a true marker. Archives without retake markers keep the lowest applicable version 1/2/3. Older readers explicitly reject format 4. Runtime locks, cursors, readiness, pending operations and update state remain excluded.
+
+## Retake comments and Telephone in version 5
+
+When a line contains a retake comment or selects the Telephone effect, the writer emits version 5. A line's optional `retakeComment` is a string of at most 1000 UTF-16 code units, requires `needsRetake: true` and an existing recorded asset, and is displayed as text. Requests without comments still use version 4. The additional effect identifier is `telephone`. Formats 1–4 remain readable without loss of media, claims or clip settings; older readers reject version 5 explicitly.
+
+Runtime `retakeRevision`, receipts, notification acknowledgements, personal filters and local comment drafts are excluded. Imported requests start at revision zero inside the new session identity. The next successfully stored take closes the request and clears its comment atomically. Playback/export apply the same bounded speech-window level correction to processed effects relative to their own dry source; `none` remains unchanged. Original take bytes are never rewritten. Existing projects may therefore sound different when using an effect, particularly Radio; subjective listening remains a release check.

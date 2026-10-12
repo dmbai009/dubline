@@ -106,7 +106,7 @@ function editorResult(result) {
 
 function editorFailureMessage(reason) {
   const keys = { conflict: 'editor.conflict', exists: 'editor.trackExists', caption: 'editor.captionTooLong',
-    timingsProtected: 'editor.timingsProtected', cancelled: 'editor.cancelled' };
+    timingsProtected: 'editor.timingsProtected', cancelled: 'editor.cancelled', pending: 'assignment.pending', owner: 'assignment.denied' };
   const reasons = ['locked', 'invalid', 'mode', 'session', 'empty', 'missing', 'expired', 'capacity', 'operation', 'snapshot', 'room', 'name', 'storage', 'unconfirmed', 'legacy', 'unavailable'];
   return t(keys[reason] || (reasons.includes(reason) ? 'editor.failure.' + reason : 'editor.failure.unknown'));
 }
@@ -138,6 +138,10 @@ let editorRecoveryLoading = false;
 let editorStorageIssue = false;
 let editorStorageReadIssue = false;
 let editorConfirmedConnection = null, editorConfirmedScene = null, editorResyncing = 0;
+function editorOperationModeAllowed(operation) {
+  if (operation.payload?.dubAssignment) return session?.mode === 'dub' && operation.event === 'set_line_character';
+  return session?.mode === 'edit' || operation.event === 'editor_add_track' || operation.event === 'set_needs_retake';
+}
 function persistEditorOperation(operation, remove = false) {
   const record = remove ? null : structuredClone({ schemaVersion: 2, id: operation.id, event: operation.event, payload: operation.payload,
     request: operation.request, sessionId: operation.sessionId, roomId: operation.roomId, clientId: operation.clientId,
@@ -193,7 +197,7 @@ async function restoreEditorOperations() {
         operation.status = 'recovery'; operation.outcome ||= { reason: !currentScene ? 'session' : 'expired', confirmed: false, manual: true };
         editorConflicts.push(operation); persistEditorOperation(operation); continue;
       }
-      if (!operation.sent && session.mode !== 'edit' && operation.event !== 'editor_add_track') {
+      if (!operation.sent && !editorOperationModeAllowed(operation)) {
         operation.status = 'rejected'; operation.outcome = { reason: 'mode', confirmed: true, manual: false };
         await retireEditorOperation(operation); showToast(editorFailureMessage('mode')); continue;
       }
@@ -383,7 +387,7 @@ document.addEventListener('click', event => {
 function editorIntentHtml(operation) {
   const labels = { editor_create_line: 'editor.addLine', editor_update_line: 'editor.line', editor_update_lines: 'editor.line', editor_delete_lines: 'editor.delete', editor_add_track: 'editor.addTrack', editor_undo: 'editor.undo', set_line_character: 'editor.track', set_lines_character: 'editor.track', rename_character: 'editor.track' };
   const patches = editorUpdates(operation);
-  const targets = patches.length ? patches : editorRevisionTargets(operation);
+  const targets = patches.length ? patches : operation.event === 'set_needs_retake' ? [{ lineId: operation.payload.lineId }] : editorRevisionTargets(operation);
   const details = targets.map(patch => {
     const line = session?.lines.find(item => item.id === patch.lineId);
     const number = line ? lineNumber(line) : patch.lineId;
@@ -391,8 +395,8 @@ function editorIntentHtml(operation) {
   }).join('') || `<p>${esc(operation.payload.from || '')} ${operation.payload.to ? '→ ' + esc(operation.payload.to) : ''}${esc(operation.payload.character || '')} ${esc(operation.payload.caption || '')}</p>`;
   const reason = operation.outcome?.reason || 'legacy';
   const current = targets.map(patch => session?.activeSessionId === operation.sessionId ? editorAuthoritative.get(patch.lineId) : null).filter(Boolean);
-  return `<b>${esc(t(labels[operation.event] || 'editor.line'))}</b><p>${esc(editorFailureMessage(reason))}</p>${operation.sessionId !== session?.activeSessionId ? `<p>${t('editor.otherScene')}</p>` : ''}${details}
-    ${current.length ? `<details><summary>${esc(t('editor.currentVersion'))}</summary>${current.map(line => `<p>#${line.id}: ${esc(line.caption)} · ${line.start}–${line.end} · ${esc(line.character)}</p>`).join('')}</details>` : ''}
+  return `<b>${esc(t(operation.event === 'set_needs_retake' ? 'retake.label' : labels[operation.event] || 'editor.line'))}</b><p>${esc(editorFailureMessage(reason))}</p>${operation.sessionId !== session?.activeSessionId ? `<p>${t('editor.otherScene')}</p>` : ''}${details}${operation.event === 'set_needs_retake' ? `<p>${esc(operation.payload.comment || '')}</p>` : ''}
+    ${current.length ? `<details><summary>${esc(t('editor.currentVersion'))}</summary>${current.map(line => `<p>#${line.id}: ${esc(line.caption)} · ${line.start}–${line.end} · ${esc(line.character)}</p>${operation.event === 'set_needs_retake' ? `<p>${esc(line.retakeComment || '')}</p>` : ''}`).join('')}</details>` : ''}
     <details><summary>${esc(t('editor.operationDetails'))}</summary><p>${esc(operation.event)} · ${esc(operation.id)}</p><p>${esc(operation.sessionId)} · ${esc(reason)}</p><p>${esc(t(operation.sent ? 'editor.requestSent' : 'editor.requestUnsent'))} · ${esc(t(operation.outcome?.confirmed ? 'editor.resultKnown' : 'editor.resultUnknown'))}</p></details>`;
 }
 document.addEventListener('click', async event => {
@@ -550,11 +554,11 @@ async function pumpEditorQueue() {
         return;
       }
       if (!receipt.retryable) { finishEditorOperation(operation, { ok: false, reason: 'expired' }); return; }
-      if (operation.sessionId !== session?.activeSessionId || session.mode !== 'edit' && operation.event !== 'editor_add_track') {
+      if (operation.sessionId !== session?.activeSessionId || !editorOperationModeAllowed(operation)) {
         finishEditorOperation(operation, { ok: false, reason: operation.sessionId !== session?.activeSessionId ? 'session' : 'mode' }); return;
       }
     }
-    if (operation.roomId !== currentRoom || operation.clientId !== clientId || operation.sessionId !== session?.activeSessionId || (session.mode !== 'edit' && operation.event !== 'editor_add_track')) {
+    if (operation.roomId !== currentRoom || operation.clientId !== clientId || operation.sessionId !== session?.activeSessionId || !editorOperationModeAllowed(operation)) {
       finishEditorOperation(operation, { ok: false, reason: operation.sessionId !== session?.activeSessionId ? 'session' : 'mode' }); return;
     }
     if (!operation.sent && session.mode === 'edit' && window.editorLeaseTargets) {

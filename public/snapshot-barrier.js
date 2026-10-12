@@ -29,6 +29,7 @@
     if (editorConflicts.some(entry => entry.sessionId === session.activeSessionId)) return 'conflict';
     const form = inspector.querySelector('form[data-draft-key]'); if (form) rememberEditorDraft(form);
     if ([...editorDrafts.keys()].some(key => key.startsWith(`${session.activeSessionId}:`))) return 'draft';
+    if (window.hasRetakeDrafts?.()) return 'draft';
     if ([...pendingTakes.values()].some(entry => entry.sessionId === session.activeSessionId)) return 'upload';
     return 'ready';
   }

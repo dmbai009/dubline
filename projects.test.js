@@ -56,6 +56,17 @@ function archive(snapshot, change = () => {}) {
   return zip.toBuffer();
 }
 
+test('all legacy versions 1–4 remain readable with their take bytes and empty comment defaults', t => {
+  for(const version of [1,2,3,4]) {
+    const f=fixture(t);
+    if(version===2) { fs.writeFileSync(path.join(f.dir,'source.mp4'),Buffer.from('original video bytes')); f.session.originalVideoUrl='source.mp4'; f.session.originalVideoName='Source'; }
+    if(version===3) f.session.lines[0].volume=1.1;
+    if(version===4) f.session.lines[0].needsRetake=true;
+    const snapshot=captureProject(f.session,f.resolve); assert.equal(snapshot.manifest.formatVersion,version);
+    const staged=stageProject(archive(snapshot),f.dir); assert.equal(staged.fields.lines[0].retakeComment,''); assert.equal(staged.fields.lines[0].retakeRevision,0);
+    assert.ok(staged.fields.lines[0].audioUrl); assert.equal(staged.fields.lines[0].recordedBy,f.session.lines[0].recordedBy); staged.rollback();
+  }
+});
 test('retake markers emit format 4, preserve clip mixes and reset to false in legacy projects', async t => {
   const f = fixture(t);
   f.session.lines[0].needsRetake = true;
@@ -150,7 +161,7 @@ test('staged project commit uses generated paths and fresh recording identity; r
 const invalidCases = [
   ['wrong format', m => { m.format = 'rooms'; }],
   ['missing version', m => { delete m.formatVersion; }],
-  ['unsupported version', m => { m.formatVersion = 4; }],
+  ['unsupported version', m => { m.formatVersion = 6; }],
   ['invalid caption type', m => { m.project.lines[0].caption = {}; }],
   ['oversized caption', m => { m.project.lines[0].caption = 'x'.repeat(2001); }],
   ['duplicate line ID', m => { m.project.lines.push(structuredClone(m.project.lines[0])); }],

@@ -11,17 +11,29 @@ const history = require('../editHistory');
 const { registerMutation } = require('../editorOperations');
 
 module.exports = function registerRoleHandlers(socket, conn) {
-  socket.on('set_needs_retake', ({ lineId, audioUrl, takeMixRevision, value } = {}, ack) => {
+  registerMutation(socket, conn, 'set_needs_retake', ({ lineId, audioUrl, takeMixRevision, retakeRevision, value, comment } = {}, ack) => {
     const reply = typeof ack === 'function' ? ack : () => {};
     const room = getRoom(conn.roomId), line = room.lines.find(item => item.id === lineId);
     if (!line?.audioUrl || typeof value !== 'boolean') return reply({ ok: false, reason: 'invalid' });
-    if (!(canModerate(room, conn.clientId) || room.mode === 'edit' || line.recordedBy === conn.nick || getLineOwner(room, line) === conn.nick)) return reply({ ok: false, reason: 'owner' });
-    if (audioUrl !== line.audioUrl || takeMixRevision !== (line.takeMixRevision || 0)) return reply({ ok: false, reason: 'conflict' });
-    line.needsRetake = value;
-    line.takeMixRevision = (line.takeMixRevision || 0) + 1;
+    if (!(canModerate(room, conn.clientId) || line.recordedBy === conn.nick || getLineOwner(room, line) === conn.nick)) return reply({ ok: false, reason: 'owner' });
+    const legacy = retakeRevision === undefined;
+    if (comment !== undefined && (legacy || typeof comment !== 'string' || comment.length > require('../retakes').MAX_COMMENT)) return reply({ ok: false, reason: 'invalid' });
+    if (audioUrl !== line.audioUrl || (legacy ? takeMixRevision !== (line.takeMixRevision || 0) : retakeRevision !== (line.retakeRevision || 0))) return reply({ ok: false, reason: 'conflict', line });
+    const nextComment = value ? comment ?? line.retakeComment ?? '' : '';
+    if (line.needsRetake === value && (line.retakeComment || '') === nextComment) return reply({ ok: true, changed: false, line });
+    if ((line.retakeRevision || 0) >= Number.MAX_SAFE_INTEGER) return reply({ ok: false, reason: 'conflict', line });
+    Object.assign(line, { needsRetake: value, retakeComment: nextComment, retakeRevision: (line.retakeRevision || 0) + 1 });
+    if (legacy) line.takeMixRevision = (line.takeMixRevision || 0) + 1;
     flushRooms();
     require('../sessionScope').emitLines(conn.roomId, [line]);
-    reply({ ok: true });
+    const owner = getLineOwner(room, line);
+    if (value && owner && owner !== conn.nick) {
+      const { roomSockets } = require('../state');
+      for (const [id, member] of Object.entries(roomSockets[conn.roomId] || {})) if (member.nick === owner && isAuthorized(room, member.nick, member.clientId)) {
+        require('../app').io.to(id).emit('retake_notice', { sessionId: room.activeSessionId, lineId: line.id, revision: line.retakeRevision, by: conn.nick });
+      }
+    }
+    reply({ ok: true, changed: true, line });
   });
   // Allocate order before recording starts, not when its asynchronous processing finishes.
   socket.on('reserve_take', ({ lineId, sessionId, cancelSequence } = {}, ack) => {
@@ -206,17 +218,25 @@ module.exports = function registerRoleHandlers(socket, conn) {
     return sanitizeChatText(raw).slice(0, 40);
   }
 
-  registerMutation(socket, conn, 'set_line_character', ({ lineId, revision, character, sessionId } = {}, ack) => {
+  registerMutation(socket, conn, 'set_line_character', (data = {}, ack) => {
+    const { lineId, revision, character, sessionId, dubAssignment } = data;
     const reply = typeof ack === 'function' ? ack : () => {};
     if (!conn.roomId || !conn.nick) return reply({ ok: false, reason: 'room' });
     const room = getRoom(conn.roomId);
-    if (room.mode !== 'edit') return reply({ ok: false, reason: 'mode' });
+    if (room.mode !== 'edit' && !(room.mode === 'dub' && dubAssignment === true) || room.mode === 'edit' && dubAssignment) return reply({ ok: false, reason: 'mode' });
     if (sessionId !== undefined && sessionId !== room.activeSessionId) return reply({ ok: false, reason: 'session' });
     const line = room.lines.find(l => l.id === lineId);
     const name = cleanCharacterName(character);
     if (!line) return reply({ ok: false, reason: 'missing' });
     if (Number(revision) !== Number(line.revision || 0)) return reply({ ok: false, reason: 'conflict', line });
     if (!name) return reply({ ok: false, reason: 'invalid' });
+    if (room.mode === 'dub') {
+      if (!room.trackOrder.includes(name)) return reply({ ok: false, reason: 'missing' });
+      const owner = getLineOwner(room, line), targetOwner = room.singlePlayer ? room.host : room.characterClaims[name] || null;
+      if (!canModerate(room, conn.clientId) && (owner !== conn.nick || targetOwner && targetOwner !== conn.nick)) return reply({ ok: false, reason: 'owner' });
+      if (data.expectedOwner !== owner || data.expectedTargetOwner !== targetOwner || data.audioUrl !== line.audioUrl || data.takeCounter !== (line.takeCounter || 0)) return reply({ ok: false, reason: 'conflict', line });
+      if (recordingNow[conn.roomId]?.[line.id] || (line.takeCounter || 0) > (line.takeSequence || 0)) return reply({ ok: false, reason: 'pending' });
+    }
     const oldName = line.character;
     const before = new Map();
     const claimsBefore = { ...room.characterClaims };
