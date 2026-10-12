@@ -16,6 +16,31 @@ describe('Editor improvements in the browser', { skip: skipReason, timeout: 1200
     await other.evaluate(async () => { for (const id of [1, 2]) await updateEditorLine(session.lines.find(line => line.id === id), { caption: `Remote ${id}` }); });
     await page.evaluate(() => socket.connect()); await waitFor(page, () => editorConflicts.length === 2 && !editorQueue.length); return other;
   }
+  test('synchronous IndexedDB replacement failures preserve the original intent and other records atomically', async () => {
+    const result = await page.evaluate(async () => {
+      const table = DublineLocalDatabase.store('pendingEditorOperations');
+      const original = { id: 'atomic-original', caption: 'Saved local draft' }, unrelated = { id: 'atomic-other', caption: 'Other saved draft' };
+      await table.put(original); await table.put(unrelated);
+      const failures = [];
+      for (const value of [{ id: 'atomic-new', uncloneable: () => {} }, { caption: 'Missing identity' }]) {
+        let error;
+        try { await table.replace(original.id, value); } catch (failure) { error = failure.name; }
+        failures.push({ error, original: await table.get(original.id), unrelated: await table.get(unrelated.id) });
+      }
+      await table.replace(original.id, { id: 'atomic-new', caption: 'Explicit replacement' });
+      const replaced = { old: await table.get(original.id), current: await table.get('atomic-new'), unrelated: await table.get(unrelated.id) };
+      await table.remove('atomic-new'); await table.remove(unrelated.id);
+      return { failures, replaced };
+    });
+    for (const [index, failure] of result.failures.entries()) {
+      assert.equal(failure.error, index ? 'DataError' : 'DataCloneError');
+      assert.deepEqual(failure.original, { id: 'atomic-original', caption: 'Saved local draft' });
+      assert.deepEqual(failure.unrelated, { id: 'atomic-other', caption: 'Other saved draft' });
+    }
+    assert.equal(result.replaced.old, undefined);
+    assert.deepEqual(result.replaced.current, { id: 'atomic-new', caption: 'Explicit replacement' });
+    assert.deepEqual(result.replaced.unrelated, { id: 'atomic-other', caption: 'Other saved draft' });
+  });
   test('bulk Keep all sequentially rebases two actual conflicts and preserves only successful acknowledgements', async () => {
     await conflicts(); await page.evaluate(() => reviewEditorConflicts()); await page.click('[data-review-all=keep]');
     await waitFor(page, () => !editorReviewBusy && !editorConflicts.length && !editorQueue.length);

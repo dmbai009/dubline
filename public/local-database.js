@@ -34,9 +34,11 @@
     const database = await open();
     return new Promise((resolve, reject) => {
       const transaction = database.transaction(name, mode);
-      const request = action(transaction.objectStore(name));
+      let request;
       transaction.oncomplete = () => resolve(request?.result);
       transaction.onerror = transaction.onabort = () => reject(transaction.error || new Error('Local storage transaction aborted'));
+      try { request = action(transaction.objectStore(name)); }
+      catch (error) { transaction.abort(); reject(error); }
     });
   }
   function store(name) {
