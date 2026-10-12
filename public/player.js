@@ -918,10 +918,11 @@ function setMediaSource(element, url) {
 }
 
 function applyAudioTracks() {
+  if (window.hasSceneMediaAccess && !window.hasSceneMediaAccess()) return;
   if (!state.session || !state.session.loaded) return;
   const sources = window.DublineProjectAudio.sources(state.session);
   video.muted = true;
-  setMediaSource(originalTrackAudio, mediaUrl(sources.original) || null);
+  setMediaSource(originalTrackAudio, sources.original === state.session.videoUrl && window.isSceneVideoPending?.() ? null : mediaUrl(sources.original) || null);
   // The background may have switched to another video track
   setMediaSource(backing, mediaUrl(state.session.backingUrl) || null);
   if (window.syncProjectSources) window.syncProjectSources();

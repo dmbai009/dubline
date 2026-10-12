@@ -29,6 +29,7 @@ function fixture(preferences = {}, { readFails = false, writeFails = false } = {
   }
   const state = {
     console, Blob, Uint8Array, ArrayBuffer, DataView, AbortController, URLSearchParams, performance, crypto: webcrypto, RTCPeerConnection: PC,
+    isSecureContext: true, hasSceneMediaAccess: () => true, DublineProjectAudio: { sources: () => ({}) },
     setTimeout, clearTimeout, setInterval: () => 0, clearInterval() {},
     localStorage: { getItem(key) { if (readFails) throw Error('Read failed'); return saved.get(key) ?? null; },
       setItem(key, value) { if (writeFails) throw Error('Write failed'); saved.set(key, value); }, removeItem: key => saved.delete(key) },
@@ -43,7 +44,7 @@ function fixture(preferences = {}, { readFails = false, writeFails = false } = {
   };
   state.window = state; vm.createContext(state); vm.runInContext(source, state);
   const run = code => vm.runInContext(code, state);
-  run("p2pJoined = true; heldManifests.set('/video', {id:'manifest',chunks:['chunk']});");
+  run("p2pJoined = true; heldManifests.set('/video', {id:'manifest',size:5,chunks:['chunk']}); verifiedHeldBlobs.set(localMedia.videoBlob, 'manifest');");
   return { state, saved, sent, pcs, node, channel, run, handlers };
 }
 test('legacy flags, missing/corrupt consent and failed reads cannot create peers or advertise media', async () => {
@@ -75,6 +76,8 @@ test('failed preference writes stop sharing and revoke a stored enable instead o
 
 test('accepted preference is independent from consent and Solo never allows media peers', async () => {
   const f = fixture({ dubline_p2p: '0', dubline_p2p_consent_v1: 'accepted' });
+  f.run('heldManifests.clear(); verifiedHeldBlobs.delete(localMedia.videoBlob)');
+  assert.equal(f.run('DublineMediaTransfer.stats().currentVideoVerified'), false, 'missing verification evidence cannot mean a verified local file');
   assert.equal(f.run('p2pAllowed()'), false);
   f.node('settingsP2P').checked = true; f.node('settingsP2P').listeners.change();
   assert.equal(f.run('p2pAllowed()'), true);
@@ -84,8 +87,10 @@ test('accepted preference is independent from consent and Solo never allows medi
 });
 test('an offer awaiting remote description cannot signal or accept a late channel after disable/re-enable', async () => {
   const f = fixture({ dubline_p2p: '1', dubline_p2p_consent_v1: 'accepted' }), gate = deferred();
+  await f.run('probeMediaIntegrity()');
   f.state.RTCPeerConnection.prototype.remoteWait = gate.promise;
   const offer = f.handlers.get('p2p_signal')({ from: 'remote', sessionId: 'scene', data: { kind: 'offer', sdp: {} } });
+  await new Promise(resolve => setImmediate(resolve));
   const old = f.pcs[0];
   f.node('settingsP2P').checked = false; f.node('settingsP2P').listeners.change();
   f.node('settingsP2P').checked = true; f.node('settingsP2P').listeners.change();
@@ -123,4 +128,25 @@ test('late seeder discovery cannot start a connection after disabling and re-ena
   f.node('settingsP2P').checked = true; f.node('settingsP2P').listeners.change();
   reply([{ socketId: 'old-peer', id: 'manifest' }]);
   assert.equal((await found).length, 0); assert.equal(f.pcs.length, 0);
+});
+
+test('consent never substitutes for secure APIs, WebRTC capability or confirmed room admission', async () => {
+  for (const condition of ['isSecureContext = false', 'crypto = {}', 'RTCPeerConnection = undefined', 'hasSceneMediaAccess = () => false']) {
+    const f = fixture({ dubline_p2p: '1', dubline_p2p_consent_v1: 'accepted' });
+    f.run(condition); assert.equal(f.run('p2pAllowed()'), false);
+    await f.handlers.get('p2p_signal')({ from: 'remote', sessionId: 'scene', data: { kind: 'offer', sdp: {} } });
+    await assert.rejects(f.run("connectToSeeder('remote')"), /disabled/);
+    assert.equal(f.pcs.length, 0);
+  }
+});
+
+test('a delayed capability probe cannot revive an offer after disabling and re-enabling P2P', async () => {
+  const f = fixture({ dubline_p2p: '1', dubline_p2p_consent_v1: 'accepted' }), gate = deferred();
+  f.state.crypto = { subtle: { digest: () => gate.promise } };
+  const offer = f.handlers.get('p2p_signal')({ from: 'remote', sessionId: 'scene', data: { kind: 'offer', sdp: {} } });
+  f.node('settingsP2P').checked = false; f.node('settingsP2P').listeners.change();
+  f.node('settingsP2P').checked = true; f.node('settingsP2P').listeners.change();
+  gate.resolve(new ArrayBuffer(32)); await offer;
+  assert.equal(f.pcs.length, 0);
+  assert.equal(f.sent.some(item => item.event === 'p2p_signal'), false);
 });

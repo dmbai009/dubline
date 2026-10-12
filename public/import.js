@@ -233,15 +233,16 @@ const localMediaResetBtn = document.getElementById('localMediaResetBtn');
 
 function revokeLocalMedia() {
   if (!localMedia) return;
-  URL.revokeObjectURL(localMedia.videoUrl);
-  if (localMedia.backingUrl) URL.revokeObjectURL(localMedia.backingUrl);
-  for (const asset of Object.values(localMedia.assets || {})) URL.revokeObjectURL(asset.url);
+  const urls = new Set([localMedia.videoUrl, localMedia.backingUrl, ...Object.values(localMedia.assets || {}).map(asset => asset.url)]);
+  if (urls.has(video.getAttribute('src'))) { video.pause(); video.removeAttribute('src'); video.load(); }
+  for (const element of [originalTrackAudio, backing]) if (urls.has(element.getAttribute('src'))) setMediaSource(element, null);
+  for (const url of urls) if (url) URL.revokeObjectURL(url);
   localMedia = null;
 }
 
 // The pack changed: the file picked from disk no longer matches
 function forgetStaleLocalMedia() {
-  if (localMedia && (!session || localMedia.forVideoUrl !== session.videoUrl)) revokeLocalMedia();
+  if (localMedia && (!session || localMedia.forVideoUrl !== session.videoUrl || localMedia.videoHash !== session.videoHash || localMedia.sessionId !== session.activeSessionId)) revokeLocalMedia();
   updateLocalMediaStatus();
 }
 
@@ -256,14 +257,15 @@ function updateLocalMediaStatus() {
 }
 
 // The video (and background) now play from browser memory: from the player's disk or received over P2P
-function setLocalMedia({ video: videoBlob, backing: backingBlob, source, assets = {}, videoSourceUrl = session.videoUrl, backingSourceUrl = session.backingUrl, activatePlayback = true }) {
+function setLocalMedia({ video: videoBlob, backing: backingBlob, source, assets = {}, videoSourceUrl = session.videoUrl, backingSourceUrl = session.backingUrl, activatePlayback = true, cancelDownload = true }) {
   if (videoSourceUrl !== session.videoUrl) return;
-  cancelMediaDownload();
+  if (cancelDownload) cancelMediaDownload();
   const previous = localMedia;
   const reuse = source === 'p2p' && previous?.source === 'p2p' && previous.forVideoUrl === videoSourceUrl && previous.videoHash === session.videoHash;
   localMedia = {
     forVideoUrl: videoSourceUrl,
     videoHash: session.videoHash,
+    sessionId: session.activeSessionId,
     playbackFromHost: !activatePlayback,
     backingSourceUrl,
     videoBlob: reuse ? previous.videoBlob : videoBlob,
@@ -273,11 +275,13 @@ function setLocalMedia({ video: videoBlob, backing: backingBlob, source, assets 
     size: videoBlob.size,
     source
   };
-  localMedia.assets = Object.fromEntries(Object.entries(assets).map(([url, blob]) => [url, reuse && previous.assets?.[url] || { blob, url: URL.createObjectURL(blob) }]));
+  localMedia.assets = Object.fromEntries(Object.entries(assets).map(([url, blob]) => [url, reuse && previous.assets?.[url] ||
+    { blob, url: url === videoSourceUrl ? localMedia.videoUrl : url === backingSourceUrl && localMedia.backingUrl ? localMedia.backingUrl : URL.createObjectURL(blob) }]));
   // An audio-only update must not reload the same verified video or audio asset.
   const retained = new Set([localMedia.videoUrl, localMedia.backingUrl, ...Object.values(localMedia.assets).map(asset => asset.url)]);
-  if (previous) for (const url of [previous.videoUrl, previous.backingUrl, ...Object.values(previous.assets || {}).map(asset => asset.url)]) if (url && !retained.has(url)) URL.revokeObjectURL(url);
   if (activatePlayback) swapVideoSource();
+  applyAudioTracks();
+  if (previous) for (const url of new Set([previous.videoUrl, previous.backingUrl, ...Object.values(previous.assets || {}).map(asset => asset.url)])) if (url && !retained.has(url)) URL.revokeObjectURL(url);
   updateLocalMediaStatus();
 }
 
@@ -350,8 +354,10 @@ localMediaInput.addEventListener('change', async () => {
 });
 
 window.resetLocalMedia = function() {
+  cancelMediaDownload(true);
+  if (session && session.loaded) swapVideoSource(session.videoUrl);
   revokeLocalMedia();
-  if (session && session.loaded) swapVideoSource();
+  applyAudioTracks();
   updateLocalMediaStatus();
 };
 

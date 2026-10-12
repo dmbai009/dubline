@@ -10,9 +10,17 @@ document.addEventListener('DOMContentLoaded', () => socket.connect(), { once: tr
 // Join the room (and rejoin after the socket reconnects)
 let pendingRoomPassword = '';
 let accessDenied = false;
+let mediaNickConfirmed = false, mediaSnapshotReceived = false;
+window.hasSceneMediaAccess = () => socket.connected && !accessDenied && mediaNickConfirmed && mediaSnapshotReceived;
+function invalidateMediaAccess() {
+  mediaNickConfirmed = false; mediaSnapshotReceived = false;
+  window.cancelMediaDownload?.();
+}
+socket.on('disconnect', invalidateMediaAccess);
 
 function joinRoom() {
   if (accessDenied) return;
+  invalidateMediaAccess();
   socket.emit('join_room', {
     room: currentRoom,
     nick: myName,
@@ -34,12 +42,14 @@ let roomUsesPin = false;
 
 function showAccessDenied() {
   accessDenied = true;
+  invalidateMediaAccess();
   passwordModal.style.display = 'none';
   nickModal.style.display = 'none';
   deniedModal.style.display = 'flex';
 }
 
 socket.on('join_denied', ({ reason, pin }) => {
+  invalidateMediaAccess();
   if (reason === 'banned' || reason === 'singlePlayer') return showAccessDenied();
   roomUsesPin = !!pin;
   const errors = { wrongPassword: t('pw.wrong'), tooMany: t('pw.tooMany') };
@@ -167,11 +177,13 @@ function showNickModal(error) {
 
 // The server tells us which nick is actually ours
 socket.on('nick_state', ({ nick, error, errorKey, errorParams }) => {
+  const hadMediaAccess = window.hasSceneMediaAccess();
   // Let into the room: the password is no longer needed
   passwordModal.style.display = 'none';
   pendingRoomPassword = '';
   if (errorKey) error = t(errorKey, errorParams || {});
   myName = nick || '';
+  mediaNickConfirmed = !!myName;
   if (myName && window.onRecordingNickConfirmed) window.onRecordingNickConfirmed(myName);
   const settingsNick = document.getElementById('settingsNickInput');
   if (settingsNick) settingsNick.value = myName;
@@ -182,6 +194,7 @@ socket.on('nick_state', ({ nick, error, errorKey, errorParams }) => {
   renderLobby();
 
   updateHostUi();
+  if (window.hasSceneMediaAccess() && session?.loaded) { loadSceneMedia(!hadMediaAccess); applyAudioTracks(); precacheTakes(); }
 });
 
 let lastOnlineUsers = [];
@@ -677,6 +690,7 @@ window.acceptSceneDelta = (sessionId, lines) => {
 };
 function applySessionUpdate(data) {
   if (!acceptSessionProtocol(data.editorProtocol)) return;
+  const firstMediaSnapshot = !mediaSnapshotReceived;
   data.characterClaims = Object.assign(Object.create(null), data.characterClaims);
   data.latency = Object.assign(Object.create(null), data.latency);
   const sessionChanged = !session || session.activeSessionId !== data.activeSessionId;
@@ -692,6 +706,7 @@ function applySessionUpdate(data) {
     selectedLine = null;
   }
   session = data;
+  mediaSnapshotReceived = true;
   window.DublineCpuJobs?.cancelStale();
   window.acceptEditorSnapshot?.(data);
   updateHostPanel();
@@ -718,7 +733,7 @@ function applySessionUpdate(data) {
   }
 
   // Don't reload the video if the pack hasn't changed (e.g. on role changes)
-  const mediaSources = JSON.stringify([session.activeSessionId, session.videoUrl, window.DublineProjectAudio.sources(session)]);
+  const mediaSources = JSON.stringify([session.activeSessionId, session.videoUrl, session.videoSize, session.videoHash, window.DublineProjectAudio.sources(session), session.backingSize, session.backingHash]);
   if (loadedVideoUrl !== session.videoUrl || loadedMediaSources !== mediaSources) {
     const sceneChanged = loadedVideoUrl !== session.videoUrl || loadedMediaSessionId !== session.activeSessionId;
     loadedVideoUrl = session.videoUrl;
@@ -727,12 +742,13 @@ function applySessionUpdate(data) {
     // A new pack: watch-together of the old one is definitely over
     if (watchMode && sceneChanged) exitWatchMode();
     forgetStaleLocalMedia();
-    loadSceneMedia();
     if (sceneChanged) {
       selectedLine = null;
       inspector.innerHTML = `<h3>${t('inspector.title')}</h3><p style="color: #71717a;">${t('inspector.empty')}</p>`;
     }
   }
+
+  loadSceneMedia(firstMediaSnapshot);
 
   updateDownloadButtons();
   updateLocalMediaStatus();
@@ -744,7 +760,7 @@ function applySessionUpdate(data) {
 
   applyVolumes();
   renderTimeline();
-  precacheTakes();
+  if (window.hasSceneMediaAccess()) precacheTakes();
   if (selectedLine) {
     const updated = session.lines.find(l => l.id === selectedLine.id);
     if (updated) {

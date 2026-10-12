@@ -124,6 +124,9 @@ window.handleStudioRecord = async function(lineId) {
     return;
   }
 
+  const mediaPreparation = window.sceneMediaPreparation?.();
+  if (mediaPreparation?.key) return showToast(t(mediaPreparation.key, { channels: mediaPreparation.channels.map(channel => t('studio.' + channel)).join(', ') }));
+
   const recordingSessionId = session.activeSessionId || '';
   const recordingRoom = currentRoom;
   const recordingNick = myName;
@@ -138,6 +141,11 @@ window.handleStudioRecord = async function(lineId) {
   } catch (err) {
     alert(t('error.mic'));
     return;
+  }
+  const currentPreparation = window.sceneMediaPreparation?.();
+  if (currentPreparation?.key) {
+    recordingMic.getTracks().forEach(track => track.stop()); window.DublineAudioDevices.release(recordingMic);
+    showToast(t(currentPreparation.key, { channels: currentPreparation.channels.map(channel => t('studio.' + channel)).join(', ') })); return;
   }
   // The microphone permission prompt can outlive a mode/session/ownership change.
   const takeSequence = await reserveTake(lineId, recordingSessionId);

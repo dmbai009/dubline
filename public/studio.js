@@ -125,7 +125,11 @@
     if (action === 'expand') return toggleExpandedVideo();
     if (action === 'fullscreen') return toggleVideoFullscreen();
     if (!window.studioCanTransport()) return;
-    if (action === 'play') { ensurePlayCtx(); if (video.paused) video.play().catch(() => {}); else video.pause(); }
+    if (action === 'play') {
+      const preparation = video.paused && window.sceneMediaPreparation?.();
+      if (preparation?.key) return showToast(t(preparation.key, { channels: preparation.channels.map(channel => t('studio.' + channel)).join(', ') }));
+      ensurePlayCtx(); if (video.paused) video.play().catch(() => {}); else video.pause();
+    }
     if (action === 'pause') video.pause();
     if (action === 'back' || action === 'forward') video.currentTime = Math.max(0, Math.min(Number.isFinite(video.duration) ? video.duration : 43200, video.currentTime + (action === 'back' ? -3 : 3)));
   };

@@ -42,7 +42,7 @@
       bufferedSeconds: bufferedSeconds(), buckets: transfer.buckets, downloadRate: transfer.downloadRate,
       uploadRate: window.mediaUploadRate?.() || 0 };
     const changed = latest?.state !== state || latest?.sessionId !== sceneId;
-    overlay.hidden = ['ready', 'fallback'].includes(state) || state === 'downloading' && decodable && window.isWatchingHostMedia?.();
+    overlay.hidden = ['ready', 'fallback'].includes(state) || state === 'downloading' && decodable && (window.isWatchingHostMedia?.() || transfer.videoReady);
     const errorKey = { 1: 'media.aborted', 2: 'media.networkFailed', 3: 'media.decodeFailed', 4: 'media.unsupported' }[video.error?.code];
     overlay.textContent = t(state === 'failed' && errorKey ? errorKey : 'media.' + state, { pct: Math.round(pct) });
     const info = window.videoPlaybackDiagnostic;

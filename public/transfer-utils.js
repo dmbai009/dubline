@@ -90,6 +90,69 @@
       if (this.queue.length) this.timer = setTimeout(() => this.pump(), Math.max(1, Math.ceil((this.queue[0].bytes - this.tokens) / this.rate * 1000)));
     }
   }
-  const api = { rangesFromIndexes, validRanges, contains, UploadLimiter, DownloadScheduler };
+  function mediaError(code, status = null) {
+    return Object.assign(new Error(code), { code, status, retryable: ['network', 'timeout', 'truncated'].includes(code) || [408, 429, 500, 502, 503, 504].includes(status) });
+  }
+  function delay(ms, signal) {
+    return new Promise((resolve, reject) => {
+      const finish = error => { clearTimeout(timer); signal?.removeEventListener('abort', abort); error ? reject(error) : resolve(); };
+      const abort = () => finish(new DOMException('Cancelled', 'AbortError'));
+      const timer = setTimeout(() => finish(), ms);
+      if (signal?.aborted) abort(); else signal?.addEventListener('abort', abort, { once: true });
+    });
+  }
+  async function retryMedia(action, signal, onRetry = () => {}) {
+    for (let attempt = 0; ; attempt++) {
+      if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
+      try { return await action(); }
+      catch (error) {
+        if (signal?.aborted || attempt >= 2 || !(error.retryable || error instanceof TypeError)) throw error;
+        onRetry(error); await delay(300 * 2 ** attempt, signal);
+      }
+    }
+  }
+  // Keep only one transport frame in addition to the downloader's existing parts.
+  // A proxy's full 200 response is consumed once, including all missing ranges.
+  async function readHttpMedia(response, { from, to, size, signal, onPart, onBytes = () => {}, onTimeout = () => {}, idleMs = 15000 }) {
+    if (![200, 206].includes(response.status)) { await response.body?.cancel().catch(() => {}); throw mediaError('http', response.status); }
+    const full = response.status === 200, expected = full ? size : to - from + 1;
+    const range = response.headers.get('Content-Range');
+    const length = response.headers.get('Content-Length'), encoding = response.headers.get('Content-Encoding');
+    if ((!full && range !== `bytes ${from}-${to}/${size}`) || full && range && range !== `bytes 0-${size - 1}/${size}` ||
+      length !== null && (!encoding || encoding === 'identity') && Number(length) !== expected || !response.body?.getReader) {
+      await response.body?.cancel().catch(() => {}); throw mediaError('range', response.status);
+    }
+    const reader = response.body.getReader(); let total = 0, offset = full ? 0 : from;
+    const cancelled = () => { reader.cancel().catch(() => {}); };
+    signal?.addEventListener('abort', cancelled, { once: true });
+    let frame = new Uint8Array(Math.min(65536, size - offset)), filled = 0;
+    try {
+      while (true) {
+        if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
+        let timer;
+        const timeout = new Promise((_, reject) => { timer = setTimeout(() => { onTimeout(); reject(mediaError('timeout')); }, idleMs); });
+        let result;
+        try { result = await Promise.race([reader.read(), timeout]); } finally { clearTimeout(timer); }
+        if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
+        if (result.done) break;
+        const bytes = result.value; total += bytes.byteLength; onBytes(bytes.byteLength);
+        if (total > expected) throw mediaError('size');
+        for (let at = 0; at < bytes.byteLength;) {
+          const count = Math.min(frame.length - filled, bytes.byteLength - at);
+          frame.set(bytes.subarray(at, at + count), filled); at += count; filled += count;
+          if (filled === frame.length) {
+            await onPart(offset / 65536, frame.buffer); offset += filled; filled = 0;
+            frame = new Uint8Array(Math.min(65536, Math.max(0, size - offset)));
+          }
+        }
+      }
+      if (total !== expected || filled) throw mediaError('truncated');
+      return { full, bytes: total };
+    } catch (error) {
+      if (!signal?.aborted && error instanceof TypeError) throw mediaError('network');
+      throw error;
+    } finally { signal?.removeEventListener('abort', cancelled); await reader.cancel().catch(() => {}); reader.releaseLock(); }
+  }
+  const api = { rangesFromIndexes, validRanges, contains, UploadLimiter, DownloadScheduler, mediaError, delay, retryMedia, readHttpMedia };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.DublineTransferUtils = api;
 })(typeof window === 'undefined' ? globalThis : window);
