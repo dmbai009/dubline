@@ -112,6 +112,25 @@ describe('Media/presence recovery and local timeline controls', { skip: skipReas
   });
 
   test('CPU jobs transfer PCM copies, preserve pitch and discard results from a departed scene', async () => {
+    // A real background job may outlive the operation checked below. Hold only
+    // its response so pool idleness cannot accidentally depend on worker timing.
+    await page.evaluate(() => {
+      const nativePost = Worker.prototype.postMessage;
+      Worker.prototype.postMessage = function(message, ...args) {
+        if (message.testHold) {
+          Worker.prototype.postMessage = nativePost;
+          const worker = this, deliver = worker.onmessage;
+          worker.onmessage = event => {
+            if (event.data.id !== message.id) return deliver.call(worker, event);
+            worker.onmessage = deliver;
+            window.releaseHeldCpuJob = () => deliver.call(worker, event);
+          };
+        }
+        return nativePost.call(this, message, ...args);
+      };
+      window.heldCpuJob = DublineCpuJobs.run({ kind: 'sha256', bytes: new Uint8Array([4, 2, 9]).buffer, testHold: true }, [], session.activeSessionId);
+    });
+    await waitFor(page, () => typeof window.releaseHeldCpuJob === 'function');
     const result = await page.evaluate(async () => {
       const buffer = new AudioBuffer({ length: 22050, numberOfChannels: 1, sampleRate: 44100 });
       const input = buffer.getChannelData(0);
@@ -125,9 +144,20 @@ describe('Media/presence recovery and local timeline controls', { skip: skipReas
       try { await DublineCpuJobs.run({ kind: 'sha256', bytes: new Uint8Array([1]).buffer }, [], 'departed-scene'); } catch (error) { stale = /Stale/.test(error.message); }
       return { frames: output.length, inputFrames: input.length, frequency, stale, stats: DublineCpuJobs.stats() };
     });
-    assert.equal(result.frames, 11025); assert.equal(result.inputFrames, 22050);
-    assert.ok(Math.abs(result.frequency - 440) < 15, String(result.frequency));
-    assert.equal(result.stale, true); assert.ok(result.stats.completed >= 1); assert.equal(result.stats.active, 0);
+    try {
+      assert.equal(result.frames, 11025); assert.equal(result.inputFrames, 22050);
+      assert.ok(Math.abs(result.frequency - 440) < 15, String(result.frequency));
+      assert.equal(result.stale, true); assert.ok(result.stats.completed >= 1);
+      assert.ok(result.stats.active >= 1, 'the unrelated background response is still held');
+    } finally {
+      const hash = await page.evaluate(async () => {
+        releaseHeldCpuJob(); const hash = await heldCpuJob;
+        delete window.releaseHeldCpuJob; delete window.heldCpuJob; return hash;
+      });
+      assert.equal(hash, require('node:crypto').createHash('sha256').update(Buffer.from([4, 2, 9])).digest('hex'));
+    }
+    await waitFor(page, () => !DublineCpuJobs.stats().active && !DublineCpuJobs.stats().queued);
+    assert.equal(await page.evaluate(() => DublineCpuJobs.stats().active), 0);
   });
 
   test('snapshot readiness freezes mutations while preserving cached acknowledgments and releases on cancel', async () => {
