@@ -56,6 +56,19 @@ function archive(snapshot, change = () => {}) {
   return zip.toBuffer();
 }
 
+test('version 5 preserves comments and Telephone while excluding request revisions and rejecting malformed notes', t => {
+  const f = fixture(t); Object.assign(f.session.lines[0], { needsRetake:true, retakeComment:'Емоції · emotions <b>text</b>', retakeRevision:42, effect:'telephone' });
+  const snapshot = captureProject(f.session,f.resolve); assert.equal(snapshot.manifest.formatVersion,5);
+  assert.equal(snapshot.manifest.project.lines[0].retakeRevision,undefined);
+  const staged=stageProject(archive(snapshot),f.dir);
+  assert.equal(staged.fields.lines[0].retakeComment,f.session.lines[0].retakeComment);
+  assert.equal(staged.fields.lines[0].retakeRevision,0); assert.equal(staged.fields.lines[0].effect,'telephone'); staged.rollback();
+  for(const mutate of [m=>{m.formatVersion=4;},m=>{m.project.lines[0].retakeComment='x'.repeat(1001);},m=>{m.project.lines[0].retakeComment=[];},m=>{m.project.lines[0].needsRetake=false;}]) assert.throws(()=>readProject(archive(snapshot,mutate)),/retake comment/);
+    f.session.lines[0].needsRetake=false; f.session.lines[0].retakeComment='';
+    const telephoneOnly=captureProject(f.session,f.resolve); assert.equal(telephoneOnly.manifest.formatVersion,5);
+    assert.equal(readProject(archive(telephoneOnly)).manifest.project.lines[0].take.effect,'telephone');
+    assert.throws(()=>readProject(archive(telephoneOnly,m=>{m.formatVersion=4;})),/Telephone requires/);
+});
 test('all legacy versions 1–4 remain readable with their take bytes and empty comment defaults', t => {
   for(const version of [1,2,3,4]) {
     const f=fixture(t);

@@ -965,6 +965,7 @@ window.DublineLocales.uk = {
   "retake.changed": "Зауваження змінилося. Замінити його вашою чернеткою?",
   "retake.audioChanged": "Запис замінено. Перевірте чернетку перед новим запитом.",
   "retake.discardDraft": "Видалити чернетку",
+  "effect.telephone": "☎ Телефон",
   "assignment.denied": "У вас немає прав на зміну цієї репліки.",
   "filter.scope": "Видимі репліки",
   "filter.status": "Стан запису",

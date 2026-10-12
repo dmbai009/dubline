@@ -965,6 +965,7 @@ window.DublineLocales.ru = {
   "retake.changed": "Замечание изменилось. Заменить его вашим черновиком?",
   "retake.audioChanged": "Запись заменена. Проверьте черновик перед новым запросом.",
   "retake.discardDraft": "Удалить черновик",
+  "effect.telephone": "☎ Телефон",
   "assignment.denied": "У вас нет прав на изменение этой реплики.",
   "filter.scope": "Видимые реплики",
   "filter.status": "Состояние записи",

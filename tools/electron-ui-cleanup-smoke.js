@@ -160,6 +160,18 @@ async function main() {
     const input = audioDevices.inputs.find(device => device.id); await page.select('#audioInputDevice', input.id);
     await page.evaluate(() => closeSettingsModal()); await claimAndSelect(page, 1); await recordTake(page, 1);
     await waitFor(page, () => !pendingTakeLines.size);
+    await page.select('[data-clip-field="effect"]', 'telephone'); await waitFor(page, () => session.lines[0].effect === 'telephone');
+    await page.type('[data-retake-comment="1"]', 'Native retake request'); await page.click('[data-retake-form="1"] button[type=submit]');
+    await waitFor(page, () => session.lines[0].retakeComment === 'Native retake request' && !editorQueue.length);
+    assert.equal(await page.$eval('#myRetakeCount', node => node.hidden), false, 'native owner retains a visible request');
+    await page.select('#timelineScopeFilter', 'mine'); assert.deepEqual(await page.evaluate(() => DublineTimelineFilters.ids()), [1]);
+    await page.select('#timelineScopeFilter', 'all');
+    const previousTake = await page.evaluate(() => session.lines[0].audioUrl);
+    await page.focus('#timelineContainer'); await page.keyboard.press('KeyR'); await waitFor(page, () => recordState === 'recording');
+    await wait(250); await page.keyboard.press('Space');
+    await waitFor(page, old => recordState === 'idle' && !pendingTakeLines.size && !processingRecordings.size && session.lines[0].audioUrl !== old, 20000, previousTake);
+    assert.equal(await page.evaluate(() => session.lines[0].needsRetake || !!session.lines[0].retakeComment), false, 'native Space saves a new take and atomically closes its request');
+    assert.equal(await page.evaluate(async () => !!await getProcessedTake(session.lines[0])), true, 'native Telephone uses the shared processing engine');
     await page.reload(); await waitFor(page, () => session?.loaded && document.getElementById('audioInputDevice'));
     assert.equal(await page.$eval('#audioInputDevice', node => node.value), input.id, 'native restart/reload restores microphone selection');
     await page.evaluate(() => { ensurePlayCtx(); adrCues.arm(); }); await page.evaluate(() => DublineAudioDevices.ready());

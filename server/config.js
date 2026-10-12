@@ -27,7 +27,7 @@ const CHAT_RATE_LIMIT = { count: 5, windowMs: 5000 };
 // Wrong room passwords from all devices together: a new socket per guess must not reset the count
 // (a 4-character PIN has only ~1M values), and each check runs scrypt on the server's only thread
 const PASSWORD_FAILURE_LIMIT = { count: 20, windowMs: 10 * 60 * 1000 };
-const VOICE_EFFECTS = ['none', 'robot', 'radio', 'monster', 'thoughts', 'cave', 'behindDoor', 'megaphone'];
+const VOICE_EFFECTS = ['none', 'robot', 'radio', 'telephone', 'monster', 'thoughts', 'cave', 'behindDoor', 'megaphone'];
 const MAX_PITCH = 12;         // semitones up/down
 const MAX_LATENCY_MS = 1000;  // limit of the microphone delay correction
 const MAX_UNDO_BATCHES = 50;  // how many recent line deletions the session trash keeps

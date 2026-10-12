@@ -105,6 +105,52 @@ describe('Collaborative actor workflow', { skip: skipReason }, () => {
     assert.equal(await host.$$eval('.player-card.offline', nodes => nodes.length), 0);
     assert.equal(typeof id, 'string');
   });
+  test('format 5 saves an actual Telephone take and comment through Files, reopens it and survives server restart', async () => {
+    await claimAndSelect(host, 1); await recordTake(host, 1);
+    await host.evaluate(() => new Promise(resolve => { const line = session.lines[0]; socket.emit('set_take_props', { sessionId: session.activeSessionId, lineId: line.id, audioUrl: line.audioUrl, takeMixRevision: line.takeMixRevision || 0, effect: 'telephone' }, resolve); }));
+    await waitFor(host, () => session.lines[0].effect === 'telephone');
+    await host.type('[data-retake-comment="1"]', 'Сохранить конец фразы'); await host.click('[data-retake-form="1"] button[type=submit]');
+    await waitFor(host, () => session.lines[0].retakeComment === 'Сохранить конец фразы' && !editorQueue.length);
+    const before = await host.evaluate(() => structuredClone(session.lines[0]));
+    const cdp = await host.createCDPSession(); await cdp.send('Page.setDownloadBehavior', { behavior: 'allow', downloadPath: server.dirs.data });
+    await host.evaluate(() => { openFilesModal(); switchFilesTab('projects'); });
+    const download = host.waitForResponse(response => response.url().includes('/api/export-project'));
+    await host.click('#projectExportBtn'); const response = await download; assert.equal(response.status(), 200);
+    await waitUntil(() => fs.readdirSync(server.dirs.data).some(name => name.endsWith('.dubline')), 15000);
+    const bytes = fs.readFileSync(path.join(server.dirs.data, fs.readdirSync(server.dirs.data).find(name => name.endsWith('.dubline')))), project = readProject(bytes);
+    assert.equal(project.manifest.formatVersion, 5);
+    assert.equal(project.manifest.project.lines[0].retakeComment, before.retakeComment);
+    const take = project.manifest.project.lines[0].take;
+    assert.equal(take.effect, 'telephone');
+    assert.deepEqual(project.files.get(take.asset), fs.readFileSync(path.join(server.dirs.uploads, path.basename(before.audioUrl))));
+    const file = path.join(server.dirs.data, 'actor-project.dubline'); fs.writeFileSync(file, bytes);
+    await waitFor(host, () => !document.getElementById('projectInput').disabled);
+    const imported = host.waitForResponse(response => response.url().includes('/api/import-project'));
+    await (await host.$('#projectInput')).uploadFile(file); assert.equal((await imported).status(), 200);
+    await waitFor(host, () => session.lines[0].effect === 'telephone' && session.lines[0].retakeComment === 'Сохранить конец фразы');
+    await server.restart(); await waitFor(host, () => socket.connected && hasSceneMediaAccess(), 15000);
+    await host.reload(); await waitFor(host, () => session?.loaded && session.lines[0].audioUrl);
+    const after = await host.evaluate(async () => ({ line: session.lines[0], processed: !!await getProcessedTake(session.lines[0]) }));
+    for (const field of ['caption', 'start', 'end', 'recordedBy', 'effect', 'pitch', 'volume', 'pan', 'needsRetake', 'retakeComment']) assert.equal(after.line[field], before[field], field);
+    assert.equal(after.processed, true);
+    assert.deepEqual(fs.readFileSync(path.join(server.dirs.uploads, path.basename(after.line.audioUrl))), project.files.get(take.asset));
+    await host.select('#timelineScopeFilter', 'choose');
+    assert.deepEqual(await host.evaluate(() => DublineTimelineFilters.ids()), [], 'recorded lines are only visually hidden');
+    const exported = await host.evaluate(async () => {
+      const line = session.lines[0], scene = structuredClone(session), snapshot = { scene, takes: [line], gains: DublineProjectAudio.gains(scene.projectAudio), originalUrl: '', backingUrl: '' };
+      const fx = DublineAudioFx, original = fx.connectTake, buffers = [];
+      fx.connectTake = (ctx, source, destination, take) => { if (take.effect === 'telephone') buffers.push(source.buffer); return original(ctx, source, destination, take); };
+      try {
+        const mixed = await mixSoundtrack(12, snapshot.gains, () => {}, snapshot), stem = await renderCharacterStem([line], 12, 48000, snapshot);
+        const energy = buffer => buffer.getChannelData(0).reduce((sum, value) => sum + value ** 2, 0);
+        // Existing master limiters have different thresholds; compare their input.
+        return { mixed: energy(mixed), stem: energy(stem), shared: buffers.length === 2 && buffers[0] === buffers[1] };
+      } finally {
+        fx.connectTake = original;
+      }
+    });
+    assert.ok(exported.mixed > 1e-12 && exported.stem > 1e-12); assert.equal(exported.shared, true, 'Telephone soundtrack and stem reuse the same processed take');
+  });
   test('personal ownership and selected-role exceptions share visibility with search and survive only in their own scene', async () => {
     const actor = await guest('Filter actor');
     await actor.evaluate(() => { claimCharacter('Hero'); claimSingleLine(2); });
@@ -173,6 +219,31 @@ describe('Collaborative actor workflow', { skip: skipReason }, () => {
     await waitFor(host, () => session.lines[0].retakeComment.endsWith('Ещё замечание'));
     await recordTake(actor, 1); await waitFor(host, () => !session.lines[0].needsRetake && !session.lines[0].retakeComment);
     assert.equal(await actor.$eval('#myRetakeCount', node => node.hidden), true);
+  });
+  test('every effect retains bounded speech level, Telephone differs from Radio, and dry/wet endpoints stay non-destructive', async () => {
+    const result = await host.evaluate(async () => {
+      const reports = [];
+      for (const level of [.00002, .02, .2, .6]) {
+        const buffer = new AudioBuffer({ length: 48000, sampleRate: 48000, numberOfChannels: 1 }), dry = buffer.getChannelData(0);
+        for (let i = 4800; i < 36000; i++) dry[i] = level * Math.sin(Math.PI * (i - 4800) / 31200) * (.5 * Math.sin(i * 2 * Math.PI * 220 / 48000) + .3 * Math.sin(i * 2 * Math.PI * 1100 / 48000) + .2 * Math.sin(i * 2 * Math.PI * 2700 / 48000));
+        if (await renderVoice(buffer, 'none') !== buffer) throw Error('Dry source was replaced');
+        for (const effect of Object.keys(VOICE_EFFECTS).filter(effect => effect !== 'none')) {
+          const processed = await renderVoice(buffer, effect), out = processed.getChannelData(0), measured = DublineVoiceLevel.correction(dry, out, 48000);
+          reports.push({ level, effect, db: measured.wetRms ? 20 * Math.log10(measured.wetRms / measured.dryRms) : -100,
+            finite: out.every(Number.isFinite), peak: out.reduce((maximum, sample) => Math.max(maximum, Math.abs(sample)), 0), tail: processed.duration - buffer.duration });
+        }
+        const wet = await renderVoice(buffer, 'telephone'), half = await renderVoice(buffer, 'telephone', 0, null, .5), radio = await renderVoice(buffer, 'radio');
+        let error = 0, difference = 0;
+        for (let i = 0; i < wet.length; i++) { error = Math.max(error, Math.abs(half.getChannelData(0)[i] - ((dry[i] || 0) + wet.getChannelData(0)[i]) / 2)); difference += Math.abs(wet.getChannelData(0)[i] - (radio.getChannelData(0)[i] || 0)); }
+        if (error > 1e-6 || !difference) throw Error('Effect blend or Telephone identity changed');
+      }
+      return reports;
+    });
+    for (const report of result) {
+      assert.equal(report.finite, true, JSON.stringify(report)); assert.ok(report.peak <= .950001, JSON.stringify(report));
+      if (report.level >= .02) assert.ok(Math.abs(report.db) < 3.2, JSON.stringify(report));
+      else assert.ok(report.db <= .01, 'near-silent speech cannot be boosted: ' + JSON.stringify(report));
+    }
   });
   test('an offline owner finds remarks on return without repeating notifications on snapshots or reconnect', async () => {
     const actor = await guest('Returning'); await claimAndSelect(actor,1); await recordTake(actor,1);

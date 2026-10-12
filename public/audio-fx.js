@@ -6,6 +6,7 @@ const VOICE_EFFECTS = {
   none: 'No effect',
   robot: '🤖 Robot',
   radio: '📻 Radio',
+  telephone: '☎ Telephone',
   monster: '👹 Monster',
   thoughts: '💭 Thoughts',
   cave: '🪨 Cave',
@@ -16,6 +17,7 @@ const VOICE_EFFECTS = {
 const EFFECT_TAIL_SECONDS = {
   robot: 0.12,
   radio: 0.08,
+  telephone: 0.08,
   monster: 0.05,
   thoughts: 0.7,
   cave: 2.0,
@@ -197,6 +199,13 @@ function reverbImpulse(ctx, seconds, decay, seed = 1) {
 
 // Builds the effect graph from input and returns the output node
 function buildEffect(ctx, input, effect) {
+  if (effect === 'telephone') {
+    const comp = ctx.createDynamicsCompressor();
+    comp.threshold.value = -22; comp.knee.value = 12; comp.ratio.value = 3.5;
+    comp.attack.value = .006; comp.release.value = .1;
+    return chain(input, biquad(ctx, 'highpass', 300), biquad(ctx, 'lowpass', 3400),
+      biquad(ctx, 'peaking', 1500, { Q: .5, gain: 1 }), comp);
+  }
   if (effect === 'robot') {
     // Ring modulation plus a short metallic echo
     const ring = ctx.createGain();
@@ -339,9 +348,12 @@ async function renderVoice(buffer, effect = 'none', pitch = 0, bounds = null, ef
     (processed ? buildEffect(ctx, source, effect) : source).connect(gain).connect(ctx.destination);
     source.start(from, from, Math.max(0.001, to - from));
   }
-  start(dry, 1 - amount, false);
-  start(wet, amount, true);
-  return limitPeak(await ctx.startRendering());
+  start(wet, 1, true);
+  const rendered = await ctx.startRendering(), samples = rendered.getChannelData(0), reference = toMono(dry);
+  const begin = Math.floor(from * dry.sampleRate), end = Math.ceil(to * dry.sampleRate);
+  const level = window.DublineVoiceLevel.correction(reference, samples, dry.sampleRate, begin, end);
+  for (let i = 0; i < samples.length; i++) samples[i] = samples[i] * level.gain * amount + (i >= begin && i < end ? (reference[i] || 0) * (1 - amount) : 0);
+  return limitPeak(rendered);
 }
 
 // Shared by monitoring, preview, video export and stereo character stems.

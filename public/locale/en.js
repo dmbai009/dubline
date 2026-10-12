@@ -965,6 +965,7 @@ window.DublineLocales.en = {
   "retake.changed": "This note changed. Replace it with your draft?",
   "retake.audioChanged": "The recording was replaced. Review your draft before making a new request.",
   "retake.discardDraft": "Discard draft",
+  "effect.telephone": "☎ Telephone",
   "assignment.denied": "You do not have permission to change this line.",
   "filter.scope": "Visible lines",
   "filter.status": "Recording status",
