@@ -38,7 +38,7 @@ function findChrome() {
 const CHROME = findChrome();
 const skipReason = CHROME ? false : 'Chrome/Edge not found: set its path in CHROME_PATH';
 
-async function launchBrowser(port, { fakeAudioFile = null } = {}) {
+async function launchBrowser(port, { fakeAudioFile = null, secureOrigin = true, certificateSPKI = null } = {}) {
   const puppeteer = require('puppeteer-core');
   return puppeteer.launch({
     executablePath: CHROME,
@@ -55,7 +55,8 @@ async function launchBrowser(port, { fakeAudioFile = null } = {}) {
       '--autoplay-policy=no-user-gesture-required',
       // A second server address: players using it look like they came through the tunnel (needed for P2P)
       '--host-resolver-rules=MAP dubline.test 127.0.0.1',
-      `--unsafely-treat-insecure-origin-as-secure=http://dubline.test:${port}`
+      ...(secureOrigin ? [`--unsafely-treat-insecure-origin-as-secure=http://dubline.test:${port}`] : []),
+      ...(certificateSPKI ? [`--ignore-certificate-errors-spki-list=${certificateSPKI}`] : [])
     ]
   });
 }
