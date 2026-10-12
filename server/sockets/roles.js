@@ -24,14 +24,25 @@ module.exports = function registerRoleHandlers(socket, conn) {
     reply({ ok: true });
   });
   // Allocate order before recording starts, not when its asynchronous processing finishes.
-  socket.on('reserve_take', ({ lineId, sessionId } = {}, ack) => {
+  socket.on('reserve_take', ({ lineId, sessionId, cancelSequence } = {}, ack) => {
     if (typeof ack !== 'function') return;
     if (!conn.roomId || !conn.nick) return ack({ ok: false, reason: 'nick' });
     const room = getRoom(conn.roomId);
+    if (!isAuthorized(room, conn.nick, conn.clientId)) return ack({ ok: false, reason: 'owner' });
     snapshotActive(room);
     const target = sessionId === room.activeSessionId ? room : room.sessions[sessionId];
     const line = target && target.lines.find(item => item.id === lineId);
     if (!line || (room.singlePlayer ? room.host : getLineOwner(target, line)) !== conn.nick) return ack({ ok: false, reason: 'owner' });
+    if (cancelSequence !== undefined) {
+      if (!Number.isSafeInteger(cancelSequence) || cancelSequence < 1 || cancelSequence > (line.takeCounter || 0)) return ack({ ok: false, reason: 'invalid' });
+      // Cancel only this reserved sequence; never invalidate a newer recording.
+      if (cancelSequence > (line.takeSequence || 0)) {
+        if (cancelSequence !== line.takeCounter) return ack({ ok: false, reason: 'conflict' });
+        line.takeSequence = cancelSequence; flushRooms();
+        if (sessionId === room.activeSessionId) require('../sessionScope').emitLines(conn.roomId, [line]);
+      }
+      return ack({ ok: true, cancelled: true });
+    }
     if (target.mode === 'edit') return ack({ ok: false, reason: 'mode' });
     line.takeCounter = Math.max(Number(line.takeCounter) || 0, Number(line.takeSequence) || 0) + 1;
     flushRooms();

@@ -120,7 +120,7 @@ window.handleStudioRecord = async function(lineId) {
   }
 
   if (recordState === 'recording' || recordState === 'preparing') {
-    finishRecording();
+    finishRecording({ discard: recordState === 'preparing' });
     return;
   }
 
@@ -154,6 +154,7 @@ window.handleStudioRecord = async function(lineId) {
   if (microphoneLost || recordState !== 'idle' || renderInProgress || !session || session.mode === 'edit' || watchMode ||
       (session.activeSessionId || '') !== recordingSessionId || currentRoom !== recordingRoom || myName !== recordingNick ||
       !takeSequence || !currentLine || getLineOwner(currentLine) !== recordingNick) {
+    if (takeSequence) socket.emit('reserve_take', { lineId, sessionId: recordingSessionId, cancelSequence: takeSequence }, () => {});
     recordingMic.getTracks().forEach(track => track.stop());
     window.DublineAudioDevices.release(recordingMic);
     if (microphoneLost) showToast(t('audio.device.recordingInterrupted'));
@@ -176,6 +177,7 @@ window.handleStudioRecord = async function(lineId) {
     recorder = mimeType ? new MediaRecorder(audioDest.stream, { mimeType }) : new MediaRecorder(audioDest.stream);
     startVisualizer(micStream);
   } catch {
+    socket.emit('reserve_take', { lineId, sessionId: recordingSessionId, cancelSequence: takeSequence }, () => {});
     recordingMic.getTracks().forEach(track => track.stop()); window.DublineAudioDevices.release(recordingMic);
     micStream = null; micSource?.disconnect(); gainNode?.disconnect(); voiceMeter?.disconnect();
     audioDest?.stream.getTracks().forEach(track => track.stop()); stopVisualizer();
@@ -200,7 +202,7 @@ window.handleStudioRecord = async function(lineId) {
   recordingLineId = lineId;
 
   mediaRecorder = recorder;
-  const operation = { recorder, stream: recordingMic, discarded: false, nick: recordingNick, room: recordingRoom, sessionId: recordingSessionId };
+  const operation = { recorder, stream: recordingMic, discarded: false, nick: recordingNick, room: recordingRoom, sessionId: recordingSessionId, takeSequence, lineId };
   processingRecordings.add(operation);
   activeRecording = operation;
   const mayUpdateUi = () => !activeRecording && mediaRecorder === recorder && recordState === 'idle' &&
@@ -387,6 +389,7 @@ function finishRecording({ discard = false } = {}) {
   recordState = 'idle';
   if (window.refreshStudioTransport) window.refreshStudioTransport();
   operation.discarded = operation.discarded || discard;
+  if (operation.discarded) socket.emit('reserve_take', { lineId: operation.lineId, sessionId: operation.sessionId, cancelSequence: operation.takeSequence }, () => {});
   discardTake = operation.discarded; // compatibility alias, never used by another operation's handler
   activeRecording = null;
   recordingLineId = null;

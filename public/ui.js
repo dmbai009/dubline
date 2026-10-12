@@ -579,11 +579,14 @@ window.addEventListener('keydown', (e) => {
   if (window.handleEditorKey && handleEditorKey(e)) return;
   if (e.altKey) return;
 
-  // Space: play/pause
+  // Space: finish the active take, otherwise play/pause.
   if (e.code === 'Space') {
     if (e.target.closest('button, a[href], [role="button"], [role="switch"], summary')) return;
     e.preventDefault();
-    if (!e.repeat) window.studioTransport('play');
+    if (!e.repeat) {
+      if (activeRecording && recordState !== 'idle') finishRecording({ discard: recordState === 'preparing' });
+      else window.studioTransport('play');
+    }
     return;
   }
   const transportKeys = { KeyJ: 'back', KeyK: 'pause', KeyL: 'forward', KeyF: 'fullscreen' };
@@ -592,6 +595,8 @@ window.addEventListener('keydown', (e) => {
   // R (same physical key on any layout): record the selected line
   if (e.code === 'KeyR') {
     e.preventDefault();
+    if (e.repeat) return;
+    if (activeRecording && recordState !== 'idle') return finishRecording({ discard: recordState === 'preparing' });
     if (session && session.mode === 'edit') return showToast(t('editor.recordDisabled'));
     recordSelectedLine();
   }

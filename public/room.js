@@ -213,12 +213,12 @@ function initials(nick) {
   return letters.toUpperCase();
 }
 
-function playerCardHtml(nick, stats, online) {
-  const isMe = nick === myName;
-  const recordingLine = [...liveRecordings.entries()].find(([, who]) => who === nick);
+function playerCardHtml(nick, stats, online, assignedModerator = null, cardKey = `player:${nick}`) {
+  const isMe = online && nick === myName;
+  const recordingLine = online && [...liveRecordings.entries()].find(([, who]) => who === nick);
   const pct = stats.claimed ? Math.round((stats.recorded / stats.claimed) * 100) : (stats.recorded ? 100 : 0);
-  const activity = playerActivities.get(nick);
-  const moderator = online && session?.moderators?.find(entry => entry.online && entry.nick === nick);
+  const activity = online && playerActivities.get(nick);
+  const moderator = assignedModerator || online && session?.moderators?.find(entry => entry.online && entry.nick === nick);
   const classes = ['player-card', isMe ? 'me' : '', online ? '' : 'offline', recordingLine ? 'recording' : ''].filter(Boolean).join(' ');
 
   const tags = [
@@ -226,12 +226,12 @@ function playerCardHtml(nick, stats, online) {
     moderator ? `<span class="tag moderator" title="${esc(t('moderator.title'))}" aria-label="${esc(t('moderator.title'))}">🛡</span>` : '',
     online && !isMe && session?.mode === 'edit' ? `<button class="btn-icon" data-jump-collaborator="${esc(nick)}" disabled title="${esc(t('cursor.unavailable'))}" aria-label="${esc(t('cursor.jump'))}: ${esc(nick)}" onclick="jumpToCollaborator(${jsArg(nick)})">↗</button>` : '',
     isMe ? `<span class="tag you">${t('lobby.you')}</span>` : '',
-    online && !isMe && amHost() && !session?.singlePlayer ? `<details class="participant-menu"><summary aria-label="${esc(t('moderator.actions'))}">⋯</summary><div><button class="btn-outline" onclick="changeModerator(${jsArg(nick)}, ${jsArg(moderator?.id || '')})">${t(moderator ? 'moderator.revoke' : 'moderator.grant')}</button><button class="btn-delete" onclick="kickPlayer(${jsArg(nick)})">${t('kick.button')}</button></div></details>` : ''
+    (online && !isMe || !online && moderator) && amHost() && !session?.singlePlayer ? `<details class="participant-menu"><summary aria-label="${esc(t('moderator.actions'))}">⋯</summary><div><button class="btn-outline" onclick="changeModerator(${jsArg(nick)}, ${jsArg(moderator?.id || '')})">${t(moderator ? 'moderator.revoke' : 'moderator.grant')}</button>${online ? `<button class="btn-delete" onclick="kickPlayer(${jsArg(nick)})">${t('kick.button')}</button>` : ''}</div></details>` : ''
   ].join('');
 
   const extra = [
     recordingLine ? `<span class="tag rec">${t('lobby.recording', { id: recordingLine[0] })}</span>` : '',
-    seedingNicks.has(nick) ? `<span class="tag seed" title="${esc(t('lobby.seeding') + (activity?.state === 'ready' ? ' · ' + t('media.ready') : ''))}">${t('lobby.seeding')}</span>` : '',
+    online && seedingNicks.has(nick) ? `<span class="tag seed" title="${esc(t('lobby.seeding') + (activity?.state === 'ready' ? ' · ' + t('media.ready') : ''))}">${t('lobby.seeding')}</span>` : '',
     activity && !(seedingNicks.has(nick) && activity.state === 'ready') ? `<span class="tag seed">${t('media.' + activity.state, { pct: Math.round(activity.pct) })}</span>` : ''
   ].filter(Boolean).join(' ');
   const activityProgress = activity && activity.state === 'downloading'
@@ -239,7 +239,7 @@ function playerCardHtml(nick, stats, online) {
       (activity.buckets?.length ? '<div class="media-chunk-map">' + activity.buckets.map(value => `<i style="opacity:${.2 + value / 125}"></i>`).join('') + '</div>' : '') : '';
 
   return `
-    <div class="${classes}" data-lobby-key="player:${esc(nick)}" title="${esc(nick)} · ${esc(t(online ? 'online' : 'studio.offline'))}">
+    <div class="${classes}" data-lobby-key="${esc(cardKey)}"${moderator ? ` data-moderator-id="${esc(moderator.id)}"` : ''} title="${esc(nick)} · ${esc(t(online ? 'online' : 'studio.offline'))}">
       <div class="player-head">
         <div class="avatar" style="background:${playerColor(nick)}">${esc(initials(nick))}<span class="dot"></span></div>
         <div class="player-name" title="${esc(nick)}">${esc(nick)}</div>
@@ -253,7 +253,7 @@ function playerCardHtml(nick, stats, online) {
         ${moderator ? `<span class="player-status-compact" title="${esc(t('moderator.title'))}">🛡</span>` : ''}
         ${isMe ? `<span class="player-status-compact" title="${esc(t('lobby.you'))}">●</span>` : ''}
         ${recordingLine ? `<span class="player-status-compact" title="${esc(t('lobby.recording', { id: recordingLine[0] }))}">🎙</span>` : ''}
-        ${seedingNicks.has(nick) ? `<span class="player-status-compact" title="${esc(t('lobby.seeding'))}">↑</span>` : ''}
+        ${online && seedingNicks.has(nick) ? `<span class="player-status-compact" title="${esc(t('lobby.seeding'))}">↑</span>` : ''}
         ${activity && activity.state === 'downloading' ? `<span class="player-status-compact" title="${esc(t('lobby.downloading', { pct: activity.pct }))}">↓${activity.pct}%</span>` : ''}
         ${!online ? `<span class="player-status-compact" title="${esc(t('studio.offline'))}">○</span>` : ''}
         ${stats.claimed && stats.recorded >= stats.claimed ? `<span class="player-status-complete" title="${esc(t('studio.done'))}">✓</span>` : ''}
@@ -303,14 +303,24 @@ function renderLobby() {
   online.sort((a, b) => order(a) - order(b) || a.localeCompare(b));
   // Offline players who claimed or recorded something are shown too, so their contribution stays visible
   const offline = [...progress.perPlayer.keys()].filter(nick => !online.includes(nick)).sort((a, b) => a.localeCompare(b));
+  const absentModerators = !session?.singlePlayer ? (session?.moderators || []).filter(entry => !entry.online) : [];
+  const assigned = new Set();
+  const offlineCards = offline.map(nick => {
+    const matches = absentModerators.filter(entry => entry.nick === nick);
+    const moderator = matches.length === 1 ? matches[0] : null;
+    if (moderator) assigned.add(moderator.id);
+    return { nick, stats: progress.perPlayer.get(nick) || empty, moderator, key: `player:${nick}` };
+  });
+  // Assignment IDs keep an absent moderator distinct from a new namesake.
+  if (amHost()) for (const moderator of absentModerators) if (!assigned.has(moderator.id)) offlineCards.push({ nick: moderator.nick, stats: empty, moderator, key: `moderator:${moderator.id}` });
+  offlineCards.sort((a, b) => a.nick.localeCompare(b.nick));
 
   let html = `<div class="lobby-section" data-lobby-key="online">${t('lobby.online', { n: online.length })}</div>`;
   html += online.map(nick => playerCardHtml(nick, progress.perPlayer.get(nick) || empty, true)).join('');
-  if (offline.length) {
-    html += `<div class="lobby-section" data-lobby-key="offline">${t('lobby.offline', { n: offline.length })}</div>`;
-    html += offline.map(nick => playerCardHtml(nick, progress.perPlayer.get(nick) || empty, false)).join('');
+  if (offlineCards.length) {
+    html += `<div class="lobby-section" data-lobby-key="offline">${t('lobby.offline', { n: offlineCards.length })}</div>`;
+    html += offlineCards.map(card => playerCardHtml(card.nick, card.stats, false, card.moderator, card.key)).join('');
   }
-  if (amHost() && !session?.singlePlayer) html += (session?.moderators || []).filter(entry => !entry.online).map(entry => `<div class="offline-moderator"><span>🛡 ${esc(entry.nick)} · ${t('studio.offline')}</span><button class="btn-outline" onclick="changeModerator(${jsArg(entry.nick)}, ${jsArg(entry.id)})">${t('moderator.revoke')}</button></div>`).join('');
   const next = document.createElement('div'); next.innerHTML = html;
   patchLobby(lobbyList, next);
   window.refreshCollaboratorJumpButtons?.();
@@ -825,6 +835,7 @@ let hostSyncTimer = null;
 
 function showWatchOverlay() {
   watchOverlay.style.display = 'flex';
+  document.getElementById('watchTransport').hidden = false;
   watchLabel.textContent = amHost() ? t('watch.banner') : `${t('watch.banner')} · ${t('watch.hostControls')}`;
   watchLeaveBtn.style.display = amHost() ? 'none' : 'inline-flex';
 }
@@ -845,6 +856,7 @@ function exitWatchMode() {
   clearInterval(watchCountdownTimer);
   clearInterval(hostSyncTimer);
   watchOverlay.style.display = 'none';
+  document.getElementById('watchTransport').hidden = true;
   watchCountdown.style.display = 'none';
   updateHostUi();
 }

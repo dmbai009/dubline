@@ -2,7 +2,6 @@
 .studio-transport [data-studio-time] { font-variant-numeric:tabular-nums; margin-right:auto; }
 .studio-transport .mute-toggle { font-size:10px; }
 .video-wrapper:fullscreen .studio-transport { position:absolute; bottom:0; left:0; right:0; z-index:30; background:rgba(10,10,14,.85); }
-.video-wrapper:fullscreen .watch-bar { bottom:52px; }
 .studio-audio-header { display:flex; align-items:center; gap:8px; position:sticky; left:0; width:calc(100vw - 28px); max-width:100%; min-height:34px; padding:4px 8px; background:var(--panel-2); z-index:21; font-size:11px; }
 .studio-audio-header .studio-select { width:auto; max-width:170px; padding:4px 8px; font-size:12px; background:var(--panel-3); color:var(--text); border:1px solid var(--border-strong); border-radius:var(--radius-sm); }
 .studio-audio-header .studio-select option { background:var(--panel-2); color:var(--text); }

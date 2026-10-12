@@ -225,23 +225,23 @@ describe('Group editing reliability', { skip: skipReason, timeout: 120000 }, () 
     assert.deepEqual(await counts(host), { Hero: '0 / 2', Friend: '0 / 2', Empty: '0 / 0' });
     await host.evaluate(() => setStudioMode('dub')); await waitFor(host, () => session.mode === 'dub');
     await claimAndSelect(host, 1); await recordTake(host, 1); await waitFor(other, () => session.lines.find(line => line.id === 1)?.audioUrl);
-    assert.equal((await counts(other)).Hero, '1 / 1');
-    await recordTake(host, 1); assert.equal((await counts(host)).Hero, '1 / 1');
+    assert.equal((await counts(other)).Hero, '1 / 2');
+    await recordTake(host, 1); assert.equal((await counts(host)).Hero, '1 / 2');
     const labels = await host.$$eval('.track-row[data-character] .track-label-inner', nodes => nodes.map(node => ({ role: node.closest('.track-row').dataset.character, content: node.scrollHeight, height: node.closest('.track-row').clientHeight })));
     assert.ok(labels.every(label => label.content <= label.height), `progress and role controls fit their existing row height: ${JSON.stringify(labels)}`);
     await host.evaluate(() => setStudioMode('edit')); await waitFor(host, () => session.mode === 'edit');
     await host.evaluate(() => updateEditorLine(session.lines.find(line => line.id === 1), { character: 'Empty' }));
     await waitFor(other, () => session.lines.find(line => line.id === 1).character === 'Empty');
-    assert.equal((await counts(other)).Empty, '1 / 0');
+    assert.equal((await counts(other)).Empty, '1 / 1');
     await host.evaluate(async () => {
       const line = session.lines.find(line => line.id === 1);
       await new Promise(resolve => socket.emit('set_needs_retake', { sessionId: session.activeSessionId, lineId: 1, audioUrl: line.audioUrl, takeMixRevision: line.takeMixRevision || 0, value: true }, resolve));
     });
     await waitFor(other, () => session.lines.find(line => line.id === 1).needsRetake);
-    assert.equal((await counts(other)).Empty, '1 / 0', 'retake readiness agrees with scene progress');
+    assert.equal((await counts(other)).Empty, '1 / 1', 'retake readiness agrees with scene progress');
     await host.evaluate(() => updateEditorLine(session.lines.find(line => line.id === 1), { character: 'Friend' }));
     await waitFor(other, () => session.lines.find(line => line.id === 1).character === 'Friend');
-    assert.deepEqual(await counts(other), { Hero: '0 / 1', Friend: '1 / 2', Empty: '0 / 0' });
+    assert.deepEqual(await counts(other), { Hero: '0 / 1', Friend: '1 / 3', Empty: '0 / 0' });
     await host.evaluate(() => { deleteLineAudio(1); }); await confirm(); await waitFor(other, () => !session.lines.find(line => line.id === 1).audioUrl);
     assert.equal((await counts(other)).Friend, '0 / 3');
     await host.evaluate(() => { deleteEditorLines([2]); }); await confirm(); await waitFor(other, () => !session.lines.some(line => line.id === 2));

@@ -95,13 +95,25 @@ select option { background:var(--panel-2); color:var(--text); }
 .participant-menu { position:relative; }
 .participant-menu summary { list-style:none; cursor:pointer; padding:2px 8px; }
 .participant-menu[open] > div { position:absolute; right:0; top:100%; z-index:30; width:max-content; max-width:200px; display:grid; gap:6px; padding:8px; background:var(--panel); border:1px solid var(--border); border-radius:var(--radius-sm); box-shadow:0 4px 16px #0006; }
-.offline-moderator { display:flex; align-items:center; gap:8px; padding:8px; flex-wrap:wrap; }
+.watch-transport { display:flex; align-items:center; gap:6px; color:var(--accent); font-size:11px; min-width:0; }
+.watch-transport[hidden] { display:none; }
+.watch-transport #watchLabel { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.watch-transport button { padding:3px 6px; font-size:11px; flex-shrink:0; }
+.track-row[hidden], .line-block[hidden], .timeline-filters [hidden] { display:none !important; }
+.timeline-filter-picker { position:fixed; z-index:300; width:min(320px,calc(100vw - 16px)); max-height:60vh; overflow:auto; padding:10px; border:1px solid var(--border); border-radius:10px; background:var(--panel); box-shadow:var(--shadow); }
+.timeline-filter-picker[hidden] { display:none; }
+.timeline-filter-picker label { display:flex; align-items:center; gap:6px; padding:3px 0; }
+.timeline-filter-picker select { width:100%; margin:8px 0; }
+.timeline-filter-picker button { margin:2px; }
+.timeline-filters { flex-wrap:wrap; }
+.retake-controls { display:flex; flex-direction:column; gap:6px; font-size:11px; }
+.retake-controls textarea { display:block; width:100%; resize:vertical; min-height:45px; margin-top:4px; }
+.retake-controls button { align-self:flex-start; }
 @media (max-width:600px) { #filesModal .file-field { grid-template-columns:minmax(0,1fr); } }
 #masterMute { padding:4px; width:30px; height:30px; display:inline-flex; align-items:center; justify-content:center; }
 #masterMute svg { width:19px; height:19px; }
 #masterMute[aria-pressed=true] { color:var(--danger); border-color:var(--danger); background:rgba(239,68,68,.12); }
 .studio-transport [data-studio-time] { margin-right:0; }
-.video-wrapper:fullscreen .watch-bar { bottom:96px; }
 .help-intro { line-height:1.5; color:var(--muted); font-size:12px; }
 .session-main { min-width:0; }
 .session-title, .session-meta { overflow-wrap:anywhere; }

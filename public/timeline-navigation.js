@@ -3,9 +3,21 @@
   const filters = document.createElement('div'); filters.className = 'timeline-filters';
   const role = document.createElement('select'); role.id = 'timelineRoleFilter'; role.className = 'text-input';
   const status = document.createElement('select'); status.id = 'timelineStatusFilter'; status.className = 'text-input';
+  const scope = document.createElement('select'); scope.id = 'timelineScopeFilter'; scope.className = 'text-input';
+  scope.setAttribute('aria-label', t('filter.scope')); status.setAttribute('aria-label', t('filter.status')); role.setAttribute('aria-label', t('find.roles'));
+  for (const key of ['all', 'mine', 'choose']) { const option = document.createElement('option'); option.value = key; option.textContent = t('filter.' + key); scope.append(option); }
+  const choose = document.createElement('button'); choose.id = 'timelineChooseFilter'; choose.className = 'btn-outline'; choose.textContent = t('filter.choose'); choose.hidden = true;
+  const picker = document.createElement('div'); picker.id = 'timelineFilterPicker'; picker.className = 'timeline-filter-picker'; picker.hidden = true;
+  choose.setAttribute('aria-controls', picker.id); choose.setAttribute('aria-expanded', 'false'); picker.setAttribute('role', 'group'); picker.setAttribute('aria-label', t('filter.choose'));
+  const roles = document.createElement('div'), overrides = document.createElement('div');
+  const allRoles = document.createElement('button'), reset = document.createElement('button'), include = document.createElement('button'), exclude = document.createElement('button');
+  for (const [button, key] of [[allRoles, 'allRoles'], [reset, 'reset'], [include, 'include'], [exclude, 'exclude']]) { button.className = 'btn-outline'; button.textContent = t('filter.' + key); }
+  const lines = document.createElement('select'); lines.id = 'timelineLineFilter'; lines.className = 'text-input'; lines.setAttribute('aria-label', t('filter.line'));
+  picker.append(allRoles, reset, roles, lines, include, exclude, overrides); document.body.append(picker);
+  let selectedRoles = new Set(), lineOverrides = new Map(), storageKey = null, roleSignature = '', pickerSignature = '';
   for (const key of ['all', 'recorded', 'unrecorded', 'retake']) { const option = document.createElement('option'); option.value = key; option.textContent = t('find.' + key); status.append(option); }
   const findButton = document.createElement('button'); findButton.className = 'btn-outline'; findButton.textContent = t('find.open'); findButton.onclick = () => openTimelineSearch();
-  filters.append(role, status, findButton); panel.querySelector('.timeline-toolbar').after(filters);
+  filters.append(scope, role, choose, status, findButton); panel.querySelector('.timeline-toolbar').after(filters);
   const search = document.createElement('div'); search.id = 'timelineSearch'; search.className = 'timeline-search'; search.hidden = true;
   const input = document.createElement('input'); input.id = 'timelineSearchInput'; input.className = 'text-input'; input.type = 'search'; input.placeholder = t('find.placeholder'); input.setAttribute('aria-label', t('find.open'));
   const count = document.createElement('output'); count.id = 'timelineSearchCount';
@@ -15,8 +27,72 @@
   search.append(input, count, prev, next, close); filters.after(search);
   let results = [], selectedResult = -1, searchTimer = null, resultSignature = '';
   function visible(line) {
-    return (!role.value || line.character === role.value) && (status.value === 'all' || status.value === 'recorded' && !!line.audioUrl || status.value === 'unrecorded' && !line.audioUrl || status.value === 'retake' && !!line.audioUrl && line.needsRetake === true);
+    const owned = scope.value !== 'mine' || !!myName && getLineOwner(line) === myName;
+    const chosen = scope.value !== 'choose' || (lineOverrides.has(line.id) ? lineOverrides.get(line.id) : selectedRoles.has(line.character));
+    return owned && chosen && (!role.value || line.character === role.value) && (status.value === 'all' || status.value === 'recorded' && !!line.audioUrl || status.value === 'unrecorded' && !line.audioUrl || status.value === 'retake' && !!line.audioUrl && line.needsRetake === true);
   }
+  function saveFilter() {
+    if (!storageKey) return;
+    try { localStorage.setItem(storageKey, JSON.stringify({ mode: scope.value, role: role.value, status: status.value, roles: [...selectedRoles], lines: [...lineOverrides] })); } catch { /* Personal filters remain usable without storage. */ }
+  }
+  function restoreFilter() {
+    const key = session?.activeSessionId ? `dubline_timeline_filter_v1:${encodeURIComponent(currentRoom)}:${session.activeSessionId}` : null;
+    if (key === storageKey) return;
+    storageKey = key; selectedRoles.clear(); lineOverrides.clear(); scope.value = 'all'; status.value = 'all'; role.value = '';
+    picker.hidden = true; choose.setAttribute('aria-expanded', 'false');
+    try {
+      const saved = JSON.parse(localStorage.getItem(key));
+      if (!saved || !['all', 'mine', 'choose'].includes(saved.mode)) return;
+      scope.value = saved.mode; status.value = ['all', 'recorded', 'unrecorded', 'retake'].includes(saved.status) ? saved.status : 'all';
+      if (typeof saved.role === 'string' && sessionCharacters().includes(saved.role)) role.value = saved.role;
+      selectedRoles = new Set((Array.isArray(saved.roles) ? saved.roles : []).filter(name => typeof name === 'string' && sessionCharacters().includes(name)));
+      lineOverrides = new Map((Array.isArray(saved.lines) ? saved.lines : []).filter(entry => Array.isArray(entry) && Number.isSafeInteger(entry[0]) && typeof entry[1] === 'boolean'));
+    } catch { /* Invalid or blocked local preferences must not affect the scene. */ }
+  }
+  function positionPicker() {
+    if (picker.hidden) return;
+    const rect = choose.getBoundingClientRect();
+    const size = picker.getBoundingClientRect(), scale = size.width / picker.offsetWidth || 1;
+    picker.style.left = `${Math.max(8, Math.min(innerWidth - size.width - 8, rect.left)) / scale}px`;
+    picker.style.top = `${Math.max(8, Math.min(innerHeight - size.height - 8, rect.bottom + 5)) / scale}px`;
+  }
+  function refreshPicker() {
+    if (picker.hidden) return;
+    const names = sessionCharacters(), signature = JSON.stringify(names);
+    if (signature !== roles.dataset.signature) {
+      roles.replaceChildren(); roles.dataset.signature = signature;
+      for (const name of names) {
+        const label = document.createElement('label'), input = document.createElement('input'); input.type = 'checkbox'; input.dataset.filterRole = name;
+        input.onchange = () => { input.checked ? selectedRoles.add(name) : selectedRoles.delete(name); changed(); };
+        label.append(input, document.createTextNode(name)); roles.append(label);
+      }
+    }
+    for (const input of roles.querySelectorAll('input')) input.checked = selectedRoles.has(input.dataset.filterRole);
+    const next = JSON.stringify((session?.lines || []).map(line => [line.id, line.character, line.caption]));
+    if (next !== pickerSignature) {
+      const value = lines.value; lines.replaceChildren(); pickerSignature = next;
+      for (const line of session?.lines || []) { const option = document.createElement('option'); option.value = String(line.id); option.textContent = `#${lineNumber(line)} · ${line.character} · ${(line.caption || '').slice(0, 60)}`; lines.append(option); }
+      if ([...lines.options].some(option => option.value === value)) lines.value = value;
+    }
+    const overrideSignature = JSON.stringify([...lineOverrides].map(([id, value]) => [id, value, lineNumber(session.lines.find(line => line.id === id))]));
+    if (overrides.dataset.signature !== overrideSignature) {
+      overrides.dataset.signature = overrideSignature; overrides.replaceChildren();
+      for (const [id, value] of lineOverrides) {
+      const button = document.createElement('button'); button.className = 'btn-outline'; button.textContent = `${value ? '+' : '−'} #${lineNumber(session.lines.find(line => line.id === id))} ×`;
+      button.title = t('filter.clearOverride'); button.onclick = () => { lineOverrides.delete(id); changed(); }; overrides.append(button);
+      }
+    }
+    positionPicker();
+  }
+  function changed() { saveFilter(); applyFilters(); }
+  choose.onclick = () => { picker.hidden = !picker.hidden; choose.setAttribute('aria-expanded', String(!picker.hidden)); refreshPicker(); if (!picker.hidden) allRoles.focus(); };
+  document.addEventListener('pointerdown', event => { if (!picker.hidden && !picker.contains(event.target) && !choose.contains(event.target)) { picker.hidden = true; choose.setAttribute('aria-expanded', 'false'); } });
+  picker.addEventListener('keydown', event => { if (event.key === 'Escape') { event.stopPropagation(); picker.hidden = true; choose.setAttribute('aria-expanded', 'false'); choose.focus(); } });
+  window.addEventListener('resize', positionPicker);
+  allRoles.onclick = () => { selectedRoles = new Set(sessionCharacters()); lineOverrides.clear(); changed(); };
+  reset.onclick = () => { selectedRoles.clear(); lineOverrides.clear(); scope.value = 'all'; role.value = ''; status.value = 'all'; picker.hidden = true; choose.setAttribute('aria-expanded', 'false'); changed(); };
+  include.onclick = () => { if (lines.value) { lineOverrides.set(Number(lines.value), true); changed(); } };
+  exclude.onclick = () => { if (lines.value) { lineOverrides.set(Number(lines.value), false); changed(); } };
   function queryMatches(line, query) {
     if (/^#\d+$/.test(query)) return lineNumber(line) === Number(query.slice(1));
     return `${line.caption || ''}\n${line.character}`.toLowerCase().includes(query);
@@ -24,29 +100,43 @@
   function updateSearch() {
     const query = input.value.trim().toLowerCase();
     results = [...(session?.lines || [])].filter(line => visible(line) && (!query || queryMatches(line, query))).sort((a, b) => a.start - b.start || a.id - b.id);
-    const signature = JSON.stringify([session?.activeSessionId, query, role.value, status.value, results.map(line => line.id)]);
+    const signature = JSON.stringify([session?.activeSessionId, query, scope.value, role.value, status.value, results.map(line => line.id)]);
     if (signature !== resultSignature) selectedResult = -1;
     resultSignature = signature;
     selectedResult = Math.min(selectedResult, results.length - 1); count.textContent = t('find.matches', { n: results.length });
     prev.disabled = next.disabled = !results.length;
   }
   function refreshRoles() {
+    const names = sessionCharacters(), signature = JSON.stringify([names, t('find.roles')]);
+    if (roleSignature === signature) return;
+    roleSignature = signature;
     const value = role.value;
     role.replaceChildren();
     const all = document.createElement('option'); all.value = ''; all.textContent = t('find.roles'); role.append(all);
-    for (const name of sessionCharacters()) { const option = document.createElement('option'); option.value = name; option.textContent = name; role.append(option); }
+    for (const name of names) { const option = document.createElement('option'); option.value = name; option.textContent = name; role.append(option); }
     if (sessionCharacters().includes(value)) role.value = value;
   }
   function applyFilters() {
+    restoreFilter();
     const byId = new Map((session?.lines || []).map(line => [line.id, line]));
-    for (const row of timeline.querySelectorAll('.track-row')) row.hidden = !!role.value && row.dataset.character !== role.value;
+    let pruned = false;
+    for (const id of lineOverrides.keys()) if (!byId.has(id)) { lineOverrides.delete(id); pruned = true; }
+    const currentRoles = new Set(sessionCharacters());
+    for (const name of selectedRoles) if (!currentRoles.has(name)) { selectedRoles.delete(name); pruned = true; }
+    if (pruned) saveFilter();
+    const shown = new Set([...byId.values()].filter(visible).map(line => line.character));
+    const filtering = scope.value !== 'all' || !!role.value || status.value !== 'all';
+    for (const row of timeline.querySelectorAll('.track-row')) row.hidden = filtering && !shown.has(row.dataset.character);
     for (const block of timeline.querySelectorAll('.line-block')) {
       const line = byId.get(Number(block.id.replace('line-block-', '')));
       block.hidden = !line || !visible(line);
     }
     if (selectedLine && !visible(selectedLine)) { selectedLine = null; multiSelection.clear(); inspector.innerHTML = `<h3>${t('inspector.title')}</h3><p>${t('inspector.empty')}</p>`; publishSelection?.(); }
-    updateSearch(); invalidateMinimap();
+    choose.hidden = scope.value !== 'choose'; role.hidden = scope.value === 'choose';
+    updateSearch(); invalidateMinimap(); refreshPicker();
   }
+  window.showMyRetakes = () => { scope.value = 'mine'; status.value = 'retake'; role.value = ''; changed(); };
+  window.DublineTimelineFilters = Object.freeze({ visible, ids: () => (session?.lines || []).filter(visible).map(line => line.id) });
   window.refreshTimelineNavigation = () => { refreshRoles(); applyFilters(); };
   window.openTimelineSearch = () => { search.hidden = false; updateSearch(); input.focus(); input.select(); };
   window.closeTimelineSearch = () => { if (search.hidden) return false; search.hidden = true; input.blur(); return true; };
@@ -63,8 +153,13 @@
   input.addEventListener('input', () => { selectedResult = -1; clearTimeout(searchTimer); searchTimer = setTimeout(updateSearch, 120); });
   input.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); revealMatch(event.shiftKey ? -1 : 1); } if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeTimelineSearch(); } });
   prev.onclick = () => revealMatch(-1); next.onclick = () => revealMatch(1); close.onclick = closeTimelineSearch;
-  role.addEventListener('change', applyFilters); status.addEventListener('change', applyFilters);
+  role.addEventListener('change', changed); status.addEventListener('change', changed);
+  scope.addEventListener('change', () => { role.value = ''; if (scope.value !== 'choose') picker.hidden = true; changed(); });
   window.addEventListener('dubline-language-changed', () => {
+    scope.setAttribute('aria-label', t('filter.scope')); status.setAttribute('aria-label', t('filter.status')); role.setAttribute('aria-label', t('find.roles')); picker.setAttribute('aria-label', t('filter.choose')); overrides.dataset.signature = '';
+    for (const option of scope.options) option.textContent = t('filter.' + option.value);
+    for (const [button, key] of [[choose, 'choose'], [allRoles, 'allRoles'], [reset, 'reset'], [include, 'include'], [exclude, 'exclude']]) button.textContent = t('filter.' + key);
+    lines.setAttribute('aria-label', t('filter.line'));
     for (const option of status.options) option.textContent = t('find.' + option.value);
     findButton.textContent = t('find.open'); input.placeholder = t('find.placeholder'); input.setAttribute('aria-label', t('find.open'));
     for (const [button, key] of [[prev, 'previous'], [next, 'next'], [close, 'close']]) button.setAttribute('aria-label', t('find.' + key));
@@ -169,7 +264,7 @@
   });
   timelineContainer.addEventListener('scroll', scheduleMap, { passive: true }); video.addEventListener('timeupdate', scheduleMap);
   new ResizeObserver(invalidateMinimap).observe(footer);
-  for (const event of ['session_updated', 'line_updated', 'takes_updated', 'editor_lines_updated']) socket.on(event, () => {
+  for (const event of ['session_updated', 'line_updated', 'takes_updated', 'editor_lines_updated', 'nick_state']) socket.on(event, () => {
     if (gesture && gesture.sessionId !== session?.activeSessionId) gesture.finish({ type: 'scene' });
     refreshRoles(); applyFilters();
   });

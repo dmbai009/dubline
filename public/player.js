@@ -1039,7 +1039,7 @@ window.addEventListener('dubline-language-changed', refreshAudioLoadingStatus);
 
 function updateRoleProgress(element, character, lines) {
   const total = lines.length, recorded = lines.filter(line => !!line.audioUrl).length, remaining = total - recorded;
-  element.querySelector('.role-progress-count').textContent = `${recorded} / ${remaining}`;
+  element.querySelector('.role-progress-count').textContent = `${recorded} / ${total}`;
   element.querySelector('i').style.width = `${total ? recorded / total * 100 : 0}%`;
   element.setAttribute('role', 'progressbar'); element.setAttribute('aria-valuemin', '0');
   element.setAttribute('aria-valuemax', String(total || 1)); element.setAttribute('aria-valuenow', String(recorded));

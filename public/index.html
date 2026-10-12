@@ -649,10 +649,6 @@
             </div>
             <div id="watchOverlay" class="watch-overlay" style="display: none;">
               <div id="watchCountdown" class="watch-countdown" style="display: none;"></div>
-              <div class="watch-bar">
-                <span id="watchLabel"></span>
-                <button id="watchLeaveBtn" class="btn-outline" data-i18n="watch.leave" onclick="leaveWatch()">Leave</button>
-              </div>
             </div>
           </div>
 
@@ -662,6 +658,10 @@
             <button class="btn-icon" data-studio-action="forward" data-i18n-title="studio.forward" title="Forward 3 seconds (L)">+3</button>
             <span data-studio-time>0:00 / 0:00</span>
             <span id="audioLoadingStatus" role="status" aria-live="polite" hidden></span>
+            <span id="watchTransport" class="watch-transport" hidden>
+              <span aria-hidden="true">▶</span><span id="watchLabel"></span>
+              <button id="watchLeaveBtn" class="btn-outline" data-i18n="watch.leave" onclick="leaveWatch()">Leave</button>
+            </span>
             <button id="transportExpandBtn" class="btn-icon" data-studio-action="expand" data-i18n-title="video.expand">⤢</button>
             <button class="btn-icon" data-studio-action="fullscreen" data-i18n-title="studio.fullscreen" title="Fullscreen (F)">⛶</button>
           </div>
