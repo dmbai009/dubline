@@ -164,6 +164,10 @@ describe('Collaborative actor workflow', { skip: skipReason }, () => {
     await actor.select('#timelineLineFilter', '1'); await actor.click('#timelineFilterPicker button:nth-of-type(4)');
     assert.deepEqual(await actor.evaluate(() => DublineTimelineFilters.ids()), [3, 4]);
     assert.equal(await actor.$eval('#line-block-1', node => getComputedStyle(node).display), 'none');
+    await actor.select('#timelineScopeFilter', 'all');
+    assert.equal(await actor.$eval('#timelineChooseFilter', node => node.getAttribute('aria-expanded')), 'false');
+    assert.equal(await actor.$eval('#timelineFilterPicker', node => node.hidden), true);
+    await actor.select('#timelineScopeFilter', 'choose');
     await actor.keyboard.press('Escape'); await actor.evaluate(() => openTimelineSearch()); await actor.type('#timelineSearchInput', 'Hello');
     await waitFor(actor, () => document.getElementById('timelineSearchCount').textContent.includes('0'));
     await actor.reload(); await waitFor(actor, () => session?.loaded && hasSceneMediaAccess());
@@ -256,6 +260,27 @@ describe('Collaborative actor workflow', { skip: skipReason }, () => {
     await actor.evaluate(() => { socket.disconnect(); socket.connect(); }); await waitFor(actor,()=>hasSceneMediaAccess());
     assert.deepEqual(await actor.evaluate(()=>testNotices.filter(text=>text.includes('retake')||text.includes('You have'))),[]);
     await actor.click('#myRetakeCount'); assert.equal(await actor.$eval('[data-retake-comment="1"]',node=>node.value),'Исправить интонацию');
+  });
+  test('a local remark remains reviewable and discardable when its recorded take is deleted', async () => {
+    await claimAndSelect(host,1); await recordTake(host,1);
+    await host.type('[data-retake-comment="1"]','Несохранённое замечание');
+    await host.click('#inspector button[onclick="deleteLineAudio(1)"]');
+    await waitFor(host,()=>!session.lines[0].audioUrl);
+    assert.equal(await host.$eval('[data-retake-comment="1"]',node=>node.value),'Несохранённое замечание');
+    assert.equal(await host.$eval('[data-retake-comment="1"]',node=>node.readOnly),true);
+    await host.click('[data-retake-discard="1"]');
+    assert.equal(await host.evaluate(()=>hasRetakeDrafts()),false);
+    assert.equal(await host.evaluate(()=>session.lines[0].audioUrl),null);
+    await recordTake(host,1); await host.type('[data-retake-comment="1"]','Черновик для Undo');
+    await host.evaluate(()=>setStudioMode('edit')); await waitFor(host,()=>session.mode==='edit');
+    await host.focus('#timelineContainer'); await host.keyboard.press('Delete');
+    await waitFor(host,()=>!session.lines.some(line=>line.id===1)&&!editorQueue.length);
+    assert.equal(await host.evaluate(()=>hasRetakeDrafts()),false,'a removed line must not freeze unrelated project saving');
+    await host.keyboard.down('Control'); await host.keyboard.press('KeyZ'); await host.keyboard.up('Control');
+    await waitFor(host,()=>session.lines.some(line=>line.id===1)&&!editorQueue.length);
+    await host.evaluate(()=>selectLine(session.lines.find(line=>line.id===1)));
+    assert.equal(await host.$eval('[data-retake-comment="1"]',node=>node.value),'Черновик для Undo','Undo recovers the retained local draft');
+    await host.click('[data-retake-form="1"] button[type=submit]'); await waitFor(host,()=>!hasRetakeDrafts());
   });
   test('the filter picker stays within the window across six themes, three languages and 100–150 percent layout scale', async () => {
     await host.select('#timelineScopeFilter','choose'); await host.click('#timelineChooseFilter');

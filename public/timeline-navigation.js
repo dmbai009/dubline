@@ -154,7 +154,7 @@
   input.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); revealMatch(event.shiftKey ? -1 : 1); } if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeTimelineSearch(); } });
   prev.onclick = () => revealMatch(-1); next.onclick = () => revealMatch(1); close.onclick = closeTimelineSearch;
   role.addEventListener('change', changed); status.addEventListener('change', changed);
-  scope.addEventListener('change', () => { role.value = ''; if (scope.value !== 'choose') picker.hidden = true; changed(); });
+  scope.addEventListener('change', () => { role.value = ''; if (scope.value !== 'choose') { picker.hidden = true; choose.setAttribute('aria-expanded', 'false'); } changed(); });
   window.addEventListener('dubline-language-changed', () => {
     scope.setAttribute('aria-label', t('filter.scope')); status.setAttribute('aria-label', t('filter.status')); role.setAttribute('aria-label', t('find.roles')); picker.setAttribute('aria-label', t('filter.choose')); overrides.dataset.signature = '';
     for (const option of scope.options) option.textContent = t('filter.' + option.value);

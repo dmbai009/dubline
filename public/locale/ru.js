@@ -963,7 +963,7 @@ window.DublineLocales.ru = {
   "retake.notice": "↻ {by} запросил переозвучку #{id} — {role}. {comment}",
   "retake.open": "Открыть реплику",
   "retake.changed": "Замечание изменилось. Заменить его вашим черновиком?",
-  "retake.audioChanged": "Запись заменена. Проверьте черновик перед новым запросом.",
+  "retake.audioChanged": "Запись изменена или удалена. Проверьте черновик перед новым запросом.",
   "retake.discardDraft": "Удалить черновик",
   "effect.telephone": "☎ Телефон",
   "assignment.denied": "У вас нет прав на изменение этой реплики.",

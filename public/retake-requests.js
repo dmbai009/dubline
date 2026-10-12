@@ -19,8 +19,9 @@
   }
   const allowed = line => canModerate() || !!myName && (line.recordedBy === myName || getLineOwner(line) === myName);
   function controlHtml(line) {
-    if (!line.audioUrl) return '';
-    const draft = draftFor(line), stale = draft && draft.audioUrl !== line.audioUrl, disabled = !allowed(line) || !!stale;
+    const draft = draftFor(line);
+    if (!line.audioUrl) return draft ? `<div class="retake-controls"><p class="take-hint">${esc(t('retake.audioChanged'))}</p><label>${esc(t('retake.comment'))}<textarea data-retake-comment="${line.id}" readonly rows="2" class="text-input">${esc(draft.comment)}</textarea></label><button type="button" class="btn-outline" data-retake-discard="${line.id}">${esc(t('retake.discardDraft'))}</button></div>` : '';
+    const stale = draft && draft.audioUrl !== line.audioUrl, disabled = !allowed(line) || !!stale;
     const waiting = busy.has(draftKey(line.id)) || [...editorQueue, ...editorConflicts].some(operation => operation.event === 'set_needs_retake' && operation.sessionId === session.activeSessionId && operation.payload.lineId === line.id && !operation.outcome?.confirmed);
     const binding = `data-retake-line="${line.id}" data-retake-session="${esc(session.activeSessionId)}" data-retake-url="${esc(draft?.audioUrl || line.audioUrl)}" data-retake-revision="${draft?.revision ?? line.retakeRevision ?? 0}"`;
     return `<form class="retake-controls" data-retake-form="${line.id}">
@@ -95,7 +96,11 @@
   });
   for (const event of ['session_updated', 'line_updated', 'takes_updated', 'editor_lines_updated', 'nick_state', 'room_users_updated', 'disconnect']) socket.on(event, refresh);
   window.addEventListener('dubline-language-changed', refresh);
-  const dirty = () => [...drafts].some(([storeKey, draft]) => storeKey.startsWith(`dubline_retake_draft_v1:${key()}:`) && !!draft);
+  const dirty = () => {
+    const ids = new Set((session?.lines || []).map(line => line.id));
+    // Keep orphaned drafts locally for Undo, without freezing unrelated saves.
+    return [...drafts].some(([storeKey, draft]) => storeKey.startsWith(`dubline_retake_draft_v1:${key()}:`) && !!draft && ids.has(Number(storeKey.slice(storeKey.lastIndexOf(':') + 1))));
+  };
   window.hasRetakeDrafts = dirty;
   window.addEventListener('beforeunload', event => { if (dirty()) { event.preventDefault(); event.returnValue = ''; } });
   window.DublineRetakes = { controlHtml, change, captureFocus: line => {

@@ -963,7 +963,7 @@ window.DublineLocales.en = {
   "retake.notice": "↻ {by} requested a retake of #{id} — {role}. {comment}",
   "retake.open": "Open line",
   "retake.changed": "This note changed. Replace it with your draft?",
-  "retake.audioChanged": "The recording was replaced. Review your draft before making a new request.",
+  "retake.audioChanged": "The recording changed or was removed. Review your draft before making a new request.",
   "retake.discardDraft": "Discard draft",
   "effect.telephone": "☎ Telephone",
   "assignment.denied": "You do not have permission to change this line.",
