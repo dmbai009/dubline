@@ -285,9 +285,11 @@ describe('UI cleanup and local audio devices', { skip: skipReason, timeout: 1200
         assert.equal(await page.$eval('#timelineMinimap', map => getComputedStyle(map).cursor), 'ew-resize');
         const delta = (edge === 'right' ? 1 : -1) * (outward ? 60 : -40);
         await dragMap(x, before.y, x + delta);
+        // CDP completion can precede the queued geometry frame and scroll clamp.
+        await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
         const after = await mapView();
         assert.ok(outward ? after.scale < before.scale : after.scale > before.scale, `${edge} outward=${outward}`);
-        assert.ok(Math.abs((edge === 'right' ? after.left - before.left : after.right - before.right)) < .02, 'opposite edge stays anchored');
+        assert.ok(Math.abs((edge === 'right' ? after.left - before.left : after.right - before.right)) < .02, `opposite edge stays anchored: ${JSON.stringify({ edge, outward, before, after })}`);
       }
     }
     const before = await mapView();

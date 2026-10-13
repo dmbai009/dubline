@@ -243,7 +243,9 @@ async function main() {
     assert.ok(await guest.evaluate(() => performance.now() - smokeRecordingBegan >= 4850), 'preparation was shorter than five seconds');
     await host.waitForFunction(id => !!session.lines.find(line => line.id === id)?.audioUrl, { timeout: 30000 }, created.line.id).catch(async error => {
       const state = await guest.evaluate(() => ({ recording: recordState, videoTime: video.currentTime, videoPaused: video.paused, readyState: video.readyState,
-        recorder: mediaRecorder?.state, pendingUploads: pendingTakes.size, selected: selectedLine?.id }));
+        recorder: mediaRecorder?.state, pendingUploads: pendingTakes.size, selected: selectedLine?.id,
+        take: selectedLine && { hasAudio: !!selectedLine.audioUrl, counter: selectedLine.takeCounter, sequence: selectedLine.takeSequence, history: selectedLine.takeHistory?.length },
+        toast: document.getElementById('toast')?.textContent }));
       throw new Error(`${error.message}: ${JSON.stringify({ state, dialogs: guest.dialogs, errors: guest.errors, diagnostics: diagnostics.filter(message => message.startsWith('page:') || message.startsWith('guest:')) })}`);
     });
     await guest.evaluate(id => {
