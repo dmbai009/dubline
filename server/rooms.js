@@ -17,7 +17,7 @@ const timelineBounds = require('../public/timeline-model');
 // Scene fields that belong to a session (see "Sessions" below)
 const SESSION_FIELDS = ['loaded', 'title', 'kind', 'zipUrl', 'videoUrl', 'backingUrl', 'lines', 'characterClaims', 'createdAt', 'updatedAt',
   'audioTracks', 'originalTrack', 'backingTrack', 'baseBackingUrl', 'deletedLines', 'mode', 'trackOrder', 'nextLineId', 'blindMode',
-  'externalOriginalUrl', 'audioMetadata', 'projectAudio', 'videoHasAudio', 'takeLatency', 'videoDuration', 'workshopSource', 'originalVideoUrl', 'originalVideoName', 'protectTimings', 'noiseReduction'];
+  'externalOriginalUrl', 'audioMetadata', 'projectAudio', 'videoHasAudio', 'takeLatency', 'videoDuration', 'workshopSource', 'originalVideoUrl', 'originalVideoName', 'protectTimings', 'noiseReduction', 'roleEffects'];
 let repairedOnLoad = false;
 
 function loadRooms() {
@@ -85,6 +85,7 @@ function normalizeEditorState(session) {
   session.protectTimings = session.protectTimings === true;
   session.characterClaims = Object.assign(Object.create(null), session.characterClaims);
   session.takeLatency = Object.assign(Object.create(null), session.takeLatency);
+  session.roleEffects = Object.assign(Object.create(null), session.roleEffects);
   session.projectAudio = projectAudio.normalize(session);
   if (session.videoUrl && !Number.isFinite(session.videoDuration)) {
     const file = diskPathForUrl(session.videoUrl);
@@ -234,6 +235,7 @@ function emptySession() {
     backingTrack: -1,         // which track plays as "Background" (-1 = the pack's own backing track or none)
     baseBackingUrl: undefined, // the pack's own backing track, restored when "none" is picked
     noiseReduction: require('./noiseReduction').empty(),
+    roleEffects: Object.create(null),
     deletedLines: []          // trash of the host's deletions for undo (Ctrl+Z), the last MAX_UNDO_BATCHES
   };
 }
@@ -402,6 +404,7 @@ function dropEmptyRoleClaims(room) {
 
 // Restore missing tracks beside their surviving neighbours, preserving concurrent order.
 function restoreTrackOrder(room, batch, lines) {
+  for (const [name, effects] of Object.entries(batch.roleEffects || {})) if (effects && lines.some(line => line.character === name) && !Object.hasOwn(room.roleEffects || {}, name)) (room.roleEffects ||= Object.create(null))[name] = structuredClone(effects);
   for (const line of lines) {
     const name = line.character;
     if (room.trackOrder.includes(name)) continue;

@@ -4,6 +4,7 @@
   const fx = global.DublineAudioFx;
 
   function createController(options) {
+    let voiceWarningAt = 0;
     const {
       video,
       backing,
@@ -157,7 +158,7 @@
 
     function takeBounds(line, duration = Infinity) {
       const dry = takeDryBounds(line, duration);
-      const tail = fx.effectTailSeconds(line.effect || 'none', global.DublineTakeMix.normalize(line).effectAmount);
+      const tail = global.DublineVoiceChain ? global.DublineVoiceChain.resolve(line, getSession()).tail : fx.effectTailSeconds(line.effect || 'none', global.DublineTakeMix.normalize(line).effectAmount);
       const trimOn = line.trimEnabled !== false && line.trimStart != null && line.trimEnd != null;
       return {
         from: dry.from,
@@ -184,7 +185,8 @@
 
     function processingKey(line, request = {}) {
       const noise = Object.hasOwn(line, '_exportNoise') ? line._exportNoise : global.DublineNoiseModel?.resolve(line, request.scene || getSession());
-      return `${line.audioUrl}|${line.effect || 'none'}|${line.pitch || 0}|${global.DublineTakeMix.normalize(line).effectAmount}|${line.trimEnabled !== false}|${line.trimStart}|${line.trimEnd}|${noise ? line.noiseProfileId + ':' + (noise.profile?.version || 'missing') + ':' + noise.strength : 'off'}`;
+      const voice = global.DublineVoiceChain?.resolve(line, request.scene || getSession());
+      return `${line.audioUrl}|${voice ? global.DublineVoiceChain.key(voice) : `${line.effect || 'none'}|${line.pitch || 0}|${global.DublineTakeMix.normalize(line).effectAmount}`}|${line.trimEnabled !== false}|${line.trimStart}|${line.trimEnd}|${noise ? line.noiseProfileId + ':' + (noise.profile?.version || 'missing') + ':' + noise.strength : 'off'}`;
     }
     function getProcessedTake(line, request = {}) {
       if (!line.audioUrl) return Promise.resolve(null);
@@ -192,7 +194,8 @@
       line = { ...line };
       const key = processingKey(line, request);
       const noiseSetting = Object.hasOwn(line, '_exportNoise') ? line._exportNoise : global.DublineNoiseModel?.resolve(line, request.scene || getSession());
-      if (!processedTakeCache.has(key)) {
+      const voiceSetting = global.DublineVoiceChain?.resolve(line, request.scene || getSession());
+      if (request.uncached || !processedTakeCache.has(key)) {
         let noiseFallback = false;
         const job = getRawTake(line.audioUrl, request)
           .then(async buffer => {
@@ -200,20 +203,22 @@
             const cleaned = await global.DublineNoiseAudio.clean(buffer, noiseSetting, request.signal);
             noiseFallback = !!noiseSetting && cleaned === buffer; return cleaned;
           })
-          .then(buffer => buffer && fx.renderVoice(
+          .then(buffer => buffer && (voiceSetting && fx.renderChain ? fx.renderChain(buffer, voiceSetting, takeDryBounds(line, buffer.duration), request.signal) : fx.renderVoice(
             buffer,
             line.effect || 'none',
             line.pitch || 0,
             takeDryBounds(line, buffer.duration),
             global.DublineTakeMix.normalize(line).effectAmount
-          ))
+          )))
           .catch(error => {
             if (error.message !== 'Stale CPU job' && error.name !== 'AbortError') console.error('[Dubline] Failed to process take:', error);
+            if (error.message.startsWith('fx.') && Date.now() - voiceWarningAt > 5000) { voiceWarningAt = Date.now(); global.showToast?.(global.DublineI18n?.t(error.message) || error.message); }
             return null;
           }).then(buffer => {
             if ((!buffer || noiseFallback) && processedTakeCache.get(key) === job) processedTakeCache.delete(key);
             return buffer;
           });
+        if (request.uncached) return job;
         processedTakeCache.set(key, job);
       }
       return processedTakeCache.get(key);
@@ -225,7 +230,9 @@
       if (indexedLines !== session.lines || indexedSession !== session || !takeIndex) {
         indexedLines = session.lines; indexedSession = session;
         takeIndex = global.DublineAudioMemory ? new global.DublineAudioMemory.IntervalIndex(session.lines.filter(line => line.audioUrl).map(line => {
-          const start = takeStartTime(line), duration = rawTakeCache.duration?.(line.audioUrl) || Infinity, bounds = takeBounds(line, duration);
+          const start = takeStartTime(line), rawDuration = rawTakeCache.duration?.(line.audioUrl) || Infinity;
+          const tail = global.DublineVoiceChain?.resolve(line, session).tail || fx.effectTailSeconds(line.effect || 'none', global.DublineTakeMix.normalize(line).effectAmount);
+          const bounds = takeBounds(line, rawDuration + tail);
           return { start: start + bounds.from, end: Number.isFinite(bounds.to) ? start + bounds.to : start + Math.max(60, Number(line.end - line.start) || 0), value: line };
         })) : null;
       }
@@ -421,9 +428,9 @@
     function updateLine(before, after) {
       takeIndex = null;
       global.invalidatePrompterIndex?.();
-      const processing = ['audioUrl', 'audioStart', 'start', 'recordedBy', 'blindRevealed', 'effect', 'pitch', 'effectAmount', 'trimEnabled', 'trimStart', 'trimEnd', 'noiseProfileId'];
+      const processing = ['audioUrl', 'audioStart', 'start', 'character', 'recordedBy', 'blindRevealed', 'effect', 'pitch', 'effectAmount', 'trimEnabled', 'trimStart', 'trimEnd', 'noiseProfileId', 'effects', 'pitchMode', 'inheritRoleEffects', 'excludedRoleEffectIds'];
       const defaults = { effect: 'none', pitch: 0, effectAmount: 1, trimEnabled: true };
-      const changed = processing.some(key => (before[key] ?? defaults[key]) !== (after[key] ?? defaults[key]));
+      const changed = processing.some(key => JSON.stringify(before[key] ?? defaults[key]) !== JSON.stringify(after[key] ?? defaults[key]));
       if (changed) {
         resetLine(after.id);
         if (previewGraph?.lineId === after.id && !previewGraph.historicalPreview || previewPendingLine?.id === after.id && !previewPendingLine.historicalPreview) stopPreview();
@@ -451,6 +458,17 @@
     return Object.freeze({
       cacheStats: () => ({ raw: rawTakeCache.stats?.(), processed: processedTakeCache.stats?.(), prefetching: prefetching.size, indexVisited: takeIndex?.visited || 0 }),
       updateLine,
+      invalidateRole: (name, previousRoles) => {
+        takeIndex = null;
+        const urls = new Set();
+        for (const line of getSession()?.lines || []) if (line.character === name) {
+          if (previousRoles && global.DublineVoiceChain.key(global.DublineVoiceChain.resolve(line, { ...getSession(), roleEffects: previousRoles })) === global.DublineVoiceChain.key(global.DublineVoiceChain.resolve(line, getSession()))) continue;
+          if (line.audioUrl) { urls.add(line.audioUrl); resetLine(line.id); }
+          for (const take of line.takeHistory || []) urls.add(take.audioUrl);
+        }
+        for (const key of processedTakeCache.keys()) if ([...urls].some(url => key.startsWith(url + '|') || key.includes('|' + url + '|'))) processedTakeCache.delete(key);
+        if (urls.has(previewPendingLine?.audioUrl) || urls.has(previewGraph?.audioUrl)) stopPreview();
+      },
       invalidateNoise: author => {
         const lines = getSession()?.lines || [], urls = new Set();
         for (const line of lines) {

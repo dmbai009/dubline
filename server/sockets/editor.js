@@ -153,10 +153,11 @@ module.exports = function registerEditorHandlers(socket, conn) {
     if (expectedById.size !== expected.length || expected.length !== lines.length || JSON.stringify(trackOrder) !== JSON.stringify(room.trackOrder) ||
         lines.some(line => { const item = expectedById.get(line.id); return !item || item.revision !== (line.revision || 0) || item.audioUrl !== line.audioUrl || item.takeMixRevision !== (line.takeMixRevision || 0) || item.claimedBy !== line.claimedBy; }) ||
         !expectedClaims || (room.characterClaims[character] || null) !== expectedClaims.from || (room.characterClaims[target] || null) !== expectedClaims.to) return ack({ ok: false, reason: 'conflict' });
-    const tracksBefore = [...room.trackOrder], claimsBefore = { ...room.characterClaims };
+    const tracksBefore = [...room.trackOrder], claimsBefore = { ...room.characterClaims }, voiceBefore = structuredClone(room.roleEffects || {});
     if (data.action === 'transfer') {
       const name = cleanTrackName(target);
       if (!name || name !== target || name === character || !room.trackOrder.includes(name) && data.createTarget !== true) return ack({ ok: false, reason: 'invalid' });
+      try { require('../voiceChains').checkTransfers(room, new Map(lines.map(line => [line.id, name])), character); } catch { return ack({ ok: false, reason: 'fx.limit' }); }
       const before = new Map(lines.map(line => [line.id, history.lineBefore(line)]));
       for (const line of lines) {
         line.character = name;
@@ -166,15 +167,17 @@ module.exports = function registerEditorHandlers(socket, conn) {
       room.trackOrder = room.trackOrder.filter(track => track !== character);
       if (!room.trackOrder.includes(name)) room.trackOrder.push(name);
       delete room.characterClaims[character];
-      history.recordLines(conn.roomId, room, conn.clientId, before, claimsBefore, tracksBefore);
+      delete room.roleEffects?.[character];
+      history.recordLines(conn.roomId, room, conn.clientId, before, claimsBefore, tracksBefore, voiceBefore);
     } else {
       if (lines.length) {
         putInTrash(room, new Set(lines.map(line => line.id)), conn.nick);
-        const batch = room.deletedLines.at(-1); batch.trackOrder = tracksBefore;
+        const batch = room.deletedLines.at(-1); batch.trackOrder = tracksBefore; batch.roleEffects = { [character]: voiceBefore[character] };
         history.record(conn.roomId, room, { by: conn.clientId, type: 'deleteTrack', batch, count: lines.length, tracksBefore, character });
-      } else history.record(conn.roomId, room, { by: conn.clientId, type: 'removeTrack', tracksBefore, character });
+      } else history.record(conn.roomId, room, { by: conn.clientId, type: 'removeTrack', tracksBefore, character, roleEffects: voiceBefore[character] });
       room.trackOrder = room.trackOrder.filter(track => track !== character);
       delete room.characterClaims[character];
+      delete room.roleEffects?.[character];
     }
     room.updatedAt = Date.now(); snapshotActive(room); saveRooms(); emitSession(conn.roomId);
     ack({ ok: true, count: lines.length });
@@ -279,6 +282,7 @@ module.exports = function registerEditorHandlers(socket, conn) {
     const changed = planned.filter(({ line, bounds, character, caption }) =>
       line.start !== bounds.start || line.end !== bounds.end || line.character !== character || line.caption !== caption);
     if (!changed.length) return reply({ ok: true, line: planned[0].line, lines: planned.map(item => item.line) });
+    try { require('../voiceChains').checkTransfers(room, new Map(changed.map(({ line, character }) => [line.id, character]))); } catch { return reply({ ok: false, reason: 'fx.limit' }); }
 
     normalizeEditorState(room);
     const claimsBefore = JSON.stringify(room.characterClaims);
@@ -366,6 +370,14 @@ module.exports = function registerEditorHandlers(socket, conn) {
     if (!editorAllowed(conn, room)) return reply({ ok: false, reason: 'mode' });
     if (payload && payload.sessionId !== undefined && payload.sessionId !== room.activeSessionId) return reply({ ok: false, reason: 'session' });
     const pendingUndo = history.peekFor(conn.roomId, room, conn.clientId);
+    if (pendingUndo?.type === 'lines' && (pendingUndo.lines.some(item => item.changes.character) || Object.keys(pendingUndo.voiceChanges || {}).length)) {
+      const roles = structuredClone(room.roleEffects || {});
+      Object.setPrototypeOf(roles, null);
+      for (const [name, [previous]] of Object.entries(pendingUndo.voiceChanges || {})) { if (previous) roles[name] = previous; else delete roles[name]; }
+      const characters = new Map(pendingUndo.lines.filter(item => item.changes.character).map(item => [item.id, item.changes.character[0]]));
+      const lines = room.lines.map(line => characters.has(line.id) ? { ...line, character: characters.get(line.id) } : line);
+      try { require('../voiceChains').validateScene({ ...room, roleEffects: roles, lines, trackOrder: [...new Set([...room.trackOrder, ...lines.map(line => line.character)])] }); } catch { return reply({ ok: false, reason: 'fx.limit' }); }
+    }
     if (room.protectTimings && pendingUndo?.lines?.some(item => item.changes.start || item.changes.end)) return reply({ ok: false, reason: 'timingsProtected' });
     const entry = history.popFor(conn.roomId, room, conn.clientId);
     if (!entry) return reply({ ok: false, reason: 'empty' });
@@ -375,7 +387,7 @@ module.exports = function registerEditorHandlers(socket, conn) {
     let skipped = 0;
     if (entry.type === 'lines') {
       // A group undo is atomic. Never restore only part of its geometry.
-      const unsafe = entry.lines.some(item => !history.canUndoLine(room.lines.find(line => line.id === item.id), item));
+      const unsafe = entry.lines.some(item => !history.canUndoLine(room.lines.find(line => line.id === item.id), item)) || Object.entries(entry.voiceChanges || {}).some(([name, [, after]]) => JSON.stringify(room.roleEffects?.[name] || null) !== JSON.stringify(after));
       if (unsafe) return reply({ ok: true, type: entry.type, undone: 0, skipped: entry.lines.length, more: history.hasFor(conn.roomId, room, conn.clientId) });
       const trackOrderUntouched = entry.tracksBefore && entry.tracksAfter &&
         JSON.stringify(room.trackOrder) === JSON.stringify(entry.tracksAfter);
@@ -418,6 +430,10 @@ module.exports = function registerEditorHandlers(socket, conn) {
       }
       for (const line of room.lines) if (!room.trackOrder.includes(line.character)) room.trackOrder.push(line.character);
       dropEmptyRoleClaims(room);
+      if (undone && !skipped) for (const [name, [previous]] of Object.entries(entry.voiceChanges || {})) {
+        if (previous) (room.roleEffects ||= Object.create(null))[name] = { ...structuredClone(previous), revision: (previous.revision || 0) + 1 };
+        else delete room.roleEffects?.[name];
+      }
     } else if (entry.type === 'create') {
       const line = room.lines.find(l => l.id === entry.id);
       if (line && Number(line.revision || 0) === entry.revAfter && !line.audioUrl && !line.takeHistory?.length) {
@@ -439,6 +455,7 @@ module.exports = function registerEditorHandlers(socket, conn) {
       if (entry.type === 'removeTrack' && !room.trackOrder.includes(entry.character)) {
         const anchor = entry.tracksBefore.slice(0, entry.tracksBefore.indexOf(entry.character)).reverse().find(name => room.trackOrder.includes(name));
         room.trackOrder.splice(anchor ? room.trackOrder.indexOf(anchor) + 1 : 0, 0, entry.character); undone++;
+        if (entry.roleEffects && !Object.hasOwn(room.roleEffects || {}, entry.character)) (room.roleEffects ||= Object.create(null))[entry.character] = structuredClone(entry.roleEffects);
       }
     } else if (entry.type === 'delete') {
       if (room.deletedLines.includes(entry.batch)) undone = restoreBatch(room, entry.batch);

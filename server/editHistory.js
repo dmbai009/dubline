@@ -33,7 +33,7 @@ function record(roomId, room, entry) {
 // Record a change of several lines: `before` is a Map id -> lineBefore(line) taken before the change.
 // Changed fields and the complete claim transition are kept as [before, after].
 // A rename moves a claim between keys: undo must check both ends of that transition.
-function recordLines(roomId, room, by, before, claimsBefore, trackOrderBefore) {
+function recordLines(roomId, room, by, before, claimsBefore, trackOrderBefore, roleEffectsBefore) {
   const lines = [];
   for (const [id, state] of before) {
     const line = room.lines.find(item => item.id === id);
@@ -62,8 +62,13 @@ function recordLines(roomId, room, by, before, claimsBefore, trackOrderBefore) {
   const tracksBefore = Array.isArray(trackOrderBefore) ? [...trackOrderBefore] : null;
   const tracksAfter = tracksBefore ? [...(room.trackOrder || [])] : null;
   const tracksChanged = tracksBefore && JSON.stringify(tracksBefore) !== JSON.stringify(tracksAfter);
+  const voiceChanges = Object.create(null);
+  if (roleEffectsBefore) for (const name of new Set([...Object.keys(roleEffectsBefore), ...Object.keys(room.roleEffects || {})])) {
+    const previous = roleEffectsBefore[name] || null, current = room.roleEffects?.[name] || null;
+    if (JSON.stringify(previous) !== JSON.stringify(current)) voiceChanges[name] = structuredClone([previous, current]);
+  }
   if (lines.length || tracksChanged) {
-    record(roomId, room, { by, type: 'lines', lines, claims, tracksBefore, tracksAfter });
+    record(roomId, room, { by, type: 'lines', lines, claims, tracksBefore, tracksAfter, voiceChanges });
   }
 }
 

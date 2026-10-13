@@ -11,7 +11,8 @@ const VOICE_EFFECTS = {
   thoughts: '💭 Thoughts',
   cave: '🪨 Cave',
   behindDoor: '🚪 Behind a door',
-  megaphone: '📣 Megaphone'
+  megaphone: '📣 Megaphone',
+  echo: 'Echo / Delay'
 };
 
 const EFFECT_TAIL_SECONDS = {
@@ -26,6 +27,7 @@ const EFFECT_TAIL_SECONDS = {
 };
 
 function effectTailSeconds(effect, amount = 1) {
+  if (effect === 'echo' && amount > 0) return .22 * Math.ceil(Math.log(.001) / Math.log(.35));
   return amount > 0 ? (EFFECT_TAIL_SECONDS[effect] || 0) : 0;
 }
 
@@ -198,7 +200,19 @@ function reverbImpulse(ctx, seconds, decay, seed = 1) {
 }
 
 // Builds the effect graph from input and returns the output node
-function buildEffect(ctx, input, effect) {
+function buildEffect(ctx, input, effect, parameters = {}) {
+  if (effect === 'echo') {
+    const settings = window.DublineVoiceChain.echo(parameters);
+    const out = ctx.createGain(); input.connect(out);
+    const repeats = settings.feedback ? Math.ceil(Math.log(.001) / Math.log(settings.feedback)) : 1;
+    // Finite taps avoid a feedback cycle's implicit render-quantum latency.
+    for (let i = 1; i <= repeats; i++) {
+      const delay = ctx.createDelay(settings.delay * repeats + .01), gain = ctx.createGain();
+      delay.delayTime.value = settings.delay * i; gain.gain.value = Math.pow(settings.feedback, i - 1);
+      input.connect(delay).connect(gain).connect(out);
+    }
+    return out;
+  }
   if (effect === 'telephone') {
     const comp = ctx.createDynamicsCompressor();
     comp.threshold.value = -22; comp.knee.value = 12; comp.ratio.value = 3.5;
@@ -330,13 +344,13 @@ function buildEffect(ctx, input, effect) {
 const EFFECT_PITCH = { monster: -6 };
 
 // Applies the effect and pitch to a take, keeping delay and reverb tails.
-async function renderVoice(buffer, effect = 'none', pitch = 0, bounds = null, effectAmount = 1) {
+async function renderVoice(buffer, effect = 'none', pitch = 0, bounds = null, effectAmount = 1, options = {}) {
   const amount = window.DublineTakeMix.normalize({ effectAmount }).effectAmount;
   const dry = pitch ? await pitchShiftBuffer(buffer, pitch) : buffer;
   if (!amount || !effect || effect === 'none' || !VOICE_EFFECTS[effect]) return dry;
   const totalPitch = (pitch || 0) + (EFFECT_PITCH[effect] || 0);
   const wet = totalPitch === pitch ? dry : await pitchShiftBuffer(buffer, totalPitch);
-  const tail = effectTailSeconds(effect, amount);
+  const tail = effect === 'echo' ? window.DublineVoiceChain.tail({ type: effect, enabled: true, amount, parameters: options.parameters }) : effectTailSeconds(effect, amount);
   const ctx = new OfflineAudioContext(1, wet.length + Math.ceil(tail * wet.sampleRate), wet.sampleRate);
   const from = bounds ? Math.max(0, Math.min(wet.duration, bounds.from || 0)) : 0;
   const to = bounds ? Math.max(from, Math.min(wet.duration, bounds.to ?? wet.duration)) : wet.duration;
@@ -345,15 +359,54 @@ async function renderVoice(buffer, effect = 'none', pitch = 0, bounds = null, ef
     const source = ctx.createBufferSource();
     source.buffer = sourceBuffer;
     const gain = ctx.createGain(); gain.gain.value = level;
-    (processed ? buildEffect(ctx, source, effect) : source).connect(gain).connect(ctx.destination);
+    (processed ? buildEffect(ctx, source, effect, options.parameters) : source).connect(gain).connect(ctx.destination);
     source.start(from, from, Math.max(0.001, to - from));
   }
   start(wet, 1, true);
   const rendered = await ctx.startRendering(), samples = rendered.getChannelData(0), reference = toMono(dry);
   const begin = Math.floor(from * dry.sampleRate), end = Math.ceil(to * dry.sampleRate);
-  const level = window.DublineVoiceLevel.correction(reference, samples, dry.sampleRate, begin, end);
+  const level = options.unscaled ? { gain: 1 } : window.DublineVoiceLevel.correction(reference, samples, dry.sampleRate, begin, end);
   for (let i = 0; i < samples.length; i++) samples[i] = samples[i] * level.gain * amount + (i >= begin && i < end ? (reference[i] || 0) * (1 - amount) : 0);
-  return limitPeak(rendered);
+  return options.unscaled ? rendered : limitPeak(rendered);
+}
+
+// Legacy one-stage rendering stays byte-compatible. Multi-stage chains normalize
+// only once, against the pitched dry speech, after all sequential dry/wet stages.
+let voiceJobs = 0;
+const voiceWaiters = [];
+async function renderChain(buffer, config, bounds, signal) {
+  const model = window.DublineVoiceChain;
+  if (!model.safe(config)) throw Error('fx.limit');
+  const effects = model.active(config.effects);
+  if (effects.length && (buffer.length + Math.ceil(effects.reduce((sum, item) => sum + model.tail(item), 0) * buffer.sampleRate)) * 4 > 64 * 1024 ** 2) throw Error('fx.memory');
+  if (!effects.length) {
+    if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
+    return renderVoice(buffer, 'none', config.pitch, bounds, 0);
+  }
+  if (voiceJobs >= 2) {
+    if (voiceWaiters.length >= 16) throw Error('fx.busy');
+    await new Promise(resolve => voiceWaiters.push(resolve));
+  } else voiceJobs++;
+  try {
+    const check = () => { if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError'); };
+    check();
+    if (effects.length === 1) {
+      const item = effects[0], rendered = await renderVoice(buffer, item.type, config.pitch, bounds, item.amount, { parameters: item.parameters });
+      check(); return rendered;
+    }
+    const dry = config.pitch ? await pitchShiftBuffer(buffer, config.pitch) : buffer;
+    let current = dry;
+    for (let i = 0; i < effects.length; i++) {
+      check(); const item = effects[i];
+      current = await renderVoice(current, item.type, 0, i ? null : bounds, item.amount, { parameters: item.parameters, unscaled: true });
+    }
+    check();
+    const samples = current.getChannelData(0), reference = toMono(dry);
+    const begin = Math.floor((bounds?.from || 0) * dry.sampleRate), end = Math.ceil((bounds?.to ?? dry.duration) * dry.sampleRate);
+    const level = window.DublineVoiceLevel.correction(reference, samples, dry.sampleRate, begin, end);
+    for (let i = 0; i < samples.length; i++) { samples[i] *= level.gain; if (!Number.isFinite(samples[i])) throw Error('fx.invalid'); }
+    return limitPeak(current);
+  } finally { const next = voiceWaiters.shift(); if (next) next(); else voiceJobs--; }
 }
 
 // Shared by monitoring, preview, video export and stereo character stems.
@@ -394,4 +447,4 @@ async function stretchPreview(buffer, rate, scope) {
   for (let channel = 0; channel < buffer.numberOfChannels; channel++) result.copyToChannel(wsolaStretch(buffer.getChannelData(channel), 1 / rate, buffer.sampleRate), channel);
   return result;
 }
-window.DublineAudioFx = { VOICE_EFFECTS, effectTailSeconds, fetchAndDecode, renderVoice, connectTake, stretchPreview };
+window.DublineAudioFx = { VOICE_EFFECTS, effectTailSeconds, fetchAndDecode, renderVoice, renderChain, connectTake, stretchPreview };

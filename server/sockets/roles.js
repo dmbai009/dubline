@@ -12,6 +12,7 @@ const { registerMutation } = require('../editorOperations');
 
 module.exports = function registerRoleHandlers(socket, conn) {
   require('../noiseReduction').register(socket, conn);
+  require('../voiceChains').register(socket, conn);
   registerMutation(socket, conn, 'set_needs_retake', ({ lineId, audioUrl, takeMixRevision, retakeRevision, value, comment } = {}, ack) => {
     const reply = typeof ack === 'function' ? ack : () => {};
     const room = getRoom(conn.roomId), line = room.lines.find(item => item.id === lineId);
@@ -188,8 +189,21 @@ module.exports = function registerRoleHandlers(socket, conn) {
       if ((bulk || target.takeMixRevision !== undefined) && (!Number.isSafeInteger(target.takeMixRevision) || target.takeMixRevision !== (line.takeMixRevision || 0))) return reply({ ok: false, reason: 'conflict' });
       lines.push(line);
     }
+    const voiceModel = require('../../public/voice-chain-model');
+    for (const line of lines) {
+      const next = { ...line, ...patch };
+      if (patch.pitch !== undefined) next.pitchMode = 'override';
+      if (Array.isArray(line.effects) && (patch.effect !== undefined || patch.effectAmount !== undefined)) {
+        if (patch.effect !== undefined) next.effects = patch.effect === 'none' ? [] : [{ id: require('crypto').randomUUID(), type: patch.effect, enabled: true, amount: patch.effectAmount ?? 1, parameters: {} }];
+        else if (line.effects.length === 1) next.effects = [{ ...line.effects[0], amount: patch.effectAmount }];
+        else return reply({ ok: false, reason: 'invalid' });
+      }
+      if (!voiceModel.safe(voiceModel.resolve(next, room))) return reply({ ok: false, reason: 'fx.limit' });
+    }
     for (const line of lines) {
       const applied = { ...patch };
+      if (applied.pitch !== undefined) applied.pitchMode = 'override';
+      if (Array.isArray(line.effects) && (applied.effect !== undefined || applied.effectAmount !== undefined)) applied.effects = applied.effect !== undefined ? (applied.effect === 'none' ? [] : [{ id: require('crypto').randomUUID(), type: applied.effect, enabled: true, amount: applied.effectAmount ?? 1, parameters: {} }]) : [{ ...line.effects[0], amount: applied.effectAmount }];
       if (applied.audioStart !== undefined && line.audioUrl) {
         const min = Math.max(-5, line.start - MAX_TAKE_SHIFT);
         applied.audioStart = Number(Math.max(min, Math.min(line.start + MAX_TAKE_SHIFT, applied.audioStart)).toFixed(3));
@@ -253,6 +267,7 @@ module.exports = function registerRoleHandlers(socket, conn) {
       if (recordingNow[conn.roomId]?.[line.id] || (line.takeCounter || 0) > (line.takeSequence || 0)) return reply({ ok: false, reason: 'pending' });
     }
     const oldName = line.character;
+    try { require('../voiceChains').checkTransfers(room, new Map([[line.id, name]])); } catch { return reply({ ok: false, reason: 'fx.limit' }); }
     const before = new Map();
     const claimsBefore = { ...room.characterClaims };
     if (!Array.isArray(room.trackOrder)) room.trackOrder = [];
@@ -294,6 +309,7 @@ module.exports = function registerRoleHandlers(socket, conn) {
     }
     const conflicts = selected.filter(line => expected.get(line.id) !== Number(line.revision || 0));
     if (conflicts.length) return reply({ ok: false, reason: 'conflict', moved: 0, skipped: lines.length, lines: conflicts });
+    try { require('../voiceChains').checkTransfers(room, new Map(selected.map(line => [line.id, name]))); } catch { return reply({ ok: false, reason: 'fx.limit', moved: 0 }); }
 
     let moved = 0;
     const before = new Map();
@@ -344,6 +360,8 @@ module.exports = function registerRoleHandlers(socket, conn) {
       if (!Array.isArray(targetLines) || targetLines.length !== targets.length || targets.some(line => !targetLines.some(expected => expected.lineId === line.id && expected.revision === (line.revision || 0)))) return reply({ ok: false, reason: 'conflict', lines });
     }
     const roleOwner = room.characterClaims[from];
+    const voiceBefore = structuredClone(room.roleEffects || {});
+    require('../voiceChains').rename(room, from, name);
     const before = new Map(lines.map(line => [line.id, history.lineBefore(line)]));
     const claimsBefore = { ...room.characterClaims };
     const trackOrderBefore = [...room.trackOrder];
@@ -357,7 +375,7 @@ module.exports = function registerRoleHandlers(socket, conn) {
     delete room.characterClaims[from];
     if (roleOwner && room.characterClaims[name] !== roleOwner) lines.forEach(line => { if (!line.claimedBy) line.claimedBy = roleOwner; });
     dropEmptyRoleClaims(room);
-    history.recordLines(conn.roomId, room, conn.clientId, before, claimsBefore, trackOrderBefore);
+    history.recordLines(conn.roomId, room, conn.clientId, before, claimsBefore, trackOrderBefore, voiceBefore);
     saveRooms();
     emitSession(conn.roomId);
     logEvent(conn.roomId, `✎ ${conn.nick}: track "${from}" → "${name}" (${lines.length} lines)`);
