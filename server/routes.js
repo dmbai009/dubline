@@ -790,6 +790,8 @@ app.post('/api/upload-line-audio', acceptFile('audio', MAX_TAKE_MB, requireConfi
     next.audioStart = audioStart !== null ? Math.max(-5, audioStart) : line.start;
     next.recordedStart = next.audioStart;
     next.recordedBy = userName;
+    try { next.noiseProfileId = require('./noiseReduction').binding(target, req.body.noiseProfileId, userName); }
+    catch { throw new HttpError(409, 'Noise profile unavailable', 'noise.profileMissing'); }
     next.uploadId = uploadId; next.takeSequence = takeSequence; next.takeUploadedSequence = takeSequence;
     next.takeId = crypto.randomUUID(); next.takePinned = false; next.takeCreatedAt = Date.now();
     const duration = require('./media').getWavDuration(req.file.buffer) || Number(req.body.duration);

@@ -182,13 +182,24 @@
       return rawTakeCache.get(url);
     }
 
+    function processingKey(line, request = {}) {
+      const noise = Object.hasOwn(line, '_exportNoise') ? line._exportNoise : global.DublineNoiseModel?.resolve(line, request.scene || getSession());
+      return `${line.audioUrl}|${line.effect || 'none'}|${line.pitch || 0}|${global.DublineTakeMix.normalize(line).effectAmount}|${line.trimEnabled !== false}|${line.trimStart}|${line.trimEnd}|${noise ? line.noiseProfileId + ':' + (noise.profile?.version || 'missing') + ':' + noise.strength : 'off'}`;
+    }
     function getProcessedTake(line, request = {}) {
       if (!line.audioUrl) return Promise.resolve(null);
       if (!request.signal && rawRequests.has(line.audioUrl)) rawRequests.get(line.audioUrl).shared = true;
       line = { ...line };
-      const key = `${line.audioUrl}|${line.effect || 'none'}|${line.pitch || 0}|${global.DublineTakeMix.normalize(line).effectAmount}|${line.trimEnabled !== false}|${line.trimStart}|${line.trimEnd}`;
+      const key = processingKey(line, request);
+      const noiseSetting = Object.hasOwn(line, '_exportNoise') ? line._exportNoise : global.DublineNoiseModel?.resolve(line, request.scene || getSession());
       if (!processedTakeCache.has(key)) {
+        let noiseFallback = false;
         const job = getRawTake(line.audioUrl, request)
+          .then(async buffer => {
+            if (!buffer || !global.DublineNoiseAudio) return buffer;
+            const cleaned = await global.DublineNoiseAudio.clean(buffer, noiseSetting, request.signal);
+            noiseFallback = !!noiseSetting && cleaned === buffer; return cleaned;
+          })
           .then(buffer => buffer && fx.renderVoice(
             buffer,
             line.effect || 'none',
@@ -197,10 +208,10 @@
             global.DublineTakeMix.normalize(line).effectAmount
           ))
           .catch(error => {
-            if (error.message !== 'Stale CPU job') console.error('[Dubline] Failed to process take:', error);
+            if (error.message !== 'Stale CPU job' && error.name !== 'AbortError') console.error('[Dubline] Failed to process take:', error);
             return null;
           }).then(buffer => {
-            if (!buffer && processedTakeCache.get(key) === job) processedTakeCache.delete(key);
+            if ((!buffer || noiseFallback) && processedTakeCache.get(key) === job) processedTakeCache.delete(key);
             return buffer;
           });
         processedTakeCache.set(key, job);
@@ -231,7 +242,7 @@
       rawTakeCache.trim?.(); processedTakeCache.trim?.();
       for (const line of nearby) {
         if (prefetching.size >= 4) break;
-        const baseKey = `${line.audioUrl}|${line.effect || 'none'}|${line.pitch || 0}|${global.DublineTakeMix.normalize(line).effectAmount}|${line.trimEnabled !== false}|${line.trimStart}|${line.trimEnd}`;
+        const baseKey = processingKey(line);
         const key = playbackRate() === 1 ? baseKey : `rate:${playbackRate()}|${baseKey}`;
         if (processedTakeCache.has(key)) continue;
         if (prefetching.has(key)) continue;
@@ -241,7 +252,7 @@
 
     function getPlaybackTake(line, rate = playbackRate()) {
       if (rate === 1) return getProcessedTake(line);
-      const key = `rate:${rate}|${line.audioUrl}|${line.effect || 'none'}|${line.pitch || 0}|${global.DublineTakeMix.normalize(line).effectAmount}|${line.trimEnabled !== false}|${line.trimStart}|${line.trimEnd}`;
+      const key = `rate:${rate}|${processingKey(line)}`;
       if (!processedTakeCache.has(key)) {
         const scope = getSession()?.activeSessionId;
         const job = getProcessedTake(line).then(buffer => buffer && fx.stretchPreview(buffer, rate, scope)).catch(error => {
@@ -410,7 +421,7 @@
     function updateLine(before, after) {
       takeIndex = null;
       global.invalidatePrompterIndex?.();
-      const processing = ['audioUrl', 'audioStart', 'start', 'recordedBy', 'blindRevealed', 'effect', 'pitch', 'effectAmount', 'trimEnabled', 'trimStart', 'trimEnd'];
+      const processing = ['audioUrl', 'audioStart', 'start', 'recordedBy', 'blindRevealed', 'effect', 'pitch', 'effectAmount', 'trimEnabled', 'trimStart', 'trimEnd', 'noiseProfileId'];
       const defaults = { effect: 'none', pitch: 0, effectAmount: 1, trimEnabled: true };
       const changed = processing.some(key => (before[key] ?? defaults[key]) !== (after[key] ?? defaults[key]));
       if (changed) {
@@ -440,6 +451,15 @@
     return Object.freeze({
       cacheStats: () => ({ raw: rawTakeCache.stats?.(), processed: processedTakeCache.stats?.(), prefetching: prefetching.size, indexVisited: takeIndex?.visited || 0 }),
       updateLine,
+      invalidateNoise: author => {
+        const lines = getSession()?.lines || [], urls = new Set();
+        for (const line of lines) {
+          if (line.recordedBy === author && line.audioUrl) { urls.add(line.audioUrl); resetLine(line.id); }
+          for (const take of line.takeHistory || []) if (take.recordedBy === author) urls.add(take.audioUrl);
+        }
+        for (const key of processedTakeCache.keys()) if ([...urls].some(url => key.startsWith(url + '|') || key.includes('|' + url + '|'))) processedTakeCache.delete(key);
+        if (urls.has(previewPendingLine?.audioUrl) || urls.has(previewGraph?.audioUrl)) stopPreview();
+      },
       applyVolumes,
       ensurePlayCtx,
       getProcessedTake,

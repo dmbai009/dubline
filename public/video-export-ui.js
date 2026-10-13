@@ -178,6 +178,7 @@
       lease = { ...await leaseResponse.json(), room }; job.check();
       const permitted = new Set(lease.takeIds);
       snapshot.scene = lease.scene; snapshot.takes = lease.scene.lines.filter(line => permitted.has(line.id));
+      snapshot.takes.forEach(line => { line._exportNoise = window.DublineNoiseModel?.resolve(line, lease.scene) || null; });
       snapshot.gains = readRenderGains(lease.scene);
       const sources = DublineProjectAudio.sources(lease.scene); snapshot.originalUrl = sources.original; snapshot.backingUrl = sources.backing;
       job.permitted = permitted;

@@ -786,7 +786,7 @@ function applySessionUpdate(data) {
 
 socket.on('session_updated', applySessionUpdate);
 
-function applyTakeUpdates(sessionId, lines, protocol) {
+function applyTakeUpdates(sessionId, lines, protocol, options = {}) {
   if (!window.acceptSceneDelta(sessionId, lines) || !acceptSessionProtocol(protocol)) return;
   let changed = false, selectedChanged = false;
   for (const updatedLine of lines) {
@@ -797,7 +797,7 @@ function applyTakeUpdates(sessionId, lines, protocol) {
     window.acceptEditorTake?.(updatedLine);
     const visibleLine = session.lines.find(line => line.id === updatedLine.id) || updatedLine;
     updateLineBlock(visibleLine);
-    if (updatedLine.audioUrl) getProcessedTake(updatedLine);
+    if (updatedLine.audioUrl && options.prewarm !== false) getProcessedTake(updatedLine);
     changed = true;
     if (selectedLine?.id === updatedLine.id) { selectedLine = visibleLine; selectedChanged = true; }
   }

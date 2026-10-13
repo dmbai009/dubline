@@ -128,6 +128,7 @@ window.handleStudioRecord = async function(lineId) {
 
   const mediaPreparation = window.sceneMediaPreparation?.();
   if (mediaPreparation?.key) return showToast(t(mediaPreparation.key, { channels: mediaPreparation.channels.map(channel => t('studio.' + channel)).join(', ') }));
+  if (window.DublineNoise?.busy()) return showToast(t('noise.busy'));
   if (recordStartPending) return;
   recordStartPending = true;
   try {
@@ -135,6 +136,7 @@ window.handleStudioRecord = async function(lineId) {
   const recordingSessionId = session.activeSessionId || '';
   const recordingRoom = currentRoom;
   const recordingNick = myName;
+  const recordingNoiseSuppression = noiseSuppression, recordingGain = userMicGain;
   const historyCheck = window.DublineTakeHistory?.beforeRecord(line);
   const historyConsent = historyCheck?.then ? await historyCheck : historyCheck ?? (window.DublineTakeHistory ? null : {});
   if (!historyConsent) return;
@@ -144,8 +146,8 @@ window.handleStudioRecord = async function(lineId) {
   let recordingMic;
   try {
     recordingMic = await window.DublineAudioDevices.capture({
-        echoCancellation: noiseSuppression,
-        noiseSuppression,
+        echoCancellation: recordingNoiseSuppression,
+        noiseSuppression: recordingNoiseSuppression,
         autoGainControl: false,
         channelCount: 1
     });
@@ -182,7 +184,7 @@ window.handleStudioRecord = async function(lineId) {
     if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     if (audioCtx.state === 'suspended') audioCtx.resume();
     micSource = audioCtx.createMediaStreamSource(micStream);
-    gainNode = audioCtx.createGain(); gainNode.gain.value = userMicGain;
+    gainNode = audioCtx.createGain(); gainNode.gain.value = recordingGain;
     audioDest = audioCtx.createMediaStreamDestination();
     micSource.connect(gainNode); gainNode.connect(audioDest);
     voiceMeter = audioCtx.createAnalyser(); voiceMeter.fftSize = 2048; gainNode.connect(voiceMeter);
@@ -216,6 +218,7 @@ window.handleStudioRecord = async function(lineId) {
 
   mediaRecorder = recorder;
   const operation = { recorder, stream: recordingMic, discarded: false, nick: recordingNick, room: recordingRoom, sessionId: recordingSessionId, takeSequence, lineId };
+  const capturedNoiseProfile = window.DublineNoise?.captureBinding(recordingGain, recordingNoiseSuppression, recordingMic) || null;
   processingRecordings.add(operation);
   activeRecording = operation;
   const mayUpdateUi = () => !activeRecording && mediaRecorder === recorder && recordState === 'idle' &&
@@ -272,6 +275,7 @@ window.handleStudioRecord = async function(lineId) {
       nick: operation.nick,
       takeSequence,
       ...historyConsent,
+      noiseProfileId: capturedNoiseProfile,
       duration,
       audioStart: recordingStartTime,
       trimStart: speech ? speech.start : null,
@@ -605,6 +609,7 @@ async function sendTake(entry) {
   form.append('sessionId', entry.sessionId);
   form.append('takeSequence', entry.takeSequence);
   form.append('audioStart', entry.audioStart);
+  if (entry.noiseProfileId) form.append('noiseProfileId', entry.noiseProfileId);
   if (entry.discardCurrentId) { form.append('discardCurrentId', entry.discardCurrentId); form.append('historyRevision', entry.historyRevision); }
   if (Number.isFinite(entry.duration)) form.append('duration', entry.duration);
   if (entry.trimStart != null && entry.trimEnd != null) {
@@ -635,7 +640,7 @@ async function sendTake(entry) {
     return true;
   }
   const error = res && await res.clone().json().catch(() => ({}));
-  if (error?.key?.startsWith('takeHistory.') || error?.key === 'error.lineTaken') {
+  if (error?.key?.startsWith('takeHistory.') || error?.key?.startsWith('noise.') || error?.key === 'error.lineTaken') {
     entry.historyIssue = error.key === 'error.lineTaken' ? 'takeHistory.permission' : error.key;
     await takeStore.put(entry); refreshPendingUi(entry.lineId);
     showToast(t(entry.historyIssue)); return false;

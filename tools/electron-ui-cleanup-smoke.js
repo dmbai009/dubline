@@ -160,6 +160,10 @@ async function main() {
     const input = audioDevices.inputs.find(device => device.id); await page.select('#audioInputDevice', input.id);
     await page.evaluate(() => closeSettingsModal()); await claimAndSelect(page, 1); await recordTake(page, 1);
     await waitFor(page, () => !pendingTakeLines.size);
+    // This workflow keeps profile processing off and explicitly declines the new
+    // optional offer; calibration itself has a separate production native smoke.
+    await waitFor(page, () => document.getElementById('noiseOffer').open);
+    await page.click('#noiseOfferSkip');
     await page.select('[data-clip-field="effect"]', 'telephone'); await waitFor(page, () => session.lines[0].effect === 'telephone');
     await page.type('[data-retake-comment="1"]', 'Native retake request'); await page.click('[data-retake-form="1"] button[type=submit]');
     await waitFor(page, () => session.lines[0].retakeComment === 'Native retake request' && !editorQueue.length);

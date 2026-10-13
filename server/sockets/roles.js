@@ -11,6 +11,7 @@ const history = require('../editHistory');
 const { registerMutation } = require('../editorOperations');
 
 module.exports = function registerRoleHandlers(socket, conn) {
+  require('../noiseReduction').register(socket, conn);
   registerMutation(socket, conn, 'set_needs_retake', ({ lineId, audioUrl, takeMixRevision, retakeRevision, value, comment } = {}, ack) => {
     const reply = typeof ack === 'function' ? ack : () => {};
     const room = getRoom(conn.roomId), line = room.lines.find(item => item.id === lineId);

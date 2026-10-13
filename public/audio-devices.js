@@ -115,14 +115,16 @@
         if (window.DublineState?.data.micStream === stream) window.finishRecording?.();
         say('audio.device.recordingInterrupted'); refresh({ changed: true });
       }, { once: true });
+      window.dispatchEvent(new Event('dubline-microphone-granted'));
       refresh(); return stream;
     } finally { captureRequests--; }
   }
-  function release(stream) { streams.delete(stream); if (!recordingBusy() && notice === 'audio.device.deferred') { notice = ''; paint(); } }
+  function release(stream) { streams.delete(stream); window.dispatchEvent(new Event('dubline-microphone-released')); if (!recordingBusy() && notice === 'audio.device.deferred') { notice = ''; paint(); } }
   window.DublineAudioDevices = {
-    capture, release, refresh,
+    capture, release, refresh, busy: recordingBusy,
     live: stream => !!stream?.active && stream.getAudioTracks().some(track => track.readyState === 'live'),
     registerContext: context => register(context, contexts),
+    unregisterContext: context => contexts.delete(context),
     registerElement: element => register(element, elements),
     unregisterElement: element => elements.delete(element),
     ready: () => outputQueue,
@@ -140,7 +142,7 @@
     permissionButton.onclick = async () => {
       permissionButton.disabled = true;
       try {
-        if (!recordingBusy()) { const stream = await media.getUserMedia({ audio: true }); stream.getTracks().forEach(track => track.stop()); }
+        if (!recordingBusy()) { const stream = await media.getUserMedia({ audio: true }); stream.getTracks().forEach(track => track.stop()); window.dispatchEvent(new Event('dubline-microphone-granted')); window.dispatchEvent(new Event('dubline-microphone-released')); }
         notice = ''; await refresh();
       } catch { say('audio.device.permissionDenied'); }
       finally { permissionButton.disabled = false; }

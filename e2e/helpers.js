@@ -162,7 +162,7 @@ async function startServer(extraEnv = {}) {
 }
 
 // ---------- Players ----------
-async function openPlayer(browser, url, nick, { helpSeen = true, viewport = { width: 1600, height: 900 }, context = null, audioExpanded = true, autoConfirm = true, beforeLoad = null, p2pConsent = 'declined' } = {}) {
+async function openPlayer(browser, url, nick, { helpSeen = true, viewport = { width: 1600, height: 900 }, context = null, audioExpanded = true, autoConfirm = true, beforeLoad = null, p2pConsent = 'declined', noiseOfferSeen = true } = {}) {
   const ctx = context || await browser.createBrowserContext();
   const page = await ctx.newPage();
   await page.setViewport(viewport);
@@ -178,7 +178,7 @@ async function openPlayer(browser, url, nick, { helpSeen = true, viewport = { wi
     dialog.accept(dialog.type() === 'prompt' ? (page.promptAnswer || '') : undefined);
   });
   await page.exposeFunction('testDialogObserved', text => page.dialogs.push(text));
-  await page.evaluateOnNewDocument((name, seen, expanded, acceptConfirm, consent) => {
+  await page.evaluateOnNewDocument((name, seen, expanded, acceptConfirm, consent, skipNoiseOffer) => {
     document.addEventListener('DOMContentLoaded', () => {
       const dialog = document.querySelector('dialog.text-prompt');
       new MutationObserver(() => {
@@ -190,6 +190,9 @@ async function openPlayer(browser, url, nick, { helpSeen = true, viewport = { wi
     });
     // The UI language would otherwise follow the machine's locale; assertions expect English
     localStorage.setItem('dubline_language', 'en');
+    // Unrelated workflows use an already-declined optional microphone setup.
+    // Noise calibration tests explicitly start with a fresh offer preference.
+    if (skipNoiseOffer) localStorage.setItem('dubline_noise_offer_seen', 'true');
     // Most suites exercise unrelated workflows with P2P explicitly declined.
     // Consent and peer-transfer suites opt into their own initial state.
     if (consent && localStorage.getItem('dubline_p2p_consent_v1') === null) {
@@ -201,7 +204,7 @@ async function openPlayer(browser, url, nick, { helpSeen = true, viewport = { wi
     // The Audio group starts collapsed; most suites look at its rows, so open it once
     // (a later collapse by the test itself survives reloads)
     if (expanded && localStorage.getItem('dubline_audio_collapsed') === null) localStorage.setItem('dubline_audio_collapsed', '0');
-  }, nick, helpSeen, audioExpanded, autoConfirm, p2pConsent);
+  }, nick, helpSeen, audioExpanded, autoConfirm, p2pConsent, noiseOfferSeen);
   if (beforeLoad) await beforeLoad(page);
   await page.goto(url);
   await waitFor(page, () => typeof socket !== 'undefined' && socket.connected, 10000);

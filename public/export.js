@@ -62,6 +62,7 @@ function exportableTake(line) {
 function createExportSnapshot() {
   const scene = structuredClone(session);
   const sources = window.DublineProjectAudio.sources(scene);
+  scene.lines.forEach(line => { line._exportNoise = window.DublineNoiseModel?.resolve(line, scene) || null; });
   return { scene, takes: scene.lines.filter(exportableTake), gains: readRenderGains(scene),
     originalUrl: mediaUrl(sources.original), backingUrl: mediaUrl(sources.backing),
     videoUrl: scene.videoUrl, videoBlob: exportLocalVideo(scene), assets: localMedia?.sessionId === scene.activeSessionId ? localMedia.assets : {} };

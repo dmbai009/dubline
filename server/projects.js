@@ -10,7 +10,8 @@ const { UPLOAD_DIR, MAX_VIDEO_MB, MAX_CAPTION_LENGTH, VOICE_EFFECTS, MAX_PITCH, 
 const { diskPathForUrl } = require('./files');
 
 const FORMAT = 'dubline-project';
-const VERSION = 6;
+const VERSION = 7;
+const noiseModel = require('../public/noise-model');
 const takeHistory = require('./takeHistory');
 const takeMix = require('../public/take-mix');
 // Production save/open uses project-archive.js and bounded streams.
@@ -79,7 +80,8 @@ function captureProject(session, resolveAsset = diskPathForUrl, snapshotDir = nu
   }
   const mix = audio.normalize(session);
   delete mix.revision;
-  const hasHistory = session.lines.some(line => line.takePinned || line.takeHistory?.length);
+  const hasNoise = Object.keys(session.noiseReduction?.profiles || {}).length > 0;
+  const hasHistory = hasNoise || session.lines.some(line => line.takePinned || line.takeHistory?.length);
   function takeFields(take, historical = false) {
     const fields = { asset: asset(take?.audioUrl, true), audioStart: take?.audioStart ?? null,
       recordedStart: take?.recordedStart ?? null, trimStart: take?.trimStart ?? null, trimEnd: take?.trimEnd ?? null,
@@ -87,6 +89,7 @@ function captureProject(session, resolveAsset = diskPathForUrl, snapshotDir = nu
       ...takeMix.normalize(take), recordedBy: take?.recordedBy || null };
     if (hasHistory) Object.assign(fields, { id: take?.id || null, pinned: take?.pinned === true,
       createdAt: take?.createdAt ?? null, duration: take?.duration ?? null });
+    if (hasNoise) fields.noiseProfileId = take?.audioUrl ? take.noiseProfileId || null : null;
     if (historical) fields.archivedAt = take.archivedAt ?? null;
     return fields;
   }
@@ -130,7 +133,8 @@ function captureProject(session, resolveAsset = diskPathForUrl, snapshotDir = nu
     project.media.originalVideo = asset(session.originalVideoUrl);
     project.media.originalVideoName = String(session.originalVideoName || 'source').slice(0, 200);
   }
-  const manifest = { format: FORMAT, formatVersion: hasHistory ? 6 : project.lines.some(line => line.retakeComment || line.take.effect === 'telephone') ? 5 : project.lines.some(line => line.needsRetake === true) ? 4 : project.lines.some(line => Object.entries(takeMix.DEFAULTS).some(([key, value]) => line.take[key] !== value)) ? 3 : (session.originalVideoUrl ? 2 : 1), project, assets };
+  if (hasNoise) project.noiseReduction = { profiles: structuredClone(session.noiseReduction.profiles), actors: structuredClone(session.noiseReduction.actors) };
+  const manifest = { format: FORMAT, formatVersion: hasNoise ? 7 : hasHistory ? 6 : project.lines.some(line => line.retakeComment || line.take.effect === 'telephone') ? 5 : project.lines.some(line => line.needsRetake === true) ? 4 : project.lines.some(line => Object.entries(takeMix.DEFAULTS).some(([key, value]) => line.take[key] !== value)) ? 3 : (session.originalVideoUrl ? 2 : 1), project, assets };
   if (manifest.formatVersion < 3) project.lines.forEach(line => Object.keys(takeMix.DEFAULTS).forEach(field => { delete line.take[field]; }));
   const manifestBytes = Buffer.from(JSON.stringify(manifest), 'utf8');
   if (manifestBytes.length > MAX_MANIFEST_BYTES) fail('Project manifest is too large');
@@ -156,7 +160,7 @@ function safeArchivePath(name) {
 
 function validateManifest(manifest) {
   if (!object(manifest) || manifest.format !== FORMAT) fail('Invalid project manifest');
-  if (![1, 2, 3, 4, 5, VERSION].includes(manifest.formatVersion)) throw new HttpError(400, 'Unsupported project version', 'project.unsupportedVersion');
+  if (![1, 2, 3, 4, 5, 6, VERSION].includes(manifest.formatVersion)) throw new HttpError(400, 'Unsupported project version', 'project.unsupportedVersion');
   if (manifest.project?.protectTimings !== undefined && typeof manifest.project.protectTimings !== 'boolean') fail('Invalid timing protection');
   if (!Array.isArray(manifest.assets) || !manifest.assets.length || manifest.assets.length >= MAX_ENTRIES) fail('Invalid project assets');
   const assets = new Map();
@@ -170,6 +174,8 @@ function validateManifest(manifest) {
     assets.set(asset.path, asset);
   }
   const p = manifest.project;
+  if (p?.noiseReduction !== undefined && (manifest.formatVersion < 7 || !noiseModel.validState(p.noiseReduction))) fail('Invalid noise reduction profiles');
+  if (manifest.formatVersion === 7 && !noiseModel.validState(p?.noiseReduction)) fail('Missing noise reduction profiles');
   if (!object(p) || !text(p.title, 2000) || !['pack', 'custom'].includes(p.kind) || !['edit', 'dub'].includes(p.editorMode)) fail('Invalid project details');
   if (!Array.isArray(p.roles) || p.roles.length > MAX_LINES || p.roles.some(role => !text(role, 500, true)) ||
       new Set(p.roles).size !== p.roles.length || !object(p.roleClaims)) fail('Invalid project roles');
@@ -243,6 +249,7 @@ function validateManifest(manifest) {
     }
   }
   function validateTake(take) {
+    if (take.noiseProfileId !== undefined && (manifest.formatVersion < 7 || take.noiseProfileId !== null && (!take.asset || !noiseModel.id(take.noiseProfileId) || p.noiseReduction.profiles[take.noiseProfileId]?.author !== take.recordedBy))) fail('Invalid noise profile reference');
     if (!object(take) || !VOICE_EFFECTS.includes(take.effect) || !finite(take.pitch, -MAX_PITCH, MAX_PITCH) ||
         typeof take.trimEnabled !== 'boolean' || !(take.recordedBy === null || text(take.recordedBy, 16, true))) fail('Invalid project take');
     for (const [field, fallback] of Object.entries(takeMix.DEFAULTS)) {
@@ -318,6 +325,7 @@ function fieldsForProject(project, urls) {
     title: project.title, kind: project.kind, mode: project.editorMode, protectTimings: project.protectTimings === true, zipUrl: '',
     trackOrder: [...project.roles], characterClaims: Object.assign(Object.create(null), project.roleClaims),
     takeLatency: Object.assign(Object.create(null), project.takeLatency),
+    noiseReduction: project.noiseReduction ? { ...structuredClone(project.noiseReduction), revision: 0 } : require('./noiseReduction').empty(),
     videoUrl: url(m.video), originalVideoUrl: url(m.originalVideo), originalVideoName: m.originalVideoName || '', externalOriginalUrl: url(m.original), backingUrl: url(m.backing), baseBackingUrl: url(m.baseBacking),
     originalTrack: m.originalTrack, backingTrack: m.backingTrack,
     audioTracks: m.videoHasAudio === null && !m.audioTracks.length ? undefined : m.audioTracks.map(track => ({
@@ -329,7 +337,7 @@ function fieldsForProject(project, urls) {
       id: line.id, character: line.character, caption: line.caption, start: line.start, end: line.end,
       claimedBy: line.claimedBy, originalAudioUrl: url(line.reference) || null,
       durationChecked: true, revision: 0, ...emptyTake(),
-      audioUrl: url(line.take.asset) || null,
+      audioUrl: url(line.take.asset) || null, noiseProfileId: line.take.noiseProfileId || null,
       audioStart: line.take.audioStart, recordedStart: line.take.recordedStart,
       trimStart: line.take.trimStart, trimEnd: line.take.trimEnd, trimEnabled: line.take.trimEnabled,
       effect: line.take.effect, pitch: line.take.pitch, recordedBy: line.take.recordedBy,

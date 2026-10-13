@@ -44,6 +44,7 @@ module.exports = function registerRoomHandlers(socket, conn) {
     }
     snapshotActive(room);
     for (const scene of Object.values(room.sessions)) {
+        require('../noiseReduction').rename(scene, oldName, newName);
       if (scene.takeLatency && Object.hasOwn(scene.takeLatency, oldName)) {
         if (!Object.hasOwn(scene.takeLatency, newName)) scene.takeLatency[newName] = scene.takeLatency[oldName];
         delete scene.takeLatency[oldName];

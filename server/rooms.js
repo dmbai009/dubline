@@ -17,7 +17,7 @@ const timelineBounds = require('../public/timeline-model');
 // Scene fields that belong to a session (see "Sessions" below)
 const SESSION_FIELDS = ['loaded', 'title', 'kind', 'zipUrl', 'videoUrl', 'backingUrl', 'lines', 'characterClaims', 'createdAt', 'updatedAt',
   'audioTracks', 'originalTrack', 'backingTrack', 'baseBackingUrl', 'deletedLines', 'mode', 'trackOrder', 'nextLineId', 'blindMode',
-  'externalOriginalUrl', 'audioMetadata', 'projectAudio', 'videoHasAudio', 'takeLatency', 'videoDuration', 'workshopSource', 'originalVideoUrl', 'originalVideoName', 'protectTimings'];
+  'externalOriginalUrl', 'audioMetadata', 'projectAudio', 'videoHasAudio', 'takeLatency', 'videoDuration', 'workshopSource', 'originalVideoUrl', 'originalVideoName', 'protectTimings', 'noiseReduction'];
 let repairedOnLoad = false;
 
 function loadRooms() {
@@ -233,6 +233,7 @@ function emptySession() {
     originalTrack: 0,         // which track plays as "Original" (-1 = none)
     backingTrack: -1,         // which track plays as "Background" (-1 = the pack's own backing track or none)
     baseBackingUrl: undefined, // the pack's own backing track, restored when "none" is picked
+    noiseReduction: require('./noiseReduction').empty(),
     deletedLines: []          // trash of the host's deletions for undo (Ctrl+Z), the last MAX_UNDO_BATCHES
   };
 }
