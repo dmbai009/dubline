@@ -81,6 +81,9 @@ function captureProject(session, resolveAsset = diskPathForUrl, snapshotDir = nu
   const mix = audio.normalize(session);
   delete mix.revision;
   const hasNoise = Object.keys(session.noiseReduction?.profiles || {}).length > 0;
+  const variants = session.lines.flatMap(line => [line, ...(line.takeHistory || [])]);
+  if (variants.some(take => take.noiseProfileId) && (!noiseModel.validState(session.noiseReduction) ||
+      variants.some(take => take.noiseProfileId && (!take.audioUrl || session.noiseReduction.profiles[take.noiseProfileId]?.author !== take.recordedBy)))) fail('Invalid or missing noise profile');
   const hasHistory = hasNoise || session.lines.some(line => line.takePinned || line.takeHistory?.length);
   function takeFields(take, historical = false) {
     const fields = { asset: asset(take?.audioUrl, true), audioStart: take?.audioStart ?? null,

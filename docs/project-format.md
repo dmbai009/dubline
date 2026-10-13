@@ -1,6 +1,6 @@
-# Dubline Project formats 1–6
+# Dubline Project formats 1–7
 
-An archive uses the `.dubline` extension and a standard ZIP container. `project.json` is UTF-8 JSON with `format: "dubline-project"`, required `formatVersion: 1`, `2`, `3`, `4`, `5` or `6`, `project`, and `assets`. The serializer is `server/projects.js`; it never exports raw room persistence.
+An archive uses the `.dubline` extension and a standard ZIP container. `project.json` is UTF-8 JSON with `format: "dubline-project"`, required `formatVersion: 1`, `2`, `3`, `4`, `5`, `6` or `7`, `project`, and `assets`. The serializer is `server/projects.js`; it never exports raw room persistence.
 
 ## Manifest
 
@@ -58,3 +58,11 @@ All historical audio participates in the same immutable disk snapshot, hash/size
 Runtime replacement archives the current take, evicting only the oldest unpinned historical variant when necessary. Three pinned variants require exact-main/revision consent to discard an unpinned main; four pinned variants block replacement. Restoring moves assets between slots, preserves per-version settings/pins and closes the old active retake request. Deleting main audio retains history. Timeline playback and final audio/video/Voxalike exports still use only main audio.
 
 Room state is written atomically and flushed before unused owned `line_*` files are unlinked. Live/persisted room and trash references plus active download/export readers protect shared files. Failed writes roll back metadata; disk cleanup errors retain files and are reported. Conservative orphan collection retains its existing grace period. Inspector-only controls use scene-bound revisions and existing operation receipts; restore/delete-main invalidate unaccepted reservations, with conflicting local recordings kept in the existing queue for explicit retry.
+
+## Microphone noise profiles in version 7
+
+Scenes containing calibrated profiles emit version 7. `project.noiseReduction` contains a deduplicated `profiles` dictionary and an `actors` dictionary. Each immutable profile has an ID, author, algorithm version (1), FFT size (1024), capture sample rate, creation time and 513 finite nonnegative spectral power values. It contains no raw calibration sound, device ID, client credentials or paths. There are at most 64 profiles per scene. An actor entry contains `enabled`, common `strength` (0–1) and the profile ID selected for future recordings. Historical bindings continue to refer to older profiles, but use their author's common strength and enable switch.
+
+Each main/historical take has nullable `noiseProfileId`; a non-null reference must resolve to a profile belonging to that take's author. The file, take ID, processing, alignment, pin and trim fields are unchanged. Version 7 retains all version-6 identity/history fields, including empty history. Unbound takes remain untreated even after calibration. Restore carries the binding with the take; deleting main audio clears only its own binding. Trash/Undo retain both take metadata and the scene's profiles. Profiles are conservatively retained, including unreferenced versions, up to the bound; they are not garbage-collected during editing or uploads.
+
+Formats 1–6 remain readable and acquire an empty profile state with untreated recordings. Scenes without profiles still emit the lowest applicable older format. Malformed profiles, unsupported algorithm versions, oversized dictionaries, invalid strength, author mismatches and missing profile references fail validation before extraction/commit. Runtime profile-state revision, operation receipts, microphone compatibility signature, scratch samples and offer preferences are excluded from the portable archive. Opening restores shared sound without requiring a listener to calibrate another person's microphone.

@@ -44,7 +44,7 @@
       job.finish = (error, result) => {
         if (job.finished) return; job.finished = true;
         clearTimeout(job.timer); signal?.removeEventListener('abort', abort); job.backup = null;
-        if (active === job) { active = null; if (error && !job.fallback) { worker?.terminate(); worker = null; } }
+        if (active === job) { active = null; if (worker) { worker.onmessage = null; worker.onerror = null; } if (error && !job.fallback) { worker?.terminate(); worker = null; } }
         if (error) reject(error); else { stats.completed++; resolve(result); } pump();
       };
       signal?.addEventListener('abort', abort, { once: true }); queue.push(job); stats.peakQueue = Math.max(stats.peakQueue, queue.length); pump();

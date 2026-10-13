@@ -8,7 +8,14 @@ function binding(scene, profileId, nick) {
 }
 function plan(scene, nick, data) {
   const previous = state(scene);
-  if (data.revision !== previous.revision) throw Error('noise.conflict');
+  if (!Number.isSafeInteger(data.revision) || data.revision < 0) throw Error('noise.invalid');
+  if (data.profile === undefined && data.actor === undefined && data.takes === undefined || data.initialize === true && data.actor === undefined) throw Error('noise.invalid');
+  const initialize = data.initialize === true;
+  if (initialize && (Object.hasOwn(previous.actors, nick) || data.takes !== undefined ||
+      scene.lines.some(line => [line, ...(line.takeHistory || [])].some(take => take.recordedBy === nick && take.noiseProfileId)))) throw Error('noise.conflict');
+  // Disjoint actors may initialize future-only settings concurrently. Existing
+  // settings and take assignments always retain the strict revision boundary.
+  if (data.revision !== previous.revision && !(initialize && data.revision < previous.revision)) throw Error('noise.conflict');
   if (!Number.isSafeInteger(previous.revision) || previous.revision >= Number.MAX_SAFE_INTEGER) throw Error('noise.invalid');
   const next = structuredClone(previous), patches = new Map();
   Object.setPrototypeOf(next.profiles, null); Object.setPrototypeOf(next.actors, null);
@@ -25,7 +32,7 @@ function plan(scene, nick, data) {
     next.actors[nick] = { enabled: a.enabled, strength: a.strength, profileId: a.profileId };
   }
   if (data.takes !== undefined) {
-    if (!Array.isArray(data.takes) || data.takes.length > 8000 || typeof data.apply !== 'boolean') throw Error('noise.invalid');
+    if (!Array.isArray(data.takes) || !data.takes.length || data.takes.length > 8000 || typeof data.apply !== 'boolean') throw Error('noise.invalid');
     const seen = new Set(), lines = new Map(scene.lines.map(line => [line.id, line]));
     const profileId = data.apply ? binding({ noiseReduction: next }, data.profileId, nick) : null;
     if (data.apply && !profileId) throw Error('noise.profileMissing');

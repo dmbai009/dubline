@@ -11,6 +11,7 @@
   let audioScene = null;
   const fading = new Map();
   let selectionCatalog = new Map(), selectedTakes = new Set();
+  const automaticScopes = new Set();
   let offerPending = false, offerTimer = null, focus = null;
   let statusKey = null, statusValues = null;
   const signatureNow = () => JSON.stringify({ input: DublineAudioDevices.getSelection().inputId, gain: userMicGain, browser: noiseSuppression });
@@ -37,7 +38,7 @@
     const a = actor(), p = session?.noiseReduction?.profiles?.[a?.profileId];
     profile = p || (model.validProfile(stored?.profile) ? stored.profile : null);
     signature = stored?.profile?.id === profile?.id ? stored?.signature || null : null;
-    draft = a ? { ...a } : { enabled: !!profile, strength: .2, profileId: profile?.id || null };
+    draft = a ? { ...a } : { enabled: !!profile && stored?.enabled !== false, strength: stored?.strength ?? .2, profileId: profile?.id || null };
     $('noiseEnable').checked = draft.enabled; $('noiseStrength').value = Math.round(draft.strength * 100);
     status(profile ? ((signature?.settings || signature) === signatureNow() ? 'noise.calibrated' : 'noise.recalibrateRecommended') : 'noise.notCalibrated');
     controls(); populateSamples();
@@ -186,7 +187,7 @@
   async function confirm() {
     if (!profile || busy()) return;
     if (await mutation({ profile, actor: { ...draft, profileId: profile.id } })) {
-      stored = { profile, signature }; write('dubline_noise_profile', stored); write('dubline_noise_offer_seen', true);
+      stored = { profile, signature, enabled: draft.enabled, strength: draft.strength }; write('dubline_noise_profile', stored); write('dubline_noise_offer_seen', true);
     }
   }
   function selection(reset = true) {
@@ -213,7 +214,7 @@
     if (!$('noiseDialog').open || sceneId !== session?.activeSessionId) return;
     // Local checkbox/sample selection is not consulted when applying global settings.
     if (await mutation({ profile, actor: { ...draft, profileId: profile.id }, takes, profileId: profile.id, apply })) {
-      stored = { profile, signature }; write('dubline_noise_profile', stored); selection();
+      stored = { profile, signature, enabled: draft.enabled, strength: draft.strength }; write('dubline_noise_profile', stored); selection();
     }
   }
   function selectedItems() { return [...selectedTakes].map(key => selectionCatalog.get(key)); }
@@ -221,10 +222,30 @@
     if (data.sessionId !== session?.activeSessionId || data.noiseReduction.revision < (session.noiseReduction?.revision || 0)) return;
     if (!acceptSessionProtocol(data.editorProtocol)) return;
     session.noiseReduction = data.noiseReduction;
+    if (stored && data.author === myName && actor()) { stored.enabled = actor().enabled; stored.strength = actor().strength; write('dubline_noise_profile', stored); }
     audio.invalidateNoise(data.author); if (data.lines?.length) applyTakeUpdates(data.sessionId, data.lines, data.editorProtocol, { prewarm: false });
     paintCard();
   }
   function paintCard() { $('noiseCardStatus').textContent = t(actor()?.enabled ? 'noise.enabledStatus' : 'noise.offStatus'); }
+  async function initializeFutureTakes() {
+    if (!socket.connected || !session?.loaded || !window.hasSceneMediaAccess?.() || !model.validProfile(stored?.profile) || actor() ||
+        (stored.signature?.settings || stored.signature) !== signatureNow() || ownTakes().some(item => item.take.noiseProfileId)) return;
+    const scope = session.activeSessionId, name = myName, key = `${currentRoom}:${scope}:${name}`;
+    if (automaticScopes.has(key)) return; automaticScopes.add(key);
+    if (automaticScopes.size > 32) automaticScopes.delete(automaticScopes.values().next().value);
+    const p = { ...stored.profile }, localId = p.id;
+    if (session.noiseReduction?.profiles[p.id] && session.noiseReduction.profiles[p.id].author !== name) p.id = newUploadId();
+    const request = { sessionId: scope, revision: session.noiseReduction?.revision || 0, initialize: true, profile: p,
+      actor: { enabled: stored.enabled !== false, strength: stored.strength ?? .2, profileId: p.id }, operationId: newUploadId(), operationEpoch: session.editorProtocol.epoch, operationTime: Date.now() };
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (!socket.connected || scope !== session?.activeSessionId || name !== myName) return;
+      const result = await new Promise(resolve => socket.volatile.timeout(5000).emit('noise_update', request, (error, value) => resolve(error ? null : value)));
+      if (result) {
+        if (result.ok && scope === session?.activeSessionId && actor()?.profileId === p.id && stored?.profile.id === localId) { stored.profile = p; write('dubline_noise_profile', stored); }
+        return;
+      }
+    }
+  }
   function scheduleOffer() {
     if (!offerPending || read('dubline_noise_offer_seen') || model.validProfile(stored?.profile)) return;
     clearTimeout(offerTimer); offerTimer = setTimeout(() => {
@@ -235,7 +256,7 @@
   }
   function dismissOffer(configure) { write('dubline_noise_offer_seen', true); offerPending = false; $('noiseOffer').close(); if (configure) open(); }
   function captureBinding(gain = userMicGain, browser = noiseSuppression, stream = null) {
-    const a = actor(); if (!a?.enabled) return null;
+    const a = actor(); if (!a) { if (stored?.enabled && model.validProfile(stored.profile)) showToast(t('noise.profileMissing')); return null; } if (!a.enabled) return null;
     const captured = JSON.stringify({ input: DublineAudioDevices.getSelection().inputId, gain, browser });
     const actual = deviceKey(stream);
     if (stored?.profile?.id !== a.profileId || (stored.signature?.settings || stored.signature) !== captured || stored.signature?.deviceId && stored.signature.deviceId !== actual) { showToast(t('noise.recalibrateRecommended')); return null; }
@@ -283,10 +304,12 @@
     $('noiseSelectNone').onclick = () => { selectedTakes.clear(); selection(false); };
     $('noiseApplySelected').onclick = () => applyTakes(selectedItems(), true); $('noiseRemoveSelected').onclick = () => applyTakes(selectedItems(), false); $('noiseRemoveAll').onclick = () => applyTakes(ownTakes().filter(item => item.take.noiseProfileId), false); $('noiseSelectionCancel').onclick = () => $('noiseSelection').hidden = true;
     socket.on('noise_updated', receive);
-    socket.on('session_updated', () => { if (audioScene !== session?.activeSessionId) { audioScene = session?.activeSessionId; DublineNoiseAudio.cancelAll(); } if (dialog.open && sceneId !== session?.activeSessionId) close(); paintCard(); scheduleOffer(); });
+    socket.on('session_updated', () => { if (audioScene !== session?.activeSessionId) { audioScene = session?.activeSessionId; DublineNoiseAudio.cancelAll(); } if (dialog.open && sceneId !== session?.activeSessionId) close(); paintCard(); scheduleOffer(); void initializeFutureTakes(); });
+    socket.on('nick_state', () => { void initializeFutureTakes(); });
     for (const event of ['line_updated', 'takes_updated']) socket.on(event, () => { if (sampleIdentity && !ownTakes().some(item => `${item.line.id}:${item.take.id}` === sampleIdentity)) { stopPlayback(false); sample = null; cleaned = null; previewAbort?.abort(); ++processingGeneration; controls(); status('noise.sampleUnavailable'); } });
     socket.on('disconnect', () => { if (dialog.open) close(); offer.close(); });
     window.addEventListener('dubline-microphone-granted', () => { offerPending = true; });
+    window.addEventListener('storage', event => { if (event.key === 'dubline_noise_profile') stored = read('dubline_noise_profile'); });
     window.addEventListener('dubline-microphone-released', scheduleOffer);
     document.addEventListener('close', scheduleOffer, true);
     // Legacy settings/PIN/help overlays close by changing style rather than by

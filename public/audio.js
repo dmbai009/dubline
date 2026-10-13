@@ -454,8 +454,8 @@
       invalidateNoise: author => {
         const lines = getSession()?.lines || [], urls = new Set();
         for (const line of lines) {
-          if (line.recordedBy === author && line.audioUrl) { urls.add(line.audioUrl); resetLine(line.id); }
-          for (const take of line.takeHistory || []) if (take.recordedBy === author) urls.add(take.audioUrl);
+          if (line.recordedBy === author && line.audioUrl && line.noiseProfileId) { urls.add(line.audioUrl); resetLine(line.id); }
+          for (const take of line.takeHistory || []) if (take.recordedBy === author && take.noiseProfileId) urls.add(take.audioUrl);
         }
         for (const key of processedTakeCache.keys()) if ([...urls].some(url => key.startsWith(url + '|') || key.includes('|' + url + '|'))) processedTakeCache.delete(key);
         if (urls.has(previewPendingLine?.audioUrl) || urls.has(previewGraph?.audioUrl)) stopPreview();
