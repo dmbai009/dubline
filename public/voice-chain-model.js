@@ -22,7 +22,7 @@
       inheritRoleEffects: take.inheritRoleEffects !== false, excludedRoleEffectIds: [...(take.excludedRoleEffectIds || [])] };
   }
   function validTake(value) {
-    return object(value) && validEffects(value.effects) && ['inherit', 'override'].includes(value.pitchMode) && typeof value.inheritRoleEffects === 'boolean' && Array.isArray(value.excludedRoleEffectIds) && value.excludedRoleEffectIds.length <= MAX_EFFECTS && value.excludedRoleEffectIds.every(id) && new Set(value.excludedRoleEffectIds).size === value.excludedRoleEffectIds.length;
+    return object(value) && Object.keys(value).every(key => FIELDS.includes(key)) && validEffects(value.effects) && ['inherit', 'override'].includes(value.pitchMode) && typeof value.inheritRoleEffects === 'boolean' && Array.isArray(value.excludedRoleEffectIds) && value.excludedRoleEffectIds.length <= MAX_EFFECTS && value.excludedRoleEffectIds.every(id) && new Set(value.excludedRoleEffectIds).size === value.excludedRoleEffectIds.length;
   }
   const role = (scene, name) => Object.hasOwn(scene?.roleEffects || {}, name) ? scene.roleEffects[name] : { pitch: 0, effects: [], revision: 0 };
   const active = items => items.filter(item => item.enabled && item.amount > 0);

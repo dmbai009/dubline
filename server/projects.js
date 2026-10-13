@@ -261,7 +261,7 @@ function validateManifest(manifest) {
   }
   function validateTake(take) {
     if (manifest.formatVersion < 8 && (voiceModel.FIELDS.some(field => take[field] !== undefined) || take.effect === 'echo')) fail('Voice chains require version 8');
-    if (manifest.formatVersion >= 8 && !voiceModel.validTake(take)) fail('Invalid voice chain');
+    if (manifest.formatVersion >= 8 && !voiceModel.validTake(Object.fromEntries(voiceModel.FIELDS.map(field => [field, take[field]])))) fail('Invalid voice chain');
     if (take.noiseProfileId !== undefined && (manifest.formatVersion < 7 || take.noiseProfileId !== null && (!take.asset || !noiseModel.id(take.noiseProfileId) || p.noiseReduction.profiles[take.noiseProfileId]?.author !== take.recordedBy))) fail('Invalid noise profile reference');
     if (!object(take) || !VOICE_EFFECTS.includes(take.effect) || !finite(take.pitch, -MAX_PITCH, MAX_PITCH) ||
         typeof take.trimEnabled !== 'boolean' || !(take.recordedBy === null || text(take.recordedBy, 16, true))) fail('Invalid project take');
