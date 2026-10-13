@@ -112,7 +112,7 @@ window.handleStudioRecord = async function(lineId) {
     return;
   }
 
-  const btn = document.getElementById('recBtn');
+  let btn = document.getElementById('recBtn');
   if (!btn) return;
   if (recordState === 'idle' && video.playbackRate !== 1) window.setPreviewRate?.(1);
 
@@ -140,6 +140,7 @@ window.handleStudioRecord = async function(lineId) {
   if (!historyConsent) return;
   if (recordState !== 'idle' || watchMode || session.mode !== 'dub' || currentRoom !== recordingRoom || session.activeSessionId !== recordingSessionId || getLineOwner(session.lines.find(item => item.id === lineId)) !== recordingNick) return;
   window.DublineTakeHistory?.stop();
+  btn = document.getElementById('recBtn') || btn;
   let recordingMic;
   try {
     recordingMic = await window.DublineAudioDevices.capture({
@@ -173,6 +174,7 @@ window.handleStudioRecord = async function(lineId) {
   }
   line = currentLine;
   window.DublineTakeHistory?.stop();
+  btn = document.getElementById('recBtn') || btn;
   micStream = recordingMic;
 
   let micSource, gainNode, audioDest, voiceMeter, recorder;

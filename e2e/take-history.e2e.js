@@ -174,6 +174,17 @@ describe('take history: real uploads, sockets, inspector and portable projects',
     await host.evaluate(() => { document.body.style.zoom = '1.25'; showInspector(selectedLine); }); assert.equal(await host.$eval('.take-history', el => el.scrollWidth <= el.clientWidth + 1), true);
     await host.evaluate(async () => { inspector.style.width = ''; inspector.style.minWidth = ''; document.body.style.zoom = ''; await DublineI18n.setLanguage('en'); });
   });
+  test('starting a real recording from historical preview stops it and retains the live record button through Space save', async () => {
+    await host.evaluate(() => { preRollSeconds = 0; video.pause(); selectLine(session.lines[0]); inspector.querySelector('.take-history').open = true; });
+    const previous = (await read()).audioUrl;
+    await host.click('.take-history [data-history-action=play]'); await waitFor(host, () => !!inspector.querySelector('[data-history-action=play].active'));
+    await host.click('#recBtn'); await waitFor(host, () => recordState === 'recording');
+    assert.equal(await host.$eval('#recBtn', btn => btn.classList.contains('recording-active')), true);
+    assert.equal(await host.evaluate(() => !!inspector.querySelector('[data-history-action=play].active')), false);
+    await new Promise(resolve => setTimeout(resolve, 300)); await host.evaluate(() => document.activeElement.blur()); await host.keyboard.press('Space');
+    await waitFor(host, previous => recordState === 'idle' && !pendingTakes.size && !processingRecordings.size && session.lines[0].audioUrl !== previous, 15000, previous);
+    assert.ok((await read()).takeHistory.length <= 3); assert.deepEqual(host.errors, []);
+  });
   test('portable format 6 includes history and pins; opening and restart preserve recordings and IDs', async () => {
     let l = await read(); while (l.takeHistory.length < 3) { await upload(); l = await read(); }
     await update(host, 'pin', l.takeId, { value: true }); l = await read();
