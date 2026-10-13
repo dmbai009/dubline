@@ -218,12 +218,14 @@ describe('Authorized media delivery with optional P2P', { skip: skipReason }, ()
         await waitFor(seed, () => localMedia?.videoBlob && !mediaDownload);
         await seed.evaluate(corrupt => {
           if (corrupt) {
+            window.corruptedTestBytes = 0;
             const channel = DublineNetwork.channel;
             DublineNetwork.channel = value => {
               const wrapped = channel(value), send = wrapped.send.bind(wrapped);
               wrapped.send = data => {
                 if (data instanceof Uint8Array && data.byteLength > 4) { data = data.slice(); data[4] ^= 1; }
                 send(data);
+                if (data instanceof Uint8Array && data.byteLength > 4) window.corruptedTestBytes += data.byteLength - 4;
               }; return wrapped;
             };
           } else {
@@ -236,18 +238,26 @@ describe('Authorized media delivery with optional P2P', { skip: skipReason }, ()
         }, corrupt);
         await waitFor(host, name => seedingNicks.has(name), 10000, await seed.evaluate(() => myName));
         guest = await openPlayer(browser, server.url('media-transfer', 'dubline.test'), corrupt ? 'Integrity receiver' : 'Partial receiver', { p2pConsent: 'accepted',
-          beforeLoad: corrupt ? null : page => page.evaluateOnNewDocument(() => {
+          beforeLoad: page => page.evaluateOnNewDocument(corrupt => {
             const original = fetch; let held = false;
+            // Integrity checks require corrupt bytes to actually enter the receiver.
+            // Keep HTTP from winning this setup race; the fallback latency has its
+            // own separate real-time test and production settings remain untouched.
+            const gate = corrupt ? new Promise(resolve => { window.releasePartialHttp = resolve; }) : null;
             window.fetch = async (url, options) => {
-              if (options?.headers?.Range && !held) { held = true; await new Promise(resolve => { window.releasePartialHttp = resolve; }); }
+              if (gate && options?.headers?.Range) await gate;
+              if (!corrupt && options?.headers?.Range && !held) { held = true; await new Promise(resolve => { window.releasePartialHttp = resolve; }); }
               return original(url, options);
             };
-          })
+          }, corrupt)
         });
         if (!corrupt) {
           await waitFor(guest, () => [...partialFiles.values()].some(file => file.durable.size > 0));
           await seed.evaluate(() => { settingsP2P.checked = false; settingsP2P.dispatchEvent(new Event('change')); releasePartialUpload?.(); });
           await waitFor(guest, () => typeof releasePartialHttp === 'function'); await guest.evaluate(() => releasePartialHttp());
+        } else {
+          await waitFor(seed, () => corruptedTestBytes >= 262144);
+          await guest.evaluate(() => releasePartialHttp());
         }
         await waitFor(guest, () => localMedia?.videoBlob && !mediaDownload);
         const result = await guest.evaluate(async () => {

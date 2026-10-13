@@ -1,6 +1,6 @@
-# Dubline Project formats 1–5
+# Dubline Project formats 1–6
 
-An archive uses the `.dubline` extension and a standard ZIP container. `project.json` is UTF-8 JSON with `format: "dubline-project"`, required `formatVersion: 1`, `2`, `3`, `4` or `5`, `project`, and `assets`. The serializer is `server/projects.js`; it never exports raw room persistence.
+An archive uses the `.dubline` extension and a standard ZIP container. `project.json` is UTF-8 JSON with `format: "dubline-project"`, required `formatVersion: 1`, `2`, `3`, `4`, `5` or `6`, `project`, and `assets`. The serializer is `server/projects.js`; it never exports raw room persistence.
 
 ## Manifest
 

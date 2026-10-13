@@ -187,6 +187,8 @@ describe('audit: actual editor controls and recording queue', { skip: skipReason
     await guest.reload(); await waitFor(guest, () => myName === 'Bobby' && pendingTakes.has('rename-pending'));
     guest.off('request', handler); await guest.setRequestInterception(false); await guest.evaluate(() => retryPendingTakes());
     await waitFor(host, () => session.lines[0].recordedBy === 'Bobby');
+    // The room delta precedes the HTTP acknowledgement that retires the local Blob.
+    await waitFor(guest, () => pendingTakes.size === 0);
     assert.equal(await guest.evaluate(() => pendingTakes.size), 0);
   });
   test('a nickname-not-confirmed response keeps the blob and retries with the new nickname', async () => {
@@ -272,6 +274,7 @@ describe('audit: actual editor controls and recording queue', { skip: skipReason
     await guest.evaluate(() => socket.emit('rename_user', { newName: 'Bobby' }));
     await waitFor(guest, () => myName === 'Bobby'); await guest.evaluate(() => { window.resumeAnalysis(); });
     await waitFor(host, () => session.lines[0].recordedBy === 'Bobby');
+    await waitFor(guest, () => pendingTakes.size === 0 && processingRecordings.size === 0);
     assert.equal(await guest.evaluate(() => pendingTakes.size), 0);
   });
   test('nudge and Reset shift preserve negative preparation audio at frame zero', async () => {
