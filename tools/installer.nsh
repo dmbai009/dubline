@@ -1,5 +1,8 @@
 ; Per-user handler, owned by Setup. Protected Windows UserChoice is read only.
 !define DUBLINE_SETUP_PROGID "io.github.dmbai009.Dubline.Setup.Project"
+; NSIS uses the final component as the Browse dialog's automatic subfolder.
+; initMultiUser still restores an existing installation's exact location.
+InstallDir "$LOCALAPPDATA\Programs\${APP_FILENAME}"
 !macro customWelcomePage
   !insertmacro skipPageIfUpdated
   !insertmacro MUI_PAGE_WELCOME

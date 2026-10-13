@@ -5,7 +5,9 @@ with a standard Windows wizard:
 
 1. Welcome.
 2. DubLine Source License 1.0.
-3. Destination folder, including a writable folder on another drive.
+3. Destination folder, including a writable folder on another drive. Selecting a
+   parent with Browse automatically appends `Dubline`; selecting `Dubline` itself
+   keeps that folder without nesting another copy.
 4. Installation progress.
 5. Finish, with a checkbox to launch Dubline.
 
@@ -44,3 +46,12 @@ production ASAR/runtime with a separate QA NSIS app ID, handler, shortcut names,
 Installed apps entry and installer cache. Production handler/shortcut/cache hashes
 must remain unchanged. Only the verified owned QA cached installer is cleaned up.
 The isolated packages are test artifacts and must not be published.
+
+To verify Browse without installing or changing registered applications, run:
+
+```powershell
+powershell -NoProfile -File tools/setup-wizard-qa.ps1 -SetupFile dist/Dubline-1.4.0-win-x64-Setup.exe -InstallDirectory build/update-qa/directory-probe -ReportFile build/update-qa/directory-probe.json -ProbeOnly -VerifyDirectoryBrowse
+```
+
+The probe selects a drive root, a parent containing spaces/Unicode and the existing
+`Dubline` child, checks the displayed destination, then cancels before installation.
