@@ -95,7 +95,7 @@ if (require.main === module) {
     }
     if (!message || message.type !== 'shutdown') return;
     flushRooms();
-    server.close(() => process.exit(0));
+    void require('./server/video-export').close().finally(() => server.close(() => process.exit(0)));
     setTimeout(() => process.exit(0), 2000).unref();
   });
 }

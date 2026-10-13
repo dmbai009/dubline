@@ -12,7 +12,7 @@ window.updateExportDurationWarning = function() {
   const duration = Number(video.duration);
   const isLong = !!(session && session.loaded && Number.isFinite(duration) && duration >= LONG_EXPORT_WARNING_SECONDS);
   longExportWarning.style.display = isLong ? 'block' : 'none';
-  if (isLong) longExportWarning.textContent = t('warning.longExport', { minutes: Math.ceil(duration / 60) });
+  if (isLong) longExportWarning.textContent = t(window.dublineVideoExport ? 'exportVideo.longNative' : 'warning.longExport', { minutes: Math.ceil(duration / 60) });
 };
 
 video.addEventListener('loadedmetadata', updateExportDurationWarning);
@@ -64,7 +64,27 @@ function createExportSnapshot() {
   const sources = window.DublineProjectAudio.sources(scene);
   return { scene, takes: scene.lines.filter(exportableTake), gains: readRenderGains(scene),
     originalUrl: mediaUrl(sources.original), backingUrl: mediaUrl(sources.backing),
-    videoUrl: scene.videoUrl, videoBlob: localMedia && localMedia.forVideoUrl === scene.videoUrl ? localMedia.videoBlob : null };
+    videoUrl: scene.videoUrl, videoBlob: exportLocalVideo(scene), assets: localMedia?.sessionId === scene.activeSessionId ? localMedia.assets : {} };
+}
+
+function exportLocalVideo(scene) {
+  if (!localMedia?.videoBlob || localMedia.forVideoUrl !== scene.videoUrl || localMedia.sessionId !== scene.activeSessionId || localMedia.videoHash !== scene.videoHash) return null;
+  if (scene.videoSize && localMedia.videoBlob.size !== scene.videoSize) return null;
+  // A manually chosen disk file may differ from the room's canonical working video.
+  return localMedia.source === 'p2p' || window.DublineMediaTransfer?.stats().currentVideoVerified ? localMedia.videoBlob : null;
+}
+
+async function waitForExportVideo(snapshot, job) {
+  while (!exportLocalVideo(snapshot.scene) && mediaDownload?.sessionId === snapshot.scene.activeSessionId && mediaDownload.videoUrl === snapshot.videoUrl) {
+    job.check();
+    await new Promise((resolve, reject) => {
+      const aborted = () => { clearTimeout(timer); reject(new DOMException('Export cancelled', 'AbortError')); };
+      const timer = setTimeout(() => { job.abort.signal.removeEventListener('abort', aborted); resolve(); }, 200);
+      job.abort.signal.addEventListener('abort', aborted, { once: true });
+    });
+  }
+  job.check(); snapshot.videoBlob = exportLocalVideo(snapshot.scene);
+  if (localMedia?.sessionId === snapshot.scene.activeSessionId) snapshot.assets = { ...localMedia.assets, ...snapshot.assets };
 }
 
 function exportTakeStart(line, scene) {
@@ -77,8 +97,14 @@ function exportAudioError(source) {
   return error;
 }
 
-async function requireExportTake(line) {
-  const buffer = await getProcessedTake(line) || await getProcessedTake(line);
+async function requireExportTake(line, signal = null) {
+  const wait = promise => !signal ? promise : new Promise((resolve, reject) => {
+    const abort = () => reject(new DOMException('Export cancelled', 'AbortError'));
+    if (signal.aborted) { abort(); return; }
+    signal.addEventListener('abort', abort, { once: true });
+    Promise.resolve(promise).then(resolve, reject).finally(() => signal.removeEventListener('abort', abort));
+  });
+  const buffer = await wait(getProcessedTake(line, { signal })) || await wait(getProcessedTake(line, { signal }));
   if (!buffer) throw exportAudioError(`#${line.id}`);
   return buffer;
 }
@@ -94,20 +120,23 @@ function assertExportScene(snapshot) {
   }
 }
 
-function waitForRenderPlayback(snapshot, timeoutMs = 8000) {
+function waitForRenderPlayback(snapshot, timeoutMs = 8000, element = video, signal = null) {
   return new Promise((resolve, reject) => {
     let settled = false;
     const done = error => {
       if (settled) return;
-      settled = true; clearTimeout(timer); clearInterval(watchdog);
-      if (error) { video.pause(); reject(error); } else resolve();
+      settled = true; clearTimeout(timer); clearInterval(watchdog); signal?.removeEventListener('abort', aborted);
+      if (error) { element.pause(); reject(error); } else resolve();
     };
     const failed = () => { const error = new Error(t('render.playbackFailed')); error.code = 'DUBLINE_EXPORT_PLAYBACK'; return error; };
+    const aborted = () => done(new DOMException('Export cancelled', 'AbortError'));
     const watchdog = setInterval(() => {
-      try { assertExportScene(snapshot); if (video.error) done(failed()); } catch (error) { done(error); }
+      try { assertExportScene(snapshot); if (element.error) done(failed()); } catch (error) { done(error); }
     }, 100);
     const timer = setTimeout(() => done(failed()), timeoutMs);
-    Promise.resolve().then(() => video.play()).then(() => {
+    if (signal?.aborted) { aborted(); return; }
+    signal?.addEventListener('abort', aborted, { once: true });
+    Promise.resolve().then(() => element.play()).then(() => {
       if (settled) return;
       try { assertExportScene(snapshot); done(); } catch (error) { done(error); }
     }, error => done(error));
@@ -422,234 +451,55 @@ function supportsWebCodecsRender() {
 // WebCodecs render: the video track is copied without re-encoding, the audio is encoded by AudioEncoder.
 // Many times faster than real time and works even when the tab is minimized.
 async function renderWithWebCodecs(progress, snapshot = createExportSnapshot()) {
-  const mb = await import('/vendor/mediabunny/mediabunny.min.mjs');
-
-  progress(1, t('render.readVideo'));
-  // If the video was picked from disk, read it locally instead of through the tunnel
-  const source = snapshot.videoBlob ? new mb.BlobSource(snapshot.videoBlob) : new mb.UrlSource(snapshot.videoUrl);
-  const input = new mb.Input({ source, formats: mb.ALL_FORMATS });
-  const videoTrack = await input.getPrimaryVideoTrack();
-  if (!videoTrack) throw new Error(t('render.noVideo'));
-  const videoCodec = await videoTrack.getCodec();
-  const decoderConfig = await videoTrack.getDecoderConfig();
-  const duration = await videoTrack.computeDuration();
-  if (!videoCodec || !decoderConfig) throw new Error(t('render.unknownCodec'));
-
-  assertExportScene(snapshot);
-  const soundtrack = await mixSoundtrack(duration, snapshot.gains, text => progress(5, text), snapshot);
-
-  const audioCodec = await mb.getFirstEncodableAudioCodec(['aac', 'opus'], {
-    numberOfChannels: soundtrack.numberOfChannels,
-    sampleRate: soundtrack.sampleRate
-  });
-  if (!audioCodec) throw new Error(t('render.noAudioCodec'));
-
-  const output = new mb.Output({
-    format: new mb.Mp4OutputFormat({ fastStart: 'in-memory' }),
-    target: new mb.BufferTarget()
-  });
-  const videoSource = new mb.EncodedVideoPacketSource(videoCodec);
-  const audioSource = new mb.AudioBufferSource({ codec: audioCodec, quality: mb.QUALITY_HIGH });
-  output.addVideoTrack(videoSource);
-  output.addAudioTrack(audioSource);
-  await output.start();
-
-  // Add audio in chunks mixed with video so the tracks are interleaved in the file
-  const rate = soundtrack.sampleRate;
-  let audioPos = 0;
-  const pushAudioUntil = async (seconds) => {
-    const target = Math.min(soundtrack.length, Math.ceil(seconds * rate));
-    while (audioPos < target) {
-      const next = Math.min(target, audioPos + rate);
-      await audioSource.add(sliceAudioBuffer(soundtrack, audioPos, next));
-      audioPos = next;
-    }
-  };
-
-  const sink = new mb.EncodedPacketSink(videoTrack);
-  let first = true;
-  let lastUiUpdate = 0;
-  for await (const packet of sink.packets()) {
-    await videoSource.add(packet, first ? { decoderConfig } : undefined);
-    first = false;
-    await pushAudioUntil(packet.timestamp + 1);
-
-    const now = performance.now();
-    if (now - lastUiUpdate > 100) {
-      lastUiUpdate = now;
-      const pct = Math.min(95, 10 + 85 * (packet.timestamp / duration));
-      progress(pct, t('render.mp4Progress', { current: Math.round(packet.timestamp), total: Math.round(duration) }));
-    }
-  }
-  await pushAudioUntil(Infinity);
-
-  videoSource.close();
-  audioSource.close();
-  progress(97, t('render.finalize'));
-  await output.finalize();
-  return new Blob([output.target.buffer], { type: 'video/mp4' });
+  const job = { abort: new AbortController(), bytes: 0, percent: 0, check: () => assertExportScene(snapshot) };
+  const result = await window.DublineVideoExportEngine.render({ mode: 'fast', format: 'mp4' }, snapshot, progress, job);
+  return result.blob;
 }
 
-// Fallback for browsers without WebCodecs: real-time capture
-async function renderRealtime(progress, snapshot = createExportSnapshot()) {
-  assertExportScene(snapshot);
-  const duration = video.duration;
-  const soundtrack = await mixSoundtrack(duration, snapshot.gains, text => progress(2, text), snapshot);
-  assertExportScene(snapshot);
+// Direct callers and the export panel share the same bounded real-time renderer.
+async function renderRealtime(progress, snapshot = createExportSnapshot(), settings = null, job = null) {
+  if (!settings) {
+    await DublineVideoExportPanel.open();
+    const selected = DublineVideoExportPanel.settings();
+    settings = { ...selected, mode: 'fast', fps: null };
+  }
+  job ||= { abort: new AbortController(), bytes: 0, check: () => assertExportScene(snapshot) };
+  return window.DublineVideoExportEngine.realtime(settings, snapshot, progress, job);
+}
 
-  const renderCanvas = document.createElement('canvas');
-  renderCanvas.width = video.videoWidth || 1280;
-  renderCanvas.height = video.videoHeight || 720;
-  const ctx = renderCanvas.getContext('2d');
-
-  const actx = new (window.AudioContext || window.webkitAudioContext)();
-  const dest = actx.createMediaStreamDestination();
-  const mixSource = actx.createBufferSource();
-  mixSource.buffer = soundtrack;
-  mixSource.connect(dest);
-
-  const combinedStream = new MediaStream([
-    ...renderCanvas.captureStream(30).getVideoTracks(),
-    ...dest.stream.getAudioTracks()
-  ]);
-
-  const mimeType = MediaRecorder.isTypeSupported('video/mp4;codecs=avc1,mp4a.40.2')
-    ? 'video/mp4;codecs=avc1,mp4a.40.2'
-    : (MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus') ? 'video/webm;codecs=vp9,opus' : 'video/webm');
-
-  const recorder = new MediaRecorder(combinedStream, { mimeType });
-  const recordedChunks = [];
-  recorder.ondataavailable = e => { if (e.data.size > 0) recordedChunks.push(e.data); };
-  const stopped = new Promise(resolve => { recorder.onstop = resolve; });
-
-  const savedMuted = video.muted;
-  let frame, watchdog;
+async function renderOriginalVideo(progress, snapshot, settings = { mode: 'original', source: 'original' }, job = null) {
+  job ||= { abort: new AbortController(), check: () => assertExportScene(snapshot) };
+  const duration = settings.sourceInfo?.duration || snapshot.scene.videoDuration || video.duration;
+  const webm = settings.format === 'webm';
+  let output, soundtrack, extension = webm ? 'webm' : 'm4a';
+  snapshot.exportSignal = job.abort.signal;
   try {
-    video.muted = true;
-    if (video.currentTime !== 0 || video.seeking) await new Promise((resolve, reject) => {
-      const done = error => { clearTimeout(timer); video.removeEventListener('seeked', seeked); error ? reject(error) : resolve(); };
-      const seeked = () => done();
-      const timer = setTimeout(() => done(new Error(t('render.playbackFailed'))), 8000);
-      video.addEventListener('seeked', seeked, { once: true });
-      video.currentTime = 0;
-    });
-    assertExportScene(snapshot);
-    recorder.start();
-    await waitForRenderPlayback(snapshot);
-    mixSource.start();
-    await new Promise((resolve, reject) => {
-      let lastTime = video.currentTime, lastProgress = performance.now();
-      const check = () => {
-        try {
-          assertExportScene(snapshot);
-          if (video.error) throw new Error(t('render.playbackFailed'));
-          if (video.currentTime !== lastTime) { lastTime = video.currentTime; lastProgress = performance.now(); }
-          if (video.ended || video.currentTime >= duration - 0.1) return resolve();
-          if (performance.now() - lastProgress > 10000) throw new Error(t('render.playbackFailed'));
-        } catch (error) { reject(error); }
-      };
-      const drawRenderFrame = () => {
-        try {
-          ctx.drawImage(video, 0, 0, renderCanvas.width, renderCanvas.height);
-          progress((video.currentTime / duration) * 100, t('render.realtimeProgress', { current: Math.round(video.currentTime), total: Math.round(duration) }));
-          check();
-          frame = requestAnimationFrame(drawRenderFrame);
-        } catch (error) { reject(error); }
-      };
-      watchdog = setInterval(check, 250);
-      frame = requestAnimationFrame(drawRenderFrame);
-    });
-  } finally {
-    clearInterval(watchdog); cancelAnimationFrame(frame);
-    video.pause(); video.muted = savedMuted;
-    try { mixSource.stop(); } catch { /* not started */ }
-    if (recorder.state !== 'inactive') { recorder.stop(); await stopped; }
-    combinedStream.getTracks().forEach(track => track.stop());
-    await actx.close();
-  }
-
-  return { blob: new Blob(recordedChunks, { type: mimeType }), ext: mimeType.includes('mp4') ? 'mp4' : 'webm' };
-}
-
-async function renderOriginalVideo(progress,snapshot) {
-  const soundtrack=await mixSoundtrack(snapshot.scene.videoDuration || video.duration,snapshot.gains,text=>progress(5,text),snapshot);
-  assertExportScene(snapshot);
-  progress(25,t('render.encodeSoundtrack'));
-  const mb=await import('/vendor/mediabunny/mediabunny.min.mjs');
-  const output=new mb.Output({format:new mb.Mp4OutputFormat({fastStart:'in-memory'}),target:new mb.BufferTarget()});
-  const source=new mb.AudioBufferSource({codec:'aac',bitrate:192000});
-  output.addAudioTrack(source);await output.start();
-  for(let from=0;from<soundtrack.length;from+=soundtrack.sampleRate){
-    assertExportScene(snapshot);
-    await source.add(sliceAudioBuffer(soundtrack,from,Math.min(soundtrack.length,from+soundtrack.sampleRate)));
-    progress(25+45*from/soundtrack.length,t('render.encodeSoundtrack'));
-  }
-  source.close();await output.finalize();
-  const form=new FormData();form.append('clientId',clientId);form.append('sessionId',snapshot.scene.activeSessionId);
-  form.append('soundtrack',new Blob([output.target.buffer],{type:'audio/mp4'}),'soundtrack.m4a');
-  progress(75,t('render.originalMux'));
-  const response=await window.DublineNetwork.upload('/api/export-original-video?room='+encodeURIComponent(currentRoom),{method:'POST',body:form});
-  if(!response.ok)throw new Error(await readError(response));
-  const prepared=await response.json();assertExportScene(snapshot);
-  const link=document.createElement('a');link.href=prepared.downloadUrl;link.download=prepared.filename;link.click();
-}
-window.startVideoRender = async function() {
-  if (renderInProgress || recordState !== 'idle') return showToast(t('studio.mediaBusy'));
-  if (!session || !session.loaded) return showToast(t('error.noScene'));
-  if (session.hasOriginalVideo && !amHost()) return showToast(t('render.originalHost'));
-  const startBtn = document.getElementById('startRenderBtn');
-  const progressBox = document.getElementById('renderProgressBox');
-  const progressBar = document.getElementById('renderProgressBar');
-  const statusText = document.getElementById('renderStatusText');
-
-  const progress = (pct, text) => {
-    progressBar.style.width = `${pct}%`;
-    statusText.innerText = `⏳ ${text}`;
-  };
-
-  await confirmHiddenTakes();
-  const snapshot = createExportSnapshot();
-  startBtn.disabled = true;
-  progressBox.style.display = 'block';
-  video.pause();
-  renderInProgress = true;
-  window.refreshStudioTransport?.();
-  applyVolumes();
-  const startedAt = performance.now();
-
-  try {
-    let result = null;
-    if (snapshot.scene.hasOriginalVideo) {await renderOriginalVideo(progress,snapshot);result={downloaded:true};}
-    if (!result && supportsWebCodecsRender()) {
-      try {
-        result = { blob: await renderWithWebCodecs(progress, snapshot), ext: 'mp4' };
-      } catch (err) {
-        if (err.code === 'DUBLINE_EXPORT_AUDIO' || err.code === 'DUBLINE_EXPORT_SCENE') throw err;
-        console.error('[Dubline] WebCodecs render failed, falling back to real-time capture:', err);
-        progress(0, t('render.fallback'));
+    if (settings.audioRealtime) {
+      const audioJob = { ...job, destination: null, bytes: 0 };
+      const result = await DublineVideoExportEngine.realtime({ ...settings, audioOnly: true, fps: null }, snapshot, (percent, text) => progress(Math.min(70, percent * 0.7), text), audioJob);
+      soundtrack = result.blob; extension = result.ext;
+    } else {
+      const mb = await import('/vendor/mediabunny/mediabunny.min.mjs');
+      output = new mb.Output({ format: webm ? new mb.WebMOutputFormat() : new mb.Mp4OutputFormat({ fastStart: false }), target: new mb.BufferTarget() });
+      job.output = output;
+      const source = new mb.AudioBufferSource({ codec: webm ? 'opus' : 'aac', bitrate: DublineVideoExportPolicy.AUDIO_BITRATE });
+      output.addAudioTrack(source); await output.start();
+      for await (const chunk of DublineVideoExportAudio.chunks(mb, snapshot, duration, text => progress(5, text), job.check)) {
+        job.check(); await source.add(chunk.buffer); progress(10 + 60 * chunk.end / duration, t('render.encodeSoundtrack'));
       }
+      source.close(); await output.finalize(); soundtrack = new Blob([output.target.buffer], { type: webm ? 'audio/webm' : 'audio/mp4' });
     }
-    if (!result) result = await renderRealtime(progress, snapshot);
-
-    assertExportScene(snapshot);
-    if (!result.downloaded) downloadBlob(result.blob, result.ext, snapshot.scene.title);
-    const seconds = ((performance.now() - startedAt) / 1000).toFixed(1);
-    progressBar.style.width = '100%';
-    statusText.innerText = result.downloaded ? t('project.downloadStarted') : t('render.done', { seconds });
-    setTimeout(() => {
-      closeRenderModal();
-      progressBox.style.display = 'none';
-    }, 2000);
-  } catch (err) {
-    console.error('[Dubline] Render failed:', err);
-    statusText.innerText = t('render.error', { message: err.message });
-  } finally {
-    renderInProgress = false;
-    window.refreshStudioTransport?.();
-    applyVolumes();
-    startBtn.disabled = !!(session?.hasOriginalVideo && !amHost());
-  }
-};
+    job.check();
+    const form = new FormData();
+    form.append('clientId', clientId); form.append('sessionId', snapshot.scene.activeSessionId); form.append('videoUrl', snapshot.videoUrl); form.append('source', settings.source);
+    if (settings.mode === 'custom') form.append('options', JSON.stringify({ format: settings.format, codec: settings.codec, width: settings.width, height: settings.height, fps: settings.fps, bitrate: settings.bitrate }));
+    form.append('soundtrack', soundtrack, 'soundtrack.' + extension);
+    progress(75, t('render.originalMux'));
+    const response = await fetch('/api/export-original-video?room=' + encodeURIComponent(currentRoom), { method: 'POST', body: form, signal: job.abort.signal });
+    if (!response.ok) throw new Error(await readError(response));
+    const prepared = await response.json(); job.check(); return prepared;
+  } finally { if (output && output.state !== 'finalized') await output.cancel().catch(() => {}); job.output = null; }
+}
 
 // ==========================================
 
@@ -661,9 +511,8 @@ const downloadVideoBtn = document.getElementById('downloadVideoBtn');
 function updateDownloadButtons() {
   const loaded = !!(session && session.loaded);
   const notice=document.getElementById('renderOriginalNotice');
-  notice.style.display=loaded && session.hasOriginalVideo?'block':'none';
-  notice.textContent=t(amHost()?'render.originalQuality':'render.originalHost');
-  if(!renderInProgress)document.getElementById('startRenderBtn').disabled=!!(loaded && session.hasOriginalVideo && !amHost());
+  notice.style.display='none';
+  if(!renderInProgress)document.getElementById('startRenderBtn').disabled=recordState !== 'idle' || document.getElementById('videoExportPanel')?.dataset.ready === 'false';
   if (loaded && session.zipUrl) {
     downloadPackBtn.href = session.zipUrl;
     downloadPackBtn.download = `${String(session.title || 'scene').replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_')}.zip`;

@@ -51,6 +51,36 @@ let shutdownComplete = false;
 let hostStarting = false;
 let projectSaving = false, projectChoosing = false, projectSaveJob = null, projectSaveTicket = null;
 const projectDestinations = new Map();
+let lastVideoExportDirectory = '';
+const videoExportFiles = require('./electron-video-export').createVideoExportFiles({
+  allowedDestination: async destination => {
+    const directory = await fs.promises.realpath(path.dirname(destination));
+    const candidate = path.join(directory, path.basename(destination)).toLowerCase();
+    for (const name of FOLDERS) {
+      const folder = path.join(projectStorage.info().root, name);
+      const actual = await fs.promises.realpath(folder).catch(() => folder);
+      if (candidate.startsWith(actual.toLowerCase() + path.sep)) return false;
+    }
+    return true;
+  },
+  choose: async (owner, options) => {
+    if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.id !== owner) return { canceled: true };
+    return dialog.showSaveDialog(mainWindow, { ...options, title: { en: 'Export video', ru: 'Экспорт видео', uk: 'Експорт відео' }[interfaceLanguage || 'en'] });
+  },
+  lastDirectory: () => {
+    if (!lastVideoExportDirectory) try { lastVideoExportDirectory = JSON.parse(fs.readFileSync(path.join(app.getPath('userData'), 'video-export-directory.json'), 'utf8')).directory || ''; } catch { /* First export uses the native dialog default. */ }
+    return lastVideoExportDirectory;
+  },
+  remember: directory => {
+    lastVideoExportDirectory = directory;
+    try { fs.writeFileSync(path.join(app.getPath('userData'), 'video-export-directory.json'), JSON.stringify({ directory })); } catch { /* Export remains available without writable preferences. */ }
+  },
+  confirmOverwrite: async (owner, destination) => {
+    if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.id !== owner) return false;
+    const labels = { en: ['Replace this file?', 'Replace', 'Cancel'], ru: ['Заменить этот файл?', 'Заменить', 'Отмена'], uk: ['Замінити цей файл?', 'Замінити', 'Скасувати'] }[interfaceLanguage || 'en'];
+    return (await dialog.showMessageBox(mainWindow, { type: 'warning', message: labels[0], detail: path.basename(destination), buttons: [labels[2], labels[1]], defaultId: 0, cancelId: 0 })).response === 1;
+  }
+});
 let localPort = null;
 let hostingMode = null;
 let hostingModeRequest = 0;
@@ -510,6 +540,7 @@ async function shutdown() {
   if (shutdownComplete) return;
   shuttingDown = true; shellProjects.dispose();
   if (projectSaveJob) await projectSaveJob.catch(() => {});
+  await videoExportFiles.close();
   if (mainWindow && !mainWindow.isDestroyed() && serverChild) {
     try { await mainWindow.webContents.executeJavaScript("typeof editorPersistence === 'undefined' ? Promise.resolve() : editorPersistence"); } catch (_) { /* Durable records stay in the profile. */ }
   }
@@ -537,6 +568,28 @@ function isGuestLanguageSender(event) {
   if (!guestOrigin || !mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents ||
       event.senderFrame !== mainWindow.webContents.mainFrame) return false;
   try { return new URL(event.senderFrame.url).origin === guestOrigin; } catch { return false; }
+}
+
+function isVideoExportSender(event) {
+  if (isGuestLanguageSender(event)) return true;
+  if (!isHostSender(event) || event.senderFrame !== event.sender.mainFrame) return false;
+  try { return new URL(event.senderFrame.url).origin === `http://127.0.0.1:${localPort}`; } catch { return false; }
+}
+const exportSenders = new WeakSet();
+for (const [operation, method] of [['choose', 'chooseDestination'], ['write', 'write'], ['commit', 'commit'], ['cancel', 'cancel'], ['reveal', 'revealed']]) {
+  ipcMain.handle('video-export:' + operation, async (event, data = {}) => {
+    if (!isVideoExportSender(event)) throw Error('Untrusted video export request.');
+    const sender = event.sender, owner = sender.id;
+    if (!exportSenders.has(sender)) {
+      exportSenders.add(sender);
+      sender.once('destroyed', () => { void videoExportFiles.releaseOwner(owner); });
+      sender.on('did-start-navigation', (_event, _url, inPlace, mainFrame) => { if (mainFrame && !inPlace) void videoExportFiles.releaseOwner(owner); });
+    }
+    if (operation === 'reveal') { shell.showItemInFolder(videoExportFiles.revealed(owner, data)); return { ok: true }; }
+    const result = await videoExportFiles[method](owner, data);
+    if (operation === 'choose' && !isVideoExportSender(event)) { await videoExportFiles.releaseOwner(owner); return { ok: true, canceled: true }; }
+    return result;
+  });
 }
 
 ipcMain.handle('launcher:detect-tools', event => {
@@ -799,7 +852,7 @@ ipcMain.handle('app:choose-storage', async event => {
 });
 
 async function desktopOperationBusy() {
-  if (hostStarting || storageSelecting || projectStorage.busy || projectSaving || projectChoosing || shuttingDown) return true;
+  if (hostStarting || storageSelecting || projectStorage.busy || projectSaving || projectChoosing || videoExportFiles.busy || shuttingDown) return true;
   if (serverChild) {
     try { if ((await requestServer('desktop-busy')).busy) return true; } catch (_) { return true; }
   }

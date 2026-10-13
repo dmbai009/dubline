@@ -153,7 +153,7 @@ test('guest preload exposes only language preferences, with no bridge in subfram
 
 test('guest language IPC accepts only the configured origin and the main frame', () => {
   const source = fs.readFileSync('electron-main.js', 'utf8');
-  const begin = source.indexOf('function isGuestLanguageSender('), end = source.indexOf("ipcMain.handle('launcher:detect-tools'", begin);
+  const begin = source.indexOf('function isGuestLanguageSender('), end = source.indexOf("function isVideoExportSender(", begin);
   const frame = { url: 'http://localhost:38500/?room=main' }, webContents = { mainFrame: frame };
   const c = { guestOrigin: 'http://localhost:38500', mainWindow: { isDestroyed: () => false, webContents }, URL };
   vm.runInNewContext(source.slice(begin, end), c);

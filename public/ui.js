@@ -510,7 +510,7 @@ window.switchFilesTab = function(tab) {
     content.classList.toggle('active', name === tab); content.hidden = name !== tab;
   });
   if (tab === 'packs') loadServerPacks().catch(() => { libraryList.textContent = t('conn.lost'); });
-  if (tab === 'export') updateExportDurationWarning();
+  if (tab === 'export') { updateExportDurationWarning(); window.DublineVideoExportPanel?.open(); }
   if (tab === 'video') renderCustomImportStatus();
 };
 filesModal.querySelector('[role="tablist"]').addEventListener('keydown', event => {

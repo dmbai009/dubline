@@ -24,6 +24,7 @@
     const pinnedUrls = new Set();
     const pinned = key => [...pinnedUrls, previewPendingLine?.audioUrl, previewGraph?.audioUrl].filter(Boolean).some(url => key === url || key.includes('|' + url + '|') || key.startsWith(url + '|'));
     const rawTakeCache = global.DublineAudioMemory ? new global.DublineAudioMemory.ByteCache(128 * 1024 ** 2, pinned) : new Map();
+    const rawRequests = new Map();
     const processedTakeCache = global.DublineAudioMemory ? new global.DublineAudioMemory.ByteCache(256 * 1024 ** 2, pinned) : new Map();
     let takeIndex = null, indexedLines = null, indexedSession = null, prefetchAt = -Infinity;
     const prefetching = new Set();
@@ -164,24 +165,30 @@
       };
     }
 
-    function getRawTake(url) {
+    function getRawTake(url, { signal } = {}) {
+      // Cancelling export must not abort a fetch also needed by local playback.
+      if (!signal && rawRequests.has(url)) rawRequests.get(url).shared = true;
       if (!rawTakeCache.has(url)) {
-        const job = Promise.resolve().then(() => fx.fetchAndDecode(url)).catch(() => null).then(buffer => {
+        const request = signal ? { controller: new AbortController(), shared: false } : null;
+        const abort = () => { if (!request.shared) request.controller.abort(); };
+        if (request) { rawRequests.set(url, request); if (signal.aborted) abort(); else signal.addEventListener('abort', abort, { once: true }); }
+        const job = Promise.resolve().then(() => fx.fetchAndDecode(url, request ? { signal: request.controller.signal } : undefined)).catch(() => null).then(buffer => {
           if (!buffer && rawTakeCache.get(url) === job) rawTakeCache.delete(url);
           if (buffer) takeIndex = null; // Decoded duration replaces a conservative unknown-length bound.
           return buffer;
-        });
+        }).finally(() => { if (request) { signal.removeEventListener('abort', abort); if (rawRequests.get(url) === request) rawRequests.delete(url); } });
         rawTakeCache.set(url, job);
       }
       return rawTakeCache.get(url);
     }
 
-    function getProcessedTake(line) {
+    function getProcessedTake(line, request = {}) {
       if (!line.audioUrl) return Promise.resolve(null);
+      if (!request.signal && rawRequests.has(line.audioUrl)) rawRequests.get(line.audioUrl).shared = true;
       line = { ...line };
       const key = `${line.audioUrl}|${line.effect || 'none'}|${line.pitch || 0}|${global.DublineTakeMix.normalize(line).effectAmount}|${line.trimEnabled !== false}|${line.trimStart}|${line.trimEnd}`;
       if (!processedTakeCache.has(key)) {
-        const job = getRawTake(line.audioUrl)
+        const job = getRawTake(line.audioUrl, request)
           .then(buffer => buffer && fx.renderVoice(
             buffer,
             line.effect || 'none',

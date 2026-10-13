@@ -137,7 +137,7 @@
     window.refreshBackingSource?.();
     window.refreshPlaybackTransport?.();
     const recordButton = document.getElementById('recBtn'); if (recordButton) recordButton.disabled = renderInProgress;
-    const exportButton = document.getElementById('startRenderBtn'); if (exportButton) exportButton.disabled = renderInProgress || recordState !== 'idle' || !!(session?.hasOriginalVideo && !amHost());
+    const exportButton = document.getElementById('startRenderBtn'); if (exportButton) exportButton.disabled = renderInProgress || recordState !== 'idle' || document.getElementById('videoExportPanel')?.dataset.ready === 'false';
     const time = value => `${Math.floor((value || 0) / 60)}:${String(Math.floor((value || 0) % 60)).padStart(2, '0')}`;
     document.querySelector('[data-studio-time]').textContent = `${time(video.currentTime)} / ${time(Number.isFinite(video.duration) ? video.duration : 0)}`;
     for (const button of document.querySelectorAll('.studio-transport [data-studio-action]')) {

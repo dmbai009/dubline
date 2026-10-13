@@ -35,7 +35,7 @@ app.use((req, res, next) => {
   const finish = () => { if (!completed) { completed = true; activeMediaRequests--; } };
   res.once('finish', finish); res.once('close', finish); next();
 });
-module.exports.isMediaBusy = () => activeMediaRequests > 0 || workshopDownloads.size > 0 || packExports.size > 0 || projectExports.size > 0 || projectImports.size > 0 || customImports.size > 0 || require('./backing-source').isBusy();
+module.exports.isMediaBusy = () => activeMediaRequests > 0 || workshopDownloads.size > 0 || packExports.size > 0 || projectExports.size > 0 || projectImports.size > 0 || customImports.size > 0 || require('./backing-source').isBusy() || require('./video-export').isBusy();
 
 app.get('/api/media-manifest', async (req, res) => {
   const roomId = resolveRoomId(req.query.room), member = Object.values(roomSockets[roomId] || {}).find(item => item.clientId === req.query.clientId && item.nick);

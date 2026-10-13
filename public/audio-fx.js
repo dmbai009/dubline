@@ -37,8 +37,8 @@ function decodeAudio(arrayBuffer) {
   return sharedDecodeCtx.decodeAudioData(arrayBuffer);
 }
 
-async function fetchAndDecode(url) {
-  const res = await fetch(url);
+async function fetchAndDecode(url, { signal } = {}) {
+  const res = await (signal ? fetch(url, { signal }) : fetch(url));
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return decodeAudio(await res.arrayBuffer());
 }

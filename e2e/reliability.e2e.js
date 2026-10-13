@@ -196,12 +196,12 @@ describe('Studio failure recovery', { skip: skipReason }, () => {
       const Recorder = window.MediaRecorder, Context = window.AudioContext;
       window.MediaRecorder = class extends Recorder { constructor(...args) { super(...args); window.exportRecorder = this; window.exportStream = args[0]; } };
       window.AudioContext = class extends Context { constructor(...args) { super(...args); window.exportContext = this; } };
-      video.play = () => new Promise(() => {}); renderInProgress = true;
+      HTMLMediaElement.prototype.play = function() { window.exportMovie = this; return new Promise(() => {}); }; renderInProgress = true;
       renderRealtime(() => {}, createExportSnapshot()).catch(error => { window.exportFailure = error.code; }).finally(() => { renderInProgress = false; });
     });
     await waitFor(page, () => !!window.exportFailure, 12000);
     await waitFor(page, () => exportContext.state === 'closed' && !renderInProgress);
-    assert.deepEqual(await page.evaluate(() => ({ code: exportFailure, state: exportRecorder.state, released: exportStream.getTracks().every(track => track.readyState === 'ended'), paused: video.paused })),
+    assert.deepEqual(await page.evaluate(() => ({ code: exportFailure, state: exportRecorder.state, released: exportStream.getTracks().every(track => track.readyState === 'ended'), paused: exportMovie.paused })),
       { code: 'DUBLINE_EXPORT_PLAYBACK', state: 'inactive', released: true, paused: true });
   });
 

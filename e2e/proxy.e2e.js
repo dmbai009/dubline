@@ -31,16 +31,33 @@ describe('optimized video and original-quality export',{skip:skipReason,timeout:
   assert.ok(result.size<300*1024*1024);assert.equal(result.sourceSize,301*1024*1024);assert.equal(result.sourceUrl,undefined);assert.equal(result.width,1280);assert.equal(result.height,720);assert.equal(result.tracks,1);assert.ok(result.progress.some(p=>p.stage==='compressing'));
   const reopened=await host.evaluate(()=>proxyReopened);assert.equal(reopened.same,true);assert.ok(reopened.percent>0);assert.equal(reopened.visible,'block');assert.equal(reopened.cancel,'block');assert.equal(reopened.disabled,true);assert.ok(reopened.status.includes(String(reopened.percent)));
   await host.evaluate(()=>{closeFilesModal();openFilesModal();});assert.match(await host.$eval('#customUploadStatus',node=>node.textContent),/uploaded|done|created|ready/i);assert.equal(await host.$eval('#customCancelBtn',node=>node.style.display),'none');
-  await guest.evaluate(()=>{openFilesModal();switchFilesTab('export');});assert.equal(await guest.$eval('#startRenderBtn',button=>button.disabled),true);
-  assert.match(await guest.$eval('#renderOriginalNotice',notice=>notice.textContent),/on the host/);
+  await guest.evaluate(()=>{openFilesModal();switchFilesTab('export');});await waitFor(guest,()=>!startRenderBtn.disabled);
+  assert.equal(await guest.$eval('[name=videoExportMode][value=original]',button=>button.disabled),true);
+  const denied=await guest.evaluate(async()=>{const response=await fetch('/api/video-export-info?room='+currentRoom+'&clientId='+clientId+'&sessionId='+session.activeSessionId);return(await response.json()).original;});assert.equal(denied,null);
  });
  test('recording and final render through UI preserve source video packets and attach the project mix',async()=>{
   const id=await host.evaluate(()=>session.lines[0].id);await host.evaluate(id=>socket.emit('claim_line',{ sessionId: session.activeSessionId, lineId:id}),id);await waitFor(host,()=>session.lines[0].claimedBy===myName);await recordTake(host,id);
-  await host.evaluate(()=>{openFilesModal();switchFilesTab('export');});assert.match(await host.$eval('#renderOriginalNotice',notice=>notice.textContent),/original resolution and quality/);
+  await host.evaluate(()=>{openFilesModal();switchFilesTab('export');});await waitFor(host,()=>!startRenderBtn.disabled);await host.click('[name=videoExportMode][value=original]');await waitFor(host,()=>!startRenderBtn.disabled);
+  assert.match(await host.$eval('#videoExportMethod',notice=>notice.textContent),/original|encoding/i);
   const response=host.waitForResponse(response=>response.url().includes('/api/export-original-video'),{timeout:60000});await host.click('#startRenderBtn');const rendered=await response;assert.equal(rendered.status(),200,await rendered.text());
   await waitUntil(()=>fs.readdirSync(dir).some(name=>name.endsWith('_export.mp4')),30000);const output=path.join(dir,fs.readdirSync(dir).find(name=>name.endsWith('_export.mp4')));await waitUntil(()=>!fs.readdirSync(dir).some(name=>name.endsWith('.crdownload')),30000);
   assert.equal(videoHash(output),expected);const decoded=ff(['-i',output,'-map','0:a:0','-f','hash','-hash','sha256','-']);assert.match(decoded,/SHA256=/);
   await waitFor(host,()=>!renderInProgress);assert.deepEqual(host.errors,[]);assert.deepEqual(guest.errors,[]);
+ });
+ test('manual scenes offer local working export to host/guest and genuine custom export from the private original',async()=>{
+  const workingUrl=await host.evaluate(()=>session.videoUrl),working=path.join(server.dirs.uploads,workingUrl.slice('/uploads/'.length));
+  for(const page of [host,guest]){
+   const outputDir=fs.mkdtempSync(path.join(dir,'working-'));await(await page.createCDPSession()).send('Page.setDownloadBehavior',{behavior:'allow',downloadPath:outputDir});
+   await page.evaluate(()=>{openFilesModal();switchFilesTab('export');});await waitFor(page,()=>videoExportPanel.dataset.ready==='true');await page.click('[name=videoExportMode][value=fast]');await waitFor(page,()=>!startRenderBtn.disabled);
+   await page.click('#startRenderBtn');await waitUntil(()=>fs.readdirSync(outputDir).some(name=>name.endsWith('.mp4')),30000);await waitFor(page,()=>!renderInProgress);
+   assert.equal(videoHash(path.join(outputDir,fs.readdirSync(outputDir).find(name=>name.endsWith('.mp4')))),videoHash(working));
+  }
+  const outputDir=fs.mkdtempSync(path.join(dir,'custom-'));await(await host.createCDPSession()).send('Page.setDownloadBehavior',{behavior:'allow',downloadPath:outputDir});
+  await host.click('[name=videoExportMode][value=custom]');await host.select('#videoExportSource','original');await waitFor(host,()=>!startRenderBtn.disabled);
+  await host.select('#videoExportResolution','720');await host.select('#videoExportFps','15');await waitFor(host,()=>!startRenderBtn.disabled);
+  await host.click('#startRenderBtn');await waitUntil(()=>fs.readdirSync(outputDir).some(name=>name.endsWith('.mp4')),60000);await waitFor(host,()=>!renderInProgress);
+  const info=await require('../server/video-export-info').inspect(path.join(outputDir,fs.readdirSync(outputDir).find(name=>name.endsWith('.mp4'))));assert.equal(info.width,1280);assert.equal(info.height,720);assert.ok(Math.abs(info.fps-15)<0.01);assert.ok(Math.abs(info.duration-12)<0.1);
+  assert.deepEqual(host.errors,[]);assert.deepEqual(guest.errors,[]);
  });
  test('cancelled large import leaves the existing project active and removes temporary files',async()=>{
   const id=await host.evaluate(()=>session.activeSessionId);

@@ -23,7 +23,8 @@ if (!process.versions.electron) {
   (async()=>{ try { await run('new'); assert.ok(fs.statSync(project).size>1000); await run('bad'); await run('open'); await run('multi'); console.log('Native Electron Single Player / save / close / launcher open / Multiplayer smoke passed.'); } finally { fs.rmSync(dir,{recursive:true,force:true,maxRetries:10,retryDelay:200}); } })().catch(error=>{console.error(error);process.exitCode=1;});
 } else {
   const { app, BrowserWindow, dialog, session:electronSession } = require('electron');
-  dialog.showSaveDialog = async () => ({ canceled: false, filePath: process.env.DUBLINE_NATIVE_PROJECT_FILE });
+  let videoDestination;
+  dialog.showSaveDialog = async (_window, options) => ({ canceled: false, filePath: options.filters[0].extensions[0] === 'dubline' ? process.env.DUBLINE_NATIVE_PROJECT_FILE : videoDestination });
   // Mock only the OS picker response. IPC sender validation and project import are real.
   let storagePicker = 'Storage A';
   dialog.showOpenDialog = async (_window, options) => options.properties.includes('openDirectory')
@@ -125,10 +126,11 @@ if (!process.versions.electron) {
         console.log('Native save progress, narrow IPC cancellation and preservation of the existing destination passed.');
         assert.equal(await evaluate('session.hasOriginalVideo'),true);
         const renderFile=path.join(path.dirname(process.env.DUBLINE_NATIVE_PROJECT_FILE),'Native-export.mp4');
-        const rendered=new Promise((resolve,reject)=>{
-          electronSession.defaultSession.once('will-download',(event,item)=>{item.setSavePath(renderFile);item.once('done',(event,state)=>state==='completed'?resolve():reject(Error('Render download '+state)));});
-        });
-        await evaluate('startVideoRender(); void 0;');await rendered;
+        videoDestination=renderFile;
+        await evaluate("openFilesModal();switchFilesTab('export');void 0;");await until(()=>evaluate("videoExportPanel.dataset.ready==='true'"));
+        await evaluate("document.querySelector('[name=videoExportMode][value=original]').click();void 0;");await until(()=>evaluate('!startRenderBtn.disabled'));
+        await evaluate('startVideoRender(); void 0;');await until(()=>evaluate("!renderInProgress && renderStatusText.textContent.startsWith(t('exportVideo.saved',{size:''}).trim())"),60000);
+        assert.ok(fs.statSync(renderFile).size>1000);
         const packetHash=file=>{const result=require('node:child_process').spawnSync(require('ffmpeg-static'),['-hide_banner','-loglevel','error','-i',file,'-map','0:v:0','-c:v','copy','-f','hash','-hash','sha256','-'],{encoding:'utf8',windowsHide:true});assert.equal(result.status,0,result.stderr);return result.stdout;};
         assert.equal(packetHash(renderFile),packetHash(process.env.DUBLINE_NATIVE_VIDEO));
         console.log('Native original-quality render preserves source video packets.');
@@ -181,10 +183,11 @@ if (!process.versions.electron) {
       if (process.env.DUBLINE_NATIVE_STORAGE_TEST && mode==='multi') {
         const info=await evaluate('window.dublineDesktop.getStorage()'); assert.ok(info.root.endsWith(path.join('Storage B','Dubline')));
         const renderFile=path.join(path.dirname(process.env.DUBLINE_NATIVE_PROJECT_FILE),'Storage-final.mp4');
-        const rendered=new Promise((resolve,reject)=>electronSession.defaultSession.once('will-download',(_event,item)=>{
-          item.setSavePath(renderFile);item.once('done',(_event,state)=>state==='completed'?resolve():reject(Error('Moved-source render '+state)));
-        }));
-        await evaluate('startVideoRender(); void 0;'); await rendered;
+        videoDestination=renderFile;
+        await evaluate("openFilesModal();switchFilesTab('export');void 0;");await until(()=>evaluate("videoExportPanel.dataset.ready==='true'"));
+        await evaluate("document.querySelector('[name=videoExportMode][value=original]').click();void 0;");await until(()=>evaluate('!startRenderBtn.disabled'));
+        await evaluate('startVideoRender(); void 0;');await until(()=>evaluate("!renderInProgress && renderStatusText.textContent.startsWith(t('exportVideo.saved',{size:''}).trim())"),60000);
+        assert.ok(fs.statSync(renderFile).size>1000);
         const packetHash=file=>{const result=require('node:child_process').spawnSync(require('ffmpeg-static'),['-hide_banner','-loglevel','error','-i',file,'-map','0:v:0','-c:v','copy','-f','hash','-hash','sha256','-'],{encoding:'utf8',windowsHide:true});assert.equal(result.status,0,result.stderr);return result.stdout;};
         assert.equal(packetHash(renderFile),packetHash(process.env.DUBLINE_NATIVE_VIDEO));
         console.log('Final video after both migrations preserves original video packets.');

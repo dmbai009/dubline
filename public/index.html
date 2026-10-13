@@ -422,8 +422,27 @@
           </button>
         </div></div>
 <div id="tabContentExport" class="tab-content" role="tabpanel" aria-labelledby="tabBtnExport" hidden><div class="setting-card">
-          <div class="setting-label" data-i18n="videoExport">1. Export finished video (WebCodecs)</div>
-          <div class="setting-sub" data-i18n="videoExport.help">Fast MP4 export with mixed audio in your browser</div>
+          <div class="video-export-panel" id="videoExportPanel">
+          <div class="setting-label" data-i18n="exportVideo.title">Export video</div>
+          <div class="setting-sub" data-i18n="exportVideo.intro">Your project mix, with the video quality you need.</div>
+          <div id="videoExportMetadata" class="video-export-metadata" aria-live="polite"></div>
+          <button id="videoExportRetry" type="button" class="btn-outline" hidden data-i18n="media.transfer.retry">Retry loading</button>
+          <fieldset class="video-export-modes" aria-label="Export mode" data-i18n-aria-label="exportVideo.mode">
+            <label class="video-export-mode"><input type="radio" name="videoExportMode" value="fast" checked><strong data-i18n="exportVideo.fast">Working version</strong><span data-i18n="exportVideo.fastHelp">Copy the working video when supported. Ideal for reviewing and sharing.</span></label>
+            <label class="video-export-mode"><input type="radio" name="videoExportMode" value="original"><strong data-i18n="exportVideo.original">Original quality</strong><span data-i18n="exportVideo.originalHelp">Host only. Preserve the original video stream; encode the new sound separately.</span></label>
+            <label class="video-export-mode"><input type="radio" name="videoExportMode" value="custom"><strong data-i18n="exportVideo.custom">Custom</strong><span data-i18n="exportVideo.customHelp">Re-encode at a lower or equal resolution, frame rate and video bitrate.</span></label>
+          </fieldset>
+          <div class="video-export-fields" id="videoExportCustom" hidden>
+            <label><span data-i18n="exportVideo.source">Source</span><select id="videoExportSource"><option value="working" data-i18n="exportVideo.working">Working video</option><option value="original" data-i18n="exportVideo.original">Original quality</option></select></label>
+            <label><span data-i18n="exportVideo.format">Format / codec</span><select id="videoExportFormat"><option value="mp4">MP4 · H.264 / AAC</option><option value="webm">WebM · VP9 / Opus</option></select></label>
+            <label><span data-i18n="exportVideo.resolution">Resolution</span><select id="videoExportResolution"><option value="source" data-i18n="exportVideo.unchanged">Same as source</option><option value="240">240p</option><option value="360">360p</option><option value="480">480p</option><option value="720">720p</option><option value="1080">1080p</option><option value="1440">1440p</option><option value="2160">2160p</option></select></label>
+            <label><span>FPS</span><select id="videoExportFps"><option value="source" data-i18n="exportVideo.unchanged">Same as source</option><option>15</option><option>24</option><option>25</option><option>30</option><option>50</option><option>60</option></select></label>
+            <label><span data-i18n="exportVideo.bitrate">Average video bitrate · Mbps</span><input id="videoExportBitrate" type="number" min="0.000001" step="0.000001" inputmode="decimal"></label>
+          </div>
+          <div id="videoExportMethod" class="setting-sub" role="status"></div>
+          <div id="videoExportLimits" class="setting-sub"></div>
+          <div class="video-export-footer"><strong id="videoExportEstimate"></strong><label id="videoExportSoundLabel" hidden><input id="videoExportSound" type="checkbox" checked><span data-i18n="exportVideo.sound">Completion sound</span></label></div>
+          <div id="videoExportDestination" class="video-export-destination" hidden></div>
           <div id="longExportWarning" class="setting-warning"></div>
           <div hidden style="display: none; flex-direction: column; gap: 8px; margin: 6px 0;">
             <div>
@@ -452,8 +471,11 @@
           </div>
           <div id="renderOriginalNotice" class="setting-sub" role="status" style="display:none;"></div>
           <button id="startRenderBtn" class="btn-play" onclick="startVideoRender()" style="padding: 9px 14px;">
-            <span data-i18n="startExport">▶ Export MP4 video</span>
+            <span data-i18n="exportVideo.start">Export video</span>
           </button>
+          <button id="cancelVideoExportBtn" class="btn-outline" type="button" onclick="cancelVideoRender()" hidden data-i18n="exportVideo.cancel">Cancel export</button>
+          <button id="revealVideoExportBtn" class="btn-outline" type="button" hidden data-i18n="exportVideo.reveal">Show in folder</button>
+          </div>
         </div><div class="setting-card">
           <div class="setting-label" data-i18n="stemExport">2. Character stems for REAPER (.zip)</div>
           <div class="setting-sub" data-i18n="stemExport.help">Full-length WAV track per character, aligned from 0:00 with silence between lines</div>
@@ -768,6 +790,9 @@
   <script src="recording.js"></script>
   <script src="import.js"></script>
   <script src="export.js"></script>
+  <script src="video-export-policy.js"></script>
+  <script src="video-export-audio.js"></script>
+  <script src="video-export-engine.js"></script>
   <script src="room.js"></script>
   <script src="network-metrics.js"></script>
   <script src="network-telemetry.js"></script>
@@ -785,6 +810,7 @@
   <script src="chat.js"></script>
   <script src="update-presentation.js"></script>
   <script src="ui.js"></script>
+  <script src="video-export-ui.js"></script>
   <script src="settings-layout.js"></script>
   <script src="slider-reset.js"></script>
   <script src="playback-controls.js"></script>
@@ -823,5 +849,6 @@
   </style>
   <link rel="stylesheet" href="ui-cleanup.css">
   <link rel="stylesheet" href="take-history.css">
+  <link rel="stylesheet" href="video-export.css">
 </body>
 </html>
