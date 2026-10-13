@@ -623,8 +623,9 @@ window.addEventListener('keydown', (e) => {
 });
 
 function showInspector(line) {
+  const historyFocus = window.DublineTakeHistory?.capture(line);
   const retakeFocus = window.DublineRetakes?.captureFocus(line);
-  if (multiSelection.size >= 2) return showMultiInspector();
+  if (multiSelection.size >= 2) { window.DublineTakeHistory?.stop(); return showMultiInspector(); }
   if (session.mode === 'edit') { const result = window.showEditorInspector(line); window.DublineRetakes?.restoreFocus(retakeFocus); return result; }
   const duration = Number((line.end - line.start).toFixed(2));
   const characters = sessionCharacters();
@@ -719,14 +720,16 @@ function showInspector(line) {
     ${retakeControlHtml(line)}
     ${characterRow}
     ${pendingNotice}
-    <div class="insp-actions">${primary}</div>
+    <div class="insp-actions">${primary}${window.DublineTakeHistory?.mainHtml(line) || ''}</div>
     ${secondary.length || deleteLineBtn ? `<div class="insp-actions secondary">${secondary.join('')}${deleteLineBtn}</div>` : ''}
     ${hint}
+    ${window.DublineTakeHistory?.html(line) || ''}
     <canvas id="visualizerCanvas" width="320" height="28"></canvas>
     ${micRow}
     ${takePanelHtml(line, canEditTake(line))}
   `;
   window.DublineRetakes?.restoreFocus(retakeFocus);
+  window.DublineTakeHistory?.restoreFocus(historyFocus);
 }
 
 // Inspector for several selected lines: assign a character in bulk

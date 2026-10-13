@@ -105,6 +105,7 @@ function editorResult(result) {
 }
 
 function editorFailureMessage(reason) {
+  if (typeof reason === 'string' && reason.startsWith('takeHistory.')) return t(reason);
   const keys = { conflict: 'editor.conflict', exists: 'editor.trackExists', caption: 'editor.captionTooLong',
     timingsProtected: 'editor.timingsProtected', cancelled: 'editor.cancelled', pending: 'assignment.pending', owner: 'assignment.denied' };
   const reasons = ['locked', 'invalid', 'mode', 'session', 'empty', 'missing', 'expired', 'capacity', 'operation', 'snapshot', 'room', 'name', 'storage', 'unconfirmed', 'legacy', 'unavailable'];
@@ -114,6 +115,7 @@ function editorFailureMessage(reason) {
 function editorOutcome(result) {
   if (result?.ok) return 'confirmed';
   if (result?.reason === 'conflict') return 'conflict';
+  if (result?.reason?.startsWith('takeHistory.')) return 'rejected';
   // Retain ambiguous results and intent bound to a scene that is no longer active.
   if (!result || ['expired', 'operation', 'unconfirmed', 'legacy', 'storage', 'timeout', 'session'].includes(result.reason)) return 'recovery';
   return ['locked', 'invalid', 'mode', 'session', 'empty', 'missing', 'capacity', 'snapshot', 'room', 'name', 'caption', 'timingsProtected', 'exists', 'unavailable', 'cancelled'].includes(result.reason) ? 'rejected' : 'recovery';
@@ -140,7 +142,7 @@ let editorStorageReadIssue = false;
 let editorConfirmedConnection = null, editorConfirmedScene = null, editorResyncing = 0;
 function editorOperationModeAllowed(operation) {
   if (operation.payload?.dubAssignment) return session?.mode === 'dub' && operation.event === 'set_line_character';
-  return session?.mode === 'edit' || operation.event === 'editor_add_track' || operation.event === 'set_needs_retake';
+  return session?.mode === 'edit' || operation.event === 'editor_add_track' || operation.event === 'set_needs_retake' || operation.event === 'take_history_update';
 }
 function persistEditorOperation(operation, remove = false) {
   const record = remove ? null : structuredClone({ schemaVersion: 2, id: operation.id, event: operation.event, payload: operation.payload,

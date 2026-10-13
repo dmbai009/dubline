@@ -41,7 +41,7 @@
     const activeTakeSources = new Map();
     const activeTakeGraphs = new Map();
     const lineGenerations = new Map();
-    let previewGeneration = 0, previewGraph = null, previewPendingLine = null;
+    let previewGeneration = 0, previewGraph = null, previewPendingLine = null, previewEnded = null;
     let previewAudio = null;
     let previewSource = null;
 
@@ -346,6 +346,7 @@
 
     function stopPreview() {
       previewGeneration++;
+      const ended = previewEnded; previewEnded = null;
       previewPendingLine = null;
       if (previewGraph) { previewGraph.gain.disconnect(); previewGraph.panner.disconnect(); previewGraph = null; }
       if (previewAudio) {
@@ -354,9 +355,12 @@
         previewAudio = null;
       }
       if (previewSource) {
+        previewSource.onended = null;
         try { previewSource.stop(); } catch (error) {}
+        previewSource.disconnect();
         previewSource = null;
       }
+      ended?.();
     }
 
     function playAudio(url) {
@@ -369,25 +373,30 @@
       return Promise.resolve(global.DublineAudioDevices?.ready()).then(() => { if (previewAudio === current) return current.play(); });
     }
 
-    async function previewTake(line) {
+    async function previewTake(line, options = {}) {
       stopPreview();
       if (!line) return false;
       const generation = previewGeneration;
       line = { ...line };
+      line.historicalPreview = options.historical === true;
+      previewEnded = options.onEnded || null;
       previewPendingLine = line;
       const rate = playbackRate();
       const ctx = ensurePlayCtx();
       const normal = await getProcessedTake(line);
       const buffer = normal && await getPlaybackTake(line, rate);
-      if (!buffer || generation !== previewGeneration) return false;
+      if (generation !== previewGeneration) return false;
+      if (!buffer) { stopPreview(); return false; }
       const { from, to } = takeBounds(line, normal.duration);
       const source = ctx.createBufferSource();
       source.buffer = buffer;
       previewGraph = fx.connectTake(ctx, source, takesBus, line);
       previewGraph.lineId = line.id; previewGraph.audioUrl = line.audioUrl;
+      previewGraph.historicalPreview = line.historicalPreview;
       previewPendingLine = null;
       source.start(0, from / rate, Math.max(0.05, to - from) / rate);
       previewSource = source;
+      source.onended = () => { if (previewSource === source) stopPreview(); };
       return true;
     }
 
@@ -399,7 +408,7 @@
       const changed = processing.some(key => (before[key] ?? defaults[key]) !== (after[key] ?? defaults[key]));
       if (changed) {
         resetLine(after.id);
-        if (previewGraph?.lineId === after.id || previewPendingLine?.id === after.id) stopPreview();
+        if (previewGraph?.lineId === after.id && !previewGraph.historicalPreview || previewPendingLine?.id === after.id && !previewPendingLine.historicalPreview) stopPreview();
         return;
       }
       const mix = global.DublineTakeMix.normalize(after);
@@ -412,8 +421,8 @@
       const graph = activeTakeGraphs.get(after.id);
       update(graph);
       if (!graph && startedTakes.has(after.id)) resetLine(after.id);
-      if (previewPendingLine?.id === after.id) Object.assign(previewPendingLine, mix);
-      if (previewGraph?.lineId === after.id) update(previewGraph);
+      if (previewPendingLine?.id === after.id && !previewPendingLine.historicalPreview) Object.assign(previewPendingLine, mix);
+      if (previewGraph?.lineId === after.id && !previewGraph.historicalPreview) update(previewGraph);
       if (graph && !duckStartTimers.has(after.id)) {
         if (mix.volume > 0) duckingTakes.add(after.id);
         else duckingTakes.delete(after.id);

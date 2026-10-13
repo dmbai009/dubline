@@ -55,12 +55,14 @@ function stopVisualizer() {
 let recordPlayTimeout = null;
 let recordSpeechInterval = null;
 let activeRecording = null;
+let recordStartPending = false;
 const processingRecordings = new Set();
 
-function reserveTake(lineId, sessionId) {
+function reserveTake(lineId, sessionId, options = {}) {
   if (!socket.connected) return Promise.resolve(null);
   return new Promise(resolve => {
-    socket.volatile.timeout(5000).emit('reserve_take', { lineId, sessionId }, (err, result) => {
+    socket.volatile.timeout(5000).emit('reserve_take', { lineId, sessionId, ...options }, (err, result) => {
+      if (result?.reason?.startsWith('takeHistory.')) showToast(t(result.reason));
       resolve(!err && result && result.ok ? result.takeSequence : null);
     });
   });
@@ -126,10 +128,18 @@ window.handleStudioRecord = async function(lineId) {
 
   const mediaPreparation = window.sceneMediaPreparation?.();
   if (mediaPreparation?.key) return showToast(t(mediaPreparation.key, { channels: mediaPreparation.channels.map(channel => t('studio.' + channel)).join(', ') }));
+  if (recordStartPending) return;
+  recordStartPending = true;
+  try {
 
   const recordingSessionId = session.activeSessionId || '';
   const recordingRoom = currentRoom;
   const recordingNick = myName;
+  const historyCheck = window.DublineTakeHistory?.beforeRecord(line);
+  const historyConsent = historyCheck?.then ? await historyCheck : historyCheck ?? (window.DublineTakeHistory ? null : {});
+  if (!historyConsent) return;
+  if (recordState !== 'idle' || watchMode || session.mode !== 'dub' || currentRoom !== recordingRoom || session.activeSessionId !== recordingSessionId || getLineOwner(session.lines.find(item => item.id === lineId)) !== recordingNick) return;
+  window.DublineTakeHistory?.stop();
   let recordingMic;
   try {
     recordingMic = await window.DublineAudioDevices.capture({
@@ -162,6 +172,7 @@ window.handleStudioRecord = async function(lineId) {
     return;
   }
   line = currentLine;
+  window.DublineTakeHistory?.stop();
   micStream = recordingMic;
 
   let micSource, gainNode, audioDest, voiceMeter, recorder;
@@ -242,9 +253,10 @@ window.handleStudioRecord = async function(lineId) {
 
     // Silence detection: find where speech starts and ends in the recording
     if (mayUpdateUi()) btn.innerText = t('record.trim');
-    let speech = null;
+    let speech = null, duration = null;
     try {
-      speech = detectSpeechBounds(await decodeAudio(await audioBlob.arrayBuffer()));
+      const decoded = await decodeAudio(await audioBlob.arrayBuffer()); duration = decoded.duration;
+      speech = detectSpeechBounds(decoded);
     } catch (err) {
       console.warn('[Dubline] Could not analyse the take:', err);
     }
@@ -257,6 +269,8 @@ window.handleStudioRecord = async function(lineId) {
       lineId,
       nick: operation.nick,
       takeSequence,
+      ...historyConsent,
+      duration,
       audioStart: recordingStartTime,
       trimStart: speech ? speech.start : null,
       trimEnd: speech ? speech.end : null,
@@ -371,6 +385,7 @@ window.handleStudioRecord = async function(lineId) {
       finishRecording();
     }
   }, 50);
+  } finally { recordStartPending = false; }
 };
 
 const MIN_TAIL_AFTER_LINE = 0.6; // seconds recorded after the line ends in any case
@@ -421,8 +436,8 @@ function finishRecording({ discard = false } = {}) {
 window.deleteLineAudio = async function(lineId) {
   const line = session.lines.find(item => item.id === lineId);
   if (!line) return;
-  const target = { sessionId: session.activeSessionId, audioUrl: line.audioUrl };
-  if (!await askConfirm(t('confirm.delete'))) return;
+  const target = { sessionId: session.activeSessionId, audioUrl: line.audioUrl, takeId: line.takeId, historyRevision: line.takeHistoryRevision || 0, confirmPinned: line.takePinned === true };
+  if (!await askConfirm(t(line.takePinned ? 'takeHistory.confirmPinned' : 'confirm.delete'), { danger: true })) return;
   const res = await fetch('/api/delete-line-audio', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -505,6 +520,7 @@ function newUploadId() {
 
 const takeStore = (() => {
   const table = window.DublineLocalDatabase.store('pendingTakes');
+  let warned = false;
   async function run(action) {
     try {
       return await action();
@@ -513,7 +529,12 @@ const takeStore = (() => {
     }
   }
   return {
-    put: entry => run(() => table.put(entry)),
+    put: async entry => {
+      const saved = { ...entry }; delete saved.sending; delete saved.resolving;
+      const result = await run(() => table.put(saved));
+      if (result === null && !warned) { warned = true; showToast(t('editor.failure.storage')); }
+      return result;
+    },
     remove: id => run(() => table.remove(id)),
     all: () => run(() => table.all())
   };
@@ -539,7 +560,7 @@ async function submitTake(entry) {
   if (!entry.takeSequence) entry.takeSequence = await reserveTake(entry.lineId, entry.sessionId);
   // A new take of the same line replaces the old unsent one
   for (const [id, old] of pendingTakes) {
-    if (old.lineId === entry.lineId && old.sessionId === entry.sessionId && id !== entry.uploadId) {
+    if (!old.historyIssue && old.lineId === entry.lineId && old.sessionId === entry.sessionId && id !== entry.uploadId) {
       if (old.takeSequence && (!entry.takeSequence || old.takeSequence > entry.takeSequence)) return false;
       pendingTakes.delete(id);
       takeStore.remove(id);
@@ -557,6 +578,7 @@ function takePausedByEditMode(entry) {
 }
 
 async function sendTake(entry) {
+  if (entry.historyIssue || entry.sending) return false;
   // Keep the finished blob locally while its session is being edited. A 409 here
   // would otherwise resend the entire recording on every backoff interval.
   if (takePausedByEditMode(entry)) {
@@ -581,6 +603,8 @@ async function sendTake(entry) {
   form.append('sessionId', entry.sessionId);
   form.append('takeSequence', entry.takeSequence);
   form.append('audioStart', entry.audioStart);
+  if (entry.discardCurrentId) { form.append('discardCurrentId', entry.discardCurrentId); form.append('historyRevision', entry.historyRevision); }
+  if (Number.isFinite(entry.duration)) form.append('duration', entry.duration);
   if (entry.trimStart != null && entry.trimEnd != null) {
     form.append('trimStart', entry.trimStart);
     form.append('trimEnd', entry.trimEnd);
@@ -588,13 +612,15 @@ async function sendTake(entry) {
   form.append('audio', entry.blob, 'take.webm');
 
   let res = null;
+  entry.sending = true;
   try {
     res = await window.DublineNetwork.upload(`/api/upload-line-audio?room=${encodeURIComponent(entry.room)}`, { method: 'POST', body: form });
   } catch (err) {
     res = null; // network unavailable
-  }
+  } finally { delete entry.sending; }
 
   if (res && res.ok) {
+    if ((await res.clone().json().catch(() => ({}))).cleanupError) showToast(t('takeHistory.cleanupError'));
     const wasRetry = entry.attempts > 0;
     pendingTakes.delete(entry.uploadId);
     takeStore.remove(entry.uploadId);
@@ -605,6 +631,12 @@ async function sendTake(entry) {
       queuedToastShown = false;
     }
     return true;
+  }
+  const error = res && await res.clone().json().catch(() => ({}));
+  if (error?.key?.startsWith('takeHistory.') || error?.key === 'error.lineTaken') {
+    entry.historyIssue = error.key === 'error.lineTaken' ? 'takeHistory.permission' : error.key;
+    await takeStore.put(entry); refreshPendingUi(entry.lineId);
+    showToast(t(entry.historyIssue)); return false;
   }
 
   // The server may switch modes a moment before this client receives session_updated.
@@ -654,6 +686,7 @@ async function flushPendingTakes() {
   clearTimeout(retryTimer);
   for (const entry of [...pendingTakes.values()]) {
     if (!pendingTakes.has(entry.uploadId)) continue;
+    if (entry.historyIssue || entry.sending) continue;
     if (takePausedByEditMode(entry)) continue;
     if (!await sendTake(entry)) break; // the server is still down: stop trying for now
   }
@@ -662,6 +695,28 @@ async function flushPendingTakes() {
 window.retryPendingTakes = function() {
   retryDelay = 2000;
   flushPendingTakes();
+};
+window.takeHistoryPending = lineId => [...pendingTakes.values()].filter(entry => entry.historyIssue && entry.room === currentRoom && entry.sessionId === session?.activeSessionId && entry.lineId === lineId);
+window.retryHistoryTake = async uploadId => {
+  const entry = pendingTakes.get(uploadId), line = session?.lines.find(line => line.id === entry?.lineId);
+  if (!entry || !entry.historyIssue || entry.resolving || !line || entry.room !== currentRoom || entry.sessionId !== session.activeSessionId || getLineOwner(line) !== myName || !socket.connected || recordState !== 'idle') return;
+  entry.resolving = true;
+  try {
+    const expectedTakeId = line.takeId || null, historyRevision = line.takeHistoryRevision || 0;
+    const consent = await window.DublineTakeHistory.beforeRecord(line);
+    if (!consent || entry.sessionId !== session?.activeSessionId || entry.room !== currentRoom || getLineOwner(session.lines.find(item => item.id === entry.lineId)) !== myName) return;
+    const sequence = await reserveTake(entry.lineId, entry.sessionId, { historyResume: true, expectedTakeId, historyRevision });
+    if (!sequence) return;
+    entry.takeSequence = sequence; entry.nick = myName;
+    delete entry.historyIssue; delete entry.discardCurrentId; delete entry.historyRevision;
+    Object.assign(entry, consent); await takeStore.put(entry); refreshPendingUi(entry.lineId);
+    await sendTake(entry);
+  } finally { delete entry.resolving; }
+};
+window.discardHistoryTake = async uploadId => {
+  const entry = pendingTakes.get(uploadId); if (!entry?.historyIssue || entry.resolving) return;
+  if (!await askConfirm(t('takeHistory.confirmDiscardLocal'), { danger: true })) return;
+  pendingTakes.delete(uploadId); await takeStore.remove(uploadId); refreshPendingUi(entry.lineId);
 };
 
 window.onRecordingModeChanged = function(mode) {

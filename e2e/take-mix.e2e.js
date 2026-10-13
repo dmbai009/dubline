@@ -264,7 +264,7 @@ describe('clip mixing: real sockets, inspector and audio', { skip: skipReason, t
     await upload(host, 1);
   });
 
-  test('save and reopen format 3 through production HTTP; persisted settings survive restart', async () => {
+  test('save and reopen clip settings and take history through production HTTP; settings survive restart', async () => {
     const expected = await lines(host);
     const bytes = await host.evaluate(async () => {
       const response = await fetch('/api/export-project', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...await window.prepareSafeSnapshot('project'),  room: currentRoom, clientId, sessionId: session.activeSessionId }) });
@@ -272,7 +272,8 @@ describe('clip mixing: real sockets, inspector and audio', { skip: skipReason, t
       return Array.from(new Uint8Array(await response.arrayBuffer()));
     });
     const archive = Buffer.from(bytes), parsed = readProject(archive);
-    assert.equal(parsed.manifest.formatVersion, 3);
+    assert.equal(parsed.manifest.formatVersion, 6);
+    assert.ok(parsed.manifest.project.lines[0].takeHistory.length > 0);
     assert.equal(parsed.manifest.project.lines[0].take.volume, expected[0].volume);
     const oldId = await host.evaluate(() => session.activeSessionId);
     const filename = path.join(server.dirs.data, 'clip-settings.dubline'); fs.writeFileSync(filename, archive);
@@ -282,6 +283,7 @@ describe('clip mixing: real sockets, inspector and audio', { skip: skipReason, t
     for (const [i, line] of (await lines(host)).entries()) {
       for (const field of ['volume', 'pan', 'effectAmount', 'effect', 'pitch', 'recordedBy']) assert.equal(line[field], expected[i][field]);
       assert.equal(line.takeMixRevision, 0);
+      assert.deepEqual(line.takeHistory.map(take => [take.id, take.pinned, take.volume, take.pan]), expected[i].takeHistory.map(take => [take.id, take.pinned, take.volume, take.pan]));
     }
     await server.restart(); await host.reload(); await waitFor(host, () => session?.loaded && session.lines.length === 4);
     assert.equal((await lines(host))[0].volume, expected[0].volume);

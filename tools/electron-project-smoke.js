@@ -101,6 +101,19 @@ if (!process.versions.electron) {
           assert.equal(stereo.channels,2);assert.ok(stereo.left>stereo.right && stereo.right>0,JSON.stringify(stereo));
           console.log('Native clip controls and stereo stem render passed.');
         }
+        if (process.env.DUBLINE_NATIVE_TAKE_HISTORY_TEST) {
+          await evaluate("selectLine(session.lines[0]); document.querySelector('[data-history-action=pin]').click();");
+          await until(()=>evaluate('session.lines[0].takePinned && editorQueue.length===0'));
+          const first = await evaluate('session.lines[0].takeId');
+          await evaluate('recordSelectedLine(); void 0;');
+          await until(()=>evaluate("recordState==='idle' && pendingTakeLines.size===0 && session.lines[0].takeHistory.length===1"),30000);
+          assert.equal(await evaluate('session.lines[0].takeHistory[0].pinned'),true);
+          await evaluate("selectLine(session.lines[0]); document.querySelector('.take-history').open=true;document.querySelector('[data-history-action=restore]').click();");
+          await until(()=>evaluate('session.lines[0].takeId==='+JSON.stringify(first)+' && editorQueue.length===0'));
+          assert.equal(await evaluate('session.lines[0].takePinned'),true);
+          assert.equal(await evaluate('session.lines[0].takeHistory.length'),1);
+          console.log('Native Inspector pin, re-record and restore preserve one main and one historical take.');
+        }
         fs.writeFileSync(process.env.DUBLINE_NATIVE_PROJECT_FILE,'previous destination');
         await evaluate("window.nativeSavePhases=[];window.nativeSaveCancelSent=false;window.removeNativeProgress=window.dublineDesktop.onProjectSaveProgress(progress=>{window.nativeSavePhases.push(progress);if(progress.stage==='writing'&&!window.nativeSaveCancelSent){window.nativeSaveCancelSent=true;void window.dublineDesktop.cancelProjectSave({ticket:progress.ticket});}});saveDublineProject();void 0;");
         await until(()=>evaluate("!projectExportBusy && document.getElementById('projectExportStatus').textContent===t('project.cancelled')"));
@@ -132,6 +145,14 @@ if (!process.versions.electron) {
           console.log('Native clip mix survives launcher project open in '+mode+'.');
         }
         assert.ok(await evaluate("session.lines[0].audioUrl.includes('line_project_')"));
+        if (process.env.DUBLINE_NATIVE_TAKE_HISTORY_TEST) {
+          assert.equal(await evaluate('session.lines[0].takePinned'),true);
+          assert.equal(await evaluate('session.lines[0].takeHistory.length'),1);
+          assert.ok(await evaluate("session.lines[0].takeHistory[0].audioUrl.includes('line_project_')"));
+          await evaluate('selectLine(session.lines[0]);');
+          assert.ok(await evaluate('!!document.querySelector(".take-history")'));
+          console.log('Native portable history and pins survive launcher open in '+mode+'.');
+        }
         if(mode==='open') {
           assert.equal(await evaluate('getLineOwner(session.lines[0])===myName'),true);
           await evaluate('toggleVideoFullscreen()');
