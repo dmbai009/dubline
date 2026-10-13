@@ -20,6 +20,7 @@ function plan(room, conn, data, moderator, owner) {
     if (!data.settings || !model.validEffects(data.settings.effects) || !Number.isFinite(data.settings.pitch) || Math.abs(data.settings.pitch) > 12) failure('invalid');
     roles[data.character] = { pitch: data.settings.pitch, effects: structuredClone(data.settings.effects), revision: (previous.revision || 0) + 1 };
   } else {
+    if (['editPitch', 'editInheritance', 'editExceptions'].some(key => data[key] !== undefined && typeof data[key] !== 'boolean')) failure('invalid');
     if (!Array.isArray(data.takes) || !data.takes.length || data.takes.length > 2000 || !['replace', 'append', 'clear', 'inherit'].includes(data.action)) failure('invalid');
     if (['replace', 'append'].includes(data.action) && !model.validTake(data.settings)) failure('invalid');
     if (data.action === 'inherit' && typeof data.value !== 'boolean') failure('invalid');
@@ -30,7 +31,10 @@ function plan(room, conn, data, moderator, owner) {
       if (!line || !takeMix.canEdit(line, conn.nick, moderator, owner(line))) failure('owner');
       if (target.character !== line.character || target.takeId !== (line.takeId || null) || target.audioUrl !== line.audioUrl || target.takeMixRevision !== (line.takeMixRevision || 0)) failure('conflict');
       const next = structuredClone(line), settings = model.take(line);
-      if (data.action === 'replace') { const mode = settings.pitchMode; Object.assign(settings, structuredClone(data.settings)); if (data.takes.length > 1 && data.editPitch !== true) settings.pitchMode = mode; }
+      if (data.action === 'replace') {
+        const previous = structuredClone(settings); Object.assign(settings, structuredClone(data.settings));
+        if (data.takes.length > 1) { if (!data.editPitch) settings.pitchMode = previous.pitchMode; if (!data.editInheritance) settings.inheritRoleEffects = previous.inheritRoleEffects; if (!data.editExceptions) settings.excludedRoleEffectIds = previous.excludedRoleEffectIds; }
+      }
       if (data.action === 'append') settings.effects.push(...structuredClone(data.settings.effects));
       if (data.action === 'clear') settings.effects = [];
       if (data.action === 'inherit') settings.inheritRoleEffects = data.value;

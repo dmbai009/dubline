@@ -47,11 +47,12 @@ test('role updates require moderator and revision; limits include historic takes
   assert.throws(() => server.plan(room, { nick: 'Host' }, request, true, () => 'Actor'), /fx.limit/);
 });
 test('bulk chain operations preserve different pitch overrides unless pitch editing is explicitly requested', () => {
-  const room = scene(); room.lines.push({ ...take(), id: 2, takeId: 'two', character: 'B', pitch: 4, pitchMode: 'inherit' });
+  const room = scene(); room.lines.push({ ...take(), id: 2, takeId: 'two', character: 'B', pitch: 4, pitchMode: 'inherit', inheritRoleEffects: false, excludedRoleEffectIds: ['robot'] });
   const request = { scope: 'takes', action: 'append', takes: room.lines.map(target), pitch: 7, settings: { ...model.take(take()), effects: [fx('echo')] } };
   const appended = server.plan(room, { nick: 'Host' }, request, true, () => 'Actor'); assert.deepEqual(appended.lines.map(line => line.pitch), [-2, 4]); assert.equal(appended.lines[1].pitchMode, 'inherit');
-  const replaced = server.plan(room, { nick: 'Host' }, { ...request, action: 'replace' }, true, () => 'Actor'); assert.deepEqual(replaced.lines.map(line => line.pitch), [-2, 4]); assert.equal(replaced.lines[1].pitchMode, 'inherit');
+  const replaced = server.plan(room, { nick: 'Host' }, { ...request, action: 'replace' }, true, () => 'Actor'); assert.deepEqual(replaced.lines.map(line => line.pitch), [-2, 4]); assert.equal(replaced.lines[1].pitchMode, 'inherit'); assert.equal(replaced.lines[1].inheritRoleEffects, false); assert.deepEqual(replaced.lines[1].excludedRoleEffectIds, ['robot']);
   const explicit = server.plan(room, { nick: 'Host' }, { ...request, action: 'replace', editPitch: true }, true, () => 'Actor'); assert.deepEqual(explicit.lines.map(line => line.pitch), [7, 7]); assert.equal(explicit.lines[1].pitchMode, 'override');
+  const inheritance = server.plan(room, { nick: 'Host' }, { ...request, action: 'replace', editInheritance: true, editExceptions: true }, true, () => 'Actor'); assert.equal(inheritance.lines[1].inheritRoleEffects, true); assert.deepEqual(inheritance.lines[1].excludedRoleEffectIds, []);
 });
 test('voice settings cannot smuggle file paths, authors, ownership, history or mix into an authorized mutation', () => {
   const room = scene(), before = structuredClone(room), settings = model.take(room.lines[0]);
