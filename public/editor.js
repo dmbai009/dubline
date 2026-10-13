@@ -836,7 +836,7 @@ window.showEditorInspector = function(line, capture = true) {
   if (capture && oldForm && oldForm.dataset.draftKey === key &&
       oldForm.dataset.revision === String(line.revision || 0) && oldForm.dataset.tracks === JSON.stringify(tracks)) {
     const mix = inspector.querySelector('[data-editor-take]');
-    if (mix) mix.innerHTML = takePanelHtml(line, canEditTake(line));
+    if (mix) mix.innerHTML = (window.DublineVoiceEditor?.html(line) || '') + takePanelHtml(line, canEditTake(line));
     return;
   }
   const focused = oldForm && oldForm.contains(document.activeElement) ? document.activeElement : null;
@@ -870,7 +870,7 @@ window.showEditorInspector = function(line, capture = true) {
       </div>
     </form>
     ${retakeControlHtml(line)}
-    <div data-editor-take>${takePanelHtml(line, canEditTake(line))}</div>
+    <div data-editor-take>${window.DublineVoiceEditor?.html(line) || ''}${takePanelHtml(line, canEditTake(line))}</div>
     <p class="take-hint">${t('editor.dragHint')}</p>
   `;
   const form = inspector.querySelector('#editorLineForm');

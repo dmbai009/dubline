@@ -1,0 +1,30 @@
+.fx-summary { display: grid; gap: 6px; min-width: 0; }
+.fx-summary p { margin: 0; color: var(--muted); overflow-wrap: anywhere; font-size: 12px; }
+.fx-summary button { justify-self: start; }
+.fx-details { margin: 4px 0; font-size: 11px; }
+.fx-details summary { cursor: pointer; overflow-wrap: anywhere; }
+.fx-details:not([open]) > section { display: none !important; }
+.track-fx { padding: 2px; width: 22px; height: 22px; flex-shrink: 0; }
+.fx-dialog { width: min(540px, calc(100vw / var(--fx-ui-zoom, 1) - 32px)); max-height: calc(100vh / var(--fx-ui-zoom, 1) - 32px); box-sizing: border-box; overflow: auto; margin: auto; color: var(--text); background: var(--panel); }
+.fx-dialog h2 { overflow-wrap: anywhere; }
+.fx-dialog label { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.fx-dialog select, .fx-dialog input { min-width: 0; max-width: 100%; }
+.fx-dialog select { color: var(--text); background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 6px; }
+.fx-pitch, .fx-slider { display: flex; gap: 8px; align-items: center; margin: 8px 0; flex-wrap: wrap; }
+.fx-pitch input, .fx-slider input { flex: 1; min-width: 70px; }
+.fx-item { margin: 8px 0; padding: 8px; border: 1px solid var(--border); border-radius: 8px; }
+.fx-item-head { display: flex; gap: 4px; align-items: center; }
+.fx-item-head b { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.fx-item-head button { flex-shrink: 0; width: 30px; height: 30px; }
+.fx-grip { touch-action: none; cursor: grab; }
+.fx-drop { outline: 2px solid var(--accent); }
+.fx-item details label { justify-content: space-between; margin: 6px 0; }
+.fx-item details input { width: 100px; }
+.fx-preview { border-top: 1px solid var(--border); margin-top: 12px; padding-top: 12px; }
+.fx-preview > label { display: grid; grid-template-columns: 1fr; }
+#fxExceptions { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+.fx-dialog .insp-actions { flex-wrap: wrap; }
+.fx-dialog [hidden] { display: none !important; }
+.fx-dialog:not([open]) { display: none !important; }
+.take-panel [hidden] { display: none !important; }
+@media (max-width: 420px) { .fx-dialog { padding: 12px; } .fx-item-head { flex-wrap: wrap; } }

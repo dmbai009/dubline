@@ -1084,9 +1084,10 @@ function buildRoleRow(char, trackWidth, allowCharacterClaims, editing) {
     // Track structure belongs to the shared editor, so every collaborator may rename it.
     const canRenameTrack = editing;
     const renameTrackBtn = canRenameTrack ? `<button class="track-rename" title="${esc(t('char.renameTrack', { name: char }))}" onclick="renameCharacterTrack(${jsArg(char)})">✎</button>` : '';
+    const voiceRoleBtn = canModerate() ? `<button class="btn-icon track-fx" title="${esc(t('fx.configureRole'))}" aria-label="${esc(t('fx.configureRole'))}" onclick="DublineVoiceEditor.open(${jsArg(char)}, 'role')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 7h16M4 17h16M9 4v6M15 14v6"/></svg></button>` : '';
     label.innerHTML = `
       <div class="track-label-inner">
-        <span class="char-name-row"><span class="char-name" title="${esc(char)}">${esc(char)}</span>${renameTrackBtn}</span>
+        <span class="char-name-row"><span class="char-name" title="${esc(char)}">${esc(char)}</span>${renameTrackBtn}${voiceRoleBtn}</span>
         ${roleHtml}
       </div>
     `;

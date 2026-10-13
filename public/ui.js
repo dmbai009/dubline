@@ -726,6 +726,7 @@ function showInspector(line) {
     ${window.DublineTakeHistory?.html(line) || ''}
     <canvas id="visualizerCanvas" width="320" height="28"></canvas>
     ${micRow}
+    ${window.DublineVoiceEditor?.html(line) || ''}
     ${takePanelHtml(line, canEditTake(line))}
   `;
   window.DublineRetakes?.restoreFocus(retakeFocus);
@@ -748,6 +749,7 @@ function showMultiInspector() {
     <div class="multi-list">${preview}${lines.length > 6 ? `<div class="insp-meta">${t('multi.more', { n: lines.length - 6 })}</div>` : ''}</div>
     ${editorForm}
     ${takeMixPanelHtml(lines, true)}
+    ${window.DublineVoiceEditor?.bulkHtml(lines) || ''}
     <div class="insp-actions secondary">
       ${canModerate() && !session.singlePlayer ? `<button class="btn-host" onclick="releaseSelectedLines()">${t('multi.release')}</button>` : ''}
       ${session.mode === 'edit' ? `<button class="btn-outline" onclick="deleteEditorLines([...multiSelection])">${t('multi.delete')}</button>` : ''}
@@ -827,7 +829,7 @@ window.deleteLines = async function(lineIds) {
 function takePanelHtml(line, editable) {
   if (!line.audioUrl) return '';
   const effect = line.effect || 'none';
-  const pitch = line.pitch || 0;
+  const pitch = window.DublineVoiceChain?.resolve(line, session).pitch ?? line.pitch ?? 0;
   const shift = line.recordedStart != null ? rawTakeStart(line) - line.recordedStart : 0;
   const hasTrim = line.trimStart != null && line.trimEnd != null;
   const signed = (v, digits) => `${v > 0 ? '+' : ''}${Number(v).toFixed(digits)}`;
@@ -836,7 +838,7 @@ function takePanelHtml(line, editable) {
     const parts = [t(`effect.${effect}`) || effect];
     if (pitch) parts.push(`${t('pitch')} ${signed(pitch, 0)}`);
     if (Math.abs(shift) >= 0.005) parts.push(`${t('shift')} ${signed(shift, 2)}s`);
-    return `${takeMixPanelHtml([line])}<div class="insp-meta">${t('voice')} ${esc(parts.join(', '))}</div>${effect !== 'none' ? clipSliderHtml([line], 'effectAmount', 0, 100, 1, 'disabled') : ''}`;
+    return `${takeMixPanelHtml([line])}<div class="insp-meta">${t('voice')} ${esc(parts.join(', '))}</div>${effect !== 'none' && !Array.isArray(line.effects) ? clipSliderHtml([line], 'effectAmount', 0, 100, 1, 'disabled') : ''}`;
   }
 
   const options = Object.entries(VOICE_EFFECTS)
@@ -846,10 +848,10 @@ function takePanelHtml(line, editable) {
   return `
     ${takeMixPanelHtml([line])}
     <div class="take-panel" data-take-mix data-session="${esc(session.activeSessionId)}" data-takes="${esc(JSON.stringify([{ lineId: line.id, audioUrl: line.audioUrl, takeMixRevision: line.takeMixRevision || 0 }]))}" title="${esc(t('dragHint'))}">
-      <label class="clip-mix-row"><span>${esc(t('voice'))}</span>
+      <label class="clip-mix-row" ${Array.isArray(line.effects) ? 'hidden' : ''}><span>${esc(t('voice'))}</span>
         <select class="text-input" data-clip-field="effect" aria-label="${esc(t('voice'))}" title="${esc(t('voice'))}" onchange="setTakeControlProps(this, { effect: this.value })">${options}</select>
       </label>
-      ${effect !== 'none' ? clipSliderHtml([line], 'effectAmount', 0, 100, 1, '') : ''}
+      ${effect !== 'none' && !Array.isArray(line.effects) ? clipSliderHtml([line], 'effectAmount', 0, 100, 1, '') : ''}
       <div class="take-row">
         <span class="insp-label" title="${esc(t('pitch'))}">♯</span>
         <input type="range" data-reset-value="0" data-reset-event="change" min="-12" max="12" step="1" value="${pitch}" class="pitch-range" title="${esc(t('pitch'))}"
@@ -1136,9 +1138,9 @@ function takeMixPanelHtml(selection, bulk = false) {
     '<b class="setting-sub">' + esc(t('clip.title')) + '</b>' +
     (bulk ? '<p class="take-hint">' + esc(t('clip.bulk', { n: editable.length, total: recorded.length })) + '</p>' : '') +
     slider('volume', 0, 300, 1) + slider('pan', -100, 100, 0) +
-    (bulk ? '<label class="clip-mix-row"><span>' + esc(t('voice')) + '</span><select class="text-input" data-clip-field="effect" aria-label="' + esc(t('voice')) + '" ' + disabled + ' onchange="setTakeControlProps(this, { effect: this.value })">' + options + '</select></label>' : '') +
+    (bulk && !lines.some(line => Array.isArray(line.effects)) ? '<label class="clip-mix-row"><span>' + esc(t('voice')) + '</span><select class="text-input" data-clip-field="effect" aria-label="' + esc(t('voice')) + '" ' + disabled + ' onchange="setTakeControlProps(this, { effect: this.value })">' + options + '</select></label>' : '') +
     (bulk ? bulkPitchSliderHtml(lines, disabled) : '') +
-    (bulk && effect && effect !== 'none' ? slider('effectAmount', 0, 100, 1) + '<p class="take-hint">' + esc(t('clip.effectHelp')) + '</p>' : '') +
+    (bulk && effect && effect !== 'none' && !lines.some(line => Array.isArray(line.effects)) ? slider('effectAmount', 0, 100, 1) + '<p class="take-hint">' + esc(t('clip.effectHelp')) + '</p>' : '') +
     (!editable.length ? '<p class="take-hint">' + esc(t('clip.readOnly')) + '</p>' : '') + '</section>';
 }
 
