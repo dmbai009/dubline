@@ -5,7 +5,7 @@ const { rooms, roomSockets, p2pSeeders } = require('./state');
 const { UPLOAD_DIR, MAX_VIDEO_MB, HttpError } = require('./config');
 const { resolveRoomId } = require('./desktop');
 const { isHost } = require('./auth');
-const { snapshotActive, saveRooms, emitSession, publicRoom } = require('./rooms');
+const { snapshotActive, emitSession, publicRoom } = require('./rooms');
 const { runFfmpeg, probeAudioDuration } = require('./media');
 const { forgetFileSizes } = require('./files');
 const { diskUpload } = require('./project-uploads');
@@ -40,22 +40,22 @@ function acquire(req, res) {
 }
 function removeUnused(url) {
   if (!/^\/uploads\/backing_[a-f0-9-]+\/backing\.m4a$/.test(url || '')) return;
-  const used = Object.values(rooms).some(room => [room, ...Object.values(room.sessions || {})].some(scene =>
-    [scene.videoUrl, scene.originalVideoUrl, scene.backingUrl, scene.baseBackingUrl, scene.externalOriginalUrl, ...(scene.audioTracks || []).map(value => value.url), ...(scene.lines || []).flatMap(value => [value.audioUrl, value.originalAudioUrl])].includes(url)));
-  if (used) return;
-  const directory = path.resolve(UPLOAD_DIR, url.split('/')[2]);
-  if (!directory.startsWith(path.resolve(UPLOAD_DIR) + path.sep)) return;
-  try { fs.rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); }
-  catch { console.warn('[Dubline] Previous background cleanup deferred'); }
+  require('./files').deleteSceneFiles(url.split('/')[2]);
 }
 function commit(roomId, room, url, metadata, remove = false) {
   const old = baseSource(room);
+  const previous = Object.fromEntries(['baseBackingUrl', 'backingTrack', 'backingUrl', 'audioMetadata', 'updatedAt'].map(field => [field, room[field]]));
   room.baseBackingUrl = url;
   if (!remove) room.backingTrack = -1;
   room.backingUrl = room.backingTrack >= 0 ? room.audioTracks[room.backingTrack].url : url;
   room.audioMetadata = { ...(room.audioMetadata || {}) };
   if (metadata) room.audioMetadata.backing = metadata; else delete room.audioMetadata.backing;
-  room.updatedAt = Date.now(); snapshotActive(room); saveRooms();
+  room.updatedAt = Date.now(); snapshotActive(room);
+  try { require('./rooms').flushRooms({ strict: true }); }
+  catch (error) {
+    Object.assign(room, previous); snapshotActive(room);
+    throw new HttpError(['ENOSPC', 'EDQUOT'].includes(error.code) ? 507 : 500, 'Could not save the background source', ['ENOSPC', 'EDQUOT'].includes(error.code) ? 'project.diskSpace' : 'studio.backingFailed');
+  }
   forgetFileSizes(old, url); delete p2pSeeders[roomId]; emitSession(roomId); removeUnused(old);
 }
 function fail(res, error) {

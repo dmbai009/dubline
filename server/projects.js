@@ -10,7 +10,8 @@ const { UPLOAD_DIR, MAX_VIDEO_MB, MAX_CAPTION_LENGTH, VOICE_EFFECTS, MAX_PITCH, 
 const { diskPathForUrl } = require('./files');
 
 const FORMAT = 'dubline-project';
-const VERSION = 5;
+const VERSION = 6;
+const takeHistory = require('./takeHistory');
 const takeMix = require('../public/take-mix');
 // Production save/open uses project-archive.js and bounded streams.
 const MAX_VIDEO_BYTES = MAX_VIDEO_MB * 1024 * 1024;
@@ -78,6 +79,17 @@ function captureProject(session, resolveAsset = diskPathForUrl, snapshotDir = nu
   }
   const mix = audio.normalize(session);
   delete mix.revision;
+  const hasHistory = session.lines.some(line => line.takePinned || line.takeHistory?.length);
+  function takeFields(take, historical = false) {
+    const fields = { asset: asset(take?.audioUrl, true), audioStart: take?.audioStart ?? null,
+      recordedStart: take?.recordedStart ?? null, trimStart: take?.trimStart ?? null, trimEnd: take?.trimEnd ?? null,
+      trimEnabled: take?.trimEnabled !== false, effect: take?.effect || 'none', pitch: take?.pitch || 0,
+      ...takeMix.normalize(take), recordedBy: take?.recordedBy || null };
+    if (hasHistory) Object.assign(fields, { id: take?.id || null, pinned: take?.pinned === true,
+      createdAt: take?.createdAt ?? null, duration: take?.duration ?? null });
+    if (historical) fields.archivedAt = take.archivedAt ?? null;
+    return fields;
+  }
   const project = {
     title: session.title || '',
     kind: session.kind === 'pack' ? 'pack' : 'custom',
@@ -102,7 +114,7 @@ function captureProject(session, resolveAsset = diskPathForUrl, snapshotDir = nu
     audioMetadata: metadata(session.audioMetadata),
     // These values preserve the audible placement of EXISTING takes. They are not
     // microphone device/preferences to apply to the next user's new recordings.
-    takeLatency: Object.fromEntries([...new Set(session.lines.filter(line => line.audioUrl && line.recordedBy).map(line => line.recordedBy))]
+    takeLatency: Object.fromEntries([...new Set(session.lines.flatMap(line => [line, ...(line.takeHistory || [])]).filter(take => take.audioUrl && take.recordedBy).map(take => take.recordedBy))]
       .map(author => [author, audio.takeLatency(session, author)])),
     mix,
     lines: session.lines.map(line => ({
@@ -110,20 +122,15 @@ function captureProject(session, resolveAsset = diskPathForUrl, snapshotDir = nu
       claimedBy: line.claimedBy || null, reference: asset(line.originalAudioUrl),
       ...(line.audioUrl && line.needsRetake === true ? { needsRetake: true } : {}),
       ...(line.audioUrl && line.needsRetake === true && line.retakeComment ? { retakeComment: line.retakeComment } : {}),
-      take: {
-        asset: asset(line.audioUrl, true), audioStart: line.audioStart ?? null,
-        recordedStart: line.recordedStart ?? null, trimStart: line.trimStart ?? null, trimEnd: line.trimEnd ?? null,
-        trimEnabled: line.trimEnabled !== false, effect: line.effect || 'none', pitch: line.pitch || 0,
-        ...takeMix.normalize(line),
-        recordedBy: line.recordedBy || null
-      }
+      take: takeFields(line.audioUrl ? { ...line, ...takeHistory.extract(line) } : { ...line, id: null, pinned: false }),
+      ...(hasHistory ? { takeHistory: (line.takeHistory || []).map(take => takeFields(take, true)) } : {})
     }))
   };
   if (session.originalVideoUrl) {
     project.media.originalVideo = asset(session.originalVideoUrl);
     project.media.originalVideoName = String(session.originalVideoName || 'source').slice(0, 200);
   }
-  const manifest = { format: FORMAT, formatVersion: project.lines.some(line => line.retakeComment || line.take.effect === 'telephone') ? 5 : project.lines.some(line => line.needsRetake === true) ? 4 : project.lines.some(line => Object.entries(takeMix.DEFAULTS).some(([key, value]) => line.take[key] !== value)) ? 3 : (session.originalVideoUrl ? 2 : 1), project, assets };
+  const manifest = { format: FORMAT, formatVersion: hasHistory ? 6 : project.lines.some(line => line.retakeComment || line.take.effect === 'telephone') ? 5 : project.lines.some(line => line.needsRetake === true) ? 4 : project.lines.some(line => Object.entries(takeMix.DEFAULTS).some(([key, value]) => line.take[key] !== value)) ? 3 : (session.originalVideoUrl ? 2 : 1), project, assets };
   if (manifest.formatVersion < 3) project.lines.forEach(line => Object.keys(takeMix.DEFAULTS).forEach(field => { delete line.take[field]; }));
   const manifestBytes = Buffer.from(JSON.stringify(manifest), 'utf8');
   if (manifestBytes.length > MAX_MANIFEST_BYTES) fail('Project manifest is too large');
@@ -149,7 +156,7 @@ function safeArchivePath(name) {
 
 function validateManifest(manifest) {
   if (!object(manifest) || manifest.format !== FORMAT) fail('Invalid project manifest');
-  if (![1, 2, 3, 4, VERSION].includes(manifest.formatVersion)) throw new HttpError(400, 'Unsupported project version', 'project.unsupportedVersion');
+  if (![1, 2, 3, 4, 5, VERSION].includes(manifest.formatVersion)) throw new HttpError(400, 'Unsupported project version', 'project.unsupportedVersion');
   if (manifest.project?.protectTimings !== undefined && typeof manifest.project.protectTimings !== 'boolean') fail('Invalid timing protection');
   if (!Array.isArray(manifest.assets) || !manifest.assets.length || manifest.assets.length >= MAX_ENTRIES) fail('Invalid project assets');
   const assets = new Map();
@@ -208,6 +215,7 @@ function validateManifest(manifest) {
   }
   if (!Array.isArray(p.lines) || p.lines.length > MAX_LINES) fail('Invalid project lines');
   const ids = new Set();
+  const takeIds = new Set();
   for (const line of p.lines) {
     if (!object(line) || !Number.isSafeInteger(line.id) || line.id < 1 || line.id >= Number.MAX_SAFE_INTEGER || ids.has(line.id) ||
         !p.roles.includes(line.character) || !text(line.caption, MAX_CAPTION_LENGTH) ||
@@ -218,6 +226,23 @@ function validateManifest(manifest) {
     if (line.needsRetake !== undefined && (manifest.formatVersion < 4 || typeof line.needsRetake !== 'boolean' || (line.needsRetake && !take?.asset))) fail('Invalid retake marker');
     if (line.retakeComment !== undefined && (manifest.formatVersion < 5 || typeof line.retakeComment !== 'string' || line.retakeComment.length > require('./retakes').MAX_COMMENT || !line.needsRetake || !take?.asset)) fail('Invalid retake comment');
     if (take?.effect === 'telephone' && manifest.formatVersion < 5) fail('Telephone requires project version 5');
+    if (manifest.formatVersion < 6 && (line.takeHistory !== undefined || take?.id !== undefined || take?.pinned !== undefined)) fail('Take history requires project version 6');
+    if (manifest.formatVersion >= 6 && (!Array.isArray(line.takeHistory) || line.takeHistory.length > takeHistory.LIMIT)) fail('Invalid take history limit');
+    const variants = [take, ...(line.takeHistory || [])], variantAssets = new Set();
+    for (const variant of variants) {
+    if (!object(variant)) fail('Invalid project take');
+    if (manifest.formatVersion >= 6) {
+      if (typeof variant.pinned !== 'boolean' || (!variant.asset && (variant.id !== null || variant.pinned)) ||
+          (variant.asset && (!takeHistory.validId(variant.id) || takeIds.has(variant.id) || variantAssets.has(variant.asset))) ||
+          (variant.createdAt !== null && !finite(variant.createdAt, 0, 8640000000000000)) ||
+          (variant.duration !== null && !finite(variant.duration, 0, 86400))) fail('Invalid take identity');
+      if (variant !== take && (!variant.asset || variant.archivedAt !== null && !finite(variant.archivedAt, 0, 8640000000000000))) fail('Invalid historical take');
+      if (variant.asset) { takeIds.add(variant.id); variantAssets.add(variant.asset); }
+    }
+    validateTake(variant);
+    }
+  }
+  function validateTake(take) {
     if (!object(take) || !VOICE_EFFECTS.includes(take.effect) || !finite(take.pitch, -MAX_PITCH, MAX_PITCH) ||
         typeof take.trimEnabled !== 'boolean' || !(take.recordedBy === null || text(take.recordedBy, 16, true))) fail('Invalid project take');
     for (const [field, fallback] of Object.entries(takeMix.DEFAULTS)) {
@@ -309,7 +334,11 @@ function fieldsForProject(project, urls) {
       trimStart: line.take.trimStart, trimEnd: line.take.trimEnd, trimEnabled: line.take.trimEnabled,
       effect: line.take.effect, pitch: line.take.pitch, recordedBy: line.take.recordedBy,
       ...takeMix.normalize(line.take), needsRetake: !!line.take.asset && line.needsRetake === true,
-      retakeComment: line.retakeComment || '', retakeRevision: 0
+      retakeComment: line.retakeComment || '', retakeRevision: 0,
+      takeId: line.take.asset ? line.take.id || crypto.randomUUID() : null, takePinned: line.take.pinned === true,
+      takeCreatedAt: line.take.createdAt ?? null, takeDuration: line.take.duration ?? null, takeHistoryRevision: 0,
+      takeHistory: (line.takeHistory || []).map(take => ({ ...Object.fromEntries(takeHistory.FIELDS.map(field => [field, field === 'audioUrl' ? url(take.asset) : take[field] ?? takeHistory.DEFAULTS[field]])),
+        id: take.id, pinned: take.pinned, createdAt: take.createdAt, duration: take.duration, archivedAt: take.archivedAt }))
       // Fresh session/sequence identity: old queued uploads must never target these takes.
     }))
   };

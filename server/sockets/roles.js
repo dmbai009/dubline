@@ -36,7 +36,7 @@ module.exports = function registerRoleHandlers(socket, conn) {
     reply({ ok: true, changed: true, line });
   });
   // Allocate order before recording starts, not when its asynchronous processing finishes.
-  socket.on('reserve_take', ({ lineId, sessionId, cancelSequence } = {}, ack) => {
+  socket.on('reserve_take', ({ lineId, sessionId, cancelSequence, historyResume, expectedTakeId, historyRevision } = {}, ack) => {
     if (typeof ack !== 'function') return;
     if (!conn.roomId || !conn.nick) return ack({ ok: false, reason: 'nick' });
     const room = getRoom(conn.roomId);
@@ -50,14 +50,28 @@ module.exports = function registerRoleHandlers(socket, conn) {
       // Cancel only this reserved sequence; never invalidate a newer recording.
       if (cancelSequence > (line.takeSequence || 0)) {
         if (cancelSequence !== line.takeCounter) return ack({ ok: false, reason: 'conflict' });
-        line.takeSequence = cancelSequence; flushRooms();
+        try { require('../takeHistory').commit(room, target, line, { ...line, takeSequence: cancelSequence }); }
+        catch (error) { return ack({ ok: false, reason: error.key || 'takeHistory.storage' }); }
         if (sessionId === room.activeSessionId) require('../sessionScope').emitLines(conn.roomId, [line]);
       }
       return ack({ ok: true, cancelled: true });
     }
     if (target.mode === 'edit') return ack({ ok: false, reason: 'mode' });
-    line.takeCounter = Math.max(Number(line.takeCounter) || 0, Number(line.takeSequence) || 0) + 1;
-    flushRooms();
+    if (historyResume) {
+      if (expectedTakeId !== (line.takeId || null) || historyRevision !== (line.takeHistoryRevision || 0)) return ack({ ok: false, reason: 'takeHistory.changed' });
+      const next = structuredClone(line);
+      try {
+        require('../takeHistory').invalidateReservations(next);
+        next.takeCounter++;
+        if (!Number.isSafeInteger(next.takeCounter)) throw require('../takeHistory').failure('invalid');
+        require('../takeHistory').commit(room, target, line, next);
+      } catch (error) { return ack({ ok: false, reason: error.key || 'takeHistory.storage' }); }
+      return ack({ ok: true, takeSequence: line.takeCounter });
+    }
+    const nextCounter = Math.max(Number(line.takeCounter) || 0, Number(line.takeSequence) || 0) + 1;
+    if (!Number.isSafeInteger(nextCounter)) return ack({ ok: false, reason: 'takeHistory.invalid' });
+    try { require('../takeHistory').commit(room, target, line, { ...line, takeCounter: nextCounter }); }
+    catch (error) { return ack({ ok: false, reason: error.key || 'takeHistory.storage' }); }
     ack({ ok: true, takeSequence: line.takeCounter });
   });
 

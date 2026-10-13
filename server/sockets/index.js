@@ -16,6 +16,7 @@ io.on('connection', socket => {
   registerRoomHandlers(socket, conn);
   require('../moderators').register(socket, conn);
   registerRoleHandlers(socket, conn);
+  require('./take-history')(socket, conn);
   registerHostHandlers(socket, conn);
   registerTrashHandlers(socket, conn);
   registerP2pHandlers(socket, conn);

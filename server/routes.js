@@ -382,10 +382,17 @@ async function importProjectIntoRoom(roomId, archivePath, authorize = () => true
     const sourceFile = staged.mediaFiles.find(file => file.video && !file.primary);
     if (sourceFile && Math.abs(require('./media').probeAudioDuration(sourceFile.path) - duration) > 0.25) throw new HttpError(400, 'Original/proxy duration differs', 'project.invalid');
     staged.fields.videoDuration = duration;
-    startNewSession(room, staged.commit()); committed = true;
+    const before = { ...room, sessions: { ...room.sessions } };
+    try {
+      startNewSession(room, staged.commit());
+      flushRooms({ strict: true }); committed = true;
+    } catch (error) {
+      for (const key of Object.keys(room)) delete room[key]; Object.assign(room, before);
+      throw new HttpError(['ENOSPC', 'EDQUOT'].includes(error.code) ? 507 : 500, 'Could not save the imported project', ['ENOSPC', 'EDQUOT'].includes(error.code) ? 'project.diskSpace' : 'takeHistory.storage');
+    }
     delete recordingNow[roomId]; delete p2pSeeders[roomId];
     endWatch(roomId, null, 'Watch-together stopped: a project was opened');
-    flushRooms(); emitSession(roomId); broadcastRecording(roomId); ensureAudioTracks(roomId);
+    emitSession(roomId); broadcastRecording(roomId); ensureAudioTracks(roomId);
     logEvent(roomId, 'Project opened: ' + room.title);
     return room;
   } finally {
@@ -410,6 +417,7 @@ app.post('/api/import-project', diskUpload(['project'], requireHost('Only the ho
 app.post('/api/export-voxalike-pack', async (req, res) => {
   let tempDir = null;
   let ownsExportSlot = null;
+  let releaseTakes = null;
   let clientGone = false;
   try {
     const roomId = resolveRoomId(req.body.room);
@@ -426,6 +434,8 @@ app.post('/api/export-voxalike-pack', async (req, res) => {
     // mix old audio cuts with new captions, roles or timestamps in the archive.
     const snapshot = require('./snapshotBarrier').capture(roomId,req.body.clientId,req.body.barrierToken,'voxalike',req.body.forceSnapshot===true);
     const ordered = snapshot.lines.map(line => ({ ...line })).sort((a, b) => a.start - b.start || a.id - b.id);
+    releaseTakes = require('./files').retainTakeFiles([snapshot.videoUrl, snapshot.originalVideoUrl, snapshot.backingUrl,
+      ...ordered.flatMap(line => [line.audioUrl, line.originalAudioUrl])].filter(Boolean));
     let estimatedBytes = fs.statSync(videoPath).size;
     if (backingPath && fs.existsSync(backingPath)) estimatedBytes += fs.statSync(backingPath).size;
     for (const line of ordered) {
@@ -523,6 +533,7 @@ app.post('/api/export-voxalike-pack', async (req, res) => {
     sendError(res, err);
   } finally {
     if (ownsExportSlot) packExports.delete(ownsExportSlot);
+    releaseTakes?.();
     if (tempDir && path.dirname(tempDir) === DATA_DIR && path.basename(tempDir).startsWith('.pack-export-')) fs.rm(tempDir, { recursive: true, force: true }, () => {});
   }
 });
@@ -717,6 +728,7 @@ require('./backing-source');
 
 // Take upload
 app.post('/api/upload-line-audio', acceptFile('audio', MAX_TAKE_MB, requireConfirmedNick), (req, res) => {
+  let createdTake = null;
   try {
     const roomId = resolveRoomId(req.query.room);
     const room = getRoom(roomId);
@@ -745,6 +757,7 @@ app.post('/api/upload-line-audio', acceptFile('audio', MAX_TAKE_MB, requireConfi
 
     const line = target.lines.find(l => l.id === lineId);
     if (!line) throw new HttpError(404, 'Line not found', 'error.lineNotFound');
+    const takeHistory = require('./takeHistory'); takeHistory.normalize(line); takeHistory.check(line);
 
     const owner = room.singlePlayer ? room.host : getLineOwner(target, line);
     if (owner !== userName) throw new HttpError(403, 'The line is claimed by another player', 'error.lineTaken');
@@ -752,40 +765,56 @@ app.post('/api/upload-line-audio', acceptFile('audio', MAX_TAKE_MB, requireConfi
       throw new HttpError(400, 'Invalid take reservation', 'error.badRequest');
     }
     // Retrying an old upload, including after deletion, must never resurrect it.
+    const accepted = [takeHistory.extract(line), ...line.takeHistory].filter(Boolean).find(take => take.uploadId === uploadId);
+    if (accepted) return res.json({ success: true, audioUrl: line.audioUrl, audioStart: line.audioStart, duplicate: true, superseded: accepted.id !== line.takeId });
     if (takeSequence <= (line.takeSequence || 0)) {
+      if (takeSequence > (line.takeInvalidatedFloor ?? Infinity) && takeSequence <= (line.takeInvalidatedThrough || 0)) throw takeHistory.failure('changed');
       const duplicate = takeSequence === line.takeSequence && line.uploadId === uploadId && !!line.audioUrl;
       return res.json({ success: true, audioUrl: line.audioUrl, audioStart: line.audioStart, duplicate, superseded: !duplicate });
     }
 
     if (require('./snapshotBarrier').frozenClient(roomId, sessionId, req.body.clientId)) throw new HttpError(409, 'A scene snapshot is being captured', 'snapshot.frozen');
+    const plan = takeHistory.planUpload(line, req.body), next = structuredClone(line), deleted = [];
+    if (plan.evict) { const evicted = next.takeHistory.find(take => take.id === plan.evict); deleted.push(evicted.audioUrl); next.takeHistory = next.takeHistory.filter(take => take.id !== plan.evict); }
+    if (plan.kind === 'confirm') deleted.push(line.audioUrl);
+    else takeHistory.archiveCurrent(next);
     const fileName = `line_${roomId}_${lineId}_${crypto.randomUUID()}.webm`;
-    fs.writeFileSync(path.join(UPLOAD_DIR, fileName), req.file.buffer);
+    const newUrl = `/uploads/${encodeURIComponent(fileName)}`;
+    createdTake = newUrl;
+    fs.writeFileSync(path.join(UPLOAD_DIR, fileName), req.file.buffer, { flag: 'wx' });
+    const takeFd = fs.openSync(path.join(UPLOAD_DIR, fileName), 'r+');
+    try { fs.fsyncSync(takeFd); } finally { fs.closeSync(takeFd); }
 
-    deleteTakeFile(line.audioUrl);
-    line.audioUrl = `/uploads/${encodeURIComponent(fileName)}`;
+    next.audioUrl = newUrl;
     // A line at 0:00 may include a short preparation recording before the first frame.
-    line.audioStart = audioStart !== null ? Math.max(-5, audioStart) : line.start;
-    line.recordedStart = line.audioStart;
-    line.recordedBy = userName;
-    line.uploadId = uploadId || null;
-    line.takeSequence = takeSequence;
-    line.blindRevealed = false;
-    require('./retakes').clear(line);
-    target.updatedAt = Date.now();
+    next.audioStart = audioStart !== null ? Math.max(-5, audioStart) : line.start;
+    next.recordedStart = next.audioStart;
+    next.recordedBy = userName;
+    next.uploadId = uploadId; next.takeSequence = takeSequence; next.takeUploadedSequence = takeSequence;
+    next.takeId = crypto.randomUUID(); next.takePinned = false; next.takeCreatedAt = Date.now();
+    const duration = require('./media').getWavDuration(req.file.buffer) || Number(req.body.duration);
+    next.takeDuration = Number.isFinite(duration) && duration > 0 && duration <= 86400 ? duration : null;
+    next.takeHistoryRevision = takeHistory.revision(line) + 1;
+    next.blindRevealed = false;
+    require('./retakes').clear(next);
     // The chosen voice (effect/pitch) survives re-recording the take
     const hasTrim = trimStart !== null && trimEnd !== null && trimStart >= 0 && trimEnd > trimStart;
-    line.trimStart = hasTrim ? trimStart : null;
-    line.trimEnd = hasTrim ? trimEnd : null;
-    if (line.trimEnabled === undefined) line.trimEnabled = true;
-    if (!line.effect) line.effect = 'none';
-    if (!line.pitch) line.pitch = 0;
+    next.trimStart = hasTrim ? trimStart : null;
+    next.trimEnd = hasTrim ? trimEnd : null;
+    if (next.trimEnabled === undefined) next.trimEnabled = true;
+    if (!next.effect) next.effect = 'none';
+    if (!next.pitch) next.pitch = 0;
 
-    flushRooms();
+    try { takeHistory.commit(room, target, line, next); }
+    catch (error) { deleteTakeFile(newUrl); throw error; }
+    const cleanupError = takeHistory.cleanup(deleted, roomId, sessionId, line.id);
     if (isActiveSession) require('./sessionScope').emitLines(roomId, [line]);
     else emitSession(roomId); // the take went to an inactive session: only refresh its progress in the list
     logEvent(roomId, `💾 ${userName} saved a take for line #${lineId} (${Math.round(req.file.size / 1024)} KB)${isActiveSession ? '' : ` to session "${target.title}"`}`);
-    res.json({ success: true, audioUrl: line.audioUrl, audioStart: line.audioStart });
+    res.json({ success: true, audioUrl: line.audioUrl, audioStart: line.audioStart, cleanupError });
   } catch (err) {
+    if (createdTake) deleteTakeFile(createdTake);
+    if (['ENOSPC', 'EDQUOT'].includes(err.code)) return sendError(res, require('./takeHistory').failure('diskSpace', 507));
     sendError(res, err);
   }
 });
@@ -809,15 +838,14 @@ app.post('/api/delete-line-audio', (req, res) => {
     if (!Object.hasOwn(req.body, 'audioUrl') || req.body.audioUrl !== line.audioUrl) throw new HttpError(409, 'The take changed', 'error.takeChanged');
 
     if (require('./snapshotBarrier').frozenClient(roomId, room.activeSessionId, clientId)) throw new HttpError(409, 'A scene snapshot is being captured', 'snapshot.frozen');
-    deleteTakeFile(line.audioUrl);
-    const { effect, pitch, trimEnabled, volume = 1, pan = 0, effectAmount = 1 } = line;
-    Object.assign(line, emptyTake(), { effect: effect || 'none', pitch: pitch || 0, trimEnabled: trimEnabled !== false, volume, pan, effectAmount });
-    require('./retakes').clear(line);
-
-    flushRooms();
+    const takeHistory = require('./takeHistory'); takeHistory.normalize(line);
+    if (req.body.historyRevision !== undefined && req.body.historyRevision !== takeHistory.revision(line) || req.body.takeId !== undefined && req.body.takeId !== line.takeId) throw takeHistory.failure('changed');
+    const result = takeHistory.action(room, line, { action: 'delete', takeId: line.takeId, historyRevision: takeHistory.revision(line), expectedOwner: getLineOwner(room, line), confirmPinned: req.body.confirmPinned }, nick, clientId);
+    takeHistory.commit(room, room, line, result.next);
+    const cleanupError = takeHistory.cleanup(result.deleted, roomId, room.activeSessionId, line.id);
     require('./sessionScope').emitLines(roomId, [line]);
     logEvent(roomId, `🗑 ${nick} deleted the take for line #${line.id}`);
-    res.json({ success: true });
+    res.json({ success: true, cleanupError });
   } catch (err) {
     sendError(res, err);
   }

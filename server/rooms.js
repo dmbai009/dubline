@@ -24,6 +24,7 @@ function loadRooms() {
   try {
     if (fs.existsSync(ROOMS_FILE)) {
       const loaded = JSON.parse(fs.readFileSync(ROOMS_FILE, 'utf8')) || {};
+      require('./files').notePersistedReferences(loaded);
       // After reading JSON, the active session fields and its entry in sessions are different objects: link them back
       for (const room of Object.values(loaded)) {
         const active = room.sessions && room.activeSessionId && room.sessions[room.activeSessionId];
@@ -68,7 +69,7 @@ function cleanImportedCaptions(session) {
   repairedOnLoad = true;
   if (session.kind !== 'custom') return;
   const before = session.lines.length;
-  const kept = session.lines.filter(line => line.audioUrl || !isAssDrawing(line.caption || ''));
+  const kept = session.lines.filter(line => line.audioUrl || line.takeHistory?.length || !isAssDrawing(line.caption || ''));
   kept.forEach(line => { line.caption = cleanAssText(line.caption || ''); });
   if (kept.length !== before) {
     session.lines.splice(0, session.lines.length, ...kept); // same array, so the link to the active session stays intact
@@ -77,6 +78,9 @@ function cleanImportedCaptions(session) {
 }
 
 function normalizeEditorState(session) {
+  for (const batch of session.deletedLines || []) for (const entry of batch.lines || []) {
+    if (entry.line && require('./takeHistory').normalize(entry.line)) repairedOnLoad = true;
+  }
   if (!session || !Array.isArray(session.lines)) return;
   session.protectTimings = session.protectTimings === true;
   session.characterClaims = Object.assign(Object.create(null), session.characterClaims);
@@ -103,6 +107,7 @@ function normalizeEditorState(session) {
     maxId = Math.max(maxId, Number(line.id) || 0);
     const mix = takeMix.normalize(line);
     if (require('./retakes').normalize(line)) repairedOnLoad = true;
+    if (require('./takeHistory').normalize(line)) repairedOnLoad = true;
     if (Object.keys(mix).some(field => line[field] !== mix[field])) repairedOnLoad = true;
     Object.assign(line, mix);
     if (!Number.isSafeInteger(line.takeMixRevision) || line.takeMixRevision < 0) {
@@ -135,14 +140,19 @@ function normalizeEditorState(session) {
   }
 }
 
-function writeRoomsNow() {
+function writeRoomsNow({ strict = false } = {}) {
   try {
     Object.values(rooms).forEach(snapshotActive);
     const tmpFile = ROOMS_FILE + '.tmp';
     fs.writeFileSync(tmpFile, JSON.stringify(rooms));
+    if (strict) { const fd = fs.openSync(tmpFile, 'r+'); try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); } }
     fs.renameSync(tmpFile, ROOMS_FILE);
+    require('./files').notePersistedReferences(rooms);
+    return true;
   } catch (err) {
     console.error('[Dubline] Could not save rooms:', err.message);
+    if (strict) throw err;
+    return false;
   }
 }
 
@@ -153,10 +163,10 @@ function saveRooms() {
   saveTimer = setTimeout(() => { saveTimer = null; writeRoomsNow(); }, 1000);
 }
 
-function flushRooms() {
+function flushRooms(options) {
   clearTimeout(saveTimer);
   saveTimer = null;
-  writeRoomsNow();
+  return writeRoomsNow(options);
 }
 
 process.on('SIGINT', () => {
@@ -276,7 +286,12 @@ function sessionSummaries(room) {
 // Whether any other session in any room still uses the scene folder
 function isSceneDirUsed(dir) {
   return Object.values(rooms).some(room => [room, ...Object.values(room.sessions || {})]
-    .some(session => [session.videoUrl, session.originalVideoUrl, session.backingUrl, session.externalOriginalUrl, session.baseBackingUrl].some(url => sceneDirOf(url) === dir)));
+    .some(session => sessionFileUrls(session).some(url => sceneDirOf(url) === dir)));
+}
+function sessionFileUrls(session) {
+  const lines = [...(session.lines || []), ...(session.deletedLines || []).flatMap(batch => batch.lines.map(entry => entry.line))];
+  return [session.videoUrl, session.originalVideoUrl, session.backingUrl, session.externalOriginalUrl, session.baseBackingUrl,
+    ...(session.audioTracks || []).map(track => track.url), ...lines.flatMap(line => [line.originalAudioUrl, ...require('./files').takeUrls(line)])];
 }
 
 // Lines in a session are always sorted by id (the import creates them that way and the list is never re-sorted),
@@ -292,16 +307,11 @@ function deleteSessionFiles(session) {
   let takes = 0;
   const trashed = (session.deletedLines || []).flatMap(batch => batch.lines.map(entry => entry.line));
   [...(session.lines || []), ...trashed].forEach(line => {
-    if (line.audioUrl) {
-      deleteTakeFile(line.audioUrl);
-      takes++;
-    }
+    for (const url of require('./files').takeUrls(line)) { deleteTakeFile(url); takes++; }
   });
-  const dirs = new Set([session.videoUrl, session.originalVideoUrl, session.backingUrl, session.externalOriginalUrl, session.baseBackingUrl].map(sceneDirOf).filter(Boolean));
+  const dirs = new Set(sessionFileUrls(session).map(sceneDirOf).filter(Boolean));
   dirs.forEach(dir => {
-    if (isSceneDirUsed(dir)) return;
-    const full = path.join(UPLOAD_DIR, dir);
-    if (full.startsWith(UPLOAD_DIR + path.sep)) fs.rm(full, { recursive: true, force: true }, () => {});
+    if (!isSceneDirUsed(dir)) require('./files').deleteSceneFiles(dir);
   });
   if (/^\/uploads\/pack_source_[a-f0-9]{64}\.zip$/.test(session.zipUrl || '') &&
       !Object.values(rooms).some(room => [room, ...Object.values(room.sessions || {})].some(other => other.zipUrl === session.zipUrl))) {

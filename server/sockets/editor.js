@@ -45,7 +45,7 @@ function putInTrash(room, lines, by) {
   const droppedClaims = Object.fromEntries(Object.entries(claimsBefore).filter(([character]) => !room.characterClaims[character]));
   room.deletedLines.push({ at: Date.now(), by, lines: removed, claims: droppedClaims });
   while (room.deletedLines.length > MAX_UNDO_BATCHES) {
-    room.deletedLines.shift().lines.forEach(entry => deleteTakeFile(entry.line.audioUrl));
+    room.deletedLines.shift().lines.forEach(entry => require('../files').takeUrls(entry.line).forEach(url => deleteTakeFile(url)));
   }
   return removed.length;
 }
@@ -420,7 +420,7 @@ module.exports = function registerEditorHandlers(socket, conn) {
       dropEmptyRoleClaims(room);
     } else if (entry.type === 'create') {
       const line = room.lines.find(l => l.id === entry.id);
-      if (line && Number(line.revision || 0) === entry.revAfter && !line.audioUrl) {
+      if (line && Number(line.revision || 0) === entry.revAfter && !line.audioUrl && !line.takeHistory?.length) {
         room.lines.splice(room.lines.indexOf(line), 1);
         dropEmptyRoleClaims(room);
         undone = 1;

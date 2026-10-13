@@ -65,10 +65,70 @@ function forgetFileSizes(...urls) {
   });
 }
 
-function deleteTakeFile(url) {
-  if (!url || !url.startsWith('/uploads/line_')) return;
-  const file = path.join(UPLOAD_DIR, path.basename(decodeURIComponent(url)));
-  fs.rm(file, { force: true }, () => {});
+const takePins = new Map(), deferredTakes = new Map(), deferredSceneDirs = new Set();
+let persistedReferences = null;
+const identity = file => process.platform === 'win32' ? file.toLowerCase() : file;
+function takePath(url) {
+  try {
+    const decoded = decodeURIComponent(url || '');
+    const match = /^\/uploads\/(line_[^/\\?#:\x00-\x1f]+\.(?:webm|wav|ogg|oga|opus|mp3|m4a|aac|flac|mp4|mkv))$/i.exec(decoded);
+    if (!match) return null;
+    const root = fs.realpathSync(UPLOAD_DIR), file = path.resolve(root, match[1]);
+    return file.startsWith(root + path.sep) ? file : null;
+  } catch { return null; }
+}
+function takeUrls(line) { return [...new Set([line?.audioUrl, ...(Array.isArray(line?.takeHistory) ? line.takeHistory : []).map(take => take?.audioUrl)].filter(url => typeof url === 'string' && url))]; }
+function scenePath(dir) {
+  if (typeof dir !== 'string' || !/^[A-Za-z0-9_-]+$/.test(dir) || sceneDirOf('/uploads/' + dir + '/asset') !== dir) return null;
+  const root = fs.realpathSync(UPLOAD_DIR), target = path.resolve(root, dir);
+  return target.startsWith(root + path.sep) ? target : null;
+}
+function deleteSceneFiles(dir) {
+  try {
+    const target = scenePath(dir); if (!target) return;
+    const key = identity(target);
+    if (references(require('./state').rooms).has(key)) { deferredSceneDirs.delete(dir); return; }
+    if (!persistedReferences || persistedReferences.has(key) || takePins.has(key)) { deferredSceneDirs.add(dir); return; }
+    const stat = fs.lstatSync(target); if (!stat.isDirectory() || stat.isSymbolicLink()) return;
+    fs.rmSync(target, { recursive: true }); deferredSceneDirs.delete(dir);
+  } catch (error) { if (error.code === 'ENOENT') deferredSceneDirs.delete(dir); else console.error('[DubLine] Scene cleanup postponed:', error.code || 'IO'); }
+}
+function references(value) { return require('./orphanGc').references(value, fs.realpathSync(UPLOAD_DIR), fs.realpathSync(PACKS_DIR)); }
+function notePersistedReferences(value) {
+  try {
+    persistedReferences = references(value);
+    for (const [url, options] of [...deferredTakes]) { deferredTakes.delete(url); deleteTakeFile(url, options); }
+    for (const dir of [...deferredSceneDirs]) deleteSceneFiles(dir);
+  } catch { persistedReferences = null; console.error('[DubLine] Take cleanup paused: references are unavailable.'); }
+}
+function deleteTakeFile(url, options = {}) {
+  const file = takePath(url); if (!file) return { kept: true };
+  const key = identity(file);
+  try { if (references(require('./state').rooms).has(key)) return { kept: true }; }
+  catch { deferredTakes.set(url, options); return { deferred: true, error: 'references' }; }
+  if (!persistedReferences || persistedReferences.has(key) || takePins.has(key)) {
+    deferredTakes.set(url, options); return { deferred: true };
+  }
+  try {
+    const stat = fs.lstatSync(file); if (!stat.isFile() || stat.isSymbolicLink()) return { kept: true };
+    fs.unlinkSync(file); forgetFileSizes(url); return { deleted: true };
+  } catch (error) {
+    if (error.code === 'ENOENT') return { deleted: true };
+    console.error('[DubLine] Take cleanup postponed:', error.code || 'IO');
+    try { options.onError?.(error); } catch { /* Cleanup notifications cannot roll back a persisted scene. */ }
+    return { error: error.code || 'IO' };
+  }
+}
+function retainTakeFiles(urls) {
+  const keys = [...new Set(urls.map(url => takePath(url) || scenePath(sceneDirOf(url))).filter(Boolean).map(identity))];
+  for (const key of keys) takePins.set(key, (takePins.get(key) || 0) + 1);
+  let released = false;
+  return () => {
+    if (released) return; released = true;
+    for (const key of keys) { const remaining = takePins.get(key) - 1; remaining ? takePins.set(key, remaining) : takePins.delete(key); }
+    for (const [url, options] of [...deferredTakes]) { deferredTakes.delete(url); deleteTakeFile(url, options); }
+    for (const dir of [...deferredSceneDirs]) deleteSceneFiles(dir);
+  };
 }
 
 module.exports = {
@@ -77,5 +137,5 @@ module.exports = {
   fileSizeForUrl,
   fileHashForUrl,
   forgetFileSizes,
-  deleteTakeFile
+  deleteTakeFile, takePath, takeUrls, notePersistedReferences, retainTakeFiles, deleteSceneFiles
 };

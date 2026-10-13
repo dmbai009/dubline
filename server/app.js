@@ -40,7 +40,10 @@ app.use('/uploads', (req, res, next) => {
   if (/^source_video(?:_\d+)?\.(mp4|mkv|webm)$/i.test(path.basename(decodeURIComponent(req.path)))) return res.sendStatus(403);
   next();
 });
-app.use('/uploads', sandboxUploads, express.static(UPLOAD_DIR, { maxAge: '1h' }));
+app.use('/uploads', (req, res, next) => {
+  const release = require('./files').retainTakeFiles(['/uploads' + req.path]);
+  res.once('finish', release); res.once('close', release); next();
+}, sandboxUploads, express.static(UPLOAD_DIR, { maxAge: '1h' }));
 app.use('/packs', sandboxUploads, express.static(PACKS_DIR));
 app.use(express.static(PUBLIC_DIR));
 // Mediabunny (the MP4 muxer for WebCodecs rendering) is served straight from node_modules

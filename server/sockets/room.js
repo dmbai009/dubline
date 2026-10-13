@@ -54,6 +54,7 @@ module.exports = function registerRoomHandlers(socket, conn) {
       const renameLine = line => {
         if (line.claimedBy === oldName) line.claimedBy = newName;
         if (line.recordedBy === oldName) line.recordedBy = newName;
+          for (const take of line.takeHistory || []) if (take.recordedBy === oldName) take.recordedBy = newName;
       };
       scene.lines.forEach(renameLine);
       for (const batch of scene.deletedLines || []) {

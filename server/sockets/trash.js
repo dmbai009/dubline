@@ -24,7 +24,7 @@ module.exports = function registerTrashHandlers(socket, conn) {
     if (!Array.isArray(room.deletedLines)) room.deletedLines = [];
     room.deletedLines.push({ at: Date.now(), by: conn.nick, lines: removed, claims: droppedClaims });
     while (room.deletedLines.length > MAX_UNDO_BATCHES) {
-      room.deletedLines.shift().lines.forEach(entry => deleteTakeFile(entry.line.audioUrl));
+      room.deletedLines.shift().lines.forEach(entry => require('../files').takeUrls(entry.line).forEach(url => deleteTakeFile(url)));
     }
     snapshotActive(room);
     saveRooms();
@@ -130,7 +130,7 @@ module.exports = function registerTrashHandlers(socket, conn) {
     if (!canModerate(room, conn.clientId) || room.mode !== 'edit' || !currentEntries(room, lineIds, sessionId, entries)) return;
     const taken = takeFromTrash(room, lineIds);
     if (!taken.length) return;
-    taken.forEach(item => deleteTakeFile(item.entry.line.audioUrl));
+    taken.forEach(item => require('../files').takeUrls(item.entry.line).forEach(url => deleteTakeFile(url)));
     snapshotActive(room);
     saveRooms();
     emitSession(conn.roomId);

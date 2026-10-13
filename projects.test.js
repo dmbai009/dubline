@@ -174,7 +174,7 @@ test('staged project commit uses generated paths and fresh recording identity; r
 const invalidCases = [
   ['wrong format', m => { m.format = 'rooms'; }],
   ['missing version', m => { delete m.formatVersion; }],
-  ['unsupported version', m => { m.formatVersion = 6; }],
+  ['unsupported version', m => { m.formatVersion = 7; }],
   ['invalid caption type', m => { m.project.lines[0].caption = {}; }],
   ['oversized caption', m => { m.project.lines[0].caption = 'x'.repeat(2001); }],
   ['duplicate line ID', m => { m.project.lines.push(structuredClone(m.project.lines[0])); }],

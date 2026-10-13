@@ -21,7 +21,7 @@ function recognized(area, entry) {
     if (/^\.(incoming|pack-export|project-export|project-reading|project|pack)-[A-Za-z0-9]{6}$/.test(entry.name)) return true;
     return area === 'uploads' && /^(pack_[a-f0-9]{64}|custom_project_[a-f0-9]{32}|custom_\d{13}_[a-z0-9]{6})$/.test(entry.name);
   }
-  return entry.isFile() && (area === 'uploads' && /^(line_.+_\d+_[a-f0-9-]{36}|line_project_[a-f0-9]{32}_\d+)\.webm$/.test(entry.name) || area === 'packs' && /^pack_source_[a-f0-9]{64}\.zip$/.test(entry.name));
+  return entry.isFile() && (area === 'uploads' && /^(line_.+_\d+_[a-f0-9-]{36}|line_project_[a-f0-9]{32}_\d+)\.(webm|wav|ogg|oga|opus|mp3|m4a|aac|flac|mp4|mkv)$/.test(entry.name) || area === 'packs' && /^pack_source_[a-f0-9]{64}\.zip$/.test(entry.name));
 }
 async function collect({ roots, rooms, idle = () => true, grace = 7 * DAY, now = Date.now() }) {
   if (!idle()) return [];
