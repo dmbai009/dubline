@@ -1,6 +1,6 @@
-# Dubline Project formats 1–9
+# Dubline Project formats 1–10
 
-An archive uses the `.dubline` extension and a standard ZIP container. `project.json` is UTF-8 JSON with `format: "dubline-project"`, required `formatVersion: 1`, `2`, `3`, `4`, `5`, `6`, `7`, `8` or `9`, `project`, and `assets`. The serializer is `server/projects.js`; it never exports raw room persistence.
+An archive uses the `.dubline` extension and a standard ZIP container. `project.json` is UTF-8 JSON with `format: "dubline-project"`, required `formatVersion` from 1 through 10, `project`, and `assets`. The serializer is `server/projects.js`; it never exports raw room persistence.
 
 ## Manifest
 
@@ -76,3 +76,10 @@ All version-6/7 history, noise, trim, identity, pin and audio-asset rules still 
 Scenes with any RNNoise author entry emit format 9, retaining all version-8 role, individual and historical chain fields. project.noiseReduction contains schemaVersion 2, engine rnnoise, engineVersion 2025.1.5, the pinned modelVersion, dspVersion 1 and actors. Each nickname maps to exactly enabled (boolean) and strength (finite 0–1). Runtime revision is excluded and starts at zero on import. Unknown metadata, profile fields, take noiseProfileId, invalid or oversized author dictionaries fail validation before extraction. No model or derived Wet PCM is stored inside the project; the application supplies the pinned bundled model.
 
 Settings resolve by each take's recordedBy, independently of current role owners. Export snapshots contain one immutable confirmed author-state snapshot. Local previews/drafts are excluded. Projects without RNNoise author entries continue to emit the lowest applicable format; formats 1–8 are still accepted.
+
+
+## Scene voice presets in version 10
+
+Format 10 requires a scene-local `voicePresets` catalogue, alongside the validated RNNoise and chain/history fields from format 9. Each entry contains id, name (1–80 characters), ordered effects, optional pitch (−12…+12), createdBy and a positive safe-integer revision. The catalogue is limited to 50 entries. Presets never contain media, timing, mix, RNNoise state or another scene catalogue. Applying a preset copies settings into the ordinary role/take schema with new effect IDs; no persistent preset reference is stored in a take. Later catalogue changes do not alter applied takes.
+
+Formats 1–9 import an empty catalogue and reject a hidden voicePresets field. Format 10 is emitted only for a nonempty catalogue; otherwise the writer retains the lowest existing applicable format. Entry revisions preserve catalogue version history; editor-operation receipts remain runtime-only.

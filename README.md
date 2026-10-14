@@ -221,3 +221,8 @@ limitation of liability.
 ## RNNoise replacement
 
 RNNoise noise reduction is built in: My Settings → Audio, private audition and author settings per scene. Default intensity is 60%; existing projects remain disabled until enabled. No calibration or external model installation. See [noise reduction](docs/noise-reduction.md).
+
+
+## UI and scene presets
+
+Scene effect presets are shared with participants and saved in projects. In the effect editor, Save as preset captures a separate snapshot; Replace/Append first edits your draft, and Apply confirms the take or role. Preset pitch is optional. RNNoise/effect previews play once by default, and the inspector uses one chain editor for effects and pitch. Only hosts/moderators may request retakes.

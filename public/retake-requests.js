@@ -17,15 +17,15 @@
     }
     return drafts.get(id);
   }
-  const allowed = line => canModerate() || !!myName && (line.recordedBy === myName || getLineOwner(line) === myName);
+  const allowed = () => canModerate();
   function controlHtml(line) {
-    const draft = draftFor(line);
+    const draft = allowed(line) ? draftFor(line) : null;
     if (!line.audioUrl) return draft ? `<div class="retake-controls"><p class="take-hint">${esc(t('retake.audioChanged'))}</p><label>${esc(t('retake.comment'))}<textarea data-retake-comment="${line.id}" readonly rows="2" class="text-input">${esc(draft.comment)}</textarea></label><button type="button" class="btn-outline" data-retake-discard="${line.id}">${esc(t('retake.discardDraft'))}</button></div>` : '';
     const stale = draft && draft.audioUrl !== line.audioUrl, disabled = !allowed(line) || !!stale;
     const waiting = busy.has(draftKey(line.id)) || [...editorQueue, ...editorConflicts].some(operation => operation.event === 'set_needs_retake' && operation.sessionId === session.activeSessionId && operation.payload.lineId === line.id && !operation.outcome?.confirmed);
     const binding = `data-retake-line="${line.id}" data-retake-session="${esc(session.activeSessionId)}" data-retake-url="${esc(draft?.audioUrl || line.audioUrl)}" data-retake-revision="${draft?.revision ?? line.retakeRevision ?? 0}"`;
     return `<form class="retake-controls" data-retake-form="${line.id}">
-      <label class="insp-check"><input type="checkbox" ${binding} ${line.needsRetake ? 'checked' : ''} ${disabled || waiting ? 'disabled' : ''}>${esc(t('retake.label'))}</label>
+      <div class="retake-switch-row"><label class="switch-ui"><input type="checkbox" aria-label="${esc(t('retake.label'))}" ${binding} ${line.needsRetake ? 'checked' : ''} ${disabled || waiting ? 'disabled' : ''}><span class="switch-slider"></span></label><span>${esc(t('retake.label'))}</span></div>
       <label>${esc(t('retake.comment'))}<textarea data-retake-comment="${line.id}" maxlength="1000" rows="2" class="text-input" ${disabled ? 'readonly' : ''}>${esc(draft?.comment ?? line.retakeComment ?? '')}</textarea></label>
       ${stale ? `<p class="take-hint">${esc(t('retake.audioChanged'))}</p><button type="button" class="btn-outline" data-retake-discard="${line.id}">${esc(t('retake.discardDraft'))}</button>` : `<button type="submit" class="btn-outline" ${disabled || waiting ? 'disabled' : ''}>${esc(t('retake.save'))}</button>`}
     </form>`;

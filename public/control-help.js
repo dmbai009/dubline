@@ -6,10 +6,14 @@
   function hide() { tip.hidden = true; target = null; }
   function paint() {
     if (!target?.isConnected || !target.dataset.tooltip || window.activeEditorGesture) return hide();
+    const surface = target.closest('dialog[open]') || document.fullscreenElement || document.body;
+    if (tip.parentElement !== surface) surface.appendChild(tip);
     tip.textContent = target.dataset.tooltip; tip.hidden = false;
-    const box = target.getBoundingClientRect(), width = tip.offsetWidth, height = tip.offsetHeight;
-    tip.style.left = `${Math.max(8, Math.min(innerWidth - width - 8, box.right + 8))}px`;
-    tip.style.top = `${Math.max(8, Math.min(innerHeight - height - 8, box.top))}px`;
+    const scale = tip.getBoundingClientRect().width / tip.offsetWidth || 1;
+    tip.style.boxSizing = 'border-box'; tip.style.maxWidth = `${Math.min(340, Math.max(80, (innerWidth - 16) / scale))}px`;
+    const box = target.getBoundingClientRect(), painted = tip.getBoundingClientRect();
+    tip.style.left = `${Math.max(8, Math.min(innerWidth - painted.width - 8, box.right + 8)) / scale}px`;
+    tip.style.top = `${Math.max(8, Math.min(innerHeight - painted.height - 8, box.top)) / scale}px`;
   }
   function show(event) { const next = event.target.closest?.('[data-tooltip]'); if (next) { target = next; paint(); } }
   document.addEventListener('pointerover', show);
@@ -18,7 +22,7 @@
   document.addEventListener('focusout', hide);
   document.addEventListener('keydown', event => { if (event.key === 'Escape') hide(); });
   window.addEventListener('blur', hide); window.addEventListener('resize', hide);
-  window.addEventListener('scroll', hide, true);
+  window.addEventListener('scroll', () => { if (target?.contains(document.activeElement)) paint(); else hide(); }, true);
   document.addEventListener('fullscreenchange', () => { hide(); (document.fullscreenElement || document.body).appendChild(tip); });
   window.refreshDublineTooltip = paint;
   window.hideDublineTooltip = hide;

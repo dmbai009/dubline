@@ -131,3 +131,7 @@ recording resources without awaiting an inactive recorder's stop event.
 ## RNNoise replacement
 
 RNNoise uses public/rnnoise-dsp.mjs in one local module Worker; Raw → cached full Wet → intensity mix → existing pitch/voice FX/mix. public/noise-model.js is shared by server and client. Schema 2 replaces spectral profiles; portable format 9 and idempotent room/history/trash migration retain originals. Cache keys pin model/DSP provenance, Wet and final share the 256 MiB processed budget. See docs/noise-reduction.md.
+
+## UI and scene presets
+
+voicePresets joins SESSION_FIELDS and explicit portable format 10. voice-preset-model validates bounded snapshots; voicePresets server handlers reuse scene authorization, snapshot barriers, immutable editor receipts and strict disk persistence before ACK/broadcast. Application deep-copies stages through the existing voice_update path. dropdown.js keeps native selects as the data/change interface and uses one popup in the appropriate top-layer/dialog/picker surface.

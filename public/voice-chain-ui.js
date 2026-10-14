@@ -2,15 +2,25 @@
   'use strict';
   const model = window.DublineVoiceChain, $ = id => document.getElementById(id);
   let state = null, context = null, source = null, gain = null, buffer = null, position = 0, started = 0;
+  function status(key = '') { const node = $('fxStatus'); if (key) node.dataset.i18n = key; else delete node.dataset.i18n; node.textContent = key ? t(key) : ''; }
   let playing = false, generation = 0, timer = null, abort = null, rendering = false, drag = null, begin = 0, end = 0;
   let expandedKey = null;
   let lastRoleScene = session?.activeSessionId, lastRoles = structuredClone(session?.roleEffects || {});
   const label = items => items.length ? items.map(item => `${t('effect.' + item.type)} ${Math.round(item.amount * 100)}%${item.enabled ? '' : ' (' + t('fx.disabled') + ')'}`).join(' → ') : t('effect.none');
   const button = (text, action, disabled = false) => `<button type="button" class="btn-outline" ${disabled ? 'disabled' : ''} onclick="${action}">${esc(text)}</button>`;
+  const fingerprint = () => state && JSON.stringify({ settings: { ...state.settings, revision: undefined }, pitch: state.pitch, action: state.action,
+    edits: state.takes.length > 1 ? [state.editPitch, state.editInheritance, state.editExceptions] : [] });
+  const dirty = () => !!state && fingerprint() !== state.baseline;
+  function summary(line) { const effects = model.active(model.resolve(line, session).effects); return label(effects.slice(0, 3)) + (effects.length > 3 ? ` (+${effects.length - 3})` : ''); }
+  function paintScope() {
+    if (!state) return;
+    $('fxTitle').textContent = t(state.scope === 'role' ? 'fx.role' : 'fx.take') + (state.scope === 'role' ? ': ' + state.character : ' · ' + state.takes.length);
+    $('fxScope').textContent = t(state.scope === 'role' ? 'fx.roleScope' : 'fx.takeScope', { n: state.scope === 'role' ? session.lines.filter(line => line.character === state.character).length : state.takes.length });
+  }
   function html(line) {
     const role = model.role(session, line.character), own = model.take(line);
     const key = `${currentRoom}:${session.activeSessionId}:${line.id}`;
-    return `<details class="fx-details" ${expandedKey === key ? 'open' : ''} ontoggle="DublineVoiceEditor.expand(this.open, ${line.id})"><summary>${esc(t('voice'))} · ${esc(label(model.resolve(line, session).effects))}</summary><section class="take-panel fx-summary"><b>${esc(t('fx.role'))}: ${esc(line.character)}</b><p>${esc(label(role.effects))}${role.pitch ? ' · ' + esc(t('pitch')) + ' ' + role.pitch : ''}</p>
+    return `<details class="fx-details" ${expandedKey === key ? 'open' : ''} ontoggle="DublineVoiceEditor.expand(this.open, ${line.id})"><summary title="${esc(label(model.resolve(line, session).effects))}">${esc(t('voice'))} · ${esc(summary(line))}</summary><section class="take-panel fx-summary"><b>${esc(t('fx.role'))}: ${esc(line.character)}</b><p>${esc(label(role.effects))}${role.pitch ? ' · ' + esc(t('pitch')) + ' ' + role.pitch : ''}</p>
       ${button(t('fx.configureRole'), `DublineVoiceEditor.open(${line.id}, 'role')`, !canModerate())}
       <b>${esc(t('fx.take'))}</b><p>${esc(label(own.effects))} · ${esc(t(own.inheritRoleEffects ? 'fx.inheriting' : 'fx.individual'))}</p>
       ${button(t('fx.configureTake'), `DublineVoiceEditor.open(${line.id}, 'takes')`, !canEditTake(line))}</section></details>`;
@@ -43,14 +53,20 @@
     $('fxSample').replaceChildren(new Option(t('fx.noSample'), ''), ...state.samples.map(item => new Option(`#${lineNumber(item)} · ${item.caption || ''}`, String(item.id))));
     const candidate = state.samples.find(item => item.id === id) || state.samples[0];
     if (candidate) { state.sampleId = candidate.id; $('fxSample').value = candidate.id; }
-    $('fxAB').value = 'wet'; $('fxLoop').checked = true; $('fxStatus').textContent = ''; $('fxRefresh').hidden = true; $('fxApply').disabled = false; $('fxPlay').disabled = !buffer;
-    audio.stopPreview(); window.DublineTakeHistory?.stop(); rows(); exclusions(); $('fxDialog').showModal(); schedule();
+    $('fxAB').value = 'wet'; $('fxLoop').checked = false; status(); $('fxRefresh').hidden = true; $('fxApply').disabled = false; $('fxPlay').disabled = !buffer;
+    state.baseline = fingerprint(); state.initialEffects = JSON.stringify(state.settings.effects); window.DublinePresetUI?.begin();
+    audio.stopPreview(); window.DublineTakeHistory?.stop(); rows(); exclusions(); $('fxDialog').showModal(); (scope === 'role' ? $('fxPitch') : $('fxInherit')).focus(); schedule();
   }
-  function close() {
+  async function close(force = false) {
+    if (!force && state?.pending) return false;
+    if (!force && state?.pendingRequest) { status('fx.syncError'); return false; }
+    if (!force && dirty()) { const captured = state, decision = await askDraftDecision(); if (captured !== state || !decision) return false; if (decision === 'save') return apply(); }
     drag = null;
     clearTimeout(timer); abort?.abort(); ++generation; stop(false);
     if (context) { DublineAudioDevices.unregisterContext(context); void context.close(); } context = null; buffer = null;
     const focus = state?.focus; state = null; $('fxDialog').close(); if (focus?.isConnected) focus.focus();
+    dialog.querySelector('.fx-body').inert = false;
+    return true;
   }
   function stop(keep = true) {
     if (keep && playing && context) position = currentPosition(); else if (!keep) position = 0;
@@ -75,9 +91,9 @@
   async function render() {
     if (!state || rendering) return;
     paintPitch(); const token = generation, scope = state, sample = scope.samples.find(item => item.id === scope.sampleId);
-    if (!sample) { $('fxStatus').textContent = t('fx.noSample'); return; }
-    if (!session.lines.some(item => item.id === sample.id && item.audioUrl === sample.audioUrl && canHearLine(item))) return close();
-    rendering = true; abort = new AbortController(); $('fxStatus').textContent = t('fx.processing');
+    if (!sample) { $('fxPlay').disabled = true; window.setControlHelp?.($('fxPlay'), t('fx.noSampleHelp')); status('fx.noSample'); return; }
+    if (!session.lines.some(item => item.id === sample.id && item.audioUrl === sample.audioUrl && canHearLine(item))) return close(true);
+    rendering = true; abort = new AbortController(); status('fx.processing');
     try {
       const test = { ...sample }, scene = { ...session, roleEffects: Object.assign(Object.create(null), session.roleEffects) };
       if (scope.scope === 'role') scene.roleEffects[scope.character] = { ...scope.settings, pitch: scope.pitch };
@@ -89,6 +105,7 @@
           if (scope.takes.length > 1 && !scope.editPitch) settings.pitchMode = original.pitchMode; else pitch = scope.pitch;
         }
         if (scope.action === 'append') settings.effects.push(...structuredClone(scope.settings.effects));
+        if (scope.action === 'append' && scope.editPitch) { pitch = scope.pitch; settings.pitchMode = 'override'; }
         if (scope.action === 'clear') settings.effects = [];
         if (scope.action === 'inherit') settings.inheritRoleEffects = scope.settings.inheritRoleEffects;
         Object.assign(test, settings, { pitch });
@@ -100,8 +117,9 @@
       const at = playing ? currentPosition() : position;
       const bounds = audio.takeBounds(test, processed.duration); begin = bounds.from; end = bounds.to; buffer = processed; position = Math.max(begin, Math.min(at, end));
       $('fxPlay').disabled = false;
-      if (playing) await play(); $('fxStatus').textContent = t('fx.ready');
-    } catch (error) { if (token === generation && state) $('fxStatus').textContent = t(error.message.startsWith('fx.') ? error.message : 'fx.processingError'); }
+      window.setControlHelp?.($('fxPlay'), '');
+      if (playing) await play(); status('fx.ready');
+    } catch (error) { if (token === generation && state && error.name !== 'AbortError') { stop(false); buffer = null; $('fxPlay').disabled = true; window.setControlHelp?.($('fxPlay'), t('fx.processingError')); status(error.message.startsWith('fx.') ? error.message : 'fx.processingError'); } }
     finally { rendering = false; if (state && token !== generation) schedule(); }
   }
   function rows(focusId) {
@@ -140,24 +158,38 @@
     const shown = inherited ? model.role(session, sample?.character || state.character).pitch : state.pitch;
     $('fxPitch').value = shown; $('fxPitchValue').textContent = shown; $('fxPitch').disabled = inherited || state.scope !== 'role' && state.action !== 'replace';
   }
-  async function apply() {
-    if (!state || state.pending) return;
-    const captured = state, request = { sessionId: state.sessionId, scope: state.scope, character: state.character, revision: state.revision, settings: structuredClone(state.settings), pitch: state.pitch,
+  async function apply(keepOpen = false) {
+    if (!state || state.pending) return false;
+    const captured = state, request = state.pendingRequest || { sessionId: state.sessionId, scope: state.scope, character: state.character, revision: state.revision, settings: structuredClone(state.settings), pitch: state.pitch,
       takes: state.takes, action: $('fxAction').value, editPitch: state.editPitch, editInheritance: state.editInheritance, editExceptions: state.editExceptions, value: state.settings.inheritRoleEffects, operationId: newUploadId(), operationEpoch: session.editorProtocol.epoch, operationTime: Date.now() };
-    if (state.scope === 'role') request.settings.pitch = state.pitch;
+    if (state.scope === 'role' && !state.pendingRequest) request.settings.pitch = state.pitch;
     if (!model.validEffects(request.settings.effects) || state.scope !== 'role' && !model.validTake(request.settings)) return showToast(t('fx.invalid'));
-    if (state.scope === 'role' || state.takes.length > 1) { if (!await askConfirm(t('fx.confirm', { n: state.scope === 'role' ? session.lines.filter(line => line.character === state.character).length : state.takes.length }))) return; }
+    if (!state.pendingRequest && (state.scope === 'role' || state.takes.length > 1)) { if (!await askConfirm(t('fx.confirm', { n: state.scope === 'role' ? session.lines.filter(line => line.character === state.character).length : state.takes.length }))) return false; }
     if (captured !== state || state.sessionId !== session.activeSessionId) return;
     state.pending = true; $('fxApply').disabled = true;
+    state.pendingRequest = request; dialog.querySelector('.fx-body').inert = true;
     try {
-      let result;
-      for (let i = 0; i < 2 && !result; i++) result = await new Promise(resolve => socket.volatile.timeout(5000).emit('voice_update', request, (error, data) => resolve(error ? null : data)));
+      let result, recovered = false, retryable = true;
+      const call = (event, data) => new Promise(resolve => socket.timeout(5000).emit(event, data, (error, answer) => resolve(error ? null : answer)));
+      if (state.sentRequest) { const status = await call('editor_operation_status', { event: 'voice_update', request }); if (status?.ok && status.state === 'known') { result = status.result; recovered = true; } else retryable = !!status?.ok && status.state === 'unseen' && status.retryable; }
+      state.sentRequest = true;
+      if (retryable) for (let i = 0; i < 2 && !result; i++) result = await call('voice_update', request);
+      if (!result) { const status = await call('editor_operation_status', { event: 'voice_update', request }); if (status?.ok && status.state === 'known') { result = status.result; recovered = true; } }
       if (captured !== state) return;
-      if (result?.ok) { close(); return; }
-      $('fxStatus').textContent = t(result?.reason?.startsWith('fx.') ? result.reason : 'fx.syncError'); $('fxRefresh').hidden = false;
-    } finally { if (captured === state) { state.pending = false; $('fxApply').disabled = false; } }
+      if (result?.ok && recovered && !await resyncEditor()) { status('fx.syncError'); $('fxRefresh').hidden = false; return false; }
+      if (captured !== state) return false;
+      if (result) { state.pendingRequest = null; state.sentRequest = false; }
+      if (result?.ok) {
+        if (keepOpen) { state.revision = model.role(session, state.character).revision || 0; state.takes = state.takes.map(target => ({ ...target, takeMixRevision: session.lines.find(line => line.id === target.lineId)?.takeMixRevision || target.takeMixRevision })); state.baseline = fingerprint(); }
+        else await close(true);
+        return true;
+      }
+      status(result?.reason?.startsWith('fx.') ? result.reason : 'fx.syncError'); $('fxRefresh').hidden = false;
+    } finally { if (captured === state) { state.pending = false; $('fxApply').disabled = false; dialog.querySelector('.fx-body').inert = !!state.pendingRequest; } }
+    return false;
   }
   const dialog = document.createElement('dialog'); dialog.id = 'fxDialog'; dialog.className = 'modal-card fx-dialog';
+  dialog.setAttribute('aria-labelledby', 'fxTitle');
   dialog.innerHTML = `<div class="modal-header-row"><h2 id="fxTitle"></h2><button type="button" id="fxClose" class="btn-icon" aria-label="${esc(t('close'))}">×</button></div><p id="fxScope"></p>
     <label id="fxInheritRow"><input type="checkbox" id="fxInherit">${esc(t('fx.inherit'))}</label><div class="fx-pitch"><label>${esc(t('pitch'))}<select id="fxPitchMode"><option value="inherit">${esc(t('fx.pitchInherit'))}</option><option value="override">${esc(t('fx.pitchOverride'))}</option></select></label><input id="fxPitch" type="range" data-reset-value="0" data-reset-event="input" min="-12" max="12" value="0"><output id="fxPitchValue">0</output></div><div id="fxExceptions"></div>
     <div id="fxActionRow"><label>${esc(t('fx.bulkAction'))}<select id="fxAction"><option value="replace">${esc(t('fx.replace'))}</option><option value="append">${esc(t('fx.append'))}</option><option value="clear">${esc(t('fx.clear'))}</option><option value="inherit">${esc(t('fx.inheritOnly'))}</option></select></label></div>
@@ -165,10 +197,16 @@
     <section class="fx-preview"><label>${esc(t('fx.sample'))}<select id="fxSample"></select></label><div class="insp-actions"><button type="button" id="fxPlay" class="btn-play">${esc(t('fx.play'))}</button><select id="fxAB"><option value="dry">${esc(t('fx.dry'))}</option><option value="wet" selected>${esc(t('fx.wet'))}</option></select><label><input type="checkbox" id="fxLoop">${esc(t('fx.loop'))}</label></div></section>
     <p id="fxStatus" role="status" aria-live="polite"></p><div class="insp-actions"><button id="fxApply" type="button" class="btn-play">${esc(t('char.apply'))}</button><button id="fxCancel" type="button" class="btn-outline">${esc(t('dialog.cancel'))}</button><button id="fxRefresh" type="button" class="btn-outline" hidden>${esc(t('fx.refresh'))}</button></div>`;
   document.body.append(dialog);
+  const header = document.createElement('header'), body = document.createElement('div'), footer = document.createElement('footer');
+  header.className = 'fx-header'; body.className = 'fx-body'; footer.className = 'fx-footer';
+  header.append(dialog.firstElementChild, $('fxScope'));
+  while (dialog.firstElementChild && !dialog.firstElementChild.classList.contains('fx-preview')) body.append(dialog.firstElementChild);
+  while (dialog.firstElementChild) footer.append(dialog.firstElementChild);
+  dialog.append(header, body, footer);
   const adjustZoom = () => { const zoom = String((Number(getComputedStyle(document.body).zoom) || 1) * (Number(getComputedStyle(document.documentElement).zoom) || 1)); if (dialog.style.getPropertyValue('--fx-ui-zoom') !== zoom) dialog.style.setProperty('--fx-ui-zoom', zoom); };
   const sizeObserver = new ResizeObserver(adjustZoom); sizeObserver.observe(dialog);
-  $('fxClose').onclick = $('fxCancel').onclick = close; dialog.oncancel = event => { event.preventDefault(); close(); };
-  $('fxApply').onclick = apply; $('fxRefresh').onclick = () => { const old = state; close(); open(old.scope === 'role' ? old.character : old.takes[0].lineId, old.scope, old.takes.map(item => item.lineId)); };
+  $('fxClose').onclick = $('fxCancel').onclick = () => close(); dialog.oncancel = event => { event.preventDefault(); void close(); };
+  $('fxApply').onclick = () => apply(); $('fxRefresh').onclick = async () => { if (state?.pendingRequest) return apply(); const old = state; if (await close()) open(old.scope === 'role' ? old.character : old.takes[0].lineId, old.scope, old.takes.map(item => item.lineId)); };
   $('fxAdd').onclick = () => { if (state.settings.effects.length >= model.MAX_EFFECTS) return showToast(t('fx.limit')); state.settings.effects.push({ id: newUploadId(), type: $('fxType').value, enabled: true, amount: 1, parameters: {} }); rows(); schedule(); };
   $('fxClear').onclick = () => { state.settings.effects = []; rows(); schedule(); };
   $('fxInherit').onchange = () => { state.editInheritance = true; $('fxInherit').indeterminate = false; state.settings.inheritRoleEffects = $('fxInherit').checked; exclusions(); schedule(); };
@@ -180,7 +218,7 @@
     $('fxPitchMode').disabled = state.action !== 'replace'; $('fxInherit').disabled = !['replace', 'inherit'].includes(state.action); rows(); exclusions(); paintPitch(); schedule();
   };
   $('fxSample').onchange = () => { stop(false); buffer = null; $('fxPlay').disabled = true; state.sampleId = Number($('fxSample').value) || null; paintPitch(); schedule(); };
-  $('fxAB').onchange = schedule; $('fxLoop').onchange = () => { if (source) source.loop = $('fxLoop').checked; }; $('fxPlay').onclick = () => { if (playing) stop(true); else void play().catch(() => { if (state) $('fxStatus').textContent = t('fx.processingError'); }); };
+  $('fxAB').onchange = schedule; $('fxLoop').onchange = () => { if (source) source.loop = $('fxLoop').checked; }; $('fxPlay').onclick = () => { if (playing) stop(false); else void play().catch(() => { if (state) status('fx.processingError'); }); };
   $('fxRows').addEventListener('input', event => {
     const row = event.target.closest('[data-fx-id]'); if (!row) return; const item = state.settings.effects[Number(row.dataset.index)], action = event.target.dataset.action;
     if (action === 'amount') { item.amount = Number(event.target.value) / 100; event.target.nextElementSibling.textContent = event.target.value + '%'; }
@@ -212,7 +250,7 @@
     if (data.lines?.length) applyTakeUpdates(data.sessionId, data.lines, data.editorProtocol, { prewarm: false });
     else if (selectedLine) showInspector(selectedLine);
     if (state && data.character === state.character && !state.pending) {
-      if (state.scope === 'role') { $('fxStatus').textContent = t('fx.conflict'); $('fxRefresh').hidden = false; }
+      if (state.scope === 'role') { status('fx.conflict'); $('fxRefresh').hidden = false; }
       else schedule();
     }
   });
@@ -220,11 +258,12 @@
     const roles = session.roleEffects || {};
     if (lastRoleScene === session.activeSessionId) for (const name of new Set([...Object.keys(lastRoles), ...Object.keys(roles)])) if (JSON.stringify(lastRoles[name]) !== JSON.stringify(roles[name])) audio.invalidateRole(name, lastRoles);
     lastRoleScene = session.activeSessionId; lastRoles = structuredClone(roles);
-    if (state && (state.sessionId !== session.activeSessionId || !session.trackOrder.includes(state.character) || state.scope === 'role' && !canModerate() || state.scope === 'takes' && state.takes.some(target => { const line = session.lines.find(item => item.id === target.lineId); return !line || line.character !== target.character || !canEditTake(line); }) || state.samples.some(sample => !session.lines.some(line => line.id === sample.id && line.character === sample.character && line.audioUrl === sample.audioUrl && canHearLine(line))))) close();
+    if (state && (state.sessionId !== session.activeSessionId || !session.trackOrder.includes(state.character) || state.scope === 'role' && !canModerate() || state.scope === 'takes' && state.takes.some(target => { const line = session.lines.find(item => item.id === target.lineId); return !line || line.character !== target.character || !canEditTake(line); }) || state.samples.some(sample => !session.lines.some(line => line.id === sample.id && line.character === sample.character && line.audioUrl === sample.audioUrl && canHearLine(line))))) close(true);
   });
-  socket.on('disconnect', () => { if (state) close(); });
-  for (const event of ['line_updated', 'takes_updated']) socket.on(event, () => { if (state && state.samples.some(sample => !session.lines.some(line => line.id === sample.id && line.audioUrl === sample.audioUrl))) close(); });
-  window.addEventListener('pagehide', () => { sizeObserver.disconnect(); if (state) close(); });
+  socket.on('disconnect', () => { if (state) close(true); });
+  for (const event of ['line_updated', 'takes_updated']) socket.on(event, () => { if (state && state.samples.some(sample => !session.lines.some(line => line.id === sample.id && line.audioUrl === sample.audioUrl))) close(true); });
+  window.addEventListener('pagehide', () => { sizeObserver.disconnect(); if (state) close(true); });
+  window.addEventListener('beforeunload', event => { if (dirty()) { event.preventDefault(); event.returnValue = ''; } });
   // Existing locale machinery updates stable controls without rebuilding drafts.
   const keys = ['pitch', 'close', 'dialog.cancel', 'char.apply', ...Object.keys(DublineI18n.messages.en).filter(key => key.startsWith('fx.') || key.startsWith('effect.'))];
   const walker = document.createTreeWalker(dialog, NodeFilter.SHOW_TEXT), texts = []; while (walker.nextNode()) texts.push(walker.currentNode);
@@ -233,6 +272,22 @@
     if (node.parentElement.childNodes.length === 1) node.parentElement.dataset.i18n = key;
     else { const span = document.createElement('span'); span.dataset.i18n = key; span.textContent = node.textContent; node.replaceWith(span); }
   }
-  window.addEventListener('dubline-language-changed', () => { DublineI18n.apply(dialog); if (state) { rows(); exclusions(); paintPitch(); } });
-  window.DublineVoiceEditor = { html, bulkHtml, open, close, expand: (value, id) => { expandedKey = value ? `${currentRoom}:${session.activeSessionId}:${id}` : null; }, bulk: () => { const lines = session.lines.filter(line => multiSelection.has(line.id) && line.audioUrl && canEditTake(line)); if (lines.length) open(lines[0].id, 'takes', lines.map(line => line.id)); } };
+  window.addEventListener('dubline-language-changed', () => { DublineI18n.apply(dialog); if (state) { rows(); exclusions(); paintPitch(); paintScope(); $('fxPlay').textContent = t(playing ? 'fx.pause' : 'fx.play'); $('fxSample').options[0].textContent = t('fx.noSample'); } });
+  function usePreset(preset, append, includePitch) {
+    if (!state || state.pending || state.pendingRequest || state.sessionId !== session.activeSessionId) throw Error('preset.conflict');
+    const bulkAppend = state.scope === 'takes' && state.takes.length > 1 && append && (state.action === 'append' || JSON.stringify(state.settings.effects) === state.initialEffects);
+    const targets = state.scope === 'role' ? [{ character: state.character, effects: state.settings.effects, inheritRoleEffects: false, pitchMode: 'override', pitch: state.pitch }] : state.takes.map(target => {
+      const line = session.lines.find(item => item.id === target.lineId); if (!line || !canEditTake(line)) throw Error('fx.owner');
+      const settings = { ...state.settings };
+      if (state.takes.length > 1) { const own = model.take(line); if (!state.editInheritance) settings.inheritRoleEffects = own.inheritRoleEffects; if (!state.editExceptions) settings.excludedRoleEffectIds = own.excludedRoleEffectIds; if (!state.editPitch) settings.pitchMode = own.pitchMode; }
+      if (bulkAppend) settings.effects = [...model.take(line).effects, ...(state.action === 'append' ? state.settings.effects : [])];
+      return { ...line, ...settings, pitch: state.editPitch ? state.pitch : line.pitch };
+    });
+    const results = targets.map(target => DublineVoicePresets.apply(target, session, preset, { append, pitch: includePitch, newId: newUploadId }));
+    state.settings.effects = bulkAppend ? results[0].effects.slice(model.take(session.lines.find(line => line.id === state.takes[0].lineId)).effects.length) : results[0].effects;
+    if (includePitch && preset.pitch !== undefined) { state.pitch = preset.pitch; state.settings.pitchMode = 'override'; state.editPitch = true; }
+    state.action = bulkAppend ? 'append' : 'replace'; $('fxAction').value = state.action; $('fxInherit').disabled = bulkAppend; $('fxPitchMode').disabled = bulkAppend;
+    $('fxPitchMode').value = state.settings.pitchMode || 'override'; rows(); exclusions(); paintPitch(); schedule();
+  }
+  window.DublineVoiceEditor = { html, bulkHtml, summary, open, close, dirty, apply, usePreset, draft: () => state && ({ scope: state.scope, sessionId: state.sessionId, character: state.character, effects: structuredClone(state.settings.effects), pitch: state.scope === 'role' || state.settings.pitchMode === 'override' ? state.pitch : model.role(session, state.character).pitch }), expand: (value, id) => { expandedKey = value ? `${currentRoom}:${session.activeSessionId}:${id}` : null; }, bulk: () => { const lines = session.lines.filter(line => multiSelection.has(line.id) && line.audioUrl && canEditTake(line)); if (lines.length) open(lines[0].id, 'takes', lines.map(item => item.id)); } };
 })();

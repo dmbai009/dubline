@@ -160,8 +160,8 @@ describe('Collaborative actor workflow', { skip: skipReason }, () => {
     assert.deepEqual(await host.evaluate(() => DublineTimelineFilters.ids()), [1, 2, 3, 4]);
     await actor.select('#timelineScopeFilter', 'choose'); await actor.click('#timelineChooseFilter');
     await actor.click('[data-filter-role="Hero"]');
-    await actor.select('#timelineLineFilter', '4'); await actor.click('#timelineFilterPicker button:nth-of-type(3)');
-    await actor.select('#timelineLineFilter', '1'); await actor.click('#timelineFilterPicker button:nth-of-type(4)');
+    await actor.select('#timelineLineFilter', '4'); await actor.click('#timelineFilterPicker [data-filter-action=include]');
+    await actor.select('#timelineLineFilter', '1'); await actor.click('#timelineFilterPicker [data-filter-action=exclude]');
     assert.deepEqual(await actor.evaluate(() => DublineTimelineFilters.ids()), [3, 4]);
     assert.equal(await actor.$eval('#line-block-1', node => getComputedStyle(node).display), 'none');
     await actor.select('#timelineScopeFilter', 'all');
@@ -215,7 +215,9 @@ describe('Collaborative actor workflow', { skip: skipReason }, () => {
     await actor.click('#myRetakeCount'); assert.equal(await actor.$eval('[data-retake-comment="1"]', node => node.value), 'Больше эмоций <img src=x onerror=alert(1)>');
     assert.equal(await actor.$$eval('.retake-controls img', nodes => nodes.length), 0);
     await actor.reload(); await waitFor(actor, () => session?.loaded && !document.getElementById('myRetakeCount').hidden);
-    await actor.click('#myRetakeCount'); await actor.focus('[data-retake-comment="1"]'); await actor.keyboard.press('End'); await actor.keyboard.type(' Ещё замечание');
+    await actor.click('#myRetakeCount'); assert.equal(await actor.$eval('[data-retake-comment="1"]', node => node.readOnly), true);
+    assert.equal((await host.evaluate(() => new Promise(resolve => socket.emit('host_grant_moderator', { nick: 'Actor' }, resolve)))).ok, true); await waitFor(actor, () => canModerate() && !document.querySelector('[data-retake-comment="1"]').readOnly);
+    await actor.focus('[data-retake-comment="1"]'); await actor.keyboard.press('End'); await actor.keyboard.type(' Ещё замечание');
     await host.evaluate(() => renderLobby());
     await actor.evaluate(() => showInspector(selectedLine)); assert.equal(await actor.evaluate(() => document.activeElement.dataset.retakeComment), '1');
     assert.ok(await actor.$eval('[data-retake-comment="1"]', node => node.value.endsWith('Ещё замечание')));

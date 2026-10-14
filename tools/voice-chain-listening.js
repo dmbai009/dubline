@@ -29,7 +29,7 @@ const { startServer, launchBrowser, openPlayer, loadFixture } = require('../e2e/
     await page.setViewport({ width: 640, height: 850 }); await page.evaluate(() => { document.documentElement.dataset.theme = 'light'; document.body.style.zoom = '150%'; });
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     await page.screenshot({ path: path.join(directory, 'role-editor-light-ru-150.png') });
-    await page.evaluate(() => DublineVoiceEditor.close());
+    await page.evaluate(() => DublineVoiceEditor.close(true));
     console.log('Local dry/ordered-chain comparisons prepared: audit/voice-chains/listening');
   } finally { await browser?.close(); await server?.cleanup(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

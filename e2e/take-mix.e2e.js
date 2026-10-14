@@ -95,8 +95,9 @@ describe('clip mixing: real sockets, inspector and audio', { skip: skipReason, t
   });
 
   test('bulk effect, strength and pan apply in both modes; guest selection changes only own recordings', async () => {
-    await change(host, 'effect', 'behindDoor'); await waitFor(guest, () => session.lines[0].effect === 'behindDoor' && session.lines[1].effect === 'behindDoor');
-    await change(host, 'effectAmount', 55); await waitFor(guest, () => session.lines[0].effectAmount === 0.55 && session.lines[1].effectAmount === 0.55);
+    await host.evaluate(() => DublineVoiceEditor.bulk()); await host.select('#fxAction','append'); await host.select('#fxType','behindDoor'); await host.click('#fxAdd');
+    await host.$eval('#fxRows input[type=range]',input=>{input.value='55';input.dispatchEvent(new Event('input',{bubbles:true}));}); await host.click('#fxApply');
+    await waitFor(guest,()=>session.lines.slice(0,2).every(line=>line.effects?.some(effect=>effect.type==='behindDoor' && effect.amount===.55)));
     await change(host, 'pan', -60); await waitFor(guest, () => session.lines[0].pan === -0.6 && session.lines[1].pan === -0.6);
     await guest.evaluate(() => { selectLine(session.lines[0]); toggleMultiSelect(2); });
     assert.match(await guest.$eval('.clip-mix-panel .take-hint', node => node.textContent), /Editing 1 of 2/);
@@ -272,7 +273,8 @@ describe('clip mixing: real sockets, inspector and audio', { skip: skipReason, t
       return Array.from(new Uint8Array(await response.arrayBuffer()));
     });
     const archive = Buffer.from(bytes), parsed = readProject(archive);
-    assert.equal(parsed.manifest.formatVersion, 6);
+    assert.equal(parsed.manifest.formatVersion, 8);
+    assert.deepEqual(parsed.manifest.project.lines[0].take.effects, expected[0].effects);
     assert.ok(parsed.manifest.project.lines[0].takeHistory.length > 0);
     assert.equal(parsed.manifest.project.lines[0].take.volume, expected[0].volume);
     const oldId = await host.evaluate(() => session.activeSessionId);
@@ -283,6 +285,7 @@ describe('clip mixing: real sockets, inspector and audio', { skip: skipReason, t
     for (const [i, line] of (await lines(host)).entries()) {
       for (const field of ['volume', 'pan', 'effectAmount', 'effect', 'pitch', 'recordedBy']) assert.equal(line[field], expected[i][field]);
       assert.equal(line.takeMixRevision, 0);
+      assert.deepEqual(line.effects, expected[i].effects || []);
       assert.deepEqual(line.takeHistory.map(take => [take.id, take.pinned, take.volume, take.pan]), expected[i].takeHistory.map(take => [take.id, take.pinned, take.volume, take.pan]));
     }
     await server.restart(); await host.reload(); await waitFor(host, () => session?.loaded && session.lines.length === 4);
@@ -291,50 +294,35 @@ describe('clip mixing: real sockets, inspector and audio', { skip: skipReason, t
     assert.equal((await lines(host))[0].effectAmount, expected[0].effectAmount);
   });
 
-  test('single effect strength follows its selector, preserves hidden amount, and active clip/pitch sliders reset once', async () => {
-    assert.equal((await update(host, [1], { effect: 'none', effectAmount: 0.37, volume: 0.43, pan: -0.6, pitch: 5 })).ok, true);
-    await waitFor(host, () => session.lines[0].effect === 'none' && session.lines[0].effectAmount === 0.37);
+  test('single inspector delegates effect and pitch to chains, while clip sliders keep atomic resets', async () => {
+    assert.equal((await update(host, [1], { effect: 'none', effectAmount: .37, volume: .43, pan: -.6, pitch: 5 })).ok, true);
+    await waitFor(host, () => session.lines[0].volume === .43);
     await host.evaluate(() => { clearMultiSelection(); selectLine(session.lines[0]); });
-    assert.equal(await host.$('[data-clip-field=effectAmount]'), null);
-    await change(host, 'effect', 'radio');
-    await waitFor(host, () => !!document.querySelector('[data-clip-field=effectAmount]'));
-    assert.equal(await host.$eval('[data-clip-field=effectAmount]', input => input.closest('label').previousElementSibling.querySelector('select').dataset.clipField), 'effect');
-    await change(host, 'effectAmount', 25);
-    await waitFor(guest, () => session.lines[0].effectAmount === 0.25);
-    await change(host, 'effect', 'none');
-    await waitFor(host, () => !document.querySelector('[data-clip-field=effectAmount]'));
-    assert.equal((await lines(host))[0].effectAmount, 0.25);
-    await change(host, 'effect', 'radio');
-    await waitFor(host, () => !!document.querySelector('[data-clip-field=effectAmount]'));
-    await host.evaluate(() => {
-      const emit = socket.emit; window.resetWrites = 0;
-      socket.emit = function(event, ...args) { if (event === 'set_takes_props') resetWrites++; return emit.call(this, event, ...args); };
-    });
-    for (const [selector, field, value] of [['[data-clip-field=volume]', 'volume', 1], ['[data-clip-field=pan]', 'pan', 0], ['[data-clip-field=effectAmount]', 'effectAmount', 1], ['.pitch-range', 'pitch', 0]]) {
-      const before = await host.evaluate(() => resetWrites);
-      await host.$eval(selector, input => input.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })));
-      await waitFor(guest, (field, value) => session.lines[0][field] === value, 5000, field, value);
-      await waitFor(host, selector => !document.querySelector(selector).disabled, 5000, selector);
-      assert.equal(await host.evaluate(() => resetWrites), before + 1);
+    assert.equal(await host.$('[data-clip-field=effect]'), null); assert.equal(await host.$('.pitch-range'), null); assert.equal(await host.$('[data-clip-field=effectAmount]'), null);
+    await host.evaluate(() => DublineVoiceEditor.open(1, 'takes'));
+    await host.select('#fxType', 'radio'); await host.click('#fxAdd');
+    await host.$eval('#fxRows .fx-item:last-child input[type=range]', input => { input.value='25'; input.dispatchEvent(new Event('input', { bubbles:true })); });
+    await host.click('#fxApply'); await waitFor(guest, () => session.lines[0].effects?.some(effect => effect.type === 'radio' && effect.amount === .25));
+    await host.evaluate(() => { const emit=socket.emit; window.resetWrites=0; socket.emit=function(event,...args){if(event==='set_takes_props') resetWrites++;return emit.call(this,event,...args);}; });
+    for (const [selector, field, value] of [['[data-clip-field=volume]', 'volume', 1], ['[data-clip-field=pan]', 'pan', 0]]) {
+      const before=await host.evaluate(() => resetWrites); await host.$eval(selector, input => input.dispatchEvent(new MouseEvent('dblclick', { bubbles:true })));
+      await waitFor(guest, (field,value) => session.lines[0][field] === value, 5000, field, value); await waitFor(host, selector => !document.querySelector(selector).disabled, 5000, selector); assert.equal(await host.evaluate(() => resetWrites),before+1);
     }
+    await host.evaluate(() => DublineVoiceEditor.open(1, 'takes'));
+    await host.$eval('#fxRows .fx-item:last-child input[type=range]', input => input.dispatchEvent(new MouseEvent('dblclick', { bubbles:true })));
+    await host.$eval('#fxPitch', input => input.dispatchEvent(new MouseEvent('dblclick', { bubbles:true })));
+    await host.click('#fxApply'); await waitFor(guest, () => session.lines[0].pitch === 0 && session.lines[0].effects.at(-1).amount === 1);
     await other.evaluate(() => selectLine(session.lines[0]));
-    const disabled = await other.$eval('[data-clip-field=volume]', input => { const value = input.value; input.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); return input.disabled && input.value === value; });
-    assert.equal(disabled, true);
+    assert.equal(await other.$eval('[data-clip-field=volume]', input => { const value=input.value;input.dispatchEvent(new MouseEvent('dblclick',{bubbles:true}));return input.disabled && input.value===value; }),true);
   });
-
-  test('bulk strength is hidden for mixed/none presets, shown for one concrete effect, and stays atomic', async () => {
-    await update(host, [1], { effect: 'radio', effectAmount: 0.2 });
-    await update(host, [2], { effect: 'none', effectAmount: 0.8 });
-    await waitFor(host, () => session.lines[0].effect === 'radio' && session.lines[1].effect === 'none');
-    await host.evaluate(() => { selectLine(session.lines[0]); toggleMultiSelect(2); });
-    assert.equal(await host.$('[data-clip-field=effectAmount]'), null);
-    await change(host, 'effect', 'radio');
-    await waitFor(host, () => !!document.querySelector('[data-clip-field=effectAmount]'));
-    assert.equal(await host.$eval('[data-clip-field=effectAmount]', input => input.nextElementSibling.textContent), 'Mixed');
-    await change(host, 'effectAmount', 55);
-    await waitFor(guest, () => session.lines[0].effectAmount === 0.55 && session.lines[1].effectAmount === 0.55);
-    await change(host, 'effect', 'none');
-    await waitFor(host, () => !document.querySelector('[data-clip-field=effectAmount]'));
-    assert.equal((await lines(host))[0].effectAmount, 0.55); assert.equal((await lines(host))[1].effectAmount, 0.55);
+  test('bulk inspector has one effect editor and appends new stages atomically without replacing existing settings', async () => {
+    await host.evaluate(() => { clearMultiSelection(); selectLine(session.lines[0]); toggleMultiSelect(2); });
+    assert.equal(await host.$('[data-clip-field=effect]'),null); assert.equal(await host.$('[data-clip-field=pitch]'),null); assert.equal(await host.$('[data-clip-field=effectAmount]'),null);
+    const before=await host.evaluate(() => session.lines.slice(0,2).map(line => ({ effects:DublineVoiceChain.take(line).effects.length,pitch:line.pitch,mode:DublineVoiceChain.take(line).pitchMode })));
+    await host.evaluate(() => DublineVoiceEditor.bulk()); await host.select('#fxAction','append'); await host.select('#fxType','radio'); await host.click('#fxAdd');
+    await host.$eval('#fxRows input[type=range]', input => { input.value='55';input.dispatchEvent(new Event('input',{bubbles:true})); });
+    await host.click('#fxApply'); await waitFor(guest, before => session.lines.slice(0,2).every((line,i) => line.effects?.length===before[i].effects+1),10000,before);
+    const after=await guest.evaluate(() => session.lines.slice(0,2).map(line => ({ amount:line.effects.at(-1).amount,type:line.effects.at(-1).type,pitch:line.pitch,mode:line.pitchMode })));
+    for(let i=0;i<2;i++){assert.equal(after[i].amount,.55);assert.equal(after[i].type,'radio');assert.equal(after[i].pitch,before[i].pitch);assert.equal(after[i].mode,before[i].mode);}
   });
 });

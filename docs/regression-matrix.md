@@ -56,3 +56,7 @@ progress, safe cancellation and preservation of an existing destination.
 ## RNNoise replacement
 
 RNNoise: actual mono/stereo/resampling/partial frames; author/history/rename/migration; private draft/stable preview/Wet reuse; lost ACK and failed disk write; original-byte/project9/restart; HTTP/themes/locales/native chains; shared-export cancellation; bounded cache and synthetic group/export stress. Manual: physical microphone naturalness, whispers/shouts, phrase endings and real WAN.
+
+## UI and scene presets
+
+Added coverage: shared scene presets, copied settings and IDs, optional pitch, inherited complexity, creator/moderator rights, rollback/receipt recovery, format 10 and legacy import, scene isolation, author-read-only retake comments, single-play RNNoise/FX, shared dropdown input/focus/top-layer behavior and dirty-draft Save/Discard/Continue. Manual: screen readers, touch, physical audio devices and external WAN/tunnels.

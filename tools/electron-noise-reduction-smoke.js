@@ -48,7 +48,9 @@ if (!process.versions.electron) {
       await evaluate("noiseEnable.checked=true;noiseEnable.dispatchEvent(new Event('change'));void 0;");
       await evaluate('closeSettingsModal()'); await until(() => evaluate('session.noiseReduction?.actors[myName]?.enabled'));
       await evaluate("preRollSeconds=0;localStorage.setItem('dubline_adr','off');socket.emit('claim_character',{character:'Hero',sessionId:session.activeSessionId});void 0;");
-      await until(() => evaluate('session.characterClaims.Hero===myName')); await evaluate('selectLine(session.lines.find(l=>l.id===1));recordSelectedLine();void 0;'); try { await until(() => evaluate("recordState==='recording'")); } catch(error) { console.error(await evaluate('JSON.stringify({recordState,selected:selectedLine?.id,mode:session.mode,owner:getLineOwner(session.lines[0]),myName,busy:DublineNoise.busy(),settings:settingsModal.style.display,toast:document.body.innerText.slice(-2000)})'));throw error; }
+      await until(() => evaluate('session.characterClaims.Hero===myName')); await evaluate('selectLine(session.lines.find(l=>l.id===1));void 0;');
+      await until(() => evaluate('!sceneMediaPreparation()?.key && !DublineNoise.busy()'));
+      await evaluate('recordSelectedLine();void 0;'); try { await until(() => evaluate("recordState==='recording'")); } catch(error) { console.error(await evaluate('JSON.stringify({recordState,selected:selectedLine?.id,mode:session.mode,owner:getLineOwner(session.lines[0]),myName,busy:DublineNoise.busy(),settings:settingsModal.style.display,preparation:sceneMediaPreparation(),toast:document.getElementById("toast").textContent})'));throw error; }
       await new Promise(resolve => setTimeout(resolve, 350)); window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Space' }); window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Space' });
       await until(() => evaluate("recordState==='idle' && session.lines.find(l=>l.id===1).audioUrl && !pendingTakes.size"));
       assert.equal(await evaluate('Object.hasOwn(session.lines.find(l=>l.id===1),"noiseProfileId")'), false);
@@ -59,7 +61,8 @@ if (!process.versions.electron) {
       await evaluate("noiseStrength.value=80;noiseStrength.dispatchEvent(new Event('input'));void 0;");
       await new Promise(resolve => setTimeout(resolve, 300));
       assert.equal(await evaluate('DublineNoiseAudio.stats().completed'), completed);
-      assert.equal(await evaluate('DublineNoise.snapshot().playing'), true);
+      await until(() => evaluate('!DublineNoise.snapshot().playing'));
+      await evaluate('noisePreviewPlay.click();void 0;'); await until(() => evaluate('DublineNoise.snapshot().playing')); await evaluate('noisePreviewPlay.click();void 0;');
       for (const factor of [1, 1.25, 1.5]) { window.webContents.setZoomFactor(factor); await new Promise(resolve => setTimeout(resolve, 80)); assert.equal(await evaluate('noiseCard.scrollWidth <= noiseCard.clientWidth+1'), true); }
       window.webContents.setZoomFactor(1);
       await evaluate('closeSettingsModal()'); assert.equal(await evaluate('JSON.stringify(session.lines.find(l=>l.id===1))'), before);

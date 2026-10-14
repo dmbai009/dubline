@@ -123,3 +123,7 @@ commit. Atomic replacement finishes without offering an unsafe cancel action.
 ## RNNoise replacement
 
 Noise reduction drafts are local to room/scene/nickname. Normal settings/category/tab/scene exit sends one immutable operation; unchanged exit sends none. Strict persistence precedes ACK. Unknown receipts block new updates; retry queries status. Settings resolve only by recordedBy. Commit preserves playing sources. Browser capture noiseSuppression is unchanged.
+
+## UI and scene presets
+
+Preset catalogues are per scene and never contain audio, mix, RNNoise or a live reference from a take. Any admitted participant may create; only creator/host/moderator may manage. Revisions reject stale edits; failed writes roll back. Replace/append are draft-only until Apply, optional pitch defaults off, inheritance survives and combined limits reject without truncation. Only host/moderator may request retakes; original recording bytes remain unchanged.

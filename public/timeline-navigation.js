@@ -8,10 +8,11 @@
   for (const key of ['all', 'mine', 'choose']) { const option = document.createElement('option'); option.value = key; option.textContent = t('filter.' + key); scope.append(option); }
   const choose = document.createElement('button'); choose.id = 'timelineChooseFilter'; choose.className = 'btn-outline'; choose.textContent = t('filter.choose'); choose.hidden = true;
   const picker = document.createElement('div'); picker.id = 'timelineFilterPicker'; picker.className = 'timeline-filter-picker'; picker.hidden = true;
+  picker.dataset.dropdownSurface = '';
   choose.setAttribute('aria-controls', picker.id); choose.setAttribute('aria-expanded', 'false'); picker.setAttribute('role', 'group'); picker.setAttribute('aria-label', t('filter.choose'));
   const roles = document.createElement('div'), overrides = document.createElement('div');
   const allRoles = document.createElement('button'), reset = document.createElement('button'), include = document.createElement('button'), exclude = document.createElement('button');
-  for (const [button, key] of [[allRoles, 'allRoles'], [reset, 'reset'], [include, 'include'], [exclude, 'exclude']]) { button.className = 'btn-outline'; button.textContent = t('filter.' + key); }
+  for (const [button, key] of [[allRoles, 'allRoles'], [reset, 'reset'], [include, 'include'], [exclude, 'exclude']]) { button.dataset.filterAction = key; button.className = 'btn-outline'; button.textContent = t('filter.' + key); }
   const lines = document.createElement('select'); lines.id = 'timelineLineFilter'; lines.className = 'text-input'; lines.setAttribute('aria-label', t('filter.line'));
   picker.append(allRoles, reset, roles, lines, include, exclude, overrides); document.body.append(picker);
   let selectedRoles = new Set(), lineOverrides = new Map(), storageKey = null, roleSignature = '', pickerSignature = '';

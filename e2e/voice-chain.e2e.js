@@ -69,6 +69,7 @@ describe('voice chains: real DSP, inspector, author rights and scoped collaborat
     await guest.$eval('#fxRows [data-action="amount"]', input => { input.value = '23'; input.dispatchEvent(new Event('input', { bubbles: true })); });
     await guest.click('#fxRows [data-action="down"]'); await waitFor(guest, () => document.getElementById('fxStatus').textContent === t('fx.ready'));
     await guest.click('#fxPlay'); await guest.select('#fxAB', 'dry'); await guest.click('#fxCancel');
+    await waitFor(guest, () => document.querySelector('dialog.text-prompt[open]')); await guest.click('#textPromptCancel'); await waitFor(guest, () => !document.getElementById('fxDialog').open);
     assert.equal(await host.evaluate(() => JSON.stringify(session)), before);
     assert.equal(await guest.evaluate(() => session.lines.find(line => line.id === 2).effects[0].amount), .4);
   });
@@ -85,7 +86,7 @@ describe('voice chains: real DSP, inspector, author rights and scoped collaborat
     await guest.mouse.move(a.x, a.y); await guest.mouse.down(); await guest.mouse.move(b.x, b.y, { steps: 8 }); await guest.mouse.up();
     assert.deepEqual(await guest.$$eval('#fxRows .fx-item b', nodes => nodes.map(node => node.textContent)), await guest.evaluate(() => [t('effect.radio'), t('effect.telephone')]));
     assert.equal(await guest.$eval('#fxRows .fx-item:last-child input[type="range"]', node => node.value), '40');
-    await guest.click('#fxCancel'); assert.equal(await host.evaluate(() => JSON.stringify(session.lines)), before);
+    await guest.click('#fxCancel'); await waitFor(guest, () => document.querySelector('dialog.text-prompt[open]')); await guest.click('#textPromptCancel'); await waitFor(guest, () => !document.getElementById('fxDialog').open); assert.equal(await host.evaluate(() => JSON.stringify(session.lines)), before);
   });
   test('replacement and history restore retain individual chain, inheritance, pitch and pin without duplicate stages', async () => {
     const old = await guest.evaluate(() => structuredClone(session.lines.find(line => line.id === 2)));
@@ -106,7 +107,8 @@ describe('voice chains: real DSP, inspector, author rights and scoped collaborat
   test('atomic bulk append, clear and inheritance preserve distinct settings and reject foreign members', async () => {
     const settings = { effects: [effect('echo', .2, 'bulk-echo')], pitchMode: 'inherit', inheritRoleEffects: true, excludedRoleEffectIds: [] };
     assert.equal((await update(host, await takeRequest(host, [1, 2], settings, 'append'))).ok, true);
-    await waitFor(guest, () => session.lines.find(line => line.id === 2).effects?.some(item => item.id === 'bulk-echo'));
+    await waitFor(guest, () => session.lines.find(line => line.id === 2).effects?.at(-1)?.type === 'echo' && session.lines.find(line => line.id === 2).effects.at(-1).amount === .2);
+    assert.equal(await guest.evaluate(() => session.lines.find(line => line.id === 1).effects.at(-1).id === session.lines.find(line => line.id === 2).effects.at(-1).id), false);
     const before = await host.evaluate(() => JSON.stringify(session.lines));
     assert.equal((await update(guest, await takeRequest(guest, [1, 2], settings, 'clear'))).reason, 'fx.owner');
     assert.equal(await host.evaluate(() => JSON.stringify(session.lines)), before);

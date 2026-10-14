@@ -105,7 +105,8 @@ describe('Scoped actor assignments and retake requests', () => {
     let current=await state(host), line=current.lines[0];
     assert.equal((await ack(a,'set_needs_retake',op(current,{lineId:1,audioUrl:line.audioUrl,retakeRevision:line.retakeRevision,value:true,comment:''}))).ok,true);
     current=await state(host); line=current.lines[0]; assert.equal(line.needsRetake,true); assert.equal(line.retakeComment,'');
-    assert.equal((await ack(actor,'set_needs_retake',op(current,{lineId:1,audioUrl:line.audioUrl,retakeRevision:line.retakeRevision,value:false,comment:''}))).ok,true);
+    assert.equal((await ack(actor,'set_needs_retake',op(current,{lineId:1,audioUrl:line.audioUrl,retakeRevision:line.retakeRevision,value:false,comment:''}))).reason,'owner');
+    assert.equal((await ack(b,'set_needs_retake',op(current,{lineId:1,audioUrl:line.audioUrl,retakeRevision:line.retakeRevision,value:false,comment:''}))).ok,true);
     line=(await state(host)).lines[0]; assert.equal(line.needsRetake,false);
     assert.deepEqual(fs.readFileSync(path.join(server.dirs.uploads,path.basename(line.audioUrl))),bytes);
     const receipt=await ack(actor,'editor_operation_status',{event:'set_needs_retake',request:request('unseen')}); assert.equal(receipt.state,'unseen');

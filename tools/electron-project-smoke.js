@@ -92,9 +92,9 @@ if (!process.versions.electron) {
         if (process.env.DUBLINE_NATIVE_CLIP_MIX_TEST) {
           await evaluate('selectLine(session.lines[0]);');
           assert.equal(await evaluate("!document.querySelector('[data-clip-field=effectAmount]')"), true);
-          await evaluate("(()=>{const select=document.querySelector('[data-clip-field=effect]');select.value='behindDoor';select.dispatchEvent(new Event('change',{bubbles:true}));})()");
-          await until(()=>evaluate("session.lines[0].effect==='behindDoor' && !!document.querySelector('[data-clip-field=effectAmount]')"));
-          for (const [field,value] of [['volume',67],['pan',-35],['effectAmount',45]]) {
+          await evaluate("DublineVoiceEditor.open(session.lines[0].id,'takes');document.getElementById('fxType').value='behindDoor';document.getElementById('fxAdd').click();const input=document.querySelector('#fxRows .fx-item:last-child input[type=range]');input.value='45';input.dispatchEvent(new Event('input',{bubbles:true}));document.getElementById('fxApply').click();void 0;");
+          await until(()=>evaluate("session.lines[0].effects?.some(effect=>effect.type==='behindDoor' && effect.amount===.45)"));
+          for (const [field,value] of [['volume',67],['pan',-35]]) {
             await evaluate("(()=>{const input=document.querySelector('[data-clip-field="+field+"]');input.value='"+value+"';input.dispatchEvent(new Event('change',{bubbles:true}));})()");
             await until(()=>evaluate('session.lines[0].'+field+'==='+value/100));
           }
@@ -141,7 +141,7 @@ if (!process.versions.electron) {
         assert.equal(await evaluate('session.trackOrder[0]'),'Native role');
         if (process.env.DUBLINE_NATIVE_CLIP_MIX_TEST) {
           const clip = await evaluate('({...session.lines[0]})');
-          assert.equal(clip.volume,0.67);assert.equal(clip.pan,-0.35);assert.equal(clip.effectAmount,0.45);assert.equal(clip.effect,'behindDoor');
+          assert.equal(clip.volume,0.67);assert.equal(clip.pan,-0.35);assert.equal(clip.effects[0].amount,0.45);assert.equal(clip.effects[0].type,'behindDoor');
           await evaluate('selectLine(session.lines[0]);');
           assert.equal(await evaluate("document.querySelector('[data-clip-field=volume]').value"),'67');
           console.log('Native clip mix survives launcher project open in '+mode+'.');

@@ -10,7 +10,7 @@ const SCENE_MUTATIONS = new Set([
   'host_delete_lines', 'host_undo_delete', 'host_trash_restore', 'host_trash_purge',
   'host_set_audio_tracks', 'random_cast', 'host_reveal_takes', 'set_blind_mode', 'set_blind_preference',
   'host_watch_start', 'host_watch_sync', 'host_watch_stop', 'host_force_pause',
-  'set_needs_retake', 'take_history_update', 'noise_update', 'voice_update', 'project_audio_update', 'p2p_have', 'p2p_find', 'p2p_signal'
+  'set_needs_retake', 'take_history_update', 'noise_update', 'voice_update', 'voice_preset_update', 'project_audio_update', 'p2p_have', 'p2p_find', 'p2p_signal'
 ]);
 
 function register(socket, conn) {

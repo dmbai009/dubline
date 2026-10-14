@@ -57,3 +57,8 @@ per-user; updates reuse that installation folder and uninstall preserves user da
 ## RNNoise replacement
 
 RNNoise replaces microphone-profile calibration. Scene settings belong to recording authors, with private preview and acknowledged save on settings exit. Existing projects import disabled at 60%; original recordings remain unchanged.
+
+
+## UI and scene presets
+
+Scene-local shared effect presets support creation by admitted participants and management by their creator or moderators. Copies apply only through the ordinary role/take editor. Unified dropdowns and one-shot audition keep existing recording, RNNoise and project workflows; retake requests belong only to host/moderator authority.

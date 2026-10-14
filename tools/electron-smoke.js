@@ -160,6 +160,8 @@ async function main() {
       const media = await host.evaluate(() => ({loaded:session?.loaded,lines:session?.lines?.length,readyState:video.readyState,source:video.currentSrc,error:video.error?.message,file:zipInput.files[0]?.name,disabled:zipInput.disabled}));
       throw Error(error.message+': '+JSON.stringify({media,diagnostics}));
     });
+    await host.waitForFunction(() => document.getElementById('p2pConsentDialog').open || localStorage.getItem('dubline_p2p_consent_v1') !== null);
+    if (await host.$eval('#p2pConsentDialog', node => node.open)) await host.click('#p2pConsentDecline');
     const neural = await host.evaluate(async () => {
       const input = new AudioBuffer({ length: 48091, numberOfChannels: 2, sampleRate: 48000 });
       for (let c = 0; c < 2; c++) for (let i = 0; i < input.length; i++) input.getChannelData(c)[i] = .1 * Math.sin(i * (c ? .08 : .03)) + .02 * Math.sin(i * 113.97);
@@ -269,19 +271,21 @@ async function main() {
       input.value = '-35'; input.dispatchEvent(new Event('change', { bubbles: true }));
     }, created.line.id);
     await guest.waitForFunction(id => session.lines.find(line => line.id === id)?.pan === -0.35, {}, created.line.id);
-    await host.evaluate(() => {
-      const select = document.querySelector('[data-clip-field=effect]');
-      select.value = 'radio'; select.dispatchEvent(new Event('change', { bubbles: true }));
-    });
-    await host.waitForFunction(() => !!document.querySelector('[data-clip-field=effectAmount]'));
-    await host.evaluate(() => {
-      const input = document.querySelector('[data-clip-field=effectAmount]');
-      input.value = '45'; input.dispatchEvent(new Event('change', { bubbles: true }));
-    });
-    await guest.waitForFunction(id => session.lines.find(line => line.id === id)?.effectAmount === 0.45, {}, created.line.id);
+    await host.evaluate(id => DublineVoiceEditor.open(id, 'takes'), created.line.id);
+    await host.select('#fxType', 'radio'); await host.click('#fxAdd');
+    await host.$eval('#fxRows .fx-item:last-child input[type=range]', input => { input.value = '45'; input.dispatchEvent(new Event('input', { bubbles: true })); });
+    await host.click('#fxApply');
+    await guest.waitForFunction(id => session.lines.find(line => line.id === id)?.effects?.some(effect => effect.type === 'radio' && effect.amount === .45), {}, created.line.id);
     const channels = await host.evaluate(async id => (await renderCharacterStem([session.lines.find(line => line.id === id)], 12)).numberOfChannels, created.line.id);
     assert.equal(channels, 2);
     process.stdout.write('Packaged clip author/host controls and stereo stem render passed.\n');
+    await guest.evaluate(id => DublineVoiceEditor.open(id, 'takes'), created.line.id);
+    await guest.$eval('#fxPresets', node => { node.open = true; }); await guest.click('#fxPresetSave');
+    await guest.waitForFunction(() => !!document.querySelector('dialog.text-prompt[open]'));
+    await guest.$eval('#textPromptInput', node => { node.value = 'Packaged radio'; }); await guest.click('#textPromptSave');
+    await host.waitForFunction(() => Object.values(session.voicePresets || {}).some(preset => preset.name === 'Packaged radio'));
+    await guest.evaluate(() => DublineVoiceEditor.close());
+    process.stdout.write('Packaged shared preset captured the take draft and reached the host.\n');
     await host.evaluate(() => socket.emit('set_blind_mode', { sessionId: session.activeSessionId,  enabled: true }));
     await host.waitForFunction(id => session.blindMode && !canHearLine(session.lines.find(line => line.id === id)), {}, created.line.id);
     await host.evaluate(() => revealAllTakes());
@@ -308,16 +312,17 @@ async function main() {
     assert.equal(await host.evaluate(() => document.body.classList.contains('video-expanded')), true);
     await host.evaluate(() => toggleExpandedVideo());
     const portable = await host.evaluate(async () => {
-      const before = { id:session.activeSessionId, title:session.title, lines:session.lines.length, takes:session.lines.filter(line=>line.audioUrl).length, clip:session.lines.find(line=>line.audioUrl) };
+      const before = { id:session.activeSessionId, title:session.title, lines:session.lines.length, takes:session.lines.filter(line=>line.audioUrl).length, clip:session.lines.find(line=>line.audioUrl), presets:structuredClone(session.voicePresets) };
       const saved = await fetch('/api/export-project',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ ...await window.prepareSafeSnapshot('project'), room:currentRoom,clientId,sessionId:before.id})});
       if(!saved.ok)throw Error(await saved.text());
       const form=new FormData();form.append('clientId',clientId);form.append('sessionId',before.id);form.append('project',await saved.blob(),'portable.dubline');
       const opened=await fetch('/api/import-project?room='+currentRoom,{method:'POST',body:form});if(!opened.ok)throw Error(await opened.text());
-      const after=(await opened.json()).session;return {before,after:{id:after.activeSessionId,title:after.title,lines:after.lines.length,takes:after.lines.filter(line=>line.audioUrl).length,clip:after.lines.find(line=>line.audioUrl)}};
+      const after=(await opened.json()).session;return {before,after:{id:after.activeSessionId,title:after.title,lines:after.lines.length,takes:after.lines.filter(line=>line.audioUrl).length,clip:after.lines.find(line=>line.audioUrl),presets:after.voicePresets}};
     });
     assert.notEqual(portable.after.id,portable.before.id);assert.equal(portable.after.title,portable.before.title);assert.equal(portable.after.lines,portable.before.lines);assert.equal(portable.after.takes,portable.before.takes);
     await guest.waitForFunction(id=>session.activeSessionId===id,{timeout:30000},portable.after.id);
     for (const field of ['volume','pan','effectAmount']) assert.equal(portable.after.clip[field], portable.before.clip[field]);
+    assert.deepEqual(portable.after.presets, portable.before.presets); assert.deepEqual(portable.after.clip.effects, portable.before.clip.effects);
     process.stdout.write('Packaged .dubline disk save/open retained media, recordings and clip mixes.\n');
     const optimized = await host.evaluate(async () => {
       const source=await (await fetch(session.videoUrl)).blob();

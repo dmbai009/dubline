@@ -131,3 +131,7 @@ remain manual checks.
 ## RNNoise replacement
 
 RNNoise checks: noise-reduction.test.js, e2e/noise-reduction.e2e.js, test:electron:noise/chains. tools/rnnoise-audition.js creates local six-strength speech WAVs and verifies direct model equality; tools/rnnoise-stress.js tests 400 recordings / 25 minutes / ten real browser authors. See docs/rnnoise-integration.md for measured results and remaining manual listening.
+
+## UI and scene presets
+
+voice-preset.test.js and e2e/ui-presets.e2e.js cover real shared creation/application/management, rights, revision conflicts, failed disk writes, immutable lost-ACK recovery, independent instance IDs, format 10/reopen/restart, nickname transfer, scene isolation and exact original bytes. The browser suite also checks keyboard dropdowns, parent-picker retention, all six themes/three locales and 150% geometry/contrast. Native chain/project/UI workflows use the new editor. See docs/ui-presets-integration.md for actual results and manual acceptance.

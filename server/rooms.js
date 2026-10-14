@@ -17,7 +17,7 @@ const timelineBounds = require('../public/timeline-model');
 // Scene fields that belong to a session (see "Sessions" below)
 const SESSION_FIELDS = ['loaded', 'title', 'kind', 'zipUrl', 'videoUrl', 'backingUrl', 'lines', 'characterClaims', 'createdAt', 'updatedAt',
   'audioTracks', 'originalTrack', 'backingTrack', 'baseBackingUrl', 'deletedLines', 'mode', 'trackOrder', 'nextLineId', 'blindMode',
-  'externalOriginalUrl', 'audioMetadata', 'projectAudio', 'videoHasAudio', 'takeLatency', 'videoDuration', 'workshopSource', 'originalVideoUrl', 'originalVideoName', 'protectTimings', 'noiseReduction', 'roleEffects'];
+  'externalOriginalUrl', 'audioMetadata', 'projectAudio', 'videoHasAudio', 'takeLatency', 'videoDuration', 'workshopSource', 'originalVideoUrl', 'originalVideoName', 'protectTimings', 'noiseReduction', 'roleEffects', 'voicePresets'];
 let repairedOnLoad = false;
 
 function loadRooms() {
@@ -78,6 +78,7 @@ function cleanImportedCaptions(session) {
 }
 
 function normalizeEditorState(session) {
+  if (session && !require('../public/voice-preset-model').validLibrary(session.voicePresets)) { session.voicePresets = Object.create(null); repairedOnLoad = true; }
   if (session && require('../public/noise-model').migrateScene(session)) repairedOnLoad = true;
   for (const batch of session.deletedLines || []) for (const entry of batch.lines || []) {
     if (entry.line && require('./takeHistory').normalize(entry.line)) repairedOnLoad = true;
@@ -238,6 +239,7 @@ function emptySession() {
     baseBackingUrl: undefined, // the pack's own backing track, restored when "none" is picked
     noiseReduction: require('./noiseReduction').empty(),
     roleEffects: Object.create(null),
+    voicePresets: Object.create(null),
     deletedLines: []          // trash of the host's deletions for undo (Ctrl+Z), the last MAX_UNDO_BATCHES
   };
 }

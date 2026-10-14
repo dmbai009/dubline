@@ -21,6 +21,9 @@
     $('noiseNext').disabled = !ownTakes().length || !!context?.saving || !!context?.preparing;
     $('noiseRetry').hidden = !context?.saveError;
     $('noiseRetry').disabled = !!context?.saving || !socket.connected;
+    $('noiseEffectsHelp').dataset.tooltip = t('noise.effectsHelp');
+    $('noiseEffects').setAttribute('aria-label', t('noise.effects'));
+    $('noiseEffects').setAttribute('aria-description', t('noise.effectsHelp'));
     if (!context) $('noiseStatus').textContent = t(ownTakes().length ? 'noise.description' : 'noise.noSample');
   }
   function begin() {
@@ -36,7 +39,7 @@
   function currentPosition(state = context) {
     if (!state) return 0;
     const at = (state.position || state.begin || 0) + (state.playing ? state.output.currentTime - state.started : 0);
-    return state.playing ? state.begin + Math.max(0, at - state.begin) % Math.max(.001, state.end - state.begin) : at;
+    return state.playing ? Math.min(state.end, at) : at;
   }
   function release(item) {
     if (item.released) return; item.released = true; item.node.onended = null;
@@ -81,7 +84,7 @@
       $('noiseSampleLabel').textContent = `#${lineNumber(item.line)} · ${item.line.character} · ${item.line.caption || ''}`;
       state.position = 0; return state.sample;
     }
-    throw Error('noise.noSample');
+    throw Error(ownTakes().length ? 'noise.previewError' : 'noise.noSample');
   }
   async function prepare() {
     begin(); const state = context; if (!state) return false;
@@ -110,11 +113,12 @@
     await DublineAudioDevices.ready(); await DublineAudioDevices.resume(output);
     if (!current(state) || generation !== playbackGeneration || !visible()) return;
     const offset = currentPosition(state), next = output.createBufferSource(), fade = output.createGain();
-    next.buffer = state.buffer; next.loop = true; next.loopStart = state.begin; next.loopEnd = state.end;
+    next.buffer = state.buffer;
     const graph = audio.connectAudition(next, fade, state.playLine), item = { node: next, fade, graph };
     state.nodes ||= new Set(); state.nodes.add(item);
     fade.gain.setValueAtTime(0, output.currentTime); fade.gain.linearRampToValueAtTime(1, output.currentTime + .03);
-    next.start(output.currentTime, Math.max(state.begin, Math.min(offset, Math.max(state.begin, state.end - .001))));
+    const from = Math.max(state.begin, Math.min(offset, Math.max(state.begin, state.end - .001)));
+    next.start(output.currentTime, from, Math.max(.001, state.end - from));
     const previous = state.source;
     if (previous) {
       previous.node.onended = () => { release(previous); state.nodes.delete(previous); };
@@ -196,12 +200,12 @@
     card.innerHTML = `<div class="setting-card-row"><div><div class="setting-label" data-i18n="noise.title"></div><div class="setting-sub" data-i18n="noise.description"></div></div><label class="switch-ui"><input id="noiseEnable" type="checkbox"><span class="switch-slider"></span></label></div>
       <div id="noiseStrengthRow"><label for="noiseStrength" data-i18n="noise.strength"></label><output id="noiseStrengthValue">60%</output><input id="noiseStrength" type="range" min="0" max="100" value="60" data-reset-value="60" data-reset-event="input"></div>
       <p id="noiseStrongWarning" class="setting-sub" data-i18n="noise.strongWarning" hidden></p>
-      <div class="noise-preview-actions"><button id="noisePreviewPlay" type="button" class="btn-outline" data-i18n="noise.play"></button><button id="noiseNext" type="button" class="btn-outline" data-i18n="noise.next"></button><label><input id="noiseEffects" type="checkbox" checked><span data-i18n="noise.effects"></span></label></div>
+      <div class="noise-preview-actions"><button id="noisePreviewPlay" type="button" class="btn-outline" data-i18n="noise.play"></button><button id="noiseNext" type="button" class="btn-outline" data-i18n="noise.next"></button><label class="switch-ui"><input id="noiseEffects" type="checkbox" checked><span class="switch-slider"></span></label><span id="noiseEffectsHelp" tabindex="0" data-i18n="noise.effects"></span></div>
       <p id="noiseSampleLabel" class="setting-sub"></p><p id="noiseStatus" class="setting-sub" role="status" aria-live="polite"></p><button id="noiseRetry" type="button" class="btn-outline" data-i18n="noise.retry" hidden></button>`;
     addSettingsCard('user', 'audio', card);
     $('noiseEnable').onchange = edited; $('noiseStrength').oninput = edited;
     $('noiseEffects').onchange = refreshAudition;
-    $('noisePreviewPlay').onclick = async () => { begin(); if (context?.playing) return stop(); audio.stopPreview(); window.DublineTakeHistory?.stop(); if (await prepare()) await play().catch(() => status('noise.previewError')); };
+    $('noisePreviewPlay').onclick = async () => { begin(); if (context?.playing) return stop(false); if (context) context.position = context.begin || 0; audio.stopPreview(); window.DublineTakeHistory?.stop(); if (await prepare()) await play().catch(() => status('noise.previewError')); };
     $('noiseNext').onclick = () => { begin(); if (context) { stop(false); context.previousSampleUrl = context.sample?.audioUrl; context.sample = null; context.buffer = null; context.failedSamples.clear(); $('noiseSampleLabel').textContent = ''; status('noise.description'); } };
     $('noiseRetry').onclick = async () => { if (context && !context.operation) context.committed = model.actor(session.noiseReduction, myName); if (await beforeExit()) begin(); };
     const open = window.openSettingsModal, close = window.closeSettingsModal, tab = window.switchSettingsTab;

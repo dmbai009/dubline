@@ -36,7 +36,9 @@
     for (const control of document.querySelectorAll(`${scope.split(', ').map(root => root + ' button, ' + root + ' input, ' + root + ' select, ' + root + ' textarea').join(', ')}`)) {
       if (control.closest('#editorLineForm') || control.id === 'editorSyncState' || control.closest('#editorConflictPanel') || control.tagName === 'OPTION') continue;
       let reason = '';
-      if (control.matches('#modeSwitch button, #protectTimingsBtn')) reason = common || (!canModerate() ? 'help.moderator' : '');
+      if (control.id === 'noisePreviewPlay' || control.id === 'noiseNext') reason = !window.DublineNoise?.ownTakes().length ? 'noise.noSampleHelp' : control.disabled ? 'help.busy' : '';
+      else if (control.hasAttribute('data-retake-line') || control.hasAttribute('data-retake-comment')) reason = !canModerate() ? 'retake.moderatorOnly' : common || (control.disabled ? 'help.busy' : '');
+      else if (control.matches('#modeSwitch button, #protectTimingsBtn')) reason = common || (!canModerate() ? 'help.moderator' : '');
       else if (control.id === 'addEditorLineBtn') reason = common || (session.mode !== 'edit' ? 'help.mode' : session.protectTimings ? 'help.protected' : '');
       else if (control.id === 'undoDeleteBtn' || ['trashRestoreBtn', 'trashRestoreAllBtn', 'trashPurgeBtn'].includes(control.id)) reason = common || (session?.mode !== 'edit' ? 'help.mode' : !canModerate() ? 'help.moderator' : control.disabled ? 'help.selection' : '');
       else if (control.id === 'recBtn') reason = ['recording', 'preparing'].includes(recordState) ? '' : common || (renderInProgress ? 'help.busy' : session.mode !== 'dub' ? 'help.dub' : watchMode ? 'watch.noRecord' : line && getLineOwner(line) !== myName ? 'help.owner' : '');

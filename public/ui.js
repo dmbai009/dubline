@@ -835,30 +835,15 @@ function takePanelHtml(line, editable) {
   const signed = (v, digits) => `${v > 0 ? '+' : ''}${Number(v).toFixed(digits)}`;
 
   if (!editable) {
-    const parts = [t(`effect.${effect}`) || effect];
+    const parts = [window.DublineVoiceEditor?.summary(line) || t(`effect.${effect}`) || effect];
     if (pitch) parts.push(`${t('pitch')} ${signed(pitch, 0)}`);
     if (Math.abs(shift) >= 0.005) parts.push(`${t('shift')} ${signed(shift, 2)}s`);
-    return `${takeMixPanelHtml([line])}<div class="insp-meta">${t('voice')} ${esc(parts.join(', '))}</div>${effect !== 'none' && !Array.isArray(line.effects) ? clipSliderHtml([line], 'effectAmount', 0, 100, 1, 'disabled') : ''}`;
+    return `${takeMixPanelHtml([line])}<div class="insp-meta">${t('voice')} ${esc(parts.join(', '))}</div>`;
   }
-
-  const options = Object.entries(VOICE_EFFECTS)
-    .map(([key]) => `<option value="${key}" ${key === effect ? 'selected' : ''}>${t(`effect.${key}`)}</option>`)
-    .join('');
 
   return `
     ${takeMixPanelHtml([line])}
     <div class="take-panel" data-take-mix data-session="${esc(session.activeSessionId)}" data-takes="${esc(JSON.stringify([{ lineId: line.id, audioUrl: line.audioUrl, takeMixRevision: line.takeMixRevision || 0 }]))}" title="${esc(t('dragHint'))}">
-      <label class="clip-mix-row" ${Array.isArray(line.effects) ? 'hidden' : ''}><span>${esc(t('voice'))}</span>
-        <select class="text-input" data-clip-field="effect" aria-label="${esc(t('voice'))}" title="${esc(t('voice'))}" onchange="setTakeControlProps(this, { effect: this.value })">${options}</select>
-      </label>
-      ${effect !== 'none' && !Array.isArray(line.effects) ? clipSliderHtml([line], 'effectAmount', 0, 100, 1, '') : ''}
-      <div class="take-row">
-        <span class="insp-label" title="${esc(t('pitch'))}">♯</span>
-        <input type="range" data-reset-value="0" data-reset-event="change" min="-12" max="12" step="1" value="${pitch}" class="pitch-range" title="${esc(t('pitch'))}"
-          oninput="document.getElementById('pitchVal').innerText = (this.value > 0 ? '+' : '') + this.value"
-          onchange="this.oninput(); setTakeControlProps(this, { pitch: Number(this.value) })">
-        <span id="pitchVal" class="take-val narrow">${signed(pitch, 0)}</span>
-      </div>
       <div class="take-row">
         <label class="insp-check" title="${esc(hasTrim ? t('speech', { from: line.trimStart.toFixed(2), to: line.trimEnd.toFixed(2) }) : t('speechMissing'))}">
           <input type="checkbox" ${line.trimEnabled !== false ? 'checked' : ''} ${hasTrim ? '' : 'disabled'}
@@ -1130,30 +1115,15 @@ function takeMixPanelHtml(selection, bulk = false) {
   const disabled = editable.length ? '' : 'disabled';
   const targets = editable.map(line => ({ lineId: line.id, audioUrl: line.audioUrl, takeMixRevision: line.takeMixRevision || 0 }));
   const slider = (field, min, max, fallback) => clipSliderHtml(lines, field, min, max, fallback, disabled);
-  const effectsMatch = lines.every(line => (line.effect || 'none') === (lines[0].effect || 'none'));
-  const effect = effectsMatch ? lines[0].effect || 'none' : '';
-  const options = (!effectsMatch ? '<option value="" disabled selected>' + esc(t('clip.mixed')) + '</option>' : '') +
-    Object.keys(VOICE_EFFECTS).map(key => '<option value="' + key + '" ' + (key === effect ? 'selected' : '') + '>' + esc(t(`effect.${key}`)) + '</option>').join('');
   return '<section class="take-panel clip-mix-panel" data-take-mix data-session="' + esc(session.activeSessionId) + '" data-takes="' + esc(JSON.stringify(targets)) + '">' +
     '<b class="setting-sub">' + esc(t('clip.title')) + '</b>' +
     (bulk ? '<p class="take-hint">' + esc(t('clip.bulk', { n: editable.length, total: recorded.length })) + '</p>' : '') +
     slider('volume', 0, 300, 1) + slider('pan', -100, 100, 0) +
-    (bulk && !lines.some(line => Array.isArray(line.effects)) ? '<label class="clip-mix-row"><span>' + esc(t('voice')) + '</span><select class="text-input" data-clip-field="effect" aria-label="' + esc(t('voice')) + '" ' + disabled + ' onchange="setTakeControlProps(this, { effect: this.value })">' + options + '</select></label>' : '') +
-    (bulk ? bulkPitchSliderHtml(lines, disabled) : '') +
-    (bulk && effect && effect !== 'none' && !lines.some(line => Array.isArray(line.effects)) ? slider('effectAmount', 0, 100, 1) + '<p class="take-hint">' + esc(t('clip.effectHelp')) + '</p>' : '') +
     (!editable.length ? '<p class="take-hint">' + esc(t('clip.readOnly')) + '</p>' : '') + '</section>';
 }
 
 function takeMixLabel(field, value) {
   return field === 'pan' ? (value === 0 ? t('clip.center') : t(value < 0 ? 'clip.left' : 'clip.right', { n: Math.abs(value) })) : value + '%';
-}
-function bulkPitchSliderHtml(lines, disabled) {
-  const value = lines[0].pitch || 0;
-  const mixed = lines.some(line => (line.pitch || 0) !== value);
-  return '<label class="clip-mix-row"><span>' + esc(t('pitch')) + '</span>' +
-    '<input type="range" data-clip-field="pitch" data-reset-value="0" data-reset-event="change" min="-12" max="12" step="1" value="' + (mixed ? 0 : value) + '" ' + disabled +
-    ' oninput="this.parentElement.querySelector(\'output\').textContent = (Number(this.value) > 0 ? \'+\' : \'\') + this.value" onchange="this.oninput(); setTakeControlProps(this, { pitch: Number(this.value) })">' +
-    '<output>' + esc(mixed ? t('clip.mixed') : (value > 0 ? '+' : '') + value) + '</output></label>';
 }
 window.updateTakeMixLabel = function(input) {
   input.parentElement.querySelector('output').textContent = takeMixLabel(input.dataset.clipField, Number(input.value));

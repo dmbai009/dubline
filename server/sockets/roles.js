@@ -13,11 +13,12 @@ const { registerMutation } = require('../editorOperations');
 module.exports = function registerRoleHandlers(socket, conn) {
   require('../noiseReduction').register(socket, conn);
   require('../voiceChains').register(socket, conn);
+  require('../voicePresets').register(socket, conn);
   registerMutation(socket, conn, 'set_needs_retake', ({ lineId, audioUrl, takeMixRevision, retakeRevision, value, comment } = {}, ack) => {
     const reply = typeof ack === 'function' ? ack : () => {};
     const room = getRoom(conn.roomId), line = room.lines.find(item => item.id === lineId);
     if (!line?.audioUrl || typeof value !== 'boolean') return reply({ ok: false, reason: 'invalid' });
-    if (!(canModerate(room, conn.clientId) || line.recordedBy === conn.nick || getLineOwner(room, line) === conn.nick)) return reply({ ok: false, reason: 'owner' });
+    if (!canModerate(room, conn.clientId)) return reply({ ok: false, reason: 'owner' });
     const legacy = retakeRevision === undefined;
     if (comment !== undefined && (legacy || typeof comment !== 'string' || comment.length > require('../retakes').MAX_COMMENT)) return reply({ ok: false, reason: 'invalid' });
     if (audioUrl !== line.audioUrl || (legacy ? takeMixRevision !== (line.takeMixRevision || 0) : retakeRevision !== (line.retakeRevision || 0))) return reply({ ok: false, reason: 'conflict', line });

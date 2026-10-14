@@ -163,7 +163,7 @@ async function main() {
     // This workflow keeps profile processing off and explicitly declines the new
     // Capture permission must not open an obsolete noise setup offer.
     assert.equal(await page.evaluate(() => !!document.getElementById('noiseOffer')), false);
-    await page.select('[data-clip-field="effect"]', 'telephone'); await waitFor(page, () => session.lines[0].effect === 'telephone');
+    await page.evaluate(() => DublineVoiceEditor.open(1, 'takes')); await page.select('#fxType', 'telephone'); await page.click('#fxAdd'); await page.click('#fxApply'); await waitFor(page, () => session.lines[0].effects?.some(effect => effect.type === 'telephone'));
     await page.type('[data-retake-comment="1"]', 'Native retake request'); await page.click('[data-retake-form="1"] button[type=submit]');
     await waitFor(page, () => session.lines[0].retakeComment === 'Native retake request' && !editorQueue.length);
     assert.equal(await page.$eval('#myRetakeCount', node => node.hidden), false, 'native owner retains a visible request');
@@ -197,7 +197,7 @@ async function main() {
     }
     await resize(1280, 720); await page.evaluate(() => { desktopInviteCollapsed = true; renderDesktopInvite(); toggleExpandedVideo(); });
     assert.equal(await page.evaluate(() => {
-      const speed = document.getElementById('previewRate').getBoundingClientRect(), expand = document.getElementById('transportExpandBtn').getBoundingClientRect(), fullscreen = document.querySelector('[data-studio-action=fullscreen]').getBoundingClientRect();
+      const speed = DublineDropdown.button(document.getElementById('previewRate')).getBoundingClientRect(), expand = document.getElementById('transportExpandBtn').getBoundingClientRect(), fullscreen = document.querySelector('[data-studio-action=fullscreen]').getBoundingClientRect();
       return speed.right <= expand.left && expand.right <= fullscreen.left;
     }), true, 'native display actions sit to the right of speed');
     await page.$eval('[data-studio-action=fullscreen]', button => button.click()); await waitFor(page, () => !!document.fullscreenElement);

@@ -31,16 +31,19 @@ function plan(room, conn, data, moderator, owner) {
       if (!line || !takeMix.canEdit(line, conn.nick, moderator, owner(line))) failure('owner');
       if (target.character !== line.character || target.takeId !== (line.takeId || null) || target.audioUrl !== line.audioUrl || target.takeMixRevision !== (line.takeMixRevision || 0)) failure('conflict');
       const next = structuredClone(line), settings = model.take(line);
+      const incoming = data.settings && structuredClone(data.settings);
+      if (incoming && data.takes.length > 1) incoming.effects = incoming.effects.map(effect => ({ ...effect, id: require('node:crypto').randomUUID() }));
       if (data.action === 'replace') {
-        const previous = structuredClone(settings); Object.assign(settings, structuredClone(data.settings));
+        const previous = structuredClone(settings); Object.assign(settings, incoming);
         if (data.takes.length > 1) { if (!data.editPitch) settings.pitchMode = previous.pitchMode; if (!data.editInheritance) settings.inheritRoleEffects = previous.inheritRoleEffects; if (!data.editExceptions) settings.excludedRoleEffectIds = previous.excludedRoleEffectIds; }
       }
-      if (data.action === 'append') settings.effects.push(...structuredClone(data.settings.effects));
+      if (data.action === 'append') settings.effects.push(...incoming.effects);
       if (data.action === 'clear') settings.effects = [];
       if (data.action === 'inherit') settings.inheritRoleEffects = data.value;
       if (!model.validTake(settings)) failure('limit');
       Object.assign(next, settings);
-      if (data.pitch !== undefined) { if (!Number.isFinite(data.pitch) || Math.abs(data.pitch) > 12) failure('invalid'); if (data.action === 'replace' && (data.takes.length === 1 || data.editPitch === true)) next.pitch = data.pitch; }
+      if (data.pitch !== undefined) { if (!Number.isFinite(data.pitch) || Math.abs(data.pitch) > 12) failure('invalid'); if (data.action === 'replace' && (data.takes.length === 1 || data.editPitch === true)) next.pitch = data.pitch;
+        if (data.action === 'append' && data.editPitch === true) { next.pitch = data.pitch; next.pitchMode = 'override'; } }
       next.effect = 'none'; next.effectAmount = 1;
       next.takeMixRevision = (line.takeMixRevision || 0) + 1;
       if (!Number.isSafeInteger(next.takeMixRevision)) failure('invalid');

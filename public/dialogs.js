@@ -9,6 +9,8 @@ textPrompt.innerHTML = `<form method="dialog" id="textPromptForm">
   <div class="insp-actions"><button type="button" id="textPromptCancel" class="btn-outline">✕</button>
   <button type="submit" class="btn-play" id="textPromptSave"></button></div>
 </form>`;
+const textPromptContinue = document.createElement('button'); textPromptContinue.type = 'button'; textPromptContinue.id = 'textPromptContinue'; textPromptContinue.className = 'btn-outline'; textPromptContinue.hidden = true;
+textPrompt.querySelector('.insp-actions').append(textPromptContinue);
 document.body.appendChild(textPrompt);
 
 function closeTextPrompt(value = null) {
@@ -23,7 +25,7 @@ function closeTextPrompt(value = null) {
 
 function askDialog(message, initial, maxLength, confirmMode, options = {}) {
   closeTextPrompt();
-  textPrompt.dataset.kind = confirmMode ? 'confirm' : 'text';
+  textPrompt.dataset.kind = options.decision ? 'decision' : confirmMode ? 'confirm' : 'text';
   document.getElementById('textPromptTitle').textContent = message;
   const input = document.getElementById('textPromptInput');
   input.hidden = confirmMode;
@@ -34,26 +36,29 @@ function askDialog(message, initial, maxLength, confirmMode, options = {}) {
   const save = document.getElementById('textPromptSave');
   save.className = options.danger ? 'btn-delete' : 'btn-play';
   save.textContent = t(options.confirmKey || (confirmMode ? 'dialog.confirm' : 'save'));
-  document.getElementById('textPromptCancel').textContent = t('dialog.cancel');
+  document.getElementById('textPromptCancel').textContent = t(options.decision ? 'fx.discardDraft' : 'dialog.cancel');
+  textPromptContinue.hidden = !options.decision; textPromptContinue.textContent = t('fx.continueDraft');
   return new Promise(resolve => {
-    pendingTextPrompt = { resolve, focus: document.activeElement, confirmMode };
+    pendingTextPrompt = { resolve, focus: document.activeElement, confirmMode, decision: !!options.decision };
     textPrompt.showModal();
     if (confirmMode) document.getElementById(options.danger ? 'textPromptCancel' : 'textPromptSave').focus();
     else { input.focus(); input.select(); }
   });
 }
 window.askText = (message, initial = '', maxLength = 40) => askDialog(message, initial, maxLength, false);
+window.askDraftDecision = () => askDialog(t('fx.unsaved'), '', 40, true, { decision: true, confirmKey: 'fx.saveDraft' });
 window.askConfirm = (message, options = {}) => {
   const id = window.DublineState?.data.session?.activeSessionId;
   return askDialog(message, '', 40, true, options).then(value => !!value && id === window.DublineState?.data.session?.activeSessionId);
 };
 document.getElementById('textPromptForm').addEventListener('submit', event => {
   event.preventDefault();
-  if (pendingTextPrompt?.confirmMode) return closeTextPrompt(true);
+  if (pendingTextPrompt?.confirmMode) return closeTextPrompt(pendingTextPrompt.decision ? 'save' : true);
   const value = document.getElementById('textPromptInput').value.trim();
   if (value) closeTextPrompt(value);
 });
-document.getElementById('textPromptCancel').onclick = () => closeTextPrompt();
+document.getElementById('textPromptCancel').onclick = () => closeTextPrompt(pendingTextPrompt?.decision ? 'discard' : null);
+textPromptContinue.onclick = () => closeTextPrompt();
 textPrompt.addEventListener('cancel', event => { event.preventDefault(); closeTextPrompt(); });
 
 textPrompt.addEventListener('keydown', event => {
