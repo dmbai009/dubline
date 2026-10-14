@@ -247,7 +247,7 @@ describe('Studio Workflow 1.3', { skip: skipReason }, () => {
     await host.evaluate(() => handleStudioRecord(1));
     await waitFor(host, () => adrEvents.length === 3, 4000);
     const beeps = await host.evaluate(() => adrEvents);
-    assert.equal(beeps[1].scheduled - beeps[0].scheduled, 1); assert.equal(beeps[2].scheduled - beeps[1].scheduled, 1);
+    assert.ok(Math.abs(beeps[1].scheduled - beeps[0].scheduled - 1) < 1e-9); assert.ok(Math.abs(beeps[2].scheduled - beeps[1].scheduled - 1) < 1e-9);
     assert.ok(beeps.every(item => item.frequency === 880 && item.audio < 0.05));
     await host.evaluate(() => finishRecording({ discard: true })); const count = beeps.length; await wait(1200);
     assert.equal(await host.evaluate(() => adrEvents.length), count); assert.equal(await host.evaluate(() => recordState === 'idle' && video.paused), true);

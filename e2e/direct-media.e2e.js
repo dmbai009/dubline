@@ -4,7 +4,7 @@ const { skipReason, startServer, launchBrowser, openPlayer, loadFixture, waitFor
 
 describe('verified Voxalike direct media with safe fallback', { skip:skipReason, timeout:30000 },()=>{
   let server,browser,host,guest;
-  before(async()=>{server=await startServer();browser=await launchBrowser(server.port);host=await openPlayer(browser,server.url('direct'),'Host');await loadFixture(host);guest=await openPlayer(browser,server.url('direct','127.0.0.2'),'Guest');await waitFor(guest,()=>localMedia?.videoBlob);});
+  before(async()=>{server=await startServer();browser=await launchBrowser(server.port);host=await openPlayer(browser,server.url('direct'),'Host');await loadFixture(host);guest=await openPlayer(browser,server.url('direct','127.0.0.2'),'Guest');await waitFor(guest,()=>localMedia?.videoBlob && !mediaDownload);});
   after(async()=>{await browser?.close();await server?.cleanup();});
   for(const fault of ['success','CORS','changed archive','wrong asset','timeout','cancel']) test(fault + ': exact source verification and fallback preserve current scene',async()=>{
     const pack=fs.readFileSync(buildFixturePack());

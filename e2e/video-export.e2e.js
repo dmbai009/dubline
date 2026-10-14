@@ -100,7 +100,8 @@ describe('video export: sources, guest rights, local rendering and bounded setti
       const sourceUrl = URL.createObjectURL(new Blob([audioBufferToWav(original)], { type: 'audio/wav' })), voiceUrl = URL.createObjectURL(new Blob([audioBufferToWav(voice)], { type: 'audio/wav' }));
       try {
         const snapshot = createExportSnapshot(); snapshot.originalUrl = sourceUrl; snapshot.backingUrl = null;
-        snapshot.takes = [{ ...snapshot.scene.lines[0], audioUrl: voiceUrl, audioStart: 6.7, trimStart: 0.2, trimEnd: 3.8, trimEnabled: true, effect: 'telephone', pitch: 2, effectAmount: 0.4, pan: -0.25, volume: 0.8 }];
+        snapshot.takes = [{ ...snapshot.scene.lines[0], audioUrl: voiceUrl, audioStart: 6.7, trimStart: 0.2, trimEnd: 3.8, trimEnabled: true, effect: 'telephone', pitch: 2, pitchMode: 'override', effectAmount: 0.4, pan: -0.25, volume: 0.8 }];
+        snapshot.takes.forEach(line => { delete line._exportVoice; line._exportVoice = DublineVoiceChain.resolve(line, snapshot.scene); });
         snapshot.gains = { ...snapshot.gains, original: 0.8, backing: 0, dub: 0.9, mix: { ...snapshot.gains.mix, autoDuckEnabled: true, autoDuckAmount: 0.6, original: { ...snapshot.gains.mix.original, offset: 0.125 } } };
         const reference = await mixSoundtrack(duration, snapshot.gains, () => {}, snapshot);
         const mb = await import('/vendor/mediabunny/mediabunny.min.mjs'), blocks = [];
@@ -125,7 +126,8 @@ describe('video export: sources, guest rights, local rendering and bounded setti
       const sourceUrl = URL.createObjectURL(new Blob([Uint8Array.from(atob(base64), value => value.charCodeAt(0))], { type: 'audio/mp4' })), voiceUrl = URL.createObjectURL(new Blob([audioBufferToWav(voice)], { type: 'audio/wav' }));
       try {
         const snapshot = createExportSnapshot(); snapshot.originalUrl = sourceUrl; snapshot.backingUrl = null;
-        snapshot.takes = [{ ...snapshot.scene.lines[0], audioUrl: voiceUrl, audioStart: 6.7, trimStart: 0.2, trimEnd: 3.8, trimEnabled: true, effect: 'telephone', pitch: 2, effectAmount: 0.4, pan: -0.25, volume: 0.8 }];
+        snapshot.takes = [{ ...snapshot.scene.lines[0], audioUrl: voiceUrl, audioStart: 6.7, trimStart: 0.2, trimEnd: 3.8, trimEnabled: true, effect: 'telephone', pitch: 2, pitchMode: 'override', effectAmount: 0.4, pan: -0.25, volume: 0.8 }];
+        snapshot.takes.forEach(line => { delete line._exportVoice; line._exportVoice = DublineVoiceChain.resolve(line, snapshot.scene); });
         snapshot.gains = { ...snapshot.gains, original: 0.8, backing: 0, dub: 0.9, mix: { ...snapshot.gains.mix, autoDuckEnabled: true, autoDuckAmount: 0.6, original: { ...snapshot.gains.mix.original, offset: 0.125 } } };
         const reference = await mixSoundtrack(duration, snapshot.gains, () => {}, snapshot);
         const mb = await import('/vendor/mediabunny/mediabunny.min.mjs'), blocks = [];

@@ -141,7 +141,7 @@ describe('profile noise reduction: real audio, private preview, scoped sockets a
       const take = { ...session.lines.find(l => l.id === 15), start: 0, end: .1, audioStart: 0 };
       const results = [];
       for (const effect of Object.keys(DublineAudioFx.VOICE_EFFECTS)) {
-        const l = { ...take, effect, pitch: 2 }, raw = await audio.getRawTake(l.audioUrl), setting = DublineNoiseModel.resolve(l, session);
+        const l = { ...take, effect, pitch: 2, pitchMode: 'override' }, raw = await audio.getRawTake(l.audioUrl), setting = DublineNoiseModel.resolve(l, session);
         const expected = await DublineAudioFx.renderVoice(await DublineNoiseAudio.clean(raw, setting), effect, 2, takeDryBounds(l, raw.duration), 1);
         const actual = await getProcessedTake(l), second = await getProcessedTake(l);
         let error = 0; for (let i = 0; i < actual.length; i++) error = Math.max(error, Math.abs(actual.getChannelData(0)[i] - expected.getChannelData(0)[i]));

@@ -272,6 +272,8 @@ describe('UI cleanup and local audio devices', { skip: skipReason, timeout: 1200
 
   test('both minimap edges zoom around the opposite edge while center drag only scrolls', async () => {
     await page.evaluate(() => { setTimelineZoom(80); video.currentTime = 2; });
+    // Finish the initial zoom's anchor restoration before setting manual scroll.
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     await waitFor(page, () => timeline.scrollWidth > timelineContainer.clientWidth);
     await page.evaluate(() => { timelineContainer.scrollLeft = 2 * pxPerSec; });
     const project = await page.evaluate(() => JSON.stringify([session.lines, session.projectAudio]));
