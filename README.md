@@ -216,3 +216,8 @@ Third-party dependencies remain under their own licenses; see
 project and third-party notices under `resources/licenses/` in the extracted
 application. LICENSE contains the full terms, disclaimer of warranty, and
 limitation of liability.
+
+
+## RNNoise replacement
+
+RNNoise noise reduction is built in: My Settings → Audio, private audition and author settings per scene. Default intensity is 60%; existing projects remain disabled until enabled. No calibration or external model installation. See [noise reduction](docs/noise-reduction.md).

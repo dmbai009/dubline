@@ -25,6 +25,7 @@ function joinRoom() {
     room: currentRoom,
     nick: myName,
     clientId,
+    noiseVersion: window.DublineNoiseModel.PROCESSING_VERSION,
     password: pendingRoomPassword || undefined,
     desktopHostToken: desktopHostToken || undefined
   });
@@ -50,6 +51,7 @@ function showAccessDenied() {
 
 socket.on('join_denied', ({ reason, pin }) => {
   invalidateMediaAccess();
+  if (reason === 'noiseVersion') { showToast(t('noise.clientUpdate')); return showAccessDenied(); }
   if (reason === 'banned' || reason === 'singlePlayer') return showAccessDenied();
   roomUsesPin = !!pin;
   const errors = { wrongPassword: t('pw.wrong'), tooMany: t('pw.tooMany') };

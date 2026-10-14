@@ -19,6 +19,13 @@
         if (!this.sizes.has(key) || this.pinned(key)) continue;
         this.delete(key); this.evictions++;
       }
+      // Active AudioBufferSourceNodes own their buffers independently. If every
+      // cached entry is pinned, evict the oldest cache reference rather than grow.
+      for (const key of this.keys()) {
+        if (this.bytes <= this.limit) break;
+        if (!this.sizes.has(key)) continue;
+        this.delete(key); this.evictions++;
+      }
     }
     stats() { return { bytes: this.bytes, entries: this.size, limit: this.limit, evictions: this.evictions }; }
   }

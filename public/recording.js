@@ -218,7 +218,6 @@ window.handleStudioRecord = async function(lineId) {
 
   mediaRecorder = recorder;
   const operation = { recorder, stream: recordingMic, discarded: false, nick: recordingNick, room: recordingRoom, sessionId: recordingSessionId, takeSequence, lineId };
-  const capturedNoiseProfile = window.DublineNoise?.captureBinding(recordingGain, recordingNoiseSuppression, recordingMic) || null;
   processingRecordings.add(operation);
   activeRecording = operation;
   const mayUpdateUi = () => !activeRecording && mediaRecorder === recorder && recordState === 'idle' &&
@@ -275,7 +274,6 @@ window.handleStudioRecord = async function(lineId) {
       nick: operation.nick,
       takeSequence,
       ...historyConsent,
-      noiseProfileId: capturedNoiseProfile,
       duration,
       audioStart: recordingStartTime,
       trimStart: speech ? speech.start : null,
@@ -609,7 +607,6 @@ async function sendTake(entry) {
   form.append('sessionId', entry.sessionId);
   form.append('takeSequence', entry.takeSequence);
   form.append('audioStart', entry.audioStart);
-  if (entry.noiseProfileId) form.append('noiseProfileId', entry.noiseProfileId);
   if (entry.discardCurrentId) { form.append('discardCurrentId', entry.discardCurrentId); form.append('historyRevision', entry.historyRevision); }
   if (Number.isFinite(entry.duration)) form.append('duration', entry.duration);
   if (entry.trimStart != null && entry.trimEnd != null) {

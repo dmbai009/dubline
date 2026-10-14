@@ -1,5 +1,10 @@
 const test = require('node:test'), assert = require('node:assert/strict');
 const { ByteCache, IntervalIndex } = require('./public/audio-memory');
+test('all pinned PCM entries still obey the byte budget without destroying consumer buffers', async () => {
+  const cache = new ByteCache(1000, () => true), first = { length: 100, numberOfChannels: 2 }, second = { length: 100, numberOfChannels: 2 };
+  cache.set('first', Promise.resolve(first)); await Promise.resolve(); cache.set('second', Promise.resolve(second)); await Promise.resolve();
+  assert.equal(cache.bytes, 800); assert.equal(cache.has('first'), false); assert.equal(cache.has('second'), true); assert.equal(first.length, 100);
+});
 test('waveform peak arrays use actual typed-array bytes and reject oversized retained entries',async()=>{
   const cache=new ByteCache(8);
   cache.set('first',Promise.resolve(new Float32Array(2)));await Promise.resolve();assert.equal(cache.bytes,8);

@@ -78,6 +78,7 @@ function cleanImportedCaptions(session) {
 }
 
 function normalizeEditorState(session) {
+  if (session && require('../public/noise-model').migrateScene(session)) repairedOnLoad = true;
   for (const batch of session.deletedLines || []) for (const entry of batch.lines || []) {
     if (entry.line && require('./takeHistory').normalize(entry.line)) repairedOnLoad = true;
   }
@@ -200,6 +201,7 @@ function getRoom(roomId) {
     if (rooms[roomId][key] === undefined) rooms[roomId][key] = defaults[key];
   }
   const room = rooms[roomId];
+  if (!room.noiseReduction) room.noiseReduction = require('./noiseReduction').empty();
   if (!Array.isArray(room.moderators)) room.moderators = [];
   room.moderators = room.moderators.filter(entry => entry && typeof entry.id === 'string' && typeof entry.clientId === 'string' && typeof entry.nick === 'string');
   for (const field of ['nickOwners', 'latency', 'sessions', 'characterClaims']) {
@@ -347,6 +349,7 @@ function publicRoom(room) {
 }
 
 function emitSession(roomId) {
+  require('./noiseReduction').enforce(roomId, getRoom(roomId));
   io.to(roomId).emit('session_updated', publicRoom(getRoom(roomId)));
   require('./waveform').prewarm(getRoom(roomId));
   require('./selectionPresence').broadcast(roomId);

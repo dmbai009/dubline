@@ -105,7 +105,7 @@ async function requireExportTake(line, signal = null) {
     signal.addEventListener('abort', abort, { once: true });
     Promise.resolve(promise).then(resolve, reject).finally(() => signal.removeEventListener('abort', abort));
   });
-  const buffer = await wait(getProcessedTake(line, { signal })) || await wait(getProcessedTake(line, { signal }));
+  const buffer = await wait(getProcessedTake(line, { signal, strict: true })) || await wait(getProcessedTake(line, { signal, strict: true }));
   if (!buffer) throw exportAudioError(`#${line.id}`);
   return buffer;
 }

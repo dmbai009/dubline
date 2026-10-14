@@ -9,6 +9,8 @@
     "node": ">=20.1"
   },
   "scripts": {
+    "postinstall": "node tools/vendor-rnnoise.js",
+    "prepare:rnnoise": "node tools/vendor-rnnoise.js",
     "start": "electron .",
     "start:server": "node server.js",
     "prepare:icons": "node tools/build-icons.js",
@@ -40,6 +42,7 @@
     "test:hardening": "node --test --test-concurrency=1 e2e/editor-hardening.e2e.js e2e/media-presence-hardening.e2e.js e2e/editor-improvements.e2e.js"
   },
   "dependencies": {
+    "@shiguredo/rnnoise-wasm": "2025.1.5",
     "adm-zip": "^0.6.1",
     "electron-updater": "6.8.10",
     "express": "^4.19.2",
@@ -66,7 +69,12 @@
     "appId": "io.github.dmbai009.dubline",
     "productName": "Dubline",
     "asar": true,
-    "publish": { "provider": "github", "owner": "dmbai009", "repo": "dubline", "releaseType": "release" },
+    "publish": {
+      "provider": "github",
+      "owner": "dmbai009",
+      "repo": "dubline",
+      "releaseType": "release"
+    },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
@@ -118,8 +126,14 @@
       "electron-project-association.js"
     ],
     "extraResources": [
-      { "from": "resources/portable-update-helper.ps1", "to": "updater/apply-update.ps1" },
-      { "from": "resources/project-association.ps1", "to": "project-association.ps1" },
+      {
+        "from": "resources/portable-update-helper.ps1",
+        "to": "updater/apply-update.ps1"
+      },
+      {
+        "from": "resources/project-association.ps1",
+        "to": "project-association.ps1"
+      },
       {
         "from": ".",
         "to": "licenses/DubLine",

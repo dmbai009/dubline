@@ -127,3 +127,7 @@ extraction, selected-source failure and buffering. Device output changes seriali
 and roll all listening destinations back to the last successful output, then the
 system default if needed. Failed recording startup releases microphone, graph and
 recording resources without awaiting an inactive recorder's stop event.
+
+## RNNoise replacement
+
+RNNoise uses public/rnnoise-dsp.mjs in one local module Worker; Raw → cached full Wet → intensity mix → existing pitch/voice FX/mix. public/noise-model.js is shared by server and client. Schema 2 replaces spectral profiles; portable format 9 and idempotent room/history/trash migration retain originals. Cache keys pin model/DSP provenance, Wet and final share the 256 MiB processed budget. See docs/noise-reduction.md.

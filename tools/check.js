@@ -11,7 +11,7 @@ function scriptsIn(directory) {
     if (directory === 'public' && ['uploads', 'packs', 'vendor'].includes(entry.name)) continue;
     const name = path.join(directory, entry.name);
     if (entry.isDirectory()) files.push(...scriptsIn(name));
-    else if (entry.isFile() && entry.name.endsWith('.js')) files.push(name);
+    else if (entry.isFile() && /\.(?:js|mjs)$/.test(entry.name)) files.push(name);
   }
   return files;
 }
@@ -21,7 +21,9 @@ const files = [
 ].sort();
 let failed = 0;
 for (const file of files) {
-  const result = spawnSync(process.execPath, ['--check', file], { cwd: root, encoding: 'utf8' });
+  const moduleWorker = file.replaceAll('\\', '/') === 'public/noise-worker.js';
+  const result = spawnSync(process.execPath, moduleWorker ? ['--check', '--input-type=module'] : ['--check', file],
+    { cwd: root, encoding: 'utf8', ...(moduleWorker ? { input: fs.readFileSync(path.join(root, file), 'utf8') } : {}) });
   if (result.status !== 0) {
     failed++;
     process.stderr.write(result.stderr || result.error?.message || ('Could not check ' + file + '\n'));

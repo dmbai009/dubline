@@ -52,3 +52,8 @@ Setup uses an assisted Windows wizard with welcome/license pages, a selectable
 installation folder, progress and an optional final launch. It creates desktop and
 Start menu shortcuts and registers in Windows Installed apps. Installation stays
 per-user; updates reuse that installation folder and uninstall preserves user data.
+
+
+## RNNoise replacement
+
+RNNoise replaces microphone-profile calibration. Scene settings belong to recording authors, with private preview and acknowledged save on settings exit. Existing projects import disabled at 60%; original recordings remain unchanged.

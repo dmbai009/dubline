@@ -35,13 +35,15 @@
     }
     select(scope, categories[0]);
   }
-  function select(scope, category) {
+  async function select(scope, category) {
     const group = groups.get(scope); if (!group?.panels.has(category)) return;
+    if (scope === 'user' && category !== 'audio' && !group.panels.get('audio').hidden && window.DublineNoise && !await DublineNoise.beforeExit()) return false;
     for (const [key, panel] of group.panels) panel.hidden = key !== category;
     for (const button of group.nav.children) {
       const active = button.getAttribute('aria-controls') === `settings-${scope}-${category}`;
       button.classList.toggle('active', active); button.setAttribute('aria-selected', String(active)); button.tabIndex = active ? 0 : -1;
     }
+    window.DublineNoise?.begin(); return true;
   }
   setup('user', ['audio', 'interface', 'storage']); setup('player', ['room', 'audio']);
   window.openSettingsCategory = select;

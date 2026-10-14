@@ -22,12 +22,12 @@ if (!process.versions.electron) {
       });
       const result = JSON.parse(fs.readFileSync(environment.DUBLINE_NOISE_RESULT, 'utf8'));
       await waitFor(host, () => session.lines.find(line => line.id === 1).audioUrl);
-      const heard = await host.evaluate(async () => { const line = session.lines.find(line => line.id === 1), pcm = (await getProcessedTake(line)).getChannelData(0); return { samples: pcm.length, energy: pcm.reduce((sum, value) => sum + value * value, 0), profile: line.noiseProfileId }; });
-      assert.equal(heard.profile, result.profile); assert.equal(heard.samples, result.samples); assert.ok(Math.abs(heard.energy - result.energy) < 1e-6, JSON.stringify({ heard, result }));
+      const heard = await host.evaluate(async () => { const line = session.lines.find(line => line.id === 1), pcm = (await getProcessedTake(line)).getChannelData(0), raw = await audio.getRawTake(line.audioUrl), wet = await audio.getNoiseWet(line); return { wetPCM:Array.from(wet.getChannelData(0)),rawRate:raw.sampleRate,rawEnergy:raw.getChannelData(0).reduce((sum,value)=>sum+value*value,0),wetEnergy: wet.getChannelData(0).reduce((sum,value)=>sum+value*value,0), samples: pcm.length, energy: pcm.reduce((sum, value) => sum + value * value, 0), strength: session.noiseReduction.actors[line.recordedBy].strength }; });
+      assert.equal(heard.strength, result.strength); assert.equal(heard.samples, result.samples); let squared=0,maximum=0; assert.equal(heard.wetPCM.length,result.wetPCM.length); for(let i=0;i<heard.wetPCM.length;i++){const difference=heard.wetPCM[i]-result.wetPCM[i];squared+=difference*difference;maximum=Math.max(maximum,Math.abs(difference));} const rms=Math.sqrt(squared/heard.wetPCM.length); assert.ok(rms<1e-4 && maximum<.002,JSON.stringify({rms,maximum})); delete heard.wetPCM;delete result.wetPCM;console.log(JSON.stringify({heard,result,wetRmsDifference:rms,wetMaxDifference:maximum})); assert.ok(Math.abs(heard.energy - result.energy) / Math.max(result.energy,1e-9) < .002, JSON.stringify({ heard, result }));
       const bytes = await host.evaluate(async () => { const snapshot = await prepareSafeSnapshot('project'); const response = await fetch('/api/export-project', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ room: currentRoom, clientId, ...snapshot }) }); if (!response.ok) throw Error(await response.text()); return Array.from(new Uint8Array(await response.arrayBuffer())); });
-      const project = require('../server/projects').readProject(Buffer.from(bytes)); assert.equal(project.manifest.formatVersion, chains ? 8 : 7); assert.equal(project.manifest.project.lines[0].take.noiseProfileId, result.profile);
+      const project = require('../server/projects').readProject(Buffer.from(bytes)); assert.equal(project.manifest.formatVersion, 9); assert.equal(project.manifest.project.noiseReduction.actors['Native actor'].strength, result.strength);
       if (chains) { assert.equal(project.manifest.project.roleEffects.Hero.effects.length, 2); assert.equal(project.manifest.project.lines[0].take.effects[0].type, 'telephone'); }
-      console.log(chains ? 'Native role/individual chain preview, pitch, noise-before-effects, host parity and version-8 project PASSED.' : 'Native noise calibration / zero preparation / Space / private A/B / host parity / version-7 project PASSED.');
+      console.log('Native RNNoise, recording, private preview, listener parity and project v9 PASSED.');
     } finally { await browser?.close(); await server?.cleanup(); fs.rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); }
   })().catch(error => { console.error(error); process.exitCode = 1; });
 } else {
@@ -43,21 +43,26 @@ if (!process.versions.electron) {
       await until(() => evaluate("session.loaded && myName==='Native actor'"));
       await until(() => evaluate('p2pConsentDialog.open')); await evaluate('p2pConsentDecline.click();void 0;');
       assert.equal(await evaluate('typeof require'), 'undefined'); assert.equal(await evaluate('typeof dublineDesktop'), 'undefined');
-      await evaluate("noiseSuppression=false;userMicGain=1;DublineNoise.open();noiseCalibrate.click();void 0;");
-      await until(() => evaluate("noiseStatus.textContent===t('noise.calibratedDraft')"), 18000);
-      await evaluate('noiseConfirm.click();void 0;'); await until(() => evaluate('session.noiseReduction?.actors[myName]?.enabled'));
-      for (const factor of [1, 1.25, 1.5]) { window.webContents.setZoomFactor(factor); await new Promise(resolve => setTimeout(resolve, 80)); assert.equal(await evaluate('noiseDialog.scrollWidth <= noiseDialog.clientWidth+1 && noiseDialog.getBoundingClientRect().width < innerWidth'), true); }
-      window.webContents.setZoomFactor(1);
-      await evaluate("noiseClose.click();preRollSeconds=0;localStorage.setItem('dubline_adr','off');socket.emit('claim_character',{character:'Hero',sessionId:session.activeSessionId});void 0;");
-      await until(() => evaluate('session.characterClaims.Hero===myName')); await evaluate('selectLine(session.lines.find(l=>l.id===1));recordSelectedLine();void 0;'); await until(() => evaluate("recordState==='recording'"));
+      await evaluate("noiseSuppression=false;userMicGain=1;DublineNoise.open();void 0;");
+      await until(() => evaluate('!!DublineNoise.snapshot()'));
+      await evaluate("noiseEnable.checked=true;noiseEnable.dispatchEvent(new Event('change'));void 0;");
+      await evaluate('closeSettingsModal()'); await until(() => evaluate('session.noiseReduction?.actors[myName]?.enabled'));
+      await evaluate("preRollSeconds=0;localStorage.setItem('dubline_adr','off');socket.emit('claim_character',{character:'Hero',sessionId:session.activeSessionId});void 0;");
+      await until(() => evaluate('session.characterClaims.Hero===myName')); await evaluate('selectLine(session.lines.find(l=>l.id===1));recordSelectedLine();void 0;'); try { await until(() => evaluate("recordState==='recording'")); } catch(error) { console.error(await evaluate('JSON.stringify({recordState,selected:selectedLine?.id,mode:session.mode,owner:getLineOwner(session.lines[0]),myName,busy:DublineNoise.busy(),settings:settingsModal.style.display,toast:document.body.innerText.slice(-2000)})'));throw error; }
       await new Promise(resolve => setTimeout(resolve, 350)); window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Space' }); window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Space' });
       await until(() => evaluate("recordState==='idle' && session.lines.find(l=>l.id===1).audioUrl && !pendingTakes.size"));
-      assert.equal(await evaluate('session.lines.find(l=>l.id===1).noiseProfileId===session.noiseReduction.actors[myName].profileId'), true);
+      assert.equal(await evaluate('Object.hasOwn(session.lines.find(l=>l.id===1),"noiseProfileId")'), false);
       const before = await evaluate('JSON.stringify(session.lines.find(l=>l.id===1))');
-      await evaluate("DublineNoise.open();noiseDialog.querySelector('details').open=true;noiseSample.value='1:'+session.lines.find(l=>l.id===1).takeId;noiseSample.dispatchEvent(new Event('change'));void 0;");
-      await until(() => evaluate("noiseStatus.textContent===t('noise.previewOnly') && !noisePreviewPlay.disabled"));
-      await evaluate("noiseAB.value='clean';noisePreviewPlay.click();noiseStrength.value=80;noiseStrength.dispatchEvent(new Event('input'));void 0;"); await until(() => evaluate("noiseStatus.textContent===t('noise.previewOnly')"));
-      await evaluate('noiseClose.click();void 0;'); assert.equal(await evaluate('JSON.stringify(session.lines.find(l=>l.id===1))'), before);
+      await evaluate("DublineNoise.open();noisePreviewPlay.click();void 0;");
+      await until(() => evaluate('DublineNoise.snapshot()?.playing'));
+      const completed = await evaluate('DublineNoiseAudio.stats().completed');
+      await evaluate("noiseStrength.value=80;noiseStrength.dispatchEvent(new Event('input'));void 0;");
+      await new Promise(resolve => setTimeout(resolve, 300));
+      assert.equal(await evaluate('DublineNoiseAudio.stats().completed'), completed);
+      assert.equal(await evaluate('DublineNoise.snapshot().playing'), true);
+      for (const factor of [1, 1.25, 1.5]) { window.webContents.setZoomFactor(factor); await new Promise(resolve => setTimeout(resolve, 80)); assert.equal(await evaluate('noiseCard.scrollWidth <= noiseCard.clientWidth+1'), true); }
+      window.webContents.setZoomFactor(1);
+      await evaluate('closeSettingsModal()'); assert.equal(await evaluate('JSON.stringify(session.lines.find(l=>l.id===1))'), before);
       if (chains) {
         await evaluate("DublineVoiceEditor.open(1,'takes');fxType.value='telephone';fxAdd.click();void 0;");
         await until(() => evaluate("fxStatus.textContent===t('fx.ready')"));
@@ -68,7 +73,7 @@ if (!process.versions.electron) {
         window.webContents.setZoomFactor(1); await evaluate('fxApply.click();void 0;'); await until(() => evaluate('!fxDialog.open && session.lines.find(l=>l.id===1).effects?.[0]?.type==="telephone"'));
         assert.equal(await evaluate('DublineVoiceChain.resolve(session.lines.find(l=>l.id===1),session).effects.length'), 3);
       }
-      const result = await evaluate('(async()=>{const line=session.lines.find(l=>l.id===1),pcm=(await getProcessedTake(line)).getChannelData(0);return{profile:line.noiseProfileId,samples:pcm.length,energy:pcm.reduce((sum,value)=>sum+value*value,0)}})()');
+      const result = await evaluate('(async()=>{const line=session.lines.find(l=>l.id===1),pcm=(await getProcessedTake(line)).getChannelData(0),raw=await audio.getRawTake(line.audioUrl),wet=await audio.getNoiseWet(line);return{wetPCM:Array.from(wet.getChannelData(0)),rawRate:raw.sampleRate,rawEnergy:raw.getChannelData(0).reduce((sum,value)=>sum+value*value,0),wetEnergy:wet.getChannelData(0).reduce((sum,value)=>sum+value*value,0),strength:session.noiseReduction.actors[line.recordedBy].strength,samples:pcm.length,energy:pcm.reduce((sum,value)=>sum+value*value,0)}})()');
       fs.writeFileSync(process.env.DUBLINE_NOISE_RESULT, JSON.stringify(result)); app.exit(0);
     } catch (error) { console.error(error); app.exit(1); }
   });

@@ -119,3 +119,7 @@ commit. Atomic replacement finishes without offering an unsafe cancel action.
 - Files has Packs, Video & subtitles, Projects and Export tabs. Guest local media
   affects that device only; exports use the reactive shared mix summary. Personal
   monitoring stays local. Keyboard shortcuts preserve text editing and modal focus.
+
+## RNNoise replacement
+
+Noise reduction drafts are local to room/scene/nickname. Normal settings/category/tab/scene exit sends one immutable operation; unchanged exit sends none. Strict persistence precedes ACK. Unknown receipts block new updates; retry queries status. Settings resolve only by recordedBy. Commit preserves playing sources. Browser capture noiseSuppression is unchanged.

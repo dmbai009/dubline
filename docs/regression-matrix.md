@@ -52,3 +52,7 @@ is historical. Run/results distinction and physical/manual limitations are in th
 
 Native snapshot delivery additionally tests real preparing/writing/finalizing/commit
 progress, safe cancellation and preservation of an existing destination.
+
+## RNNoise replacement
+
+RNNoise: actual mono/stereo/resampling/partial frames; author/history/rename/migration; private draft/stable preview/Wet reuse; lost ACK and failed disk write; original-byte/project9/restart; HTTP/themes/locales/native chains; shared-export cancellation; bounded cache and synthetic group/export stress. Manual: physical microphone naturalness, whispers/shouts, phrase endings and real WAN.

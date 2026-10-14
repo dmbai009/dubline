@@ -98,3 +98,13 @@ and are not part of the production npm inventory unless used at runtime.
 User videos, audio, recordings, subtitles, and imported packs retain their
 respective owners' rights. Including or importing them does not grant DubLine
 or other users rights beyond the permissions given by their owners.
+
+## RNNoise and NoiseLab adaptation
+
+@shiguredo/rnnoise-wasm 2025.1.5 is bundled locally in public/vendor/rnnoise/rnnoise.js. The JavaScript/WASM wrapper is Apache-2.0; Xiph RNNoise code is BSD-3-Clause. The resampling and pipeline adaptation from NoiseLab is MIT (dmbai009, 2026). Exact licenses, revisions, archive/bundle hashes and provenance are retained under resources/licenses/rnnoise and copied to readable packaged resources/licenses/third-party/rnnoise.
+
+Upstream code: https://github.com/xiph/rnnoise
+Wrapper: https://github.com/shiguredo/rnnoise-wasm/tree/2025.1.5
+NoiseLab: https://github.com/dmbai009/noiselab
+
+The model is embedded in the exact upstream wrapper bundle. Upstream distribution treats it as part of RNNoise, but the model archive does not supply a separate explicit weight-license grant. Code licenses must not be represented as an independently verified universal commercial grant for training data or model weights. Review the pinned model's redistribution/commercial scope before a commercial release. DubLine's existing top-level license remains unchanged.

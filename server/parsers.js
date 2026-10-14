@@ -82,7 +82,7 @@ function parseLineContent(content, fileName, fallbackId, originalAudioUrl, audio
 // Fields of a recorded take. Effects, pitch, trimming and shifting never change the file; they are applied during playback
 function emptyTake() {
   return {
-    audioUrl: null, noiseProfileId: null,
+    audioUrl: null,
     audioStart: null,     // where the take file starts on the timeline (including a manual shift)
     recordedStart: null,  // audioStart right after recording (for the "reset shift" button)
     trimStart: null,      // detected speech bounds inside the file, in seconds

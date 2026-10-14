@@ -161,9 +161,8 @@ async function main() {
     await page.evaluate(() => closeSettingsModal()); await claimAndSelect(page, 1); await recordTake(page, 1);
     await waitFor(page, () => !pendingTakeLines.size);
     // This workflow keeps profile processing off and explicitly declines the new
-    // optional offer; calibration itself has a separate production native smoke.
-    await waitFor(page, () => document.getElementById('noiseOffer').open);
-    await page.click('#noiseOfferSkip');
+    // Capture permission must not open an obsolete noise setup offer.
+    assert.equal(await page.evaluate(() => !!document.getElementById('noiseOffer')), false);
     await page.select('[data-clip-field="effect"]', 'telephone'); await waitFor(page, () => session.lines[0].effect === 'telephone');
     await page.type('[data-retake-comment="1"]', 'Native retake request'); await page.click('[data-retake-form="1"] button[type=submit]');
     await waitFor(page, () => session.lines[0].retakeComment === 'Native retake request' && !editorQueue.length);

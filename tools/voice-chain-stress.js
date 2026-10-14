@@ -41,9 +41,7 @@ const directory = path.resolve('audit/voice-chains'); fs.mkdirSync(directory, { 
     const before = Object.fromEntries(fs.readdirSync(server.dirs.uploads).filter(name => name.startsWith('line_')).map(name => [name, require('node:crypto').createHash('sha256').update(fs.readFileSync(path.join(server.dirs.uploads, name))).digest('hex')]));
     const configured = await host.evaluate(async () => {
       const send = (event, data) => new Promise(resolve => socket.emit(event, { sessionId: session.activeSessionId, operationId: newUploadId(), operationEpoch: session.editorProtocol.epoch, operationTime: Date.now(), ...data }, resolve));
-      const pcm = new Float32Array(288000); let seed = 17; for (let i = 0; i < pcm.length; i++) { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; pcm[i] = (seed / 4294967296 * 2 - 1) * .001; }
-      const profile = { ...await DublineNoiseAudio.run({ kind: 'calibrate', pcm, sampleRate: 48000 }), id: newUploadId() };
-      const noise = await send('noise_update', { revision: session.noiseReduction.revision, profile, actor: { enabled: true, strength: .2, profileId: profile.id }, takes: session.lines.flatMap(line => [line, ...(line.takeHistory || [])].map(take => ({ lineId: line.id, takeId: take === line ? line.takeId : take.id, historyRevision: line.takeHistoryRevision }))), profileId: profile.id, apply: true });
+      const noise = await send('noise_update', { ...DublineNoiseModel.protocol(), revision: session.noiseReduction.revision, actor: { enabled: true, strength: .6 } });
       if (!noise.ok) throw Error(JSON.stringify(noise));
       const pairs = [['robot', 'echo'], ['telephone', 'cave'], ['monster', 'echo'], ['thoughts', 'radio']];
       for (let i = 0; i < 4; i++) {

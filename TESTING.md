@@ -127,3 +127,7 @@ GitHub Tests runs the complete browser suite plus both native editor/UI smokes
 for each commit. Synthetic capture/output devices establish routing and lifecycle
 behavior; physical hardware, subjective audio quality and real WAN instability
 remain manual checks.
+
+## RNNoise replacement
+
+RNNoise checks: noise-reduction.test.js, e2e/noise-reduction.e2e.js, test:electron:noise/chains. tools/rnnoise-audition.js creates local six-strength speech WAVs and verifies direct model equality; tools/rnnoise-stress.js tests 400 recordings / 25 minutes / ten real browser authors. See docs/rnnoise-integration.md for measured results and remaining manual listening.

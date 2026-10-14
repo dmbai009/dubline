@@ -10,9 +10,10 @@ const { UPLOAD_DIR, MAX_VIDEO_MB, MAX_CAPTION_LENGTH, VOICE_EFFECTS, MAX_PITCH, 
 const { diskPathForUrl } = require('./files');
 
 const FORMAT = 'dubline-project';
-const VERSION = 8;
+const VERSION = 9;
 const voiceModel = require('../public/voice-chain-model');
 const noiseModel = require('../public/noise-model');
+const noiseLegacy = require('./noiseLegacy');
 const takeHistory = require('./takeHistory');
 const takeMix = require('../public/take-mix');
 // Production save/open uses project-archive.js and bounded streams.
@@ -81,12 +82,11 @@ function captureProject(session, resolveAsset = diskPathForUrl, snapshotDir = nu
   }
   const mix = audio.normalize(session);
   delete mix.revision;
-  const hasNoise = Object.keys(session.noiseReduction?.profiles || {}).length > 0;
-  const hasChains = Object.keys(session.roleEffects || {}).length > 0 || session.lines.some(line => [line, ...(line.takeHistory || [])].some(take => Array.isArray(take.effects) || take.effect === 'echo'));
+  if (session.noiseReduction?.engine && !noiseModel.validState(session.noiseReduction)) fail('Invalid RNNoise settings');
+  const noiseState = noiseModel.migrateState(session.noiseReduction);
+  const hasNoise = Object.keys(noiseState.actors).length > 0;
+  const hasChains = hasNoise || Object.keys(session.roleEffects || {}).length > 0 || session.lines.some(line => [line, ...(line.takeHistory || [])].some(take => Array.isArray(take.effects) || take.effect === 'echo'));
   if (hasChains) require('./voiceChains').validateScene(session);
-  const variants = session.lines.flatMap(line => [line, ...(line.takeHistory || [])]);
-  if (variants.some(take => take.noiseProfileId) && (!noiseModel.validState(session.noiseReduction) ||
-      variants.some(take => take.noiseProfileId && (!take.audioUrl || session.noiseReduction.profiles[take.noiseProfileId]?.author !== take.recordedBy)))) fail('Invalid or missing noise profile');
   const hasHistory = hasChains || hasNoise || session.lines.some(line => line.takePinned || line.takeHistory?.length);
   function takeFields(take, historical = false) {
     const fields = { asset: asset(take?.audioUrl, true), audioStart: take?.audioStart ?? null,
@@ -95,7 +95,6 @@ function captureProject(session, resolveAsset = diskPathForUrl, snapshotDir = nu
       ...takeMix.normalize(take), recordedBy: take?.recordedBy || null };
     if (hasHistory) Object.assign(fields, { id: take?.id || null, pinned: take?.pinned === true,
       createdAt: take?.createdAt ?? null, duration: take?.duration ?? null });
-    if (hasNoise) fields.noiseProfileId = take?.audioUrl ? take.noiseProfileId || null : null;
     if (hasChains) Object.assign(fields, voiceModel.take(take));
     if (historical) fields.archivedAt = take.archivedAt ?? null;
     return fields;
@@ -140,9 +139,9 @@ function captureProject(session, resolveAsset = diskPathForUrl, snapshotDir = nu
     project.media.originalVideo = asset(session.originalVideoUrl);
     project.media.originalVideoName = String(session.originalVideoName || 'source').slice(0, 200);
   }
-  if (hasNoise) project.noiseReduction = { profiles: structuredClone(session.noiseReduction.profiles), actors: structuredClone(session.noiseReduction.actors) };
+  if (hasNoise) project.noiseReduction = { ...noiseModel.protocol(), actors: structuredClone(noiseState.actors) };
   if (hasChains) project.roleEffects = Object.fromEntries(Object.entries(session.roleEffects || {}).map(([name, entry]) => [name, { pitch: entry.pitch, effects: structuredClone(entry.effects) }]));
-  const manifest = { format: FORMAT, formatVersion: hasChains ? 8 : hasNoise ? 7 : hasHistory ? 6 : project.lines.some(line => line.retakeComment || line.take.effect === 'telephone') ? 5 : project.lines.some(line => line.needsRetake === true) ? 4 : project.lines.some(line => Object.entries(takeMix.DEFAULTS).some(([key, value]) => line.take[key] !== value)) ? 3 : (session.originalVideoUrl ? 2 : 1), project, assets };
+  const manifest = { format: FORMAT, formatVersion: hasNoise ? 9 : hasChains ? 8 : hasHistory ? 6 : project.lines.some(line => line.retakeComment || line.take.effect === 'telephone') ? 5 : project.lines.some(line => line.needsRetake === true) ? 4 : project.lines.some(line => Object.entries(takeMix.DEFAULTS).some(([key, value]) => line.take[key] !== value)) ? 3 : (session.originalVideoUrl ? 2 : 1), project, assets };
   if (manifest.formatVersion < 3) project.lines.forEach(line => Object.keys(takeMix.DEFAULTS).forEach(field => { delete line.take[field]; }));
   const manifestBytes = Buffer.from(JSON.stringify(manifest), 'utf8');
   if (manifestBytes.length > MAX_MANIFEST_BYTES) fail('Project manifest is too large');
@@ -168,7 +167,7 @@ function safeArchivePath(name) {
 
 function validateManifest(manifest) {
   if (!object(manifest) || manifest.format !== FORMAT) fail('Invalid project manifest');
-  if (![1, 2, 3, 4, 5, 6, 7, VERSION].includes(manifest.formatVersion)) throw new HttpError(400, 'Unsupported project version', 'project.unsupportedVersion');
+  if (![1, 2, 3, 4, 5, 6, 7, 8, VERSION].includes(manifest.formatVersion)) throw new HttpError(400, 'Unsupported project version', 'project.unsupportedVersion');
   if (manifest.project?.protectTimings !== undefined && typeof manifest.project.protectTimings !== 'boolean') fail('Invalid timing protection');
   if (!Array.isArray(manifest.assets) || !manifest.assets.length || manifest.assets.length >= MAX_ENTRIES) fail('Invalid project assets');
   const assets = new Map();
@@ -182,14 +181,18 @@ function validateManifest(manifest) {
     assets.set(asset.path, asset);
   }
   const p = manifest.project;
-  if (p?.noiseReduction !== undefined && (manifest.formatVersion < 7 || !noiseModel.validState(p.noiseReduction))) fail('Invalid noise reduction profiles');
-  if (manifest.formatVersion === 7 && !noiseModel.validState(p?.noiseReduction)) fail('Missing noise reduction profiles');
+  if (manifest.formatVersion >= 9) {
+    if (!noiseModel.validState(p?.noiseReduction) || p.noiseReduction.revision !== undefined) fail('Invalid RNNoise settings');
+  } else {
+    if (p?.noiseReduction !== undefined && (manifest.formatVersion < 7 || !noiseLegacy.validState(p.noiseReduction))) fail('Invalid legacy noise profiles');
+    if (manifest.formatVersion === 7 && !noiseLegacy.validState(p?.noiseReduction)) fail('Missing legacy noise profiles');
+  }
   if (!object(p) || !text(p.title, 2000) || !['pack', 'custom'].includes(p.kind) || !['edit', 'dub'].includes(p.editorMode)) fail('Invalid project details');
   if (!Array.isArray(p.roles) || p.roles.length > MAX_LINES || p.roles.some(role => !text(role, 500, true)) ||
       new Set(p.roles).size !== p.roles.length || !object(p.roleClaims)) fail('Invalid project roles');
   if (Object.entries(p.roleClaims).some(([role, owner]) => !p.roles.includes(role) || !text(owner, 16, true))) fail('Invalid role ownership');
   if (p.roleEffects !== undefined && (manifest.formatVersion < 8 || !voiceModel.validRoles(p.roleEffects, p.roles))) fail('Invalid role effects');
-  if (manifest.formatVersion === 8 && !voiceModel.validRoles(p.roleEffects, p.roles)) fail('Missing role effects');
+  if (manifest.formatVersion >= 8 && !voiceModel.validRoles(p.roleEffects, p.roles)) fail('Missing role effects');
   if (!object(p.takeLatency) || Object.keys(p.takeLatency).length > MAX_LINES ||
       Object.entries(p.takeLatency).some(([author, ms]) => !text(author, 16, true) || !finite(ms, -MAX_LATENCY_MS, MAX_LATENCY_MS))) fail('Invalid take latency');
   const referenced = new Set();
@@ -262,7 +265,8 @@ function validateManifest(manifest) {
   function validateTake(take) {
     if (manifest.formatVersion < 8 && (voiceModel.FIELDS.some(field => take[field] !== undefined) || take.effect === 'echo')) fail('Voice chains require version 8');
     if (manifest.formatVersion >= 8 && !voiceModel.validTake(Object.fromEntries(voiceModel.FIELDS.map(field => [field, take[field]])))) fail('Invalid voice chain');
-    if (take.noiseProfileId !== undefined && (manifest.formatVersion < 7 || take.noiseProfileId !== null && (!take.asset || !noiseModel.id(take.noiseProfileId) || p.noiseReduction.profiles[take.noiseProfileId]?.author !== take.recordedBy))) fail('Invalid noise profile reference');
+    if (take.noiseProfileId !== undefined && (manifest.formatVersion < 7 || manifest.formatVersion >= 9 || take.noiseProfileId !== null &&
+        (!take.asset || !noiseLegacy.id(take.noiseProfileId) || !Object.hasOwn(p.noiseReduction?.profiles || {}, take.noiseProfileId) || p.noiseReduction.profiles[take.noiseProfileId].author !== take.recordedBy))) fail('Invalid legacy noise profile reference');
     if (!object(take) || !VOICE_EFFECTS.includes(take.effect) || !finite(take.pitch, -MAX_PITCH, MAX_PITCH) ||
         typeof take.trimEnabled !== 'boolean' || !(take.recordedBy === null || text(take.recordedBy, 16, true))) fail('Invalid project take');
     for (const [field, fallback] of Object.entries(takeMix.DEFAULTS)) {
@@ -339,7 +343,7 @@ function fieldsForProject(project, urls) {
     trackOrder: [...project.roles], characterClaims: Object.assign(Object.create(null), project.roleClaims),
     roleEffects: Object.assign(Object.create(null), Object.fromEntries(Object.entries(project.roleEffects || {}).map(([name, entry]) => [name, { ...structuredClone(entry), revision: 0 }]))),
     takeLatency: Object.assign(Object.create(null), project.takeLatency),
-    noiseReduction: project.noiseReduction ? { ...structuredClone(project.noiseReduction), revision: 0 } : require('./noiseReduction').empty(),
+    noiseReduction: { ...noiseModel.migrateState(project.noiseReduction), revision: 0 },
     videoUrl: url(m.video), originalVideoUrl: url(m.originalVideo), originalVideoName: m.originalVideoName || '', externalOriginalUrl: url(m.original), backingUrl: url(m.backing), baseBackingUrl: url(m.baseBacking),
     originalTrack: m.originalTrack, backingTrack: m.backingTrack,
     audioTracks: m.videoHasAudio === null && !m.audioTracks.length ? undefined : m.audioTracks.map(track => ({
@@ -351,7 +355,7 @@ function fieldsForProject(project, urls) {
       id: line.id, character: line.character, caption: line.caption, start: line.start, end: line.end,
       claimedBy: line.claimedBy, originalAudioUrl: url(line.reference) || null,
       durationChecked: true, revision: 0, ...emptyTake(),
-      audioUrl: url(line.take.asset) || null, noiseProfileId: line.take.noiseProfileId || null,
+      audioUrl: url(line.take.asset) || null,
       audioStart: line.take.audioStart, recordedStart: line.take.recordedStart,
       trimStart: line.take.trimStart, trimEnd: line.take.trimEnd, trimEnabled: line.take.trimEnabled,
       effect: line.take.effect, pitch: line.take.pitch, recordedBy: line.take.recordedBy,

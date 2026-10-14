@@ -162,7 +162,7 @@ async function startServer(extraEnv = {}) {
 }
 
 // ---------- Players ----------
-async function openPlayer(browser, url, nick, { helpSeen = true, viewport = { width: 1600, height: 900 }, context = null, audioExpanded = true, autoConfirm = true, beforeLoad = null, p2pConsent = 'declined', noiseOfferSeen = true } = {}) {
+async function openPlayer(browser, url, nick, { helpSeen = true, viewport = { width: 1600, height: 900 }, context = null, audioExpanded = true, autoConfirm = true, beforeLoad = null, p2pConsent = 'declined' } = {}) {
   const ctx = context || await browser.createBrowserContext();
   const page = await ctx.newPage();
   await page.setViewport(viewport);
@@ -178,7 +178,7 @@ async function openPlayer(browser, url, nick, { helpSeen = true, viewport = { wi
     dialog.accept(dialog.type() === 'prompt' ? (page.promptAnswer || '') : undefined);
   });
   await page.exposeFunction('testDialogObserved', text => page.dialogs.push(text));
-  await page.evaluateOnNewDocument((name, seen, expanded, acceptConfirm, consent, skipNoiseOffer) => {
+  await page.evaluateOnNewDocument((name, seen, expanded, acceptConfirm, consent) => {
     document.addEventListener('DOMContentLoaded', () => {
       const dialog = document.querySelector('dialog.text-prompt');
       new MutationObserver(() => {
@@ -190,9 +190,6 @@ async function openPlayer(browser, url, nick, { helpSeen = true, viewport = { wi
     });
     // The UI language would otherwise follow the machine's locale; assertions expect English
     localStorage.setItem('dubline_language', 'en');
-    // Unrelated workflows use an already-declined optional microphone setup.
-    // Noise calibration tests explicitly start with a fresh offer preference.
-    if (skipNoiseOffer) localStorage.setItem('dubline_noise_offer_seen', 'true');
     // Most suites exercise unrelated workflows with P2P explicitly declined.
     // Consent and peer-transfer suites opt into their own initial state.
     if (consent && localStorage.getItem('dubline_p2p_consent_v1') === null) {
@@ -204,7 +201,7 @@ async function openPlayer(browser, url, nick, { helpSeen = true, viewport = { wi
     // The Audio group starts collapsed; most suites look at its rows, so open it once
     // (a later collapse by the test itself survives reloads)
     if (expanded && localStorage.getItem('dubline_audio_collapsed') === null) localStorage.setItem('dubline_audio_collapsed', '0');
-  }, nick, helpSeen, audioExpanded, autoConfirm, p2pConsent, noiseOfferSeen);
+  }, nick, helpSeen, audioExpanded, autoConfirm, p2pConsent);
   if (beforeLoad) await beforeLoad(page);
   await page.goto(url);
   await waitFor(page, () => typeof socket !== 'undefined' && socket.connected, 10000);
@@ -248,10 +245,11 @@ async function claimAndSelect(page, lineId) {
 
 // Record a take for a line with Chrome's fake microphone and wait until it reaches the server
 async function recordTake(page, lineId, timeout = 20000) {
+  const previous = await page.evaluate(id => session.lines.find(line => line.id === id)?.audioUrl, lineId);
   await page.evaluate(id => { selectLine(session.lines.find(l => l.id === id)); }, lineId);
   await waitFor(page, () => document.getElementById('recBtn'), 5000);
   await page.evaluate(id => handleStudioRecord(id), lineId);
-  return waitFor(page, id => { const l = session.lines.find(x => x.id === id); return recordState === 'idle' && l.audioUrl ? l.audioUrl : null; }, timeout, lineId);
+  return waitFor(page, (id, previous) => { const l = session.lines.find(x => x.id === id); return recordState === 'idle' && !pendingTakeLines.has(id) && l.audioUrl && l.audioUrl !== previous ? l.audioUrl : null; }, timeout, lineId, previous);
 }
 
 // A video with two audio tracks (Japanese 440 Hz and Russian 880 Hz), like a dubbed anime episode

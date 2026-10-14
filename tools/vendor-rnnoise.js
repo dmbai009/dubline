@@ -1,0 +1,12 @@
+const fs = require('node:fs'), path = require('node:path'), crypto = require('node:crypto');
+const root = path.join(__dirname, '..'), source = path.join(root, 'node_modules', '@shiguredo', 'rnnoise-wasm');
+const metadata = JSON.parse(fs.readFileSync(path.join(source, 'package.json'), 'utf8'));
+if (metadata.version !== '2025.1.5') throw Error('Install the pinned RNNoise version with npm ci.');
+const bytes = fs.readFileSync(path.join(source, 'dist', 'rnnoise.js'));
+const expected = 'e6958293a0118bf9860cb2753332f7562531cc987c914552c426cd7d7180a63e';
+if (crypto.createHash('sha256').update(bytes).digest('hex') !== expected) throw Error('RNNoise artifact differs from the verified NoiseLab model.');
+const destination = path.join(root, 'public', 'vendor', 'rnnoise'); fs.mkdirSync(destination, { recursive: true });
+fs.writeFileSync(path.join(destination, 'rnnoise.js'), bytes);
+const notices = path.join(root, 'resources', 'licenses', 'rnnoise'); fs.mkdirSync(notices, { recursive: true });
+fs.copyFileSync(path.join(source, 'LICENSE'), path.join(notices, 'LICENSE-APACHE'));
+console.log('[DubLine] Local RNNoise 2025.1.5 copied; verified identical to NoiseLab.');

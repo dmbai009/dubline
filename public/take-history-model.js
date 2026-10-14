@@ -2,11 +2,11 @@
   'use strict';
   const LIMIT = 3;
   const FIELDS = ['audioUrl', 'recordedBy', 'audioStart', 'recordedStart', 'trimStart', 'trimEnd',
-    'trimEnabled', 'effect', 'pitch', 'effectAmount', 'volume', 'pan', 'blindRevealed', 'noiseProfileId',
+    'trimEnabled', 'effect', 'pitch', 'effectAmount', 'volume', 'pan', 'blindRevealed',
     'effects', 'pitchMode', 'inheritRoleEffects', 'excludedRoleEffectIds'];
   const DEFAULTS = { audioUrl: null, recordedBy: null, audioStart: null, recordedStart: null,
     trimStart: null, trimEnd: null, trimEnabled: true, effect: 'none', pitch: 0,
-    effectAmount: 1, volume: 1, pan: 0, blindRevealed: false, noiseProfileId: null,
+    effectAmount: 1, volume: 1, pan: 0, blindRevealed: false,
     effects: null, pitchMode: null, inheritRoleEffects: true, excludedRoleEffectIds: [] };
   const validId = id => typeof id === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(id);
   const nullable = (value, max = 86400) => Number.isFinite(value) && value >= 0 && value <= max ? value : null;

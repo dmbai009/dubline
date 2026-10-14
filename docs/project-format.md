@@ -1,6 +1,6 @@
-# Dubline Project formats 1–8
+# Dubline Project formats 1–9
 
-An archive uses the `.dubline` extension and a standard ZIP container. `project.json` is UTF-8 JSON with `format: "dubline-project"`, required `formatVersion: 1`, `2`, `3`, `4`, `5`, `6`, `7` or `8`, `project`, and `assets`. The serializer is `server/projects.js`; it never exports raw room persistence.
+An archive uses the `.dubline` extension and a standard ZIP container. `project.json` is UTF-8 JSON with `format: "dubline-project"`, required `formatVersion: 1`, `2`, `3`, `4`, `5`, `6`, `7`, `8` or `9`, `project`, and `assets`. The serializer is `server/projects.js`; it never exports raw room persistence.
 
 ## Manifest
 
@@ -59,13 +59,9 @@ Runtime replacement archives the current take, evicting only the oldest unpinned
 
 Room state is written atomically and flushed before unused owned `line_*` files are unlinked. Live/persisted room and trash references plus active download/export readers protect shared files. Failed writes roll back metadata; disk cleanup errors retain files and are reported. Conservative orphan collection retains its existing grace period. Inspector-only controls use scene-bound revisions and existing operation receipts; restore/delete-main invalidate unaccepted reservations, with conflicting local recordings kept in the existing queue for explicit retry.
 
-## Microphone noise profiles in version 7
+## Legacy microphone profiles in versions 7/8 (read only)
 
-Scenes containing calibrated profiles emit version 7. `project.noiseReduction` contains a deduplicated `profiles` dictionary and an `actors` dictionary. Each immutable profile has an ID, author, algorithm version (1), FFT size (1024), capture sample rate, creation time and 513 finite nonnegative spectral power values. It contains no raw calibration sound, device ID, client credentials or paths. There are at most 64 profiles per scene. An actor entry contains `enabled`, common `strength` (0–1) and the profile ID selected for future recordings. Historical bindings continue to refer to older profiles, but use their author's common strength and enable switch.
-
-Each main/historical take has nullable `noiseProfileId`; a non-null reference must resolve to a profile belonging to that take's author. The file, take ID, processing, alignment, pin and trim fields are unchanged. Version 7 retains all version-6 identity/history fields, including empty history. Unbound takes remain untreated even after calibration. Restore carries the binding with the take; deleting main audio clears only its own binding. Trash/Undo retain both take metadata and the scene's profiles. Profiles are conservatively retained, including unreferenced versions, up to the bound; they are not garbage-collected during editing or uploads.
-
-Formats 1–6 remain readable and acquire an empty profile state with untreated recordings. Scenes without profiles still emit the lowest applicable older format. Malformed profiles, unsupported algorithm versions, oversized dictionaries, invalid strength, author mismatches and missing profile references fail validation before extraction/commit. Runtime profile-state revision, operation receipts, microphone compatibility signature, scratch samples and offer preferences are excluded from the portable archive. Opening restores shared sound without requiring a listener to calibrate another person's microphone.
+Legacy profiles retain their bounded algorithm-1/1024/513-bin validation, author matching and take-reference checks before extraction. After validation, import discards the spectral profiles and noiseProfileId from current and historical takes. Original bytes, author, identity, history, pins, timing, trim and voice settings remain intact. Legacy author entries migrate to disabled RNNoise at 60%; no old acoustic profile is interpreted as a neural model. Existing on-disk rooms, inactive sessions and trash use the same idempotent migration. Current writers never emit profiles or bindings.
 
 ## Voice effect chains in version 8
 
@@ -74,3 +70,9 @@ Scenes with role definitions or explicitly edited individual chains emit version
 Each active and historical take stores `effects`, `pitchMode` (`inherit`/`override`), `inheritRoleEffects` and `excludedRoleEffectIds`. The existing pitch field retains the explicit value. Role and take pitch do not sum. Exclusions reference role instances; stale exclusions are inert. Maximum eight entries per level, eight active combined stages, four heavy stages and 12 seconds of combined tails are validated against every active/historical take. Disabled stages and duplicate types with distinct IDs are preserved.
 
 All version-6/7 history, noise, trim, identity, pin and audio-asset rules still apply. Format 8 may omit noise state when no profiles exist. Formats 1–7 remain readable: a legacy effect becomes one effective stage with its existing amount, and existing pitch remains explicit. The legacy single-stage renderer preserves Monster and old effects' sound. New chain fields and Echo cannot be written into a legacy version. Original media/recordings are never rewritten during migration or export. See [voice-effects.md](voice-effects.md).
+
+## RNNoise author settings in version 9
+
+Scenes with any RNNoise author entry emit format 9, retaining all version-8 role, individual and historical chain fields. project.noiseReduction contains schemaVersion 2, engine rnnoise, engineVersion 2025.1.5, the pinned modelVersion, dspVersion 1 and actors. Each nickname maps to exactly enabled (boolean) and strength (finite 0–1). Runtime revision is excluded and starts at zero on import. Unknown metadata, profile fields, take noiseProfileId, invalid or oversized author dictionaries fail validation before extraction. No model or derived Wet PCM is stored inside the project; the application supplies the pinned bundled model.
+
+Settings resolve by each take's recordedBy, independently of current role owners. Export snapshots contain one immutable confirmed author-state snapshot. Local previews/drafts are excluded. Projects without RNNoise author entries continue to emit the lowest applicable format; formats 1–8 are still accepted.

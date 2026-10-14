@@ -26,7 +26,44 @@
     const pinned = key => [...pinnedUrls, previewPendingLine?.audioUrl, previewGraph?.audioUrl].filter(Boolean).some(url => key === url || key.includes('|' + url + '|') || key.startsWith(url + '|'));
     const rawTakeCache = global.DublineAudioMemory ? new global.DublineAudioMemory.ByteCache(128 * 1024 ** 2, pinned) : new Map();
     const rawRequests = new Map();
+    const processedRequests = new Map();
+    const noiseFailedJobs = new WeakSet();
+    const cancelled = () => Object.assign(new Error('Cancelled'), { name: 'AbortError' });
     const processedTakeCache = global.DublineAudioMemory ? new global.DublineAudioMemory.ByteCache(256 * 1024 ** 2, pinned) : new Map();
+    // Wet and final variants share the existing 256 MiB processed-audio budget.
+    const noiseStats = { wetHits: 0, wetMisses: 0, mixMs: 0 };
+    const sourceJobs = new Map();
+    function retainSource(url) {
+      let token = sourceJobs.get(url);
+      if (!token) { token = { cancelled: false, users: 0 }; sourceJobs.set(url, token); }
+      token.users++; return token;
+    }
+    function releaseSource(url, token) { if (--token.users === 0 && sourceJobs.get(url) === token) sourceJobs.delete(url); }
+    function waitFor(job, signal) {
+      if (!signal) return job;
+      if (signal.aborted) return Promise.reject(new DOMException('Cancelled', 'AbortError'));
+      return new Promise((resolve, reject) => {
+        const abort = () => reject(new DOMException('Cancelled', 'AbortError'));
+        signal.addEventListener('abort', abort, { once: true });
+        job.then(resolve, reject).finally(() => signal.removeEventListener('abort', abort));
+      });
+    }
+    function wetKey(url, buffer) { return `wet|${url}|${global.DublineNoiseModel.PROCESSING_VERSION}|${buffer.sampleRate}|${buffer.numberOfChannels}|${buffer.length}`; }
+    function getWet(url, buffer, request = {}) {
+      const key = wetKey(url, buffer);
+      if (!processedTakeCache.has(key)) {
+        noiseStats.wetMisses++;
+        const job = global.DublineNoiseAudio.wet(buffer, { key, priority: request.priority || (request.scene ? 'export' : 'playback') })
+          .catch(error => { if (processedTakeCache.get(key) === job) processedTakeCache.delete(key); throw error; });
+        processedTakeCache.set(key, job);
+      } else { noiseStats.wetHits++; global.DublineNoiseAudio.promote?.(key, request.priority || 'playback'); }
+      // A slider change cancels only its consumer, not useful shared neural work.
+      return waitFor(processedTakeCache.get(key), request.signal);
+    }
+    function invalidateSource(url) {
+      if (!url) return; const token = sourceJobs.get(url); if (token) token.cancelled = true; sourceJobs.delete(url); rawTakeCache.delete(url);
+      for (const key of processedTakeCache.keys()) if (key.startsWith(url + '|') || key.includes('|' + url + '|')) processedTakeCache.delete(key);
+    }
     let takeIndex = null, indexedLines = null, indexedSession = null, prefetchAt = -Infinity;
     const prefetching = new Set();
     let playCtx = null;
@@ -186,24 +223,40 @@
     function processingKey(line, request = {}) {
       const noise = Object.hasOwn(line, '_exportNoise') ? line._exportNoise : global.DublineNoiseModel?.resolve(line, request.scene || getSession());
       const voice = global.DublineVoiceChain?.resolve(line, request.scene || getSession());
-      return `${line.audioUrl}|${voice ? global.DublineVoiceChain.key(voice) : `${line.effect || 'none'}|${line.pitch || 0}|${global.DublineTakeMix.normalize(line).effectAmount}`}|${line.trimEnabled !== false}|${line.trimStart}|${line.trimEnd}|${noise ? line.noiseProfileId + ':' + (noise.profile?.version || 'missing') + ':' + noise.strength : 'off'}`;
+      return `${line.audioUrl}|${voice ? global.DublineVoiceChain.key(voice) : `${line.effect || 'none'}|${line.pitch || 0}|${global.DublineTakeMix.normalize(line).effectAmount}`}|${line.trimEnabled !== false}|${line.trimStart}|${line.trimEnd}|${global.DublineNoiseModel?.settingKey(noise) || 'off'}`;
     }
     function getProcessedTake(line, request = {}) {
       if (!line.audioUrl) return Promise.resolve(null);
       if (!request.signal && rawRequests.has(line.audioUrl)) rawRequests.get(line.audioUrl).shared = true;
       line = { ...line };
       const key = processingKey(line, request);
-      const noiseSetting = Object.hasOwn(line, '_exportNoise') ? line._exportNoise : global.DublineNoiseModel?.resolve(line, request.scene || getSession());
+      if (!request.signal && processedRequests.has(key)) processedRequests.get(key).shared = true;
+      const resolvedNoise = Object.hasOwn(line, '_exportNoise') ? line._exportNoise : global.DublineNoiseModel?.resolve(line, request.scene || getSession());
+      const noiseSetting = resolvedNoise?.enabled && resolvedNoise.strength > 0 ? resolvedNoise : null;
       const voiceSetting = global.DublineVoiceChain?.resolve(line, request.scene || getSession());
+      const scope = getSession()?.activeSessionId;
       if (request.uncached || !processedTakeCache.has(key)) {
+        const source = retainSource(line.audioUrl);
+        const work = !request.uncached && request.signal ? { shared: false, controller: new AbortController() } : null;
+        const abort = () => { if (!work.shared) work.controller.abort(); };
+        if (work) { processedRequests.set(key, work); if (request.signal.aborted) abort(); else request.signal.addEventListener('abort', abort, { once: true }); }
+        const pipelineRequest = work ? { ...request, signal: work.controller.signal } : request;
         let noiseFallback = false;
         const job = getRawTake(line.audioUrl, request)
           .then(async buffer => {
-            if (!buffer || !global.DublineNoiseAudio) return buffer;
-            const cleaned = await global.DublineNoiseAudio.clean(buffer, noiseSetting, request.signal);
-            noiseFallback = !!noiseSetting && cleaned === buffer; return cleaned;
+            if (pipelineRequest.signal?.aborted || !request.scene && (scope !== getSession()?.activeSessionId || source.cancelled)) throw cancelled();
+            if (!buffer || !noiseSetting) return buffer;
+            try {
+              if (!global.DublineNoiseAudio) throw Error('noise.unavailable');
+              const wet = await getWet(line.audioUrl, buffer, pipelineRequest), tick = performance.now();
+              const mixed = global.DublineNoiseAudio.mix(buffer, wet, noiseSetting.strength);
+              noiseStats.mixMs += performance.now() - tick; return mixed;
+            } catch (error) {
+              if (error.name === 'AbortError') throw error;
+              noiseFallback = true; if (!request.strict) global.DublineNoiseAudio?.fallback(error); return buffer;
+            }
           })
-          .then(buffer => buffer && (voiceSetting && fx.renderChain ? fx.renderChain(buffer, voiceSetting, takeDryBounds(line, buffer.duration), request.signal) : fx.renderVoice(
+          .then(buffer => buffer && (voiceSetting && fx.renderChain ? fx.renderChain(buffer, voiceSetting, takeDryBounds(line, buffer.duration), pipelineRequest.signal) : fx.renderVoice(
             buffer,
             line.effect || 'none',
             line.pitch || 0,
@@ -215,13 +268,19 @@
             if (error.message.startsWith('fx.') && Date.now() - voiceWarningAt > 5000) { voiceWarningAt = Date.now(); global.showToast?.(global.DublineI18n?.t(error.message) || error.message); }
             return null;
           }).then(buffer => {
+            if (!request.scene && (scope !== getSession()?.activeSessionId || source.cancelled)) buffer = null;
+            if (noiseFallback) noiseFailedJobs.add(job);
             if ((!buffer || noiseFallback) && processedTakeCache.get(key) === job) processedTakeCache.delete(key);
             return buffer;
+          }).finally(() => {
+            releaseSource(line.audioUrl, source);
+            if (work) { request.signal.removeEventListener('abort', abort); if (processedRequests.get(key) === work) processedRequests.delete(key); }
           });
-        if (request.uncached) return job;
+        if (request.uncached) return request.strict ? job.then(buffer => noiseFailedJobs.has(job) ? null : buffer) : job;
         processedTakeCache.set(key, job);
       }
-      return processedTakeCache.get(key);
+      const result = processedTakeCache.get(key);
+      return request.strict ? result.then(buffer => noiseFailedJobs.has(result) ? null : buffer) : result;
     }
 
     function indexedTakes() {
@@ -253,16 +312,16 @@
         const key = playbackRate() === 1 ? baseKey : `rate:${playbackRate()}|${baseKey}`;
         if (processedTakeCache.has(key)) continue;
         if (prefetching.has(key)) continue;
-        prefetching.add(key); getPlaybackTake(line).finally(() => prefetching.delete(key));
+        prefetching.add(key); getPlaybackTake(line, playbackRate(), { priority: 'prefetch' }).finally(() => prefetching.delete(key));
       }
     }
 
-    function getPlaybackTake(line, rate = playbackRate()) {
-      if (rate === 1) return getProcessedTake(line);
+    function getPlaybackTake(line, rate = playbackRate(), request = {}) {
+      if (rate === 1) return getProcessedTake(line, request);
       const key = `rate:${rate}|${processingKey(line)}`;
       if (!processedTakeCache.has(key)) {
         const scope = getSession()?.activeSessionId;
-        const job = getProcessedTake(line).then(buffer => buffer && fx.stretchPreview(buffer, rate, scope)).catch(error => {
+        const job = getProcessedTake(line, request).then(buffer => buffer && fx.stretchPreview(buffer, rate, scope)).catch(error => {
           console.error('[DubLine] Preview rate processing failed:', error); return null;
         }).then(buffer => { if (!buffer && processedTakeCache.get(key) === job) processedTakeCache.delete(key); return buffer; });
         processedTakeCache.set(key, job);
@@ -426,9 +485,12 @@
     }
 
     function updateLine(before, after) {
+      const retained = new Set([after.audioUrl, ...(after.takeHistory || []).map(take => take.audioUrl),
+        ...(getSession()?.lines || []).flatMap(line => [line.audioUrl, ...(line.takeHistory || []).map(take => take.audioUrl)])]);
+      for (const url of [before.audioUrl, ...(before.takeHistory || []).map(take => take.audioUrl)]) if (url && !retained.has(url)) invalidateSource(url);
       takeIndex = null;
       global.invalidatePrompterIndex?.();
-      const processing = ['audioUrl', 'audioStart', 'start', 'character', 'recordedBy', 'blindRevealed', 'effect', 'pitch', 'effectAmount', 'trimEnabled', 'trimStart', 'trimEnd', 'noiseProfileId', 'effects', 'pitchMode', 'inheritRoleEffects', 'excludedRoleEffectIds'];
+      const processing = ['audioUrl', 'audioStart', 'start', 'character', 'recordedBy', 'blindRevealed', 'effect', 'pitch', 'effectAmount', 'trimEnabled', 'trimStart', 'trimEnd', 'effects', 'pitchMode', 'inheritRoleEffects', 'excludedRoleEffectIds'];
       const defaults = { effect: 'none', pitch: 0, effectAmount: 1, trimEnabled: true };
       const changed = processing.some(key => JSON.stringify(before[key] ?? defaults[key]) !== JSON.stringify(after[key] ?? defaults[key]));
       if (changed) {
@@ -456,7 +518,10 @@
     }
 
     return Object.freeze({
-      cacheStats: () => ({ raw: rawTakeCache.stats?.(), processed: processedTakeCache.stats?.(), prefetching: prefetching.size, indexVisited: takeIndex?.visited || 0 }),
+      cacheStats: () => ({ raw: rawTakeCache.stats?.(), processed: processedTakeCache.stats?.(), noise: { ...noiseStats,
+        wetEntries: [...processedTakeCache.keys()].filter(key => key.startsWith('wet|')).length }, prefetching: prefetching.size, indexVisited: takeIndex?.visited || 0 }),
+      getNoiseWet: (line, request = {}) => getRawTake(line.audioUrl, request).then(buffer => buffer && getWet(line.audioUrl, buffer, request)),
+      invalidateSource,
       updateLine,
       invalidateRole: (name, previousRoles) => {
         takeIndex = null;
@@ -466,20 +531,24 @@
           if (line.audioUrl) { urls.add(line.audioUrl); resetLine(line.id); }
           for (const take of line.takeHistory || []) urls.add(take.audioUrl);
         }
-        for (const key of processedTakeCache.keys()) if ([...urls].some(url => key.startsWith(url + '|') || key.includes('|' + url + '|'))) processedTakeCache.delete(key);
+        for (const key of processedTakeCache.keys()) if (!key.startsWith('wet|') && [...urls].some(url => key.startsWith(url + '|') || key.includes('|' + url + '|'))) processedTakeCache.delete(key);
         if (urls.has(previewPendingLine?.audioUrl) || urls.has(previewGraph?.audioUrl)) stopPreview();
       },
       invalidateNoise: author => {
         const lines = getSession()?.lines || [], urls = new Set();
         for (const line of lines) {
-          if (line.recordedBy === author && line.audioUrl && line.noiseProfileId) { urls.add(line.audioUrl); resetLine(line.id); }
-          for (const take of line.takeHistory || []) if (take.recordedBy === author && take.noiseProfileId) urls.add(take.audioUrl);
+          if (line.recordedBy === author && line.audioUrl) {
+            urls.add(line.audioUrl);
+            if (!activeTakeSources.has(line.id)) { lineGenerations.set(line.id, (lineGenerations.get(line.id) || 0) + 1); startedTakes.delete(line.id); }
+          }
+          for (const take of line.takeHistory || []) if (take.recordedBy === author) urls.add(take.audioUrl);
         }
-        for (const key of processedTakeCache.keys()) if ([...urls].some(url => key.startsWith(url + '|') || key.includes('|' + url + '|'))) processedTakeCache.delete(key);
-        if (urls.has(previewPendingLine?.audioUrl) || urls.has(previewGraph?.audioUrl)) stopPreview();
+        for (const key of processedTakeCache.keys()) if (!key.startsWith('wet|') && [...urls].some(url => key.startsWith(url + '|') || key.includes('|' + url + '|'))) processedTakeCache.delete(key);
+        if (!previewGraph && previewPendingLine?.recordedBy === author) stopPreview();
       },
       applyVolumes,
       ensurePlayCtx,
+      connectAudition: (source, fade, line) => { const ctx = ensurePlayCtx(); const graph = fx.connectTake(ctx, source, fade, line); fade.connect(takesBus); return graph; },
       getProcessedTake,
       getRawTake,
       playAudio,

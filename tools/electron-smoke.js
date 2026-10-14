@@ -160,6 +160,15 @@ async function main() {
       const media = await host.evaluate(() => ({loaded:session?.loaded,lines:session?.lines?.length,readyState:video.readyState,source:video.currentSrc,error:video.error?.message,file:zipInput.files[0]?.name,disabled:zipInput.disabled}));
       throw Error(error.message+': '+JSON.stringify({media,diagnostics}));
     });
+    const neural = await host.evaluate(async () => {
+      const input = new AudioBuffer({ length: 48091, numberOfChannels: 2, sampleRate: 48000 });
+      for (let c = 0; c < 2; c++) for (let i = 0; i < input.length; i++) input.getChannelData(c)[i] = .1 * Math.sin(i * (c ? .08 : .03)) + .02 * Math.sin(i * 113.97);
+      const output = await DublineNoiseAudio.clean(input, { ...DublineNoiseModel.protocol(), enabled: true, strength: 1 }, null, true);
+      let difference = 0; for (let i = 0; i < input.length; i++) difference += (input.getChannelData(0)[i] - output.getChannelData(0)[i]) ** 2;
+      return { length: output.length, channels: output.numberOfChannels, finite: output.getChannelData(0).every(Number.isFinite), difference, metrics: DublineNoiseAudio.stats().last };
+    });
+    assert.equal(neural.length, 48091); assert.equal(neural.channels, 2); assert.equal(neural.finite, true); assert.ok(neural.difference > .01); assert.equal(neural.metrics.delay, 960);
+    process.stdout.write('Packaged local RNNoise model and stereo alignment passed.\n');
     const pin = await host.evaluate(async () => (await window.dublineDesktop.getStatus()).pin);
     guestBrowser = await launchBrowser(result.port);
     const guestUrl = hostingMode === 'cloudflare' ? result.inviteUrl : host.url();

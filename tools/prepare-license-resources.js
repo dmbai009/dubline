@@ -57,6 +57,9 @@ function prepareLicenseResources() {
   for (const file of ['LICENSE', 'PROVENANCE.md']) {
     copyFile(path.join(root, 'resources', 'licenses', 'cloudflared', file), path.join(destination, 'cloudflared', file));
   }
+  for (const file of ['LICENSE-APACHE', 'LICENSE-BSD', 'LICENSE-NoiseLab', 'PROVENANCE.md']) {
+    copyFile(path.join(root, 'resources', 'licenses', 'rnnoise', file), path.join(destination, 'rnnoise', file));
+  }
   fs.writeFileSync(path.join(destination, 'npm-inventory.json'), JSON.stringify(inventory, null, 2) + '\n');
   console.log(`[DubLine] Prepared license notices for ${inventory.length} npm packages and bundled runtimes.`);
 }
