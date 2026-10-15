@@ -226,7 +226,7 @@ function playerCardHtml(nick, stats, online, assignedModerator = null, cardKey =
 
   const tags = [
     nick === roomHost ? `<span class="tag host">👑 ${t('lobby.host')}</span>` : '',
-    moderator ? `<span class="tag moderator" title="${esc(t('moderator.title'))}" aria-label="${esc(t('moderator.title'))}">🛡</span>` : '',
+    moderator ? `<span class="tag moderator" title="${esc(t('moderator.title'))}" aria-label="${esc(t('moderator.title'))}"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m12 2 8 4v6c0 5-8 10-8 10S4 17 4 12V6Z"/><path d="m8 11 3 3 5-6"/></svg></span>` : '',
     online && !isMe && session?.mode === 'edit' ? `<button class="btn-icon" data-jump-collaborator="${esc(nick)}" disabled title="${esc(t('cursor.unavailable'))}" aria-label="${esc(t('cursor.jump'))}: ${esc(nick)}" onclick="jumpToCollaborator(${jsArg(nick)})">↗</button>` : '',
     isMe ? `<span class="tag you">${t('lobby.you')}</span>` : '',
     (online && !isMe || !online && moderator) && amHost() && !session?.singlePlayer ? `<details class="participant-menu"><summary aria-label="${esc(t('moderator.actions'))}">⋯</summary><div><button class="btn-outline" onclick="changeModerator(${jsArg(nick)}, ${jsArg(moderator?.id || '')})">${t(moderator ? 'moderator.revoke' : 'moderator.grant')}</button>${online ? `<button class="btn-delete" onclick="kickPlayer(${jsArg(nick)})">${t('kick.button')}</button>` : ''}</div></details>` : ''
@@ -245,6 +245,7 @@ function playerCardHtml(nick, stats, online, assignedModerator = null, cardKey =
     <div class="${classes}" data-lobby-key="${esc(cardKey)}"${moderator ? ` data-moderator-id="${esc(moderator.id)}"` : ''} title="${esc(nick)} · ${esc(t(online ? 'online' : 'studio.offline'))}">
       <div class="player-head">
         <div class="avatar" style="background:${playerColor(nick)}">${esc(initials(nick))}<span class="dot"></span></div>
+        ${stats.claimed && stats.recorded >= stats.claimed ? `<span class="player-status-complete" title="${esc(t('studio.done'))}" aria-label="${esc(t('studio.done'))}">✓</span>` : ''}
         <div class="player-name" title="${esc(nick)}">${esc(nick)}</div>
         <div class="player-tags">${tags}</div>
       </div>
@@ -253,13 +254,12 @@ function playerCardHtml(nick, stats, online, assignedModerator = null, cardKey =
       <div class="progress"><div style="width:${pct}%"></div></div>
       <div class="player-status-icons">
         ${nick === roomHost ? `<span class="player-status-compact" title="${esc(t('lobby.host'))}">👑</span>` : ''}
-        ${moderator ? `<span class="player-status-compact" title="${esc(t('moderator.title'))}">🛡</span>` : ''}
+        ${moderator ? `<span class="player-status-compact moderator" title="${esc(t('moderator.title'))}"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m12 2 8 4v6c0 5-8 10-8 10S4 17 4 12V6Z"/><path d="m8 11 3 3 5-6"/></svg></span>` : ''}
         ${isMe ? `<span class="player-status-compact" title="${esc(t('lobby.you'))}">●</span>` : ''}
         ${recordingLine ? `<span class="player-status-compact" title="${esc(t('lobby.recording', { id: recordingLine[0] }))}">🎙</span>` : ''}
         ${online && seedingNicks.has(nick) ? `<span class="player-status-compact" title="${esc(t('lobby.seeding'))}">↑</span>` : ''}
         ${activity && activity.state === 'downloading' ? `<span class="player-status-compact" title="${esc(t('lobby.downloading', { pct: activity.pct }))}">↓${activity.pct}%</span>` : ''}
         ${!online ? `<span class="player-status-compact" title="${esc(t('studio.offline'))}">○</span>` : ''}
-        ${stats.claimed && stats.recorded >= stats.claimed ? `<span class="player-status-complete" title="${esc(t('studio.done'))}">✓</span>` : ''}
       </div>
       ${activityProgress}
       ${extra ? `<div class="player-status-text">${extra}</div>` : ''}

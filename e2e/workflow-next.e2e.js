@@ -1,7 +1,7 @@
 const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict'), fs = require('node:fs'), path = require('node:path');
 const { skipReason, startServer, launchBrowser, openPlayer, loadFixture, claimAndSelect, waitFor, waitUntil } = require('./helpers');
-describe('recording sequence, take comparison, scene checks and export states', { skip: skipReason, timeout: 240000 }, () => {
+describe('next-line navigation, ordinary take history, scene checks and export states', { skip: skipReason, timeout: 240000 }, () => {
   let server, browser, host, actor;
   const record = async (id, wait = true) => { await claimAndSelect(actor, id); await actor.evaluate(async id => { const buffer = new AudioBuffer({ length: 96000, sampleRate: 48000, numberOfChannels: 1 }); for (let i = 0; i < buffer.length; i++) buffer.getChannelData(0)[i] = .09 * Math.sin(i * .087); return submitTake({ uploadId: newUploadId(), room: currentRoom, sessionId: session.activeSessionId, lineId: id, nick: myName, audioStart: 0, trimStart: .1, trimEnd: 1.8, duration: 2, blob: new Blob([audioBufferToWav(buffer)], { type: 'audio/wav' }), createdAt: Date.now() }); }, id); if (wait) await waitFor(actor, id => !!session.lines.find(line => line.id === id).audioUrl && !pendingTakeLines.size, 15000, id); };
   before(async () => { server = await startServer(); browser = await launchBrowser(server.port); host = await openPlayer(browser, server.url('workflow-next'), 'Host'); actor = await openPlayer(browser, server.url('workflow-next'), 'Actor'); await loadFixture(host); await waitFor(actor, () => session.loaded); });
@@ -10,21 +10,23 @@ describe('recording sequence, take comparison, scene checks and export states', 
     const report = await host.evaluate(() => DublineSceneReview.snapshot()); assert.equal(report.recorded, 0); assert.equal(report.total, 4); assert.equal(report.errors.length, 0);
     await host.click('#sceneReviewBtn'); assert.equal(await host.$eval('#sceneReviewDialog', node => node.open), true); await host.click('#sceneReviewCheck'); await waitFor(host, () => document.getElementById('sceneReviewStatus').textContent === t('review.checked')); await host.click('#sceneReviewClose');
   });
-  test('a confirmed take stays selected until Keep and next, which never records a foreign role', async () => {
-    await actor.evaluate(() => socket.emit('claim_character', { sessionId: session.activeSessionId, character: 'Friend' })); await waitFor(actor, () => session.characterClaims.Friend === myName); await claimAndSelect(actor, 2); await actor.$eval('#sequenceRecording', node => { node.open = true; }); await actor.click('#sequenceEnable + .switch-slider'); await record(2); await waitFor(actor, () => !!DublineSequence.state().candidate && !document.getElementById('sequenceNext').disabled);
-    assert.equal(await actor.evaluate(() => selectedLine.id), 2); assert.equal(await actor.evaluate(() => recordState), 'idle'); await actor.click('#sequenceNext'); assert.equal(await actor.evaluate(() => selectedLine.id), 4); assert.equal(await actor.evaluate(() => recordState), 'idle');
-    await actor.click('#sequenceSkip'); assert.equal(await actor.$eval('#sequenceStatus', node => node.textContent), await actor.evaluate(() => t('sequence.end'))); assert.ok((await actor.evaluate(() => DublineSequence.state().skipped)).includes(4));
+  test('next line navigates only owned unrecorded dialogue without starting capture', async () => {
+    await actor.evaluate(() => socket.emit('claim_character', { sessionId: session.activeSessionId, character: 'Friend' })); await waitFor(actor, () => session.characterClaims.Friend === myName); await claimAndSelect(actor, 2);
+    assert.equal(await actor.$('#sequenceRecording'), null); assert.equal(await actor.$('#takeCompareDialog'), null);
+    await record(2); await waitFor(actor, () => !document.getElementById('nextUnrecordedLine').disabled); await actor.click('#nextUnrecordedLine');
+    assert.equal(await actor.evaluate(() => selectedLine.id), 4); assert.equal(await actor.evaluate(() => recordState), 'idle'); assert.equal(await actor.evaluate(() => video.currentTime), 9.5);
   });
-  test('failed upload disables progression and only its confirmed retry enables take acceptance', async () => {
+  test('pending upload blocks navigation and completed owned roles disable the button after retry', async () => {
     await actor.evaluate(() => { window.restoreSequenceUpload = DublineNetwork.upload; DublineNetwork.upload = async () => null; });
-    try { await record(4, false); await waitFor(actor, () => document.getElementById('sequenceNext').disabled); assert.equal(await actor.$eval('#sequenceNext', node => node.disabled), true); assert.equal(await actor.evaluate(() => selectedLine.id), 4); }
+    try { await record(4, false); await waitFor(actor, () => document.getElementById('nextUnrecordedLine').disabled); assert.equal(await actor.evaluate(() => selectedLine.id), 4); }
     finally { await actor.evaluate(() => { DublineNetwork.upload = restoreSequenceUpload; }); }
-    await actor.evaluate(async () => { for (const entry of pendingTakes.values()) await sendTake(entry); }); await waitFor(actor, () => !pendingTakeLines.size && !!DublineSequence.state().candidate && !document.getElementById('sequenceNext').disabled); assert.equal(await actor.$eval('#sequenceNext', node => node.disabled), false); await actor.click('#sequenceEnable + .switch-slider');
+    await actor.evaluate(async () => { for (const entry of pendingTakes.values()) await sendTake(entry); }); await waitFor(actor, () => !pendingTakeLines.size && !!session.lines.find(l => l.id === 4).audioUrl && document.getElementById('nextUnrecordedLine').disabled);
   });
-  test('A/B changes one preview source at a common position and restores through the original history operation', async () => {
-    await record(2); await actor.$eval('.take-history', node => { node.open = true; }); await actor.click('[data-history-compare]'); await actor.click('#takeComparePlayA'); await waitFor(actor, () => DublineTakeCompare.state()?.playing);
-    await actor.evaluate(() => new Promise(resolve => setTimeout(resolve, 180))); const position = await actor.evaluate(() => audio.previewPosition()); await actor.click('#takeComparePlayB'); await waitFor(actor, () => DublineTakeCompare.state()?.playing && DublineTakeCompare.state().active === 'B'); const switched = await actor.evaluate(() => audio.previewPosition()); assert.ok(switched >= position - .05 && switched < position + .5, JSON.stringify({ position, switched }));
-    const chosen = await actor.$eval('#takeCompareB', node => node.value); await actor.click('#takeCompareUse'); await waitFor(actor, id => session.lines.find(line => line.id === 2).takeId === id && !document.getElementById('takeCompareDialog').open, 10000, chosen);
+  test('ordinary history previews and restores using the original acknowledged history operation', async () => {
+    await record(2); await actor.$eval('.take-history', node => { node.open = true; });
+    const chosen = await actor.$eval('[data-history-action=play]', node => node.dataset.historyTake); await actor.click('[data-history-action=play]'); await waitFor(actor, () => !!document.querySelector('[data-history-action=play].active'));
+    assert.equal(await actor.$('[data-history-compare]'), null); assert.equal(await actor.$eval('.take-history', node => node.parentElement.classList.contains('insp-recording')), true);
+    await actor.click('[data-history-action=restore]'); await waitFor(actor, id => session.lines.find(line => line.id === 2).takeId === id, 10000, chosen);
   });
   test('file diagnostics respect hidden-take access and never report protected recordings to the host', async () => {
     await host.evaluate(() => socket.emit('set_blind_mode', { sessionId: session.activeSessionId, enabled: true })); await waitFor(host, () => session.blindMode);
@@ -53,8 +55,9 @@ describe('recording sequence, take comparison, scene checks and export states', 
       await host.evaluate(() => { openFilesModal(); switchFilesTab('export'); }); await waitFor(host, () => videoExportPanel.dataset.ready === 'true'); await host.click('#startRenderBtn'); await waitFor(host, () => !renderInProgress && !document.getElementById('videoExportResult').hidden, 30000); assert.ok(await host.$eval('#videoExportResult', node => node.textContent.includes('· 0 takes'))); await host.evaluate(() => closeFilesModal());
     } finally { fs.renameSync(file + '.muted', file); await host.evaluate(() => new Promise(resolve => socket.emit('project_audio_update', { sessionId: session.activeSessionId, channel: 'dub', field: 'muted', value: false, revision: session.projectAudio.revision }, resolve))); }
   });
-  test('new review and comparison dialogs retain footer/focus and translated labels at 150%', async () => {
-    await actor.setViewport({ width: 640, height: 850 }); await actor.evaluate(async () => { document.documentElement.dataset.theme = 'light'; await DublineI18n.setLanguage('ru'); document.body.style.zoom = '150%'; DublineTakeCompare.open(2); }); await waitFor(actor, () => !!DublineTakeCompare.state()); const geometry = await actor.evaluate(() => { const box = takeCompareDialog.getBoundingClientRect(), button = takeCompareUse.getBoundingClientRect(); return box.right <= innerWidth + 1 && box.bottom <= innerHeight + 1 && button.bottom <= box.bottom; }); assert.ok(geometry); await actor.screenshot({ path: path.join(__dirname, '../audit/live-presets/compare-light-ru-150.png') }); await actor.click('#takeCompareClose'); await actor.evaluate(() => { document.body.style.zoom = ''; }); await actor.setViewport({ width: 1600, height: 900 });
+  test('review dialog retains footer/focus and translated labels at 150%', async () => {
+    await actor.setViewport({ width: 640, height: 850 }); await actor.evaluate(async () => { document.documentElement.dataset.theme = 'light'; await DublineI18n.setLanguage('ru'); document.body.style.zoom = '150%'; sceneReviewBtn.click(); });
+    const geometry = await actor.evaluate(() => { const box = sceneReviewDialog.getBoundingClientRect(), button = sceneReviewClose.getBoundingClientRect(); return box.right <= innerWidth + 1 && box.bottom <= innerHeight + 1 && button.bottom <= box.bottom; }); assert.ok(geometry); await actor.click('#sceneReviewClose'); await actor.evaluate(() => { document.body.style.zoom = ''; }); await actor.setViewport({ width: 1600, height: 900 });
   });
   test('no unhandled browser errors', () => { assert.deepEqual(host.errors, []); assert.deepEqual(actor.errors, []); });
 });

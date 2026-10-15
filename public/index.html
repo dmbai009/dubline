@@ -605,8 +605,8 @@
             <input id="desktopInviteUrl" class="desktop-link-input" type="text" readonly data-i18n-placeholder="desktop.linkPending" placeholder="The public link will appear here…">
             <button id="desktopCopyBtn" class="desktop-copy-btn" onclick="copyDesktopInvite()" disabled><span id="desktopCopyLabel" data-i18n="desktop.copy">Copy link</span></button>
           </div>
-          <div class="desktop-invite-row"><span class="desktop-pin"><span data-i18n="desktop.pin">PIN</span> <span id="desktopPinCode" class="desktop-pin-code">••••</span><button id="desktopPinEye" class="btn-icon" onclick="toggleDesktopPin()" aria-pressed="false"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button></span></div>
-          <button id="desktopCopyAllBtn" class="desktop-copy-all-btn" onclick="copyDesktopInviteWithPin()" data-i18n="desktop.copyAll" disabled>Copy link and PIN</button>
+          <div class="desktop-invite-row desktop-pin-row"><span class="desktop-pin"><span data-i18n="desktop.pin">PIN</span> <span id="desktopPinCode" class="desktop-pin-code">••••</span><button id="desktopPinEye" class="btn-icon" onclick="toggleDesktopPin()" aria-pressed="false"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button></span>
+          <button id="desktopCopyAllBtn" class="desktop-copy-all-btn" onclick="copyDesktopInviteWithPin()" data-i18n="desktop.copyAll" disabled>Copy link and PIN</button></div>
         </div>
       </div>
       <button id="desktopConnectionSettings" class="btn-header-action desktop-connection-settings" onclick="openHostingModal()" data-i18n-title="desktop.connectionSettings" data-i18n-aria="desktop.connectionSettings" title="Connection settings">&#9881;</button>
@@ -773,7 +773,7 @@
   <script src="take-mix.js"></script>
   <script src="voice-chain-model.js"></script>
 <script src="scene-review-model.js"></script>
-<script src="sequence-model.js"></script>
+<script src="next-line-model.js"></script>
 <script src="speech-model.js"></script>
 <script src="speech-analysis.js"></script>
   <script src="voice-preset-model.js"></script>
@@ -823,10 +823,10 @@
   <script src="timeline-scrub.js"></script>
   <script src="timeline-navigation.js"></script>
 <script src="scene-review.js"></script>
-<script src="sequence-recording.js"></script>
+<script src="next-line.js"></script>
   <script src="retake-requests.js"></script>
   <script src="take-history.js"></script>
-<script src="take-compare.js"></script>
+
 <script src="take-analysis-ui.js"></script>
   <script src="media-settings.js"></script>
   <script src="snapshot-barrier.js"></script>

@@ -71,6 +71,11 @@
   refresh(); applyVolumes();
   let idleTimer = null, pointerDown = false;
   const wrapper = document.querySelector('.video-wrapper');
+  // Measure the wrapped transport in CSS coordinates, including UI zoom.
+  const transportSize = new ResizeObserver(() => { wrapper.style.setProperty('--fullscreen-controls-height', transport.offsetHeight + 'px'); });
+  transportSize.observe(transport);
+  window.addEventListener('pagehide', () => transportSize.disconnect());
+  window.addEventListener('pageshow', event => { if (event.persisted) transportSize.observe(transport); });
   function reveal() {
     wrapper.classList.remove('fullscreen-idle'); clearTimeout(idleTimer);
     if (document.fullscreenElement !== wrapper || video.paused || recordState !== 'idle') return;

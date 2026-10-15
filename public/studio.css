@@ -65,9 +65,6 @@ html[data-theme=light] #editorSyncState[data-sync-state=confirmed] { color:#1665
 #editorSyncState[data-sync-state=conflict], #editorSyncState[data-sync-state=storage] { color:var(--danger); }
 @media(max-width:1280px) { #editorSyncState .editor-sync-label { display:none; } }
 .player-latency { font-size:10px; }
-.player-status-icons { display:flex; gap:5px; flex-wrap:wrap; font-size:11px; margin:3px 0; }
-.player-status-compact { display:none; }
-.player-status-icons:not(:has(.player-status-complete)) { display:none; }
 .player-head .avatar { flex:none; }
 .player-card .player-stats { font-size:10px; }
 body.lobby-compact .workspace { grid-template-columns:68px var(--gap) minmax(0,1fr); }
@@ -84,8 +81,6 @@ body.lobby-compact .lobby-footer { display:none !important; }
 body.lobby-compact .lobby-list { padding:4px; }
 body.lobby-compact .player-card { padding:5px; }
 body.lobby-compact .player-head { justify-content:center; }
-body.lobby-compact .player-status-icons { display:flex; justify-content:center; gap:2px; font-size:10px; }
-body.lobby-compact .player-status-compact { display:inline; }
 body.lobby-compact .workspace > [data-resize=lobby] { pointer-events:none; }
 body.video-expanded .workspace { grid-template-columns:1fr; }
 /* File pickers in the import form: themed and translated (the native ones follow the OS language) */
@@ -159,3 +154,19 @@ html[data-theme=light] .line-block.selected { outline-color:var(--accent); }
 .line-block.editor-dragging { transition: none; }
 .remote-selection-markers { position: absolute; left: 3px; top: -9px; display: flex; gap: 2px; pointer-events: none; z-index: 4; max-width: 100%; }
 .remote-selection-markers span { border-top: 2px solid var(--player-color); background: var(--bg-panel, #202024); padding: 0 3px; font-size: 9px; max-width: 65px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.line-block.recorded.needs-retake, html[data-theme=light] .line-block.recorded.needs-retake { background:linear-gradient(180deg,color-mix(in srgb,var(--warning) 32%,var(--panel)),color-mix(in srgb,var(--warning) 20%,var(--panel))); border-color:var(--warning); color:var(--text); }
+.line-block.needs-retake .retake-badge { color:var(--warning-text) !important; }
+.char-name-row { min-width:0; gap:6px; }
+.char-name-row .track-fx { flex:none; margin-inline-end:1px; }
+.char-name-row .char-name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#nextUnrecordedLine { font-size:11px; padding:5px 9px; }
+.video-wrapper:fullscreen .video-prompter { bottom:calc(20px + var(--fullscreen-controls-height, 0px)); max-height:calc(100% - var(--fullscreen-controls-height, 0px) - 40px); overflow:auto; transition:bottom .2s ease; }
+.video-wrapper:fullscreen.fullscreen-idle .video-prompter { bottom:20px; max-height:calc(100% - 40px); }
+@media (prefers-reduced-motion:reduce) { .video-wrapper:fullscreen .video-prompter, .video-wrapper:fullscreen .studio-transport { transition:none; } }
+
+/* Expanded cards keep statuses beside the name/activity; compact cards retain their icon summaries. */
+.player-status-icons { display:none; }
+body.lobby-compact .player-status-icons { display:flex; justify-content:center; gap:2px; flex-wrap:wrap; font-size:10px; }
+.player-status-compact.moderator { color:#7dd3fc; }
+html[data-theme=light] .player-status-compact.moderator { color:#075985; }

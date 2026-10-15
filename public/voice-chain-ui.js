@@ -17,16 +17,16 @@
   function paintScope() {
     if (!state) return;
     if (state.scope === 'preset') { const preset = session.voicePresets[state.presetId]; $('fxTitle').textContent = t('live.edit') + ': ' + (preset?.name || t('preset.missing')); $('fxScope').textContent = t('live.impact', { n: DublineVoicePresets.usage(session, state.presetId).lines.length }); $('fxApply').textContent = t('live.save'); }
-    else { $('fxApply').textContent = t(state.scope === 'role' ? 'chain.applyRole' : 'chain.applyTake'); $('fxTitle').textContent = t(state.scope === 'role' ? 'fx.role' : 'fx.take') + (state.scope === 'role' ? ': ' + state.character : ' · ' + state.takes.length);
+    else { $('fxApply').textContent = t(state.scope === 'role' ? 'chain.applyRole' : state.takes.length > 1 ? 'chain.applyLines' : 'chain.applyTake'); $('fxTitle').textContent = t(state.scope === 'role' ? 'fx.role' : 'fx.take') + (state.scope === 'role' ? ': ' + state.character : ' · ' + state.takes.length);
     $('fxScope').textContent = t(state.scope === 'role' ? 'fx.roleScope' : 'fx.takeScope', { n: state.scope === 'role' ? session.lines.filter(line => line.character === state.character).length : state.takes.length }); }
     dialog.dataset.scope = state.scope; window.DublinePresetUI?.refresh(); $('fxDirty').hidden = !dirty(); paintLinked(); paintFlow();
   }
   function html(line) {
     const role = model.roleVoice(session, line.character), own = model.take(line);
     const key = `${currentRoom}:${session.activeSessionId}:${line.id}`;
-    return `<section class="fx-inspector"><div class="insp-section-title"><b>${esc(t('voice'))}</b>${button(t('preset.quick.editor'), `DublineVoiceEditor.open(${line.id}, 'takes')`, !canEditTake(line))}</div>
+    return `<section class="fx-inspector"><div class="insp-section-title"><h4>${esc(t('voice'))}</h4>${button(t('preset.quick.editor'), `DublineVoiceEditor.open(${line.id}, 'takes')`, !canEditTake(line))}</div>
       ${window.DublineInspector?.presetHtml(line) || ''}<p class="insp-chain-text" title="${esc(label(model.resolve(line, session).effects))}">${esc(summary(line))}</p>
-      <div class="insp-role-voice"><span>${esc(t(!role.effects.length ? 'chain.roleNone' : own.inheritRoleEffects ? 'chain.roleOn' : 'chain.roleOff'))} · ${esc(line.character)} · ${esc(label(role.effects))}</span>${button(t('fx.configureRole'), `DublineVoiceEditor.open(${line.id}, 'role')`, !canModerate())}</div></section>`;
+      ${role.voicePresetId && model.preset(session, role) ? '<div class="insp-role-voice"><span>' + esc(t(own.inheritRoleEffects ? 'chain.roleOn' : 'chain.roleOff')) + ' · ' + esc(model.preset(session, role).name) + (role.presetModified ? ' ' + esc(t('chain.modified')) : '') + '</span></div>' : ''}</section>`;
   }
   function bulkHtml(lines) {
     const eligible = lines.filter(line => line.audioUrl && canEditTake(line));

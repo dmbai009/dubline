@@ -57,7 +57,7 @@ let recordSpeechInterval = null;
 let activeRecording = null;
 let recordStartPending = false;
 const processingRecordings = new Set();
-function finishRecordingProcessing(operation) { processingRecordings.delete(operation); window.DublineSequence?.refresh(); }
+function finishRecordingProcessing(operation) { processingRecordings.delete(operation); window.DublineNextLine?.refresh(); }
 
 function reserveTake(lineId, sessionId, options = {}) {
   if (!socket.connected) return Promise.resolve(null);
@@ -551,7 +551,7 @@ function refreshPendingUi(lineId) {
   for (const entry of pendingTakes.values()) {
     if (!entry.sessionId || entry.sessionId === (session && session.activeSessionId)) pendingTakeLines.add(entry.lineId);
   }
-  window.DublineSequence?.refresh(); window.DublineSceneReview?.refresh();
+  window.DublineNextLine?.refresh(); window.DublineSceneReview?.refresh();
   if (!session || !session.lines) return;
   const line = session.lines.find(l => l.id === lineId);
   if (line) updateLineBlock(line);
@@ -634,7 +634,7 @@ async function sendTake(entry) {
     pendingTakes.delete(entry.uploadId);
     takeStore.remove(entry.uploadId);
     refreshPendingUi(entry.lineId);
-    window.DublineSequence?.saved(entry, confirmed); window.DublineTakeAnalysis?.uploaded(entry, confirmed);
+    window.DublineTakeAnalysis?.uploaded(entry, confirmed);
     if (wasRetry) showToast(t('toast.takeSent'));
     if (!pendingTakes.size) {
       retryDelay = 2000;

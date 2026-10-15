@@ -5,7 +5,7 @@
   const allowed = (line, take) => canModerate() || !!myName && (getLineOwner(line) === myName || !getLineOwner(line) && take?.recordedBy === myName);
   const pending = line => busy.has(key(line)) || [...editorQueue, ...editorConflicts].some(op => op.event === 'take_history_update' && op.sessionId === session?.activeSessionId && op.payload.lineId === line.id);
   const blocked = () => recordState !== 'idle' || renderInProgress || window.snapshotFrozen;
-  const icons = { pin: '<path d="m8 3 8 0-1 5 3 4H6l3-4-1-5ZM12 12v9"/>', restore: '<path d="M5 10a7 7 0 1 1 0 6M5 4v6h6"/>', delete: '<path d="M4 6h16M9 6V3h6v3M6 6l1 15h10l1-15M10 10v7m4-7v7"/>', play: '<path d="m7 4 13 8-13 8Z"/>', stop: '<path d="M6 6h12v12H6Z"/>' };
+  const icons = { pin: '<path d="m8 3 8 0-1 5 3 4H6l3-4-1-5ZM12 12v9"/>', restore: '<path d="m6 12 4 4 8-9M4 3h16v18H4Z"/>', delete: '<path d="M4 6h16M9 6V3h6v3M6 6l1 15h10l1-15M10 10v7m4-7v7"/>', play: '<path d="m7 4 13 8-13 8Z"/>', stop: '<path d="M6 6h12v12H6Z"/>' };
   function button(action, take, enabled, label, active = false) {
     const title = t(label) + (action === 'pin' && take.pinned ? ' · ' + t('takeHistory.pinned') : '');
     return `<button type="button" class="btn-outline take-history-icon${active ? ' active' : ''}" data-history-action="${action}" data-history-take="${esc(take.id)}" title="${esc(title)}" aria-label="${esc(t(label))}"${action === 'pin' ? ` aria-pressed="${take.pinned}"` : ''}${enabled ? '' : ' disabled'}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">${icons[action === 'play' && active ? 'stop' : action]}</svg></button>`;
@@ -27,7 +27,7 @@
       return `<div class="take-history-row" data-history-row="${esc(take.id)}">${button('play', take, !blocked() && video.paused && !watchMode && canHearLine({ ...line, ...take }), active ? 'takeHistory.stop' : 'takeHistory.listen', active)}<span class="take-history-label" title="${esc(label + (take.recordedBy ? ' · ' + take.recordedBy : ''))}">${esc(label)}${take.recordedBy ? `<small>${esc(take.recordedBy)}</small>` : ''}</span>${button('pin', take, edit, take.pinned ? 'takeHistory.unpin' : 'takeHistory.pin', take.pinned)}${button('restore', take, edit, 'takeHistory.restore')}${button('delete', take, edit, 'takeHistory.delete')}</div>`;
     }).join('');
     const conflicts = issues.map(entry => `<div class="take-history-conflict"><span>${esc(t(entry.historyIssue))}</span><button type="button" class="btn-outline" data-history-retry="${esc(entry.uploadId)}" ${blocked() || !socket.connected ? 'disabled' : ''}>${esc(t('takeHistory.retry'))}</button><button type="button" class="btn-outline" data-history-discard="${esc(entry.uploadId)}">${esc(t('takeHistory.discardLocal'))}</button></div>`).join('');
-    return `<details class="take-history" ${expanded ? 'open' : ''}><summary>${esc(t('takeHistory.title'))}<span>${history.length}/3${history.some(take => take.pinned) ? ' · 📌' : ''}</span></summary>${[model.extract(line), ...history].filter(take => take && canHearLine({ ...line, ...take })).length >= 2 ? `<button type="button" class="btn-outline" data-history-compare="true">${esc(t('compare.title'))}</button>` : ''}${rows}${conflicts}</details>`;
+    return `<details class="take-history" ${expanded ? 'open' : ''}><summary>${esc(t('takeHistory.title'))}<span>${history.length}/3${history.some(take => take.pinned) ? ' · 📌' : ''}</span></summary>${rows}${conflicts}</details>`;
   }
   function stop() { generation++; if (playing) { playing = null; audio.stopPreview(); refresh(); } }
   function refresh() { if (selectedLine && recordState === 'idle' && multiSelection.size < 2) showInspector(selectedLine); }
@@ -91,7 +91,6 @@
     const btn = event.target.closest('button'); if (!btn || btn.disabled || !selectedLine) return;
     if (btn.dataset.historyRetry) return void window.retryHistoryTake?.(btn.dataset.historyRetry);
     if (btn.dataset.historyDiscard) return void window.discardHistoryTake?.(btn.dataset.historyDiscard);
-    if (btn.dataset.historyCompare) return window.DublineTakeCompare?.open(selectedLine.id);
     if (!btn.dataset.historyAction) return;
     const line = selectedLine, take = [model.extract(line), ...(Array.isArray(line.takeHistory) ? line.takeHistory : [])].find(take => take?.id === btn.dataset.historyTake);
     if (!take) return;
@@ -102,5 +101,5 @@
   socket.on('session_updated', () => { if (view && (!selectedLine || view !== key(selectedLine))) stop(); });
   socket.on('disconnect', stop);
   socket.on('take_history_warning', message => { if (message.sessionId === session?.activeSessionId) showToast(t('takeHistory.cleanupError')); });
-  window.DublineTakeHistory = Object.freeze({ capture, restoreFocus, mainHtml, html, stop, beforeRecord, choose: (line, take) => change(line, take, 'restore') });
+  window.DublineTakeHistory = Object.freeze({ capture, restoreFocus, mainHtml, html, stop, beforeRecord });
 })();

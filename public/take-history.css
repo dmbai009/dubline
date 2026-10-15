@@ -11,3 +11,9 @@
 .take-history-label small { display:block; overflow:hidden; text-overflow:ellipsis; color:var(--muted); }
 .take-history-conflict { display:flex; flex-wrap:wrap; gap:4px; padding:6px; border-top:1px solid var(--border); font-size:11px; }
 .take-history-conflict span { width:100%; overflow-wrap:anywhere; }
+
+.take-history-icon[data-history-action=play] { color:var(--success); border-color:var(--success); }
+.take-history-icon[data-history-action=play].active { background:var(--success-soft); color:var(--success); }
+.take-history-icon[data-history-action=delete] { color:var(--danger); }
+.take-history-icon[data-history-action=restore] { color:var(--accent-2); }
+.take-history-label { margin-inline-start:3px; }

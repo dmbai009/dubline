@@ -26,11 +26,14 @@
       if (node.matches('[data-editor-take]')) { node.classList.add('insp-editor-take'); groups.set('editor-take', node); continue; }
       if (node.matches('#editorLineForm')) { group('editing').append(node); continue; }
       if (node.matches('.fx-inspector, .fx-details, .fx-summary')) { group('voice').append(node); continue; }
-      if (node.matches('.take-history, .retake-controls, .quality-hint')) { group('history').append(node); continue; }
+      if (node.matches('.take-history')) { group('recording', 'inspector.recording').append(node); continue; }
+      if (node.matches('.retake-controls, .quality-hint')) { group('history').append(node); continue; }
       if (node.matches('[data-take-mix], .clip-mix-panel')) { group('mix').append(node); continue; }
       if (session.mode === 'edit' && line) group('editing').append(node);
       else group('recording', 'inspector.recording').append(node);
     }
+    const recording = groups.get('recording');
+    if (recording) { const history = recording.querySelector('.take-history'); if (history) recording.append(history); }
     const order = session.mode === 'edit' && line ? ['editing', 'editor-take', 'voice', 'mix', 'history', 'recording'] : ['recording', 'voice', 'mix', 'history'];
     for (const name of order) if (groups.has(name)) grid.append(groups.get(name));
     inspector.append(grid);

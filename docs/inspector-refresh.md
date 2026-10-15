@@ -1,5 +1,8 @@
 # Adaptive inspector and compact effect editor
 
+Follow-up: current single-chain behavior is in single-effect-chain.md. The latest workspace is up to 1,160 × 780 px; its sidebar expands without reducing the previous chain area. History now belongs to Recording below mic gain; see studio-ux-fixes.md. Historical implementation notes and measurements follow.
+
+
 The inspector now groups the existing controls into recording, voice, clip mix and history/review sections. Groups use thin separators rather than large cards. Container queries select one, two or three columns from the panel's available width; the existing splitter now allows up to 960 px. Narrow layouts retain vertical scrolling and all existing gain, recording, claim, original-preview, pin/history, quality, retake, trim/shift, volume and pan controls. Edit Mode retains its form, timing protection, leases and private caption drafts. Changing the language rebuilds labels while preserving the unsaved form and caret.
 
 The common role/take/preset editor is capped at 1,060 px wide and 840 px high, with smaller stage rows, inline Echo controls, a direct effect palette and a compact preset sidebar. Narrow windows stack panels; the body scrolls independently of the audition/Apply footer. Dragging retains its floating card, animated insertion and keyboard alternatives. Focus now stays on the stable chain container during dragging, so Escape cancels the gesture even when moving DOM nodes or disabling the last palette button at the eight-stage limit.

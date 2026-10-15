@@ -393,6 +393,7 @@ let visibleLineNumbers = new Map();
 function lineNumber(line) { return visibleLineNumbers.get(line.id) ?? line.id; }
 
 function renderTimeline() {
+  window.DublineNextLine?.refresh();
   if (window.activeEditorGesture) { cancelEditorGesture(); }
   visibleLineNumbers = window.DublineTimeline.numbers(session.lines || []);
   const oldScale = pxPerSec;
@@ -490,6 +491,8 @@ function updateLineBlockVisual(el, line) {
   else if (session.mode === 'edit') el.classList.add('editable');
   else if (owner === myName) el.classList.add('claimed-me');
   else if (owner) el.classList.add('claimed-other');
+
+  if (line.audioUrl && line.needsRetake) el.classList.add('needs-retake');
 
   let nickBadge = '';
   const liveNick = liveRecordings.get(line.id);
@@ -1087,7 +1090,7 @@ function buildRoleRow(char, trackWidth, allowCharacterClaims, editing) {
     const voiceRoleBtn = canModerate() ? `<button class="btn-icon track-fx" title="${esc(t('fx.configureRole'))}" aria-label="${esc(t('fx.configureRole'))}" onclick="DublineVoiceEditor.open(${jsArg(char)}, 'role')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 7h16M4 17h16M9 4v6M15 14v6"/></svg></button>` : '';
     label.innerHTML = `
       <div class="track-label-inner">
-        <span class="char-name-row"><span class="char-name" title="${esc(char)}">${esc(char)}</span>${renameTrackBtn}${voiceRoleBtn}</span>
+        <span class="char-name-row">${voiceRoleBtn}<span class="char-name" title="${esc(char)}">${esc(char)}</span>${renameTrackBtn}</span>
         ${roleHtml}
       </div>
     `;

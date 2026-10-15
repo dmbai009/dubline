@@ -11,7 +11,7 @@
     const text = select.selectedOptions[0]?.textContent || '';
     if (item.text.textContent !== text) item.text.textContent = text;
     if (item.button.disabled !== select.disabled) item.button.disabled = select.disabled;
-    item.button.setAttribute('aria-label', label(select)); item.button.title = select.title;
+    item.button.setAttribute('aria-label', label(select)); item.button.title = select.title || text;
     if (item.button.hidden !== select.hidden) item.button.hidden = select.hidden;
     item.button.style.display = select.style.display === 'none' ? 'none' : '';
     if (opened === select) { if (select.disabled || !select.isConnected || select.hidden) close(false); else if (item.popupKey !== optionKey(select)) paint(); }
@@ -29,11 +29,15 @@
   function position() {
     if (!opened) return;
     const anchor = controls.get(opened)?.button; if (!anchor?.isConnected || !anchor.getClientRects().length) return close(false);
-    const box = anchor.getBoundingClientRect(), scale = popup.getBoundingClientRect().width / popup.offsetWidth || 1;
+    // Integer offsetWidth feeds fractional zoom back into ResizeObserver.
+    // Read cumulative CSS zoom independently of popup geometry.
+    let scale = 1;
+    for (let node = popup; node; node = node.parentElement) scale *= parseFloat(getComputedStyle(node).zoom) || 1;
+    const box = anchor.getBoundingClientRect();
     const width = Math.min(Math.max(box.width, 180 * scale), innerWidth - 16);
     popup.style.width = width / scale + 'px';
     const below = innerHeight - box.bottom - 8, above = box.top - 8;
-    const upwards = below < Math.min(popup.scrollHeight * scale, 240 * scale) && above > below;
+    const upwards = below < Math.min((list.scrollHeight + (search.hidden ? 0 : search.offsetHeight + 5) + 12) * scale, 240 * scale) && above > below;
     popup.style.maxHeight = Math.max(60, Math.min(340 * scale, upwards ? above : below)) / scale + 'px';
     popup.style.left = Math.max(8, Math.min(box.left, innerWidth - width - 8)) / scale + 'px';
     const height = popup.getBoundingClientRect().height, desiredTop = upwards ? box.top - height - 4 : box.bottom + 4;
@@ -48,15 +52,15 @@
     for (const { option, index } of entries) {
       const row = document.createElement('div'); row.id = 'dubOption' + index; row.role = 'option'; row.dataset.index = index;
       row.textContent = option.textContent; const reason = option.dataset.disabledReason || option.title; if (unavailable(option) && reason) { const help = document.createElement('small'); help.textContent = reason; row.append(help); row.dataset.tooltip = reason; row.setAttribute('aria-description', reason); } row.setAttribute('aria-selected', String(option.selected)); row.setAttribute('aria-disabled', String(!!unavailable(option))); row.className = index === active ? 'dub-select-active' : '';
-      row.onpointermove = () => { if (!unavailable(option) && active !== index) { active = index; mark(); } };
+      row.onpointermove = () => { if (!unavailable(option) && active !== index) { active = index; mark(false); } };
       row.onpointerdown = event => event.preventDefault(); row.onclick = () => choose(index); list.append(row);
     }
     controls.get(opened).button.setAttribute('aria-activedescendant', 'dubOption' + active); search.setAttribute('aria-activedescendant', 'dubOption' + active); position();
   }
-  function mark() {
+  function mark(scroll = true) {
     for (const row of list.children) row.classList.toggle('dub-select-active', Number(row.dataset.index) === active);
     const id = 'dubOption' + active; controls.get(opened)?.button.setAttribute('aria-activedescendant', id); search.setAttribute('aria-activedescendant', id);
-    document.getElementById(id)?.scrollIntoView({ block: 'nearest' });
+    if (scroll) document.getElementById(id)?.scrollIntoView({ block: 'nearest' });
   }
   function choose(index) {
     const select = opened, option = select?.options[index]; if (!option || unavailable(option)) return;

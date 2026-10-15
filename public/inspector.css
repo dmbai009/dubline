@@ -17,7 +17,7 @@
 #inspector #visualizerCanvas { width:100%; height:22px; }
 #inspector:not(:has(.insp-mic)) #visualizerCanvas { display:none; }
 #inspector .fx-inspector { display:grid; gap:8px; min-width:0; }
-#inspector .insp-section-title { display:flex; justify-content:space-between; align-items:center; gap:8px; font-size:12px; }
+#inspector .insp-section-title { display:flex; justify-content:space-between; align-items:center; gap:8px; font-size:11px; min-height:25px; }
 #inspector .fx-inspector button { font-size:10px; padding:5px 7px; }
 #inspector .insp-preset { display:grid; gap:5px; min-width:0; }
 #inspector .insp-preset-controls { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:5px; }
@@ -28,7 +28,7 @@
 #inspector .insp-role-voice > span { flex:1 1 130px; overflow-wrap:anywhere; }
 #inspector .take-history { margin:0; background:none; border-radius:5px; }
 #inspector .take-history summary { padding:6px; font-size:11px; }
-#inspector .take-history-row { gap:2px; }
+#inspector .take-history-row { gap:4px; }
 #inspector .take-history-icon { flex-basis:23px; width:23px; height:25px; }
 #inspector .retake-controls { gap:6px; font-size:11px; }
 #inspector .insp-char-form { flex:initial; min-width:0; }
@@ -41,3 +41,12 @@
 #inspector .insp-section:empty { display:none; }
 @container (min-width:460px) { #inspector .insp-columns { grid-template-columns:repeat(2,minmax(0,1fr)); column-gap:18px; } }
 @container (min-width:760px) { #inspector .insp-columns { grid-template-columns:repeat(3,minmax(0,1fr)); } }
+
+#inspector .insp-section-title h4 { flex:1; }
+
+#inspector .insp-recording > h4 { min-height:25px; display:flex; align-items:center; }
+
+#inspector .take-row { flex-wrap:wrap; row-gap:6px; }
+#inspector .insp-trim .switch-ui { width:32px; height:18px; }
+#inspector .insp-trim .switch-slider:before { width:12px; height:12px; left:3px; bottom:3px; }
+#inspector .insp-trim input:checked + .switch-slider:before { transform:translateX(14px); }

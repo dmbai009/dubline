@@ -66,9 +66,14 @@ Scene-local shared effect presets support creation by admitted participants and 
 
 ## Live presets and recording workflow
 
-Scene presets may remain live links; common edits are private until saved, while explicit copy/detach preserve independent sound. Optional own-line sequence, existing-history A/B, advisory capture checks, shared voice volume correction (off by default), compact scene review, clearer export choices/results and media retry/cancel states reuse the existing studio. Quality hints are personal and never mark retakes automatically. Shared correction retains manual levels and the same play/export result. See docs/live-presets-workflow.md.
+Scene presets may remain live links; common edits are private until saved, while explicit copy/detach preserve independent sound. Next-unrecorded-line navigation, ordinary take-history playback, advisory capture checks, shared voice volume correction (off by default), compact scene review, clearer export choices/results and media retry/cancel states reuse the existing studio. Quality hints are personal and never mark retakes automatically. Shared correction retains manual levels and the same play/export result. See docs/live-presets-workflow.md.
 
 
 ## Adaptive inspector and compact effects
 
 The inspector uses its available panel width for one, two or three columns while retaining existing recording, history and mix controls. Scene presets can be linked directly from the inspector. The current single-chain workflow replaces the complete own chain after confirmation, preserving recording/mix/inheritance settings; editing creates a private modified variant. See docs/single-effect-chain.md. The compact full editor retains chain dragging/presets and adds built-in preset icons; portable format 12 preserves optional icon metadata. The former single-role timeline selector is replaced by the existing multi-role filter. See docs/inspector-refresh.md.
+
+
+## Studio UX corrections
+
+The effect sidebar grows with the workspace while preserving chain space and four-card rows. Line/role terminology, recording/voice headings, compact history placement and themed silence-trim switches use the existing editor/audio controls. The sequence recorder and historical A/B dialog are removed. Next line wraps within the current owned role before moving to another owned role, reveals the target without changing saved filters and never starts recording. Requested retakes use the minimap warning color on the timeline. Completion checks sit before player names; moderators use a contrasting blue shield. Fractional-zoom dropdown positioning is stable, invitation copy-with-PIN shares its PIN row and fullscreen subtitles clear the actual wrapped transport height. See docs/studio-ux-fixes.md.

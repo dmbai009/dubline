@@ -20,24 +20,23 @@ async function capture(page, destination, resize) {
   for (const theme of process.argv.includes('--quick') ? ['light'] : ['midnight', 'graphite', 'light', 'ocean', 'forest', 'sunset']) for (const language of process.argv.includes('--quick') ? ['ru'] : ['en', 'ru', 'uk']) for (const zoom of [1, 1.25, 1.5]) {
     await resize(820, 900, zoom);
     await page.evaluate(async (theme, language) => { document.documentElement.dataset.theme = theme; await DublineI18n.setLanguage(language); }, theme, language);
-    for (const panel of ['presets', 'compare', 'review', 'levels']) {
+    for (const panel of ['presets', 'review', 'levels']) {
       await page.evaluate(async panel => {
-        await closeSettingsModal(); if (fxDialog.open) fxCancel.click(); DublineTakeCompare.close(); if (sceneReviewDialog.open) sceneReviewClose.click();
+        await closeSettingsModal(); if (fxDialog.open) fxCancel.click(); if (sceneReviewDialog.open) sceneReviewClose.click();
         if (panel === 'presets') { DublineVoiceEditor.open('visual-0', 'preset'); fxPresets.open = true; }
-        if (panel === 'compare') DublineTakeCompare.open(1);
         if (panel === 'review') sceneReviewBtn.click();
         if (panel === 'levels') { openSettingsModal(); await switchSettingsTab('player'); await openSettingsCategory('player', 'audio'); }
       }, panel);
       await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 260)));
       const geometry = await page.evaluate(panel => {
-        const node = panel === 'levels' ? document.querySelector('#settingsModal .modal-card') : document.getElementById({ presets: 'fxDialog', compare: 'takeCompareDialog', review: 'sceneReviewDialog' }[panel]); const box = node.getBoundingClientRect(), button = panel === 'levels' ? normalizeVoices.closest('.switch-ui') : node.querySelector('.fx-footer button'); const footer = button.getBoundingClientRect();
+        const node = panel === 'levels' ? document.querySelector('#settingsModal .modal-card') : document.getElementById({ presets: 'fxDialog', review: 'sceneReviewDialog' }[panel]); const box = node.getBoundingClientRect(), button = panel === 'levels' ? normalizeVoices.closest('.switch-ui') : node.querySelector('.fx-footer button'); const footer = button.getBoundingClientRect();
         return { fits: box.left >= -1 && box.right <= innerWidth + 1 && box.bottom <= innerHeight + 1, overflow: node.scrollWidth > node.clientWidth + 1, footer: footer.height > 0 && footer.top >= box.top - 1 && footer.bottom <= box.bottom + 1, missing: [...node.querySelectorAll('[data-i18n]')].filter(item => item.getBoundingClientRect().height && item.textContent === item.dataset.i18n).map(item => item.dataset.i18n) };
       }, panel);
       const filename = `${theme}-${language}-${Math.round(zoom * 100)}-${panel}.png`; await page.screenshot({ path: path.join(destination, filename) }); assert.ok(geometry.fits && !geometry.overflow && geometry.footer && !geometry.missing.length, JSON.stringify({ filename, geometry })); results.push({ filename, geometry });
     }
   }
-  await page.evaluate(() => { closeSettingsModal(); if (fxDialog.open) fxCancel.click(); DublineTakeCompare.close(); if (sceneReviewDialog.open) sceneReviewClose.click(); });
-  await resize(640, 850, 1.5); await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]); await page.evaluate(() => { DublineTakeCompare.open(1); }); await page.keyboard.press('Tab'); await page.keyboard.press('Tab'); assert.ok(await page.evaluate(() => takeCompareDialog.contains(document.activeElement))); await page.screenshot({ path: path.join(destination, 'narrow-keyboard-reduced-motion.png') }); await page.keyboard.press('Escape');
+  await page.evaluate(() => { closeSettingsModal(); if (fxDialog.open) fxCancel.click(); if (sceneReviewDialog.open) sceneReviewClose.click(); });
+  await resize(640, 850, 1.5); await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]); await page.evaluate(() => { sceneReviewBtn.click(); }); await page.keyboard.press('Tab'); await page.keyboard.press('Tab'); assert.ok(await page.evaluate(() => sceneReviewDialog.contains(document.activeElement))); await page.screenshot({ path: path.join(destination, 'narrow-keyboard-reduced-motion.png') }); await page.keyboard.press('Escape');
   fs.writeFileSync(path.join(destination, 'results.json'), JSON.stringify(results, null, 2)); assert.deepEqual(page.errors, []);
 }
 async function main() {

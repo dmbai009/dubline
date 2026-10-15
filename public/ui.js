@@ -617,6 +617,7 @@ window.addEventListener('keydown', (e) => {
 });
 
 function showInspector(line) {
+  window.DublineNextLine?.refresh();
   const historyFocus = window.DublineTakeHistory?.capture(line);
   const retakeFocus = window.DublineRetakes?.captureFocus(line);
   if (multiSelection.size >= 2) { window.DublineTakeHistory?.stop(); return showMultiInspector(); }
@@ -841,9 +842,9 @@ function takePanelHtml(line, editable) {
     ${takeMixPanelHtml([line])}
     <div class="take-panel" data-take-mix data-session="${esc(session.activeSessionId)}" data-takes="${esc(JSON.stringify([{ lineId: line.id, audioUrl: line.audioUrl, takeMixRevision: line.takeMixRevision || 0 }]))}" title="${esc(t('dragHint'))}">
       <div class="take-row">
-        <label class="insp-check" title="${esc(hasTrim ? t('speech', { from: line.trimStart.toFixed(2), to: line.trimEnd.toFixed(2) }) : t('speechMissing'))}">
-          <input type="checkbox" ${line.trimEnabled !== false ? 'checked' : ''} ${hasTrim ? '' : 'disabled'}
-            onchange="setTakeControlProps(this, { trimEnabled: this.checked })">
+        <label class="insp-check insp-trim" title="${esc(hasTrim ? t('speech', { from: line.trimStart.toFixed(2), to: line.trimEnd.toFixed(2) }) : t('speechMissing'))}">
+          <span class="switch-ui"><input data-trim-toggle type="checkbox" role="switch" aria-label="${esc(t('trim'))}" ${line.trimEnabled !== false ? 'checked' : ''} ${hasTrim ? '' : 'disabled'}
+            onchange="setTakeControlProps(this, { trimEnabled: this.checked })"><span class="switch-slider"></span></span>
           <span>${t('trim')}</span>
         </label>
         <span class="insp-shift">

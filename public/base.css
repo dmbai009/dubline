@@ -80,6 +80,7 @@
     ::-webkit-scrollbar-thumb { background: #2c2c3a; border-radius: 10px; border: 2px solid transparent; background-clip: padding-box; }
     ::-webkit-scrollbar-thumb:hover { background: #3c3c4e; border: 2px solid transparent; background-clip: padding-box; }
     ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-corner { background:var(--panel-2); }
 
     /* ==========================================
        BUTTONS
@@ -466,6 +467,20 @@
     .switch-slider:before { position: absolute; content: ""; height: 16px; width: 16px; left: 2px; bottom: 2px; background-color: white; transition: .2s; border-radius: 50%; }
     .switch-ui input:checked + .switch-slider { background-color: var(--accent); border-color: var(--accent); }
     .switch-ui input:checked + .switch-slider:before { transform: translateX(18px); }
+    /* Keep native checkbox state/events while giving every remaining field the same themed toggle. */
+    input[type="checkbox"]:not(.switch-ui input) { appearance:none; position:relative; display:inline-block; vertical-align:middle; box-sizing:border-box; flex:0 0 40px; width:40px; height:22px; min-width:40px; margin:0; padding:0; border:1px solid var(--border-strong); border-radius:22px; background:var(--panel-3); cursor:pointer; transition:background-color .2s, border-color .2s; }
+    input[type="checkbox"]:not(.switch-ui input)::before { content:""; position:absolute; width:16px; height:16px; left:2px; top:2px; border-radius:50%; background:#fff; transition:transform .2s; }
+    input[type="checkbox"]:not(.switch-ui input):checked { background:var(--accent); border-color:var(--accent); }
+    input[type="checkbox"]:not(.switch-ui input):checked::before { transform:translateX(18px); }
+    input[type="checkbox"]:not(.switch-ui input):indeterminate { background:var(--accent); border-color:var(--accent); }
+    input[type="checkbox"]:not(.switch-ui input):indeterminate::before { transform:translateX(9px); }
+    input[type="checkbox"]:not(.switch-ui input):focus-visible { outline:2px solid var(--accent-2); outline-offset:3px; }
+    input[type="checkbox"]:not(.switch-ui input):disabled { opacity:.5; cursor:not-allowed; }
+    label:has(> input[type="checkbox"]):not(.switch-ui):not(.trash-item):not([hidden]) { display:flex; align-items:center; gap:8px; }
+    label:has(> .switch-ui) { column-gap:8px; }
+    .switch-ui input:indeterminate + .switch-slider { background:var(--accent); border-color:var(--accent); }
+    .switch-ui input:indeterminate + .switch-slider::before { transform:translateX(9px); }
+    @media (prefers-reduced-motion:reduce) { input[type="checkbox"]:not(.switch-ui input), input[type="checkbox"]:not(.switch-ui input)::before, .switch-slider, .switch-slider::before { transition:none; } }
     .hosting-modes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
     .hosting-mode { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; padding: 11px; background: var(--panel-2); border: 1px solid var(--border); color: var(--text); text-align: left; }
     .hosting-mode.active { border-color: var(--accent-2); background: var(--accent-soft); box-shadow: 0 0 0 1px var(--accent-2) inset; }
@@ -524,3 +539,10 @@
     .clip-mix-row input { width:100%; min-width:0; accent-color:var(--accent); }
     .clip-mix-row output { text-align:right; font-variant-numeric:tabular-nums; font-size:11px; }
     .clip-mix-row select { grid-column:1 / -1; min-width:0; }
+
+.desktop-pin-row { justify-content:space-between; flex-wrap:wrap; gap:6px; }
+.desktop-pin-row .desktop-pin { margin-left:0; }
+.desktop-pin-row .desktop-copy-all-btn { white-space:normal; min-width:0; flex:0 1 auto; }
+.player-head .player-status-complete { color:var(--success); flex:none; font-size:13px; }
+.player-tags .tag.moderator { color:#7dd3fc; background:#0c4a6e; border:1px solid #38bdf8; display:inline-flex; align-items:center; }
+html[data-theme=light] .player-tags .tag.moderator { color:#075985; background:#e0f2fe; border-color:#0284c7; }

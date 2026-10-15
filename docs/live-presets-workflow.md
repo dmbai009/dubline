@@ -1,5 +1,8 @@
 # DubLine 1.4: live presets and recording workflow
 
+Current UX supersedes the historical sequence recorder and take A/B sections below: both were removed at the user’s request. Next-unrecorded-line navigation and ordinary history playback replace them. The single-chain preset workflow is documented in single-effect-chain.md; current UI and verification are in studio-ux-fixes.md.
+
+
 Implementation started from `main` at `4992faf10b8130c5ee91b895936ec1b58fc68469`. The existing DubLine license and application version remain unchanged. This document describes the working implementation, its actual checks and its limits.
 
 ## 1. Completed stages
