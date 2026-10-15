@@ -39,9 +39,6 @@
     hostOnline: false,
     discardTake: false,
     userMicGain: parseFloat(storage.getItem('dubline_mic_gain')) || 1.0,
-    // Browser noise suppression is off by default: it swallows quiet phrases and distorts the voice.
-    // It is on only if the player turned it on in settings.
-    noiseSuppression: storage.getItem('dubline_noise_suppression') === '1',
     autoDuckEnabled: storage.getItem('dubline_auto_duck') !== '0',
     autoDuckAmount: Number.isFinite(storedAutoDuckAmount)
       ? Math.max(0, Math.min(0.8, storedAutoDuckAmount))

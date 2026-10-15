@@ -94,6 +94,8 @@
   }
   async function capture(constraints) {
     if (!media?.getUserMedia) throw new Error('Microphone capture unavailable');
+    // Capture originals without browser DSP, even for callers with old preferences.
+    constraints = { ...constraints, echoCancellation: false, noiseSuppression: false, autoGainControl: false };
     const selected = inputId;
     captureRequests++;
     let stream;
@@ -142,7 +144,7 @@
     permissionButton.onclick = async () => {
       permissionButton.disabled = true;
       try {
-        if (!recordingBusy()) { const stream = await media.getUserMedia({ audio: true }); stream.getTracks().forEach(track => track.stop()); window.dispatchEvent(new Event('dubline-microphone-granted')); window.dispatchEvent(new Event('dubline-microphone-released')); }
+        if (!recordingBusy()) { const stream = await media.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } }); stream.getTracks().forEach(track => track.stop()); window.dispatchEvent(new Event('dubline-microphone-granted')); window.dispatchEvent(new Event('dubline-microphone-released')); }
         notice = ''; await refresh();
       } catch { say('audio.device.permissionDenied'); }
       finally { permissionButton.disabled = false; }

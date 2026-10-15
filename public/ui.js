@@ -380,7 +380,6 @@ const settingsNickInput = document.getElementById('settingsNickInput');
 const settingsNickStatus = document.getElementById('settingsNickStatus');
 const settingsMicGain = document.getElementById('settingsMicGain');
 const settingsMicGainVal = document.getElementById('settingsMicGainVal');
-const settingsNoiseSuppression = document.getElementById('settingsNoiseSuppression');
 const settingsAutoDuck = document.getElementById('settingsAutoDuck');
 const settingsAutoDuckAmount = document.getElementById('settingsAutoDuckAmount');
 const settingsAutoDuckVal = document.getElementById('settingsAutoDuckVal');
@@ -396,7 +395,6 @@ function syncSettingsUi() {
   settingsNickInput.value = myName;
   settingsMicGain.value = Math.round(userMicGain * 100);
   settingsMicGainVal.textContent = `${settingsMicGain.value}%`;
-  settingsNoiseSuppression.checked = noiseSuppression;
   settingsAutoDuck.checked = autoDuckEnabled;
   settingsAutoDuckAmount.value = Math.round(autoDuckAmount * 100);
   settingsAutoDuckVal.textContent = `${settingsAutoDuckAmount.value}%`;
@@ -462,10 +460,6 @@ settingsMicGain.addEventListener('input', () => {
   userMicGain = settingsMicGain.value / 100;
   localStorage.setItem('dubline_mic_gain', userMicGain);
   settingsMicGainVal.textContent = `${settingsMicGain.value}%`;
-});
-settingsNoiseSuppression.addEventListener('change', () => {
-  noiseSuppression = settingsNoiseSuppression.checked;
-  localStorage.setItem('dubline_noise_suppression', noiseSuppression ? '1' : '0');
 });
 settingsAutoDuck.addEventListener('change', () => {
   window.updateProjectAudio('settings', 'autoDuckEnabled', settingsAutoDuck.checked);

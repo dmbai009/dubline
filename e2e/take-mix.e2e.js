@@ -95,7 +95,7 @@ describe('clip mixing: real sockets, inspector and audio', { skip: skipReason, t
   });
 
   test('bulk effect, strength and pan apply in both modes; guest selection changes only own recordings', async () => {
-    await host.evaluate(() => DublineVoiceEditor.bulk()); await host.select('#fxAction','append'); await host.select('#fxType','behindDoor'); await host.click('#fxAdd');
+    await host.evaluate(() => DublineVoiceEditor.bulk()); await host.select('#fxAction','append'); await host.click('[data-fx-type="' + 'behindDoor' + '"]');
     await host.$eval('#fxRows input[type=range]',input=>{input.value='55';input.dispatchEvent(new Event('input',{bubbles:true}));}); await host.click('#fxApply');
     await waitFor(guest,()=>session.lines.slice(0,2).every(line=>line.effects?.some(effect=>effect.type==='behindDoor' && effect.amount===.55)));
     await change(host, 'pan', -60); await waitFor(guest, () => session.lines[0].pan === -0.6 && session.lines[1].pan === -0.6);
@@ -300,7 +300,7 @@ describe('clip mixing: real sockets, inspector and audio', { skip: skipReason, t
     await host.evaluate(() => { clearMultiSelection(); selectLine(session.lines[0]); });
     assert.equal(await host.$('[data-clip-field=effect]'), null); assert.equal(await host.$('.pitch-range'), null); assert.equal(await host.$('[data-clip-field=effectAmount]'), null);
     await host.evaluate(() => DublineVoiceEditor.open(1, 'takes'));
-    await host.select('#fxType', 'radio'); await host.click('#fxAdd');
+    await host.click('[data-fx-type="' + 'radio' + '"]');
     await host.$eval('#fxRows .fx-item:last-child input[type=range]', input => { input.value='25'; input.dispatchEvent(new Event('input', { bubbles:true })); });
     await host.click('#fxApply'); await waitFor(guest, () => session.lines[0].effects?.some(effect => effect.type === 'radio' && effect.amount === .25));
     await host.evaluate(() => { const emit=socket.emit; window.resetWrites=0; socket.emit=function(event,...args){if(event==='set_takes_props') resetWrites++;return emit.call(this,event,...args);}; });
@@ -319,7 +319,7 @@ describe('clip mixing: real sockets, inspector and audio', { skip: skipReason, t
     await host.evaluate(() => { clearMultiSelection(); selectLine(session.lines[0]); toggleMultiSelect(2); });
     assert.equal(await host.$('[data-clip-field=effect]'),null); assert.equal(await host.$('[data-clip-field=pitch]'),null); assert.equal(await host.$('[data-clip-field=effectAmount]'),null);
     const before=await host.evaluate(() => session.lines.slice(0,2).map(line => ({ effects:DublineVoiceChain.take(line).effects.length,pitch:line.pitch,mode:DublineVoiceChain.take(line).pitchMode })));
-    await host.evaluate(() => DublineVoiceEditor.bulk()); await host.select('#fxAction','append'); await host.select('#fxType','radio'); await host.click('#fxAdd');
+    await host.evaluate(() => DublineVoiceEditor.bulk()); await host.select('#fxAction','append'); await host.click('[data-fx-type="' + 'radio' + '"]');
     await host.$eval('#fxRows input[type=range]', input => { input.value='55';input.dispatchEvent(new Event('input',{bubbles:true})); });
     await host.click('#fxApply'); await waitFor(guest, before => session.lines.slice(0,2).every((line,i) => line.effects?.length===before[i].effects+1),10000,before);
     const after=await guest.evaluate(() => session.lines.slice(0,2).map(line => ({ amount:line.effects.at(-1).amount,type:line.effects.at(-1).type,pitch:line.pitch,mode:line.pitchMode })));

@@ -137,7 +137,7 @@ window.handleStudioRecord = async function(lineId) {
   const recordingSessionId = session.activeSessionId || '';
   const recordingRoom = currentRoom;
   const recordingNick = myName;
-  const recordingNoiseSuppression = noiseSuppression, recordingGain = userMicGain;
+  const recordingGain = userMicGain;
   const historyCheck = window.DublineTakeHistory?.beforeRecord(line);
   const historyConsent = historyCheck?.then ? await historyCheck : historyCheck ?? (window.DublineTakeHistory ? null : {});
   if (!historyConsent) return;
@@ -147,8 +147,8 @@ window.handleStudioRecord = async function(lineId) {
   let recordingMic;
   try {
     recordingMic = await window.DublineAudioDevices.capture({
-        echoCancellation: recordingNoiseSuppression,
-        noiseSuppression: recordingNoiseSuppression,
+        echoCancellation: false,
+        noiseSuppression: false,
         autoGainControl: false,
         channelCount: 1
     });

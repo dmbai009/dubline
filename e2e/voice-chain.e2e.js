@@ -65,7 +65,7 @@ describe('voice chains: real DSP, inspector, author rights and scoped collaborat
   test('draft preview, A/B, independent slider changes, reorder and Cancel leave shared take unchanged', async () => {
     const before = await host.evaluate(() => JSON.stringify(session));
     await guest.evaluate(() => DublineVoiceEditor.open(2, 'takes')); await waitFor(guest, () => document.getElementById('fxDialog').open);
-    await guest.select('#fxType', 'echo'); await guest.click('#fxAdd');
+    await guest.click('[data-fx-type="' + 'echo' + '"]');
     await guest.$eval('#fxRows [data-action="amount"]', input => { input.value = '23'; input.dispatchEvent(new Event('input', { bubbles: true })); });
     await guest.click('#fxRows [data-action="down"]'); await waitFor(guest, () => document.getElementById('fxStatus').textContent === t('fx.ready'));
     await guest.click('#fxPlay'); await guest.select('#fxAB', 'dry'); await guest.click('#fxCancel');
@@ -80,11 +80,11 @@ describe('voice chains: real DSP, inspector, author rights and scoped collaborat
   });
   test('pointer drag commits one final local order, preserves per-instance strength and never broadcasts a draft', async () => {
     const before = await host.evaluate(() => JSON.stringify(session.lines));
-    await guest.evaluate(() => DublineVoiceEditor.open(2, 'takes')); await guest.select('#fxType', 'radio'); await guest.click('#fxAdd');
+    await guest.evaluate(() => DublineVoiceEditor.open(2, 'takes')); await guest.click('[data-fx-type="' + 'radio' + '"]');
     const a = await guest.$eval('#fxRows .fx-grip', node => { const r = node.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
     const b = await guest.$eval('#fxRows .fx-item:last-child', node => { const r = node.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
     await guest.mouse.move(a.x, a.y); await guest.mouse.down(); await guest.mouse.move(b.x, b.y, { steps: 8 }); await guest.mouse.up();
-    assert.deepEqual(await guest.$$eval('#fxRows .fx-item b', nodes => nodes.map(node => node.textContent)), await guest.evaluate(() => [t('effect.radio'), t('effect.telephone')]));
+    assert.deepEqual(await guest.$$eval('#fxRows .fx-item b', nodes => nodes.map(node => node.textContent)), await guest.evaluate(() => [t('fx.name.radio'), t('fx.name.telephone')]));
     assert.equal(await guest.$eval('#fxRows .fx-item:last-child input[type="range"]', node => node.value), '40');
     await guest.click('#fxCancel'); await waitFor(guest, () => document.querySelector('dialog.text-prompt[open]')); await guest.click('#textPromptCancel'); await waitFor(guest, () => !document.getElementById('fxDialog').open); assert.equal(await host.evaluate(() => JSON.stringify(session.lines)), before);
   });
@@ -161,7 +161,7 @@ describe('voice chains: real DSP, inspector, author rights and scoped collaborat
     const added = await host.evaluate(() => new Promise(resolve => socket.emit('editor_add_track', { sessionId: session.activeSessionId, character: 'Empty role' }, resolve))); assert.equal(added.ok, true);
     await waitFor(host, () => document.querySelector('[data-character="Empty role"] .track-fx'));
     await host.locator('[data-character="Empty role"] .track-fx').click(); assert.equal(await host.$eval('#fxRows', node => node.children.length), 0);
-    await host.select('#fxType', 'echo'); await host.click('#fxAdd'); await host.click('#fxApply');
+    await host.click('[data-fx-type="' + 'echo' + '"]'); await host.click('#fxApply');
     await waitFor(host, () => document.querySelector('dialog.text-prompt[open]')); await host.click('#textPromptSave');
     await waitFor(guest, () => session.roleEffects?.['Empty role']?.effects?.[0]?.type === 'echo'); assert.equal(await guest.evaluate(() => session.lines.filter(line => line.character === 'Empty role').length), 0);
   });
@@ -191,7 +191,7 @@ describe('voice chains: real DSP, inspector, author rights and scoped collaborat
     await host.evaluate(() => { multiSelection.clear(); multiSelection.add(1); multiSelection.add(2); DublineVoiceEditor.bulk(); });
     assert.equal(await host.$eval('#fxPitchMode', node => node.value), 'mixed'); assert.equal(await host.$eval('#fxInherit', node => node.indeterminate), true);
     await host.select('#fxAction', 'append'); assert.equal(await host.$eval('#fxRows', node => node.children.length), 0);
-    await host.select('#fxType', 'echo'); await host.click('#fxAdd');
+    await host.click('[data-fx-type="' + 'echo' + '"]');
     await host.$eval('#fxRows input[type="range"]', node => { node.value = '20'; node.dispatchEvent(new Event('input', { bubbles: true })); });
     await host.click('#fxApply'); await waitFor(host, () => document.querySelector('dialog.text-prompt[open]')); await host.click('#textPromptSave');
     await waitFor(guest, () => [1, 2].every(id => session.lines.find(line => line.id === id).effects.length === 2));

@@ -6,6 +6,8 @@
   let playing = false, generation = 0, timer = null, abort = null, rendering = false, drag = null, begin = 0, end = 0;
   let expandedKey = null;
   let lastRoleScene = session?.activeSessionId, lastRoles = structuredClone(session?.roleEffects || {});
+  const icons = { robot: '<rect x="5" y="7" width="14" height="13" rx="3"/><path d="M12 3v4M8 12h1m6 0h1M9 16h6"/>', radio: '<rect x="3" y="7" width="18" height="14" rx="3"/><path d="m5 7 13-4M7 12h10M7 16h3m4 0h3"/>', telephone: '<path d="M7 3 3 6c0 8 7 15 15 15l3-4-5-3-2 3c-3-1-6-4-7-7l3-2z"/>', monster: '<path d="m5 8-2-5 6 3h6l6-3-2 5v10l-7 4-7-4zM8 12h1m6 0h1M8 17l2-2 2 2 2-2 2 2"/>', thoughts: '<path d="M6 17c-7-7 3-16 8-10 7-3 11 9 3 10H6z"/><circle cx="6" cy="21" r="1"/>', cave: '<path d="M2 21 7 5l5-3 5 4 5 15H2zM8 21v-7l4-5 4 5v7"/>', behindDoor: '<path d="M5 21V4l13-2v19M3 21h18M14 12h1"/>', megaphone: '<path d="m4 9 15-5v16L4 15V9zM7 16l2 5h3l-2-4M2 10v4"/>', echo: '<path d="M4 9v6m4-9v12m4-15v18m4-15v12m4-9v6"/>' };
+  const icon = type => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + icons[type] + '</svg>';
   const label = items => items.length ? items.map(item => `${t('effect.' + item.type)} ${Math.round(item.amount * 100)}%${item.enabled ? '' : ' (' + t('fx.disabled') + ')'}`).join(' → ') : t('effect.none');
   const button = (text, action, disabled = false) => `<button type="button" class="btn-outline" ${disabled ? 'disabled' : ''} onclick="${action}">${esc(text)}</button>`;
   const fingerprint = () => state && JSON.stringify({ settings: { ...state.settings, revision: undefined }, pitch: state.pitch, presetHasPitch: state.presetHasPitch, action: state.action,
@@ -17,7 +19,7 @@
     if (state.scope === 'preset') { const preset = session.voicePresets[state.presetId]; $('fxTitle').textContent = t('live.edit') + ': ' + (preset?.name || t('preset.missing')); $('fxScope').textContent = t('live.impact', { n: DublineVoicePresets.usage(session, state.presetId).lines.length }); $('fxApply').textContent = t('live.save'); }
     else { $('fxApply').textContent = t('char.apply'); $('fxTitle').textContent = t(state.scope === 'role' ? 'fx.role' : 'fx.take') + (state.scope === 'role' ? ': ' + state.character : ' · ' + state.takes.length);
     $('fxScope').textContent = t(state.scope === 'role' ? 'fx.roleScope' : 'fx.takeScope', { n: state.scope === 'role' ? session.lines.filter(line => line.character === state.character).length : state.takes.length }); }
-    $('fxDirty').hidden = !dirty(); paintLinked();
+    dialog.dataset.scope = state.scope; $('fxDirty').hidden = !dirty(); paintLinked(); paintFlow();
   }
   function html(line) {
     const role = model.roleVoice(session, line.character), own = model.take(line);
@@ -67,7 +69,7 @@
     if (!force && state?.pending) return false;
     if (!force && state?.pendingRequest) { status('fx.syncError'); return false; }
     if (!force && dirty()) { const captured = state, decision = await askDraftDecision(); if (captured !== state || !decision) return false; if (decision === 'save') return apply(); }
-    drag = null;
+    cleanupDrag();
     clearTimeout(timer); abort?.abort(); ++generation; stop(false);
     if (context) { DublineAudioDevices.unregisterContext(context); void context.close(); } context = null; buffer = null;
     const focus = state?.focus; state = null; $('fxDialog').close(); if (focus?.isConnected) focus.focus();
@@ -94,13 +96,7 @@
     $('fxPlay').textContent = t('fx.pause');
   }
   function schedule() { paintScope(); clearTimeout(timer); abort?.abort(); ++generation; timer = setTimeout(render, 100); }
-  async function render() {
-    if (!state || rendering) return;
-    paintPitch(); const token = generation, scope = state, sample = scope.samples.find(item => item.id === scope.sampleId);
-    if (!sample) { $('fxPlay').disabled = true; window.setControlHelp?.($('fxPlay'), t('fx.noSampleHelp')); status('fx.noSample'); return; }
-    if (!session.lines.some(item => item.id === sample.id && item.audioUrl === sample.audioUrl && canHearLine(item))) return close(true);
-    rendering = true; abort = new AbortController(); status('fx.processing');
-    try {
+  function previewDraft(sample, scope = state) {
       const test = { ...sample }, scene = { ...session, roleEffects: Object.assign(Object.create(null), session.roleEffects), voicePresets: Object.assign(Object.create(null), session.voicePresets) };
       if (scope.scope === 'preset') { scene.voicePresets[scope.presetId] = { ...scene.voicePresets[scope.presetId], effects: structuredClone(scope.settings.effects) }; if (scope.presetHasPitch) scene.voicePresets[scope.presetId].pitch = scope.pitch; else delete scene.voicePresets[scope.presetId].pitch; if (!DublineVoicePresets.usage(scene, scope.presetId).lines.includes(test.id)) Object.assign(test, DublineVoicePresets.link(test, scene, scope.presetId, true)); }
       else if (scope.scope === 'role') scene.roleEffects[scope.character] = { ...scope.settings, pitch: scope.pitch };
@@ -117,6 +113,26 @@
         if (scope.action === 'inherit') settings.inheritRoleEffects = scope.settings.inheritRoleEffects;
         Object.assign(test, scope.action === 'detach' ? DublineVoicePresets.detach(test, scene, newUploadId) : settings, scope.action === 'detach' ? {} : { pitch });
       }
+      return { test, scene };
+  }
+  function paintFlow() {
+    if (!state) return;
+    const sample = state.samples.find(item => item.id === state.sampleId) || { character: state.character, pitch: 0 };
+    const { test, scene } = previewDraft(sample), voice = model.resolve(test, scene);
+    const steps = [t("fx.layout.input")];
+    if (window.DublineNoiseModel?.resolve(test, scene)) steps.push("RNNoise");
+    if (voice.pitch) steps.push(t("pitch") + " " + (voice.pitch > 0 ? "+" : "") + voice.pitch);
+    steps.push(...model.active(voice.effects).map(item => t("fx.name." + item.type)), t("fx.layout.output"));
+    $("fxFlow").innerHTML = steps.map((name, i) => `<span class="fx-flow-step">${esc(name)}</span>${i < steps.length - 1 ? '<span class="fx-flow-arrow" aria-hidden="true">→</span>' : ""}`).join("");
+  }
+  async function render() {
+    if (!state || rendering) return;
+    paintPitch(); const token = generation, scope = state, sample = scope.samples.find(item => item.id === scope.sampleId);
+    if (!sample) { $('fxPlay').disabled = true; window.setControlHelp?.($('fxPlay'), t('fx.noSampleHelp')); status('fx.noSample'); return; }
+    if (!session.lines.some(item => item.id === sample.id && item.audioUrl === sample.audioUrl && canHearLine(item))) return close(true);
+    rendering = true; abort = new AbortController(); status('fx.processing');
+    try {
+      const { test, scene } = previewDraft(sample, scope);
       test._exportVoice = $('fxAB').value === 'dry' ? { pitch: 0, effects: [], tail: 0 } : model.resolve(test, scene);
       const { buffer: processed, gain: levelGain } = await audio.prepareTake(test, { scene, uncached: true, signal: abort.signal });
       if (scope !== state || token !== generation) return;
@@ -130,17 +146,21 @@
     finally { rendering = false; if (state && token !== generation) schedule(); }
   }
   function rows(focusId) {
-    const items = state.settings.effects;
-    $('fxRows').innerHTML = items.map((item, index) => `<div class="fx-item" data-fx-id="${esc(item.id)}" data-index="${index}">
-      <div class="fx-item-head"><button type="button" class="btn-icon fx-grip" aria-label="${esc(t('fx.drag'))}">≡</button><b>${esc(t('effect.' + item.type))}</b>
-      <input type="checkbox" data-action="enabled" aria-label="${esc(t('fx.enabled'))}" ${item.enabled ? 'checked' : ''}>
-      <button type="button" class="btn-icon" data-action="up" aria-label="${esc(t('fx.up'))}" ${index ? '' : 'disabled'}>↑</button><button type="button" class="btn-icon" data-action="down" aria-label="${esc(t('fx.down'))}" ${index < items.length - 1 ? '' : 'disabled'}>↓</button>
-      <button type="button" class="btn-icon" data-action="delete" aria-label="${esc(t('fx.remove'))}">×</button></div>
-      <label class="fx-slider"><span>${esc(t('fx.amount'))}</span><input type="range" data-action="amount" data-reset-value="100" data-reset-event="input" min="0" max="100" value="${Math.round(item.amount * 100)}"><output>${Math.round(item.amount * 100)}%</output></label>
-      ${item.type === 'echo' ? `<details><summary>${esc(t('fx.advanced'))}</summary><label>${esc(t('fx.delay'))}<input type="number" data-action="delay" min="0.03" max="0.8" step="0.01" value="${model.echo(item.parameters).delay}"></label><label>${esc(t('fx.feedback'))}<input type="number" data-action="feedback" min="0" max="0.7" step="0.05" value="${model.echo(item.parameters).feedback}"></label></details>` : ''}</div>`).join('');
-    const inactive = ['clear', 'inherit', 'detach'].includes(state.action), linked = linkedDraft();
-    $('fxRows').inert = linked;
-    $('fxRows').hidden = inactive; $('fxType').disabled = inactive || linked; $('fxClear').disabled = inactive || linked; $('fxAdd').disabled = inactive || linked || items.length >= model.MAX_EFFECTS;
+    cleanupDrag();
+    const linked = linkedDraft(), preset = model.preset(session, state.settings);
+    const items = linked ? [...(preset?.effects || []), ...state.settings.effects] : state.settings.effects;
+    $('fxRows').innerHTML = items.map((item, index) => `<div class="fx-item" role="listitem" data-fx-id="${esc(item.id)}" data-index="${index}" data-enabled="${item.enabled}">
+      <div class="fx-item-head"><button type="button" class="btn-icon fx-grip" aria-label="${esc(t('fx.drag'))}" ${linked ? 'disabled' : ''}>⠿</button><span class="fx-step" title="${esc(t('fx.layout.step', { n: index + 1 }))}">${index + 1}</span><span class="fx-effect-icon">${icon(item.type)}</span><b>${esc(t('fx.name.' + item.type))}</b>
+      <label class="switch-ui"><input type="checkbox" data-action="enabled" aria-label="${esc(t('fx.enabled'))} · ${esc(t('fx.name.' + item.type))}" ${item.enabled ? 'checked' : ''}><span class="switch-slider"></span></label></div>
+      <label class="fx-slider"><span>${esc(t('fx.amount'))}</span><output>${Math.round(item.amount * 100)}%</output><input type="range" data-action="amount" data-reset-value="100" data-reset-event="input" min="0" max="100" value="${Math.round(item.amount * 100)}" aria-label="${esc(t('fx.amount'))} · ${esc(t('fx.name.' + item.type))}"></label>
+      ${item.type === 'echo' ? `<div class="fx-echo" role="group" aria-label="${esc(t('fx.layout.echo'))}"><label>${esc(t('fx.layout.delay'))}<input type="number" data-action="delay" min="0.03" max="0.8" step="0.01" value="${model.echo(item.parameters).delay}"></label><label>${esc(t('fx.layout.feedback'))}<input type="number" data-action="feedback" min="0" max="0.7" step="0.05" value="${model.echo(item.parameters).feedback}"></label></div>` : ''}
+      <div class="fx-item-actions"><button type="button" class="btn-icon" data-action="up" aria-label="${esc(t('fx.up'))}" ${index ? '' : 'disabled'}>←</button><button type="button" class="btn-icon" data-action="down" aria-label="${esc(t('fx.down'))}" ${index < items.length - 1 ? '' : 'disabled'}>→</button><button type="button" class="btn-icon fx-remove" data-action="delete" aria-label="${esc(t('fx.remove'))}">×</button></div></div>`).join('');
+    const inactive = ['clear', 'inherit', 'detach'].includes(state.action);
+    $('fxRows').inert = linked; $('fxRows').hidden = inactive; $('fxClearChain').disabled = inactive || linked || !items.length;
+    $('fxEmpty').hidden = !!items.length || inactive;
+    $('fxType').disabled = inactive || linked; $('fxClear').disabled = inactive || linked || !items.length; $('fxAdd').disabled = inactive || linked || items.length >= model.MAX_EFFECTS;
+    for (const button of $('fxPalette').children) button.disabled = $('fxAdd').disabled;
+    $('fxCount').textContent = items.length + ' / ' + model.MAX_EFFECTS;
     if (focusId) [...$('fxRows').children].find(item => item.dataset.fxId === focusId)?.querySelector('.fx-grip').focus();
   }
   function exclusions() {
@@ -203,10 +223,10 @@
   const dialog = document.createElement('dialog'); dialog.id = 'fxDialog'; dialog.className = 'modal-card fx-dialog';
   dialog.setAttribute('aria-labelledby', 'fxTitle');
   dialog.innerHTML = `<div class="modal-header-row"><h2 id="fxTitle"></h2><button type="button" id="fxClose" class="btn-icon" aria-label="${esc(t('close'))}">×</button></div><p id="fxScope"></p>
-    <label id="fxInheritRow"><input type="checkbox" id="fxInherit">${esc(t('fx.inherit'))}</label><div class="fx-pitch"><label>${esc(t('pitch'))}<select id="fxPitchMode"><option value="inherit">${esc(t('fx.pitchInherit'))}</option><option value="override">${esc(t('fx.pitchOverride'))}</option></select></label><input id="fxPitch" type="range" data-reset-value="0" data-reset-event="input" min="-12" max="12" value="0"><output id="fxPitchValue">0</output></div><div id="fxExceptions"></div>
+    <label id="fxInheritRow"><span>${esc(t('fx.inherit'))}</span><span class="switch-ui"><input type="checkbox" id="fxInherit"><span class="switch-slider"></span></span></label><div class="fx-pitch"><label>${esc(t('pitch'))}<select id="fxPitchMode"><option value="inherit">${esc(t('fx.pitchInherit'))}</option><option value="override">${esc(t('fx.pitchOverride'))}</option></select></label><input id="fxPitch" type="range" data-reset-value="0" data-reset-event="input" min="-12" max="12" value="0"><output id="fxPitchValue">0</output></div><div id="fxExceptions"></div>
     <div id="fxActionRow"><label>${esc(t('fx.bulkAction'))}<select id="fxAction"><option value="replace">${esc(t('fx.replace'))}</option><option value="append">${esc(t('fx.append'))}</option><option value="clear">${esc(t('fx.clear'))}</option><option value="inherit">${esc(t('fx.inheritOnly'))}</option></select></label></div>
-    <div id="fxRows"></div><div class="insp-actions"><select id="fxType">${model.TYPES.map(type => `<option value="${type}">${esc(t('effect.' + type))}</option>`).join('')}</select><button type="button" id="fxAdd" class="btn-outline">${esc(t('fx.add'))}</button><button type="button" id="fxClear" class="btn-outline">${esc(t('fx.clear'))}</button></div>
-    <section class="fx-preview"><label>${esc(t('fx.sample'))}<select id="fxSample"></select></label><div class="insp-actions"><button type="button" id="fxPlay" class="btn-play">${esc(t('fx.play'))}</button><select id="fxAB"><option value="dry">${esc(t('fx.dry'))}</option><option value="wet" selected>${esc(t('fx.wet'))}</option></select><label><input type="checkbox" id="fxLoop">${esc(t('fx.loop'))}</label></div></section>
+    <div id="fxRows" role="list"></div><div class="insp-actions"><select id="fxType">${model.TYPES.map(type => `<option value="${type}">${esc(t('effect.' + type))}</option>`).join('')}</select><button type="button" id="fxAdd" class="btn-outline">${esc(t('fx.add'))}</button><button type="button" id="fxClear" class="btn-outline">${esc(t('fx.clear'))}</button></div>
+    <section class="fx-preview"><label>${esc(t('fx.sample'))}<select id="fxSample"></select></label><div class="insp-actions"><button type="button" id="fxPlay" class="btn-play">${esc(t('fx.play'))}</button><select id="fxAB"><option value="dry">${esc(t('fx.dry'))}</option><option value="wet" selected>${esc(t('fx.wet'))}</option></select><label><span>${esc(t('fx.loop'))}</span><span class="switch-ui"><input type="checkbox" id="fxLoop"><span class="switch-slider"></span></span></label></div></section>
     <p id="fxStatus" role="status" aria-live="polite"></p><div class="insp-actions"><button id="fxApply" type="button" class="btn-play">${esc(t('char.apply'))}</button><button id="fxCancel" type="button" class="btn-outline">${esc(t('dialog.cancel'))}</button><button id="fxRefresh" type="button" class="btn-outline" hidden>${esc(t('fx.refresh'))}</button></div>`;
   document.body.append(dialog);
   const header = document.createElement('header'), body = document.createElement('div'), footer = document.createElement('footer');
@@ -215,10 +235,23 @@
   while (dialog.firstElementChild && !dialog.firstElementChild.classList.contains('fx-preview')) body.append(dialog.firstElementChild);
   while (dialog.firstElementChild) footer.append(dialog.firstElementChild);
   dialog.append(header, body, footer);
-  const dirtyLabel = document.createElement('span'); dirtyLabel.id = 'fxDirty'; dirtyLabel.className = 'setting-sub'; dirtyLabel.dataset.i18n = 'live.unsaved'; dirtyLabel.hidden = true; dirtyLabel.textContent = t('live.unsaved'); header.append(dirtyLabel);
+  const main = document.createElement('section'), sidebar = document.createElement('aside');
+  main.className = 'fx-main'; sidebar.className = 'fx-sidebar';
+  while (body.firstChild) main.append(body.firstChild); body.append(main, sidebar);
+  const soundTitle = document.createElement('h3'); soundTitle.dataset.i18n = 'fx.layout.sound'; soundTitle.textContent = t('fx.layout.sound'); main.prepend(soundTitle);
+  const chain = document.createElement('section'); chain.className = 'fx-chain-section';
+  chain.innerHTML = '<div class="fx-section-title"><h3 data-i18n="fx.layout.chain"></h3><span id="fxCount" class="fx-count"></span><button id="fxClearChain" type="button" class="btn-outline" data-i18n="fx.clear"></button></div><p class="fx-order-help" data-i18n="fx.layout.order"></p><div id="fxFlow" class="fx-flow" aria-label="' + esc(t('fx.layout.chain')) + '"></div>';
+  const legacy = $('fxType').parentElement; legacy.hidden = true; legacy.classList.add('fx-legacy-add');
+  main.append(chain); chain.append($('fxRows')); chain.insertAdjacentHTML('beforeend', '<p id="fxEmpty" class="fx-empty" data-i18n="fx.layout.empty"></p><p class="fx-reorder-help" data-i18n="fx.layout.reorder"></p>');
+  const palette = document.createElement('section'); palette.className = 'fx-palette-section';
+  palette.innerHTML = '<h3 data-i18n="fx.layout.add"></h3><div id="fxPalette" class="fx-palette">' + model.TYPES.map(type => '<button type="button" class="btn-outline" data-fx-type="' + type + '">' + icon(type) + '<span data-i18n="fx.name.' + type + '"></span></button>').join('') + '</div>';
+  main.append(palette); $('fxClearChain').onclick = () => { if (!$('fxClear').disabled) $('fxClear').click(); };
+  palette.onclick = event => { const button = event.target.closest('[data-fx-type]'); if (!button || button.disabled) return; $('fxType').value = button.dataset.fxType; $('fxAdd').click(); };
+  const announcement = document.createElement('span'); announcement.id = 'fxMoveStatus'; announcement.className = 'sr-only'; announcement.setAttribute('role', 'status'); footer.append(announcement);
+  const dirtyLabel = document.createElement('span'); dirtyLabel.id = 'fxDirty'; dirtyLabel.className = 'setting-sub'; dirtyLabel.dataset.i18n = 'live.unsaved'; dirtyLabel.hidden = true; dirtyLabel.textContent = t('live.unsaved'); header.querySelector('.modal-header-row').insertBefore(dirtyLabel, $('fxClose'));
   const linkedCard = document.createElement('section'); linkedCard.id = 'fxLinked'; linkedCard.className = 'take-panel fx-summary'; linkedCard.hidden = true;
-  linkedCard.innerHTML = '<p id="fxLinkedLabel"></p><div class="insp-actions"><button type="button" id="fxLinkedEdit" class="btn-outline" data-i18n="live.edit"></button><button type="button" id="fxDetach" class="btn-outline" data-i18n="live.detach"></button></div>'; body.prepend(linkedCard); DublineI18n.apply(linkedCard);
-  const includePitch = document.createElement('label'); includePitch.id = 'fxPresetIncludePitchRow'; includePitch.hidden = true; includePitch.innerHTML = '<span data-i18n="live.includePitch"></span><span class="switch-ui"><input type="checkbox" id="fxPresetIncludePitch"><span class="switch-slider"></span></span>'; body.prepend(includePitch); DublineI18n.apply(includePitch); $('fxPresetIncludePitch').setAttribute('aria-label', t('live.includePitch')); $('fxPresetIncludePitch').onchange = () => { state.presetHasPitch = $('fxPresetIncludePitch').checked; paintPitch(); schedule(); };
+  linkedCard.innerHTML = '<p id="fxLinkedLabel"></p><div class="insp-actions"><button type="button" id="fxLinkedEdit" class="btn-outline" data-i18n="live.edit"></button><button type="button" id="fxDetach" class="btn-outline" data-i18n="live.detach"></button></div>'; sidebar.prepend(linkedCard); DublineI18n.apply(linkedCard);
+  const includePitch = document.createElement('label'); includePitch.id = 'fxPresetIncludePitchRow'; includePitch.hidden = true; includePitch.innerHTML = '<span data-i18n="live.includePitch"></span><span class="switch-ui"><input type="checkbox" id="fxPresetIncludePitch"><span class="switch-slider"></span></span>'; main.insertBefore(includePitch, main.children[1]); DublineI18n.apply(includePitch); $('fxPresetIncludePitch').setAttribute('aria-label', t('live.includePitch')); $('fxPresetIncludePitch').onchange = () => { state.presetHasPitch = $('fxPresetIncludePitch').checked; paintPitch(); schedule(); };
   function linkedDraft() { return !!state && state.scope !== 'preset' && state.action !== 'detach' && (state.settings.voicePresetId || !state.editPreset && state.scope === 'takes' && state.takes.some(target => session.lines.find(line => line.id === target.lineId)?.voicePresetId)); }
   function paintLinked() {
     if (!state) return; const linked = linkedDraft(); linkedCard.hidden = !linked;
@@ -255,8 +288,8 @@
   $('fxAB').onchange = schedule; $('fxLoop').onchange = () => { if (source) source.loop = $('fxLoop').checked; }; $('fxPlay').onclick = () => { if (playing) stop(false); else void play().catch(() => { if (state) status('fx.processingError'); }); };
   $('fxRows').addEventListener('input', event => {
     const row = event.target.closest('[data-fx-id]'); if (!row) return; const item = state.settings.effects[Number(row.dataset.index)], action = event.target.dataset.action;
-    if (action === 'amount') { item.amount = Number(event.target.value) / 100; event.target.nextElementSibling.textContent = event.target.value + '%'; }
-    if (action === 'enabled') item.enabled = event.target.checked;
+    if (action === 'amount') { item.amount = Number(event.target.value) / 100; row.querySelector('output').textContent = event.target.value + '%'; }
+    if (action === 'enabled') { item.enabled = event.target.checked; row.dataset.enabled = String(item.enabled); }
     if (['delay', 'feedback'].includes(action)) item.parameters[action] = Number(event.target.value);
     schedule();
   });
@@ -265,17 +298,51 @@
     const index = Number(row.dataset.index), [item] = state.settings.effects.splice(index, 1);
     if (action !== 'delete') state.settings.effects.splice(index + (action === 'up' ? -1 : 1), 0, item); rows(item.id); schedule();
   });
+  function cleanupDrag() {
+    if (!drag) return null; const old = drag; drag = null; old.ghost?.remove(); old.row.classList.remove('is-dragging'); dialog.classList.remove('fx-dragging');
+    if ($('fxRows').hasPointerCapture(old.pointerId)) $('fxRows').releasePointerCapture(old.pointerId);
+    return old;
+  }
+  function finishDrag(event) {
+    if (!drag || event.pointerId !== undefined && event.pointerId !== drag.pointerId) return;
+    const old = cleanupDrag();
+    const bounds = $('fxRows').getBoundingClientRect();
+    const inside = event.clientX >= bounds.left && event.clientX <= bounds.right && event.clientY >= bounds.top && event.clientY <= bounds.bottom;
+    if (event.type === 'pointerup' && inside && old.moved && state === old.scope) {
+      const ids = [...$('fxRows').children].map(row => row.dataset.fxId), effects = new Map(state.settings.effects.map(item => [item.id, item]));
+      state.settings.effects = ids.map(id => effects.get(id)); rows(old.id); schedule();
+      $('fxMoveStatus').textContent = t('fx.layout.moved', { n: ids.indexOf(old.id) + 1 });
+    } else if (state) rows(old.id);
+  }
   $('fxRows').addEventListener('pointerdown', event => {
-    const grip = event.target.closest('.fx-grip'); if (!grip || event.button !== 0) return; const row = grip.closest('[data-fx-id]'); drag = { index: Number(row.dataset.index), target: null, grip };
-    grip.setPointerCapture(event.pointerId); event.preventDefault();
+    const grip = event.target.closest('.fx-grip'); if (!grip || event.button !== 0 || !state || state.pending || state.pendingRequest || linkedDraft()) return;
+    cleanupDrag(); const row = grip.closest('[data-fx-id]'), box = row.getBoundingClientRect();
+    drag = { id: row.dataset.fxId, scope: state, row, grip, pointerId: event.pointerId, x: event.clientX, y: event.clientY, dx: event.clientX - box.left, dy: event.clientY - box.top, moved: false };
+    $('fxRows').setPointerCapture(event.pointerId); event.preventDefault();
   });
   $('fxRows').addEventListener('pointermove', event => {
-    if (!drag) return; const row = document.elementFromPoint(event.clientX, event.clientY)?.closest('#fxRows [data-fx-id]');
-    for (const item of $('fxRows').children) item.classList.remove('fx-drop');
-    if (row) { drag.target = Number(row.dataset.index); row.classList.add('fx-drop'); }
+    if (!drag || event.pointerId !== drag.pointerId) return;
+    if (!drag.moved && Math.hypot(event.clientX - drag.x, event.clientY - drag.y) < 5) return;
+    const zoom = dialog.getBoundingClientRect().width / dialog.offsetWidth;
+    if (!drag.moved) {
+      drag.moved = true; const ghost = drag.row.cloneNode(true), rect = drag.row.getBoundingClientRect();
+      ghost.classList.add('fx-drag-ghost'); ghost.removeAttribute('data-fx-id'); ghost.setAttribute('aria-hidden', 'true');
+      for (const node of ghost.querySelectorAll('input, button')) { node.tabIndex = -1; node.removeAttribute('id'); }
+      ghost.style.width = rect.width / zoom + 'px'; dialog.append(ghost); drag.ghost = ghost; drag.row.classList.add('is-dragging'); dialog.classList.add('fx-dragging');
+    }
+    drag.ghost.style.left = (event.clientX - drag.dx) / zoom + 'px'; drag.ghost.style.top = (event.clientY - drag.dy) / zoom + 'px';
+    const target = document.elementFromPoint(event.clientX, event.clientY)?.closest('#fxRows [data-fx-id]');
+    if (!target || target === drag.row) return;
+    const rect = target.getBoundingClientRect(), columns = getComputedStyle($('fxRows')).gridTemplateColumns.split(' ').length;
+    const after = columns === 1 ? event.clientY >= rect.y + rect.height / 2 : event.clientY > rect.bottom - 12 || event.clientY >= rect.y + 12 && event.clientX >= rect.x + rect.width / 2;
+    const before = new Map([...$('fxRows').children].map(row => [row, row.getBoundingClientRect()]));
+    $('fxRows').insertBefore(drag.row, after ? target.nextSibling : target);
+    [...$('fxRows').children].forEach((row, index) => { row.querySelector('.fx-step').textContent = index + 1; });
+    if (!matchMedia('(prefers-reduced-motion: reduce)').matches) for (const [row, box] of before) { if (row === drag.row) continue; const next = row.getBoundingClientRect(); if (next.x !== box.x || next.y !== box.y) row.animate([{ transform: 'translate(' + (box.x - next.x) / zoom + 'px,' + (box.y - next.y) / zoom + 'px)' }, { transform: 'none' }], { duration: 160, easing: 'ease-out' }); }
   });
-  const finishDrag = event => { if (!drag) return; const old = drag; drag = null; if (event.type === 'pointerup' && old.target !== null && old.target !== old.index) { const [item] = state.settings.effects.splice(old.index, 1); state.settings.effects.splice(old.target, 0, item); rows(item.id); schedule(); } else rows(); };
-  $('fxRows').addEventListener('pointerup', finishDrag); $('fxRows').addEventListener('pointercancel', finishDrag);
+  for (const name of ['pointerup', 'pointercancel', 'lostpointercapture']) $('fxRows').addEventListener(name, finishDrag);
+  dialog.addEventListener('keydown', event => { if (drag && event.key === 'Escape') { event.preventDefault(); event.stopImmediatePropagation(); finishDrag({ type: 'cancel' }); } }, true);
+  window.addEventListener('blur', () => finishDrag({ type: 'cancel' }));
   socket.on('voice_updated', data => {
     if (data.sessionId !== session.activeSessionId || !acceptSessionProtocol(data.editorProtocol)) return;
     const previousRoles = session.roleEffects || {}; session.roleEffects = data.roleEffects;
@@ -300,6 +367,7 @@
   window.addEventListener('pagehide', () => { sizeObserver.disconnect(); if (state) close(true); });
   window.addEventListener('beforeunload', event => { if (dirty()) { event.preventDefault(); event.returnValue = ''; } });
   // Existing locale machinery updates stable controls without rebuilding drafts.
+  DublineI18n.apply(dialog);
   const keys = ['pitch', 'close', 'dialog.cancel', 'char.apply', ...Object.keys(DublineI18n.messages.en).filter(key => key.startsWith('fx.') || key.startsWith('effect.'))];
   const walker = document.createTreeWalker(dialog, NodeFilter.SHOW_TEXT), texts = []; while (walker.nextNode()) texts.push(walker.currentNode);
   for (const node of texts) {

@@ -47,7 +47,7 @@ if (!process.versions.electron) {
       await until(() => evaluate('p2pConsentDialog.open')); await evaluate('p2pConsentDecline.click();void 0;');
       assert.equal(await evaluate('typeof require'), 'undefined'); assert.equal(await evaluate('typeof dublineDesktop'), 'undefined');
       if (workflow) await evaluate('qualityCheckEnabled.checked=true;qualityCheckEnabled.dispatchEvent(new Event("change"));void 0;');
-      await evaluate("noiseSuppression=false;userMicGain=1;DublineNoise.open();void 0;");
+      await evaluate("userMicGain=1;DublineNoise.open();void 0;");
       await until(() => evaluate('!!DublineNoise.snapshot()'));
       await evaluate("noiseEnable.checked=true;noiseEnable.dispatchEvent(new Event('change'));void 0;");
       await evaluate('closeSettingsModal()'); await until(() => evaluate('session.noiseReduction?.actors[myName]?.enabled'));

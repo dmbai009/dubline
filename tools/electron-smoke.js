@@ -272,7 +272,7 @@ async function main() {
     }, created.line.id);
     await guest.waitForFunction(id => session.lines.find(line => line.id === id)?.pan === -0.35, {}, created.line.id);
     await host.evaluate(id => DublineVoiceEditor.open(id, 'takes'), created.line.id);
-    await host.select('#fxType', 'radio'); await host.click('#fxAdd');
+    await host.click('[data-fx-type="' + 'radio' + '"]');
     await host.$eval('#fxRows .fx-item:last-child input[type=range]', input => { input.value = '45'; input.dispatchEvent(new Event('input', { bubbles: true })); });
     await host.click('#fxApply');
     await guest.waitForFunction(id => session.lines.find(line => line.id === id)?.effects?.some(effect => effect.type === 'radio' && effect.amount === .45), {}, created.line.id);

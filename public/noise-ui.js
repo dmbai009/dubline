@@ -195,7 +195,7 @@
     sliderTimer = setTimeout(async () => { if (await prepare()) await play().catch(() => status('noise.previewError')); }, 80);
   }
   function init() {
-    for (const key of ['dubline_noise_profile', 'dubline_noise_offer_seen']) { try { localStorage.removeItem(key); } catch {} }
+    for (const key of ['dubline_noise_profile', 'dubline_noise_offer_seen', 'dubline_noise_suppression']) { try { localStorage.removeItem(key); } catch {} }
     const card = document.createElement('div'); card.id = 'noiseCard'; card.className = 'setting-card';
     card.innerHTML = `<div class="setting-card-row"><div><div class="setting-label" data-i18n="noise.title"></div><div class="setting-sub" data-i18n="noise.description"></div></div><label class="switch-ui"><input id="noiseEnable" type="checkbox"><span class="switch-slider"></span></label></div>
       <div id="noiseStrengthRow"><label for="noiseStrength" data-i18n="noise.strength"></label><output id="noiseStrengthValue">60%</output><input id="noiseStrength" type="range" min="0" max="100" value="60" data-reset-value="60" data-reset-event="input"></div>
@@ -203,6 +203,7 @@
       <div class="noise-preview-actions"><button id="noisePreviewPlay" type="button" class="btn-outline" data-i18n="noise.play"></button><button id="noiseNext" type="button" class="btn-outline" data-i18n="noise.next"></button><label class="switch-ui"><input id="noiseEffects" type="checkbox" checked><span class="switch-slider"></span></label><span id="noiseEffectsHelp" tabindex="0" data-i18n="noise.effects"></span></div>
       <p id="noiseSampleLabel" class="setting-sub"></p><p id="noiseStatus" class="setting-sub" role="status" aria-live="polite"></p><button id="noiseRetry" type="button" class="btn-outline" data-i18n="noise.retry" hidden></button>`;
     addSettingsCard('user', 'audio', card);
+    $('noiseCardSlot').replaceWith(card);
     $('noiseEnable').onchange = edited; $('noiseStrength').oninput = edited;
     $('noiseEffects').onchange = refreshAudition;
     $('noisePreviewPlay').onclick = async () => { begin(); if (context?.playing) return stop(false); if (context) context.position = context.begin || 0; audio.stopPreview(); window.DublineTakeHistory?.stop(); if (await prepare()) await play().catch(() => status('noise.previewError')); };

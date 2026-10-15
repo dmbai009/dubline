@@ -122,7 +122,7 @@ commit. Atomic replacement finishes without offering an unsafe cancel action.
 
 ## RNNoise replacement
 
-Noise reduction drafts are local to room/scene/nickname. Normal settings/category/tab/scene exit sends one immutable operation; unchanged exit sends none. Strict persistence precedes ACK. Unknown receipts block new updates; retry queries status. Settings resolve only by recordedBy. Commit preserves playing sources. Browser capture noiseSuppression is unchanged.
+Noise reduction drafts are local to room/scene/nickname. Normal settings/category/tab/scene exit sends one immutable operation; unchanged exit sends none. Strict persistence precedes ACK. Unknown receipts block new updates; retry queries status. Settings resolve only by recordedBy. Commit preserves playing sources. Microphone capture explicitly disables browser noise suppression, echo cancellation and automatic gain; RNNoise is the scene-author postprocessing control.
 
 ## UI and scene presets
 
@@ -131,3 +131,7 @@ Preset catalogues are per scene and never contain audio, mix, RNNoise or a live 
 ## Live presets and recording workflow
 
 Common preset drafts do not alter shared sound until durable Save. Copy and Detach remain explicit; old projects never infer live links. All batch members/current/history/trash are validated before mutation. Required audio cannot silently fall back to dry export. Shared volume correction starts off and retains manual gain/pan; quality hints neither reject takes nor request retakes and hidden takes never expose their reports. Sequence progression waits for confirmed upload and never records automatically. A/B restores through the original history operation. Unknown operation results retain their immutable payload. Cancelled export/loading is not reported as success.
+
+## Effect workspace and microphone capture
+
+Role, take and common-preset editors share one wide workspace. Visible numbered stages and the resolved signal path express processing order. Pointer dragging previews a placeholder and a cursor-following card, keeps the draft unchanged until release, and cancels on Escape, capture loss, blur or scene closure. Keyboard move buttons remain available. Browser DSP has no setting or persisted runtime field; legacy enable preferences are discarded and every microphone request explicitly disables all three browser processing flags. RNNoise retains its existing author-scoped save, preview and original-byte semantics.

@@ -133,15 +133,7 @@
           <input type="range" id="settingsMicGain" data-reset-value="100" data-reset-event="input" min="30" max="300" step="5" value="100" style="width: 100%; cursor: pointer;">
         </div>
 
-        <div class="setting-card">
-          <div class="setting-card-row">
-            <div>
-              <div class="setting-label" data-i18n="noiseSuppression">Browser noise &amp; echo suppression</div>
-              <div class="setting-sub" data-i18n="noiseSuppression.help">Built-in WebRTC microphone processing</div>
-            </div>
-            <label class="switch-ui"><input type="checkbox" id="settingsNoiseSuppression"><span class="switch-slider"></span></label>
-          </div>
-        </div>
+        <div id="noiseCardSlot" hidden></div>
 
         <div class="setting-card">
           <div class="setting-card-row">
@@ -236,7 +228,7 @@
             </div>
             <input type="range" id="settingsAutoDuckAmount" data-reset-value="40" min="0" max="80" step="5" value="40" style="width: 100%; cursor: pointer;">
           </div>
-          <div class="setting-card-row" style="margin-top: 10px;">
+          <div class="setting-card-row">
             <div>
               <div class="setting-label" data-i18n="autoDuck.local">My own auto-ducking</div>
               <div class="setting-sub" data-i18n="autoDuck.local.help">Only for what you hear. Export always uses the project setting above.</div>
