@@ -167,6 +167,7 @@ window.renderCustomImportStatus = () => {
   if (!state) return;
   const key = { upload: state.optimizing ? 'proxy.uploading' : 'uploading', compress: 'proxy.compressing', audio: 'proxy.audio', done: 'upload.done', cancel: 'proxy.cancelled', network: 'upload.networkFailed', error: 'error.generic' }[state.phase];
   status.textContent = t(key, { percent: state.percent, message: state.error }) +
+    (state.phase === 'compress' && state.backend ? ' · ' + t(state.backend === 'cpu-fallback' ? 'acceleration.fallback' : state.backend === 'gpu' ? 'acceleration.gpu' : 'acceleration.cpu') : '') +
     (state.completed && state.skipped ? ' ' + t('import.skippedTimings', { n: state.skipped }) : '');
   status.style.color = state.error || state.phase === 'cancel' ? 'var(--danger)' : state.completed ? state.skipped ? 'var(--warning-text)' : 'var(--success)' : 'var(--accent)';
 };
@@ -174,7 +175,7 @@ window.addEventListener('dubline-language-changed', renderCustomImportStatus);
 window.cancelCustomImport = () => customImportRequest?.abort.abort();
 window.addEventListener('DOMContentLoaded',()=>socket.on('video_import_progress',event => {
   if(event.requestId!==customImportRequest?.id)return;
-  Object.assign(customImportStatus, { phase: event.stage === 'audio' ? 'audio' : 'compress', percent: event.percent });
+  Object.assign(customImportStatus, { phase: event.stage === 'audio' ? 'audio' : 'compress', percent: event.percent, ...(event.backend ? { backend: event.backend } : {}) });
   renderCustomImportStatus();
 }));
 window.uploadCustomScene = async function() {
@@ -191,6 +192,7 @@ window.uploadCustomScene = async function() {
 
   const form = new FormData();
   form.append('clientId', clientId);
+  form.append('acceleration', DublineVideoAcceleration.get());
   const abort=new AbortController(),id=Date.now().toString(36)+'-'+Math.random().toString(36).slice(2);customImportRequest={abort,id};
   customImportStatus = { requestId: id, active: true, phase: 'upload', percent: 0, error: '', optimizing: optimize, canCancel: true, completed: false };
   form.append('requestId',id);

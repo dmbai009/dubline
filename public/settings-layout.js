@@ -28,7 +28,7 @@
     for (const card of cards) {
       if (card.querySelector('[data-i18n="desktop.about.title"]')) { card.id = 'desktopAboutCard'; root.append(card); continue; }
       let category = scope === 'user' ? 'audio' : 'room';
-      if (card.querySelector('#settingsLanguage, #settingsTheme, #settingsPrompter, [data-i18n="layout.reset"], #settingsNickInput')) category = 'interface';
+      if (card.querySelector('#settingsLanguage, #settingsTheme, #settingsVideoAcceleration, #settingsPrompter, [data-i18n="layout.reset"], #settingsNickInput')) category = 'interface';
       if (card.querySelector('#settingsP2P, #desktopStorageChange, #desktopClearDataBtn')) category = 'storage';
       if (scope === 'player' && card.querySelector('#settingsAutoDuck')) category = 'audio';
       panels.get(category).append(card);

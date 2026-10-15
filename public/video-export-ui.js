@@ -34,7 +34,7 @@
     const sourceInfo = info(), custom = mode() === 'custom';
     const format = custom ? el('Format').value : mode() === 'original' ? sourceInfo?.extension || 'mp4' : capabilities?.copyFormat || capabilities?.realtimeFormat || 'mp4';
     const dimensions = custom ? policy.dimensions(sourceInfo || {}, el('Resolution').value !== 'source' ? Number(el('Resolution').value) : Math.min(sourceInfo?.width || 0, sourceInfo?.height || 0)) : { width: sourceInfo?.width, height: sourceInfo?.height };
-    return { mode: mode(), source: mode() === 'original' ? 'original' : custom ? el('Source').value : 'working', format,
+    return { mode: mode(), acceleration: DublineVideoAcceleration.get(), source: mode() === 'original' ? 'original' : custom ? el('Source').value : 'working', format,
       codec: policy.formats[format]?.codec, sourceInfo, ...dimensions,
       audioRealtime: (mode() === 'original' || custom && el('Source').value === 'original') && !capabilities?.audio[format === 'webm' ? 'webm' : 'mp4'],
       audioMime: capabilities?.audioMimes[format === 'webm' ? 'webm' : 'mp4'],
@@ -95,15 +95,21 @@
     const bytes = source && policy.estimate(source, chosen);
     el('Estimate').textContent = bytes ? t('exportVideo.estimate', { size: formatSize(bytes) }) : t('exportVideo.noEstimate');
     let reason = !source || !capabilities ? 'exportVideo.loading' : !policy.valid(source.duration) ? 'exportVideo.sourceMissing' : null;
+    const allowRealtimeVideo = chosen.acceleration !== 'off';
     let realtime = chosen.mode === 'fast' && !capabilities?.copyFormat;
+    if (realtime && !allowRealtimeVideo) reason = 'exportVideo.unsupported';
     if (chosen.mode === 'original') reason = original.disabled ? !amHost() ? 'onlyHost' : 'exportVideo.unsupported' : null;
     if (chosen.mode === 'custom' && source && capabilities) {
       reason = policy.validate(source, chosen);
       const localEncoding = {};
       for (const option of el('Format').options) {
         const format = policy.formats[option.value];
-        localEncoding[option.value] = !reason && capabilities.webcodecs && capabilities.audio[option.value] && await capabilities.mb.canEncodeVideo(format.codec, { width: chosen.width, height: chosen.height, frameRate: chosen.fps || source.fps, bitrate: chosen.bitrate });
-        const available = chosen.source === 'original' ? amHost() && (capabilities.audio[option.value] || capabilities.audioMimes[option.value]) : localEncoding[option.value] || capabilities.realtime[option.value];
+        let supported = false;
+        if (!reason && capabilities.webcodecs && capabilities.audio[option.value]) try {
+          await DublineVideoAcceleration.encoderPreference(capabilities.mb, format.codec, { width: chosen.width, height: chosen.height, frameRate: chosen.fps || source.fps, bitrate: chosen.bitrate }, chosen.acceleration, source); supported = true;
+        } catch { /* Another output format or the existing real-time path may be available. */ }
+        localEncoding[option.value] = supported;
+        const available = chosen.source === 'original' ? amHost() && (capabilities.audio[option.value] || capabilities.audioMimes[option.value]) : localEncoding[option.value] || allowRealtimeVideo && capabilities.realtime[option.value];
         if (attempt !== generation) return;
         option.disabled = !available; option.dataset.disabledReason = available ? '' : t(chosen.source === 'original' && !amHost() ? 'onlyHost' : 'exportVideo.unsupported');
       }
@@ -151,6 +157,7 @@
     void paint();
   });
   el('Bitrate').addEventListener('input', () => { paintResult(); void paint(); });
+  window.addEventListener('dubline-acceleration-changed', () => { if (!renderInProgress && capabilities) void paint(); });
   el('Retry').onclick = () => { void open(); };
   try { el('Sound').checked = localStorage.getItem('dubline_export_sound') !== '0'; } catch { /* Default sound remains available. */ }
   document.getElementById('revealVideoExportBtn').onclick = () => { if (lastSaved) void dublineVideoExport.reveal({ ticket: lastSaved.ticket }).catch(() => showToast(t('exportVideo.destinationExpired'))); };
@@ -193,6 +200,7 @@
       const abort = controller; abort.signal.throwIfAborted();
       job = { id: newUploadId(), tracker, report: reportProgress, destination, abort, sessionId: scene, bytes: 0, percent: 0, check: () => { abort.signal.throwIfAborted(); assertExportScene(snapshot); if (!socket.connected || room !== currentRoom) throw Error(t('exportVideo.authorization')); if (chosen.source === 'original' && !amHost()) throw Error(t('onlyHost')); } };
       active = job; renderInProgress = true; video.pause(); refreshStudioTransport(); applyVolumes();
+      job.resetProgress = () => { tracker.restart(); lastDetailedPaint = 0; document.getElementById('renderProgressDetails').replaceChildren(); reportProgress('video', { current: 0, total: chosen.sourceInfo.duration, detail: t('acceleration.fallback') }); };
       const startedAt = performance.now(), progressBox = document.getElementById('renderProgressBox'); progressBox.style.display = 'block';
       let stage = t('render.readVideo'), lastPaint = 0;
       const showStage = () => { document.getElementById('renderStatusText').textContent = `${stage} · ${Math.floor((performance.now() - startedAt) / 1000)} ${t('takeHistory.seconds')}`; };
@@ -282,7 +290,11 @@
 
   socket.on('video_export_progress', data => {
     if (!active || data?.progressId !== active.id || data.sessionId !== active.sessionId || !Number.isFinite(data.current) || !Number.isFinite(data.total)) return;
-    active.report('video', { current: data.current, total: data.total, state: data.done ? 'done' : 'running' });
+    if (Number.isSafeInteger(data.attempt)) {
+      if (data.attempt < (active.remoteAttempt || 0)) return;
+      if (data.attempt > (active.remoteAttempt || 0)) { if (data.attempt > 1) active.tracker.resetPhase('video'); active.remoteAttempt = data.attempt; }
+    }
+    active.report('video', { current: data.current, total: data.total, state: data.done ? 'done' : 'running', ...(data.backend ? { detail: t(data.backend === 'cpu-fallback' ? 'acceleration.fallback' : data.backend === 'gpu' ? 'acceleration.gpu' : 'acceleration.cpu') } : {}) });
   });
   const checkPermissions = () => { if (active?.permitted) active.permissionInvalid = !session?.lines || session.lines.some(line => active.permitted.has(line.id) && !canHearLine(line)); };
   socket.on('session_updated', () => { checkPermissions(); if (active && session?.activeSessionId !== active.sessionId) window.cancelVideoRender(); if (document.getElementById('tabContentExport').classList.contains('active')) void open(); });

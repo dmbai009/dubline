@@ -586,10 +586,10 @@ app.post('/api/upload-custom', (req,res,next) => {
     const requestId = String(req.body.requestId || '').slice(0,80);
     const recipients = Object.entries(roomSockets[roomId] || {}).filter(([,member]) => member.clientId === req.body.clientId).map(([id]) => id);
     let progressAt = 0;
-    const progress = (stage, percent) => {
+    const progress = (stage, percent, backend = null) => {
       if (Date.now() - progressAt < 300 && percent !== 0 && percent !== 100) return;
       progressAt = Date.now();
-      if (requestId && recipients.length) io.to(recipients).emit('video_import_progress',{requestId,stage,percent});
+      if (requestId && recipients.length) io.to(recipients).emit('video_import_progress',{requestId,stage,percent,...(backend ? {backend} : {})});
     };
     for (const audio of [originalFile, intershumFile].filter(Boolean)) {
       if (!/\.(wav|mp3|m4a|aac|ogg|oga|opus|flac)$/i.test(audio.originalname)) throw new HttpError(400, 'Unsupported audio file', 'error.audioFormat');
@@ -631,7 +631,7 @@ app.post('/api/upload-custom', (req,res,next) => {
         } finally {fs.rmSync(extracted,{force:true});}
       }
       const videoUrl = '/uploads/' + dirName + '/' + videoName;
-      proxy = await require('./video-proxy').createVideoProxy(sourcePath,videoPath,videoUrl,{signal:req.uploadAbort.signal,progress});
+      proxy = await require('./video-proxy').createVideoProxy(sourcePath,videoPath,videoUrl,{signal:req.uploadAbort.signal,progress,acceleration:req.body.acceleration,info:videoInfo});
       originalVideoUrl = '/uploads/' + dirName + '/' + sourceName;
       originalVideoName = path.basename(videoFile.originalname).slice(0,200);
     } else if (isMkvFile(videoFile)) {

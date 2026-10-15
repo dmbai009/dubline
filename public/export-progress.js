@@ -9,7 +9,7 @@
       const moved = !old || next.current !== old.current || next.state !== old.state || next.detail !== old.detail || next.label !== old.label;
       rows.set(phase, next); current = phase; if (moved) lastAdvance = now();
     }
-    return { update, waiting: value => { if (waitingForUser !== value) lastAdvance = now(); waitingForUser = value; }, snapshot: () => ({
+    return { update, restart: () => { rows.clear(); lastAdvance = now(); current = 'checking'; }, resetPhase: phase => { rows.delete(phase); lastAdvance = now(); }, waiting: value => { if (waitingForUser !== value) lastAdvance = now(); waitingForUser = value; }, snapshot: () => ({
       current, rows: [...rows.values()].map(row => ({ ...row })), elapsed: Math.max(0, now() - started),
       quiet: Math.max(0, now() - lastAdvance), stalled: !waitingForUser && now() - lastAdvance >= 15000, waitingForUser
     }) };

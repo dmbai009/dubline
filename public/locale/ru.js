@@ -1274,4 +1274,12 @@ window.DublineLocales.ru = {
   "exportProgress.download": "Файл подготовлен для скачивания",
   "exportProgress.opening": "Подготовка видео и данных экспорта",
   "exportProgress.uploading": "Передача готовой звуковой дорожки",
+  "acceleration.title": "Аппаратное ускорение",
+  "acceleration.auto": "Автоматически",
+  "acceleration.on": "Включено",
+  "acceleration.off": "Выключено",
+  "acceleration.help": "Обработка видео на этом устройстве. Автоматический режим выбирает GPU для больших задач и CPU для небольших. Применяется к новым экспортам и подготовке сцен; у других участников своя настройка.",
+  "acceleration.fallback": "Повторная обработка на CPU",
+  "acceleration.gpu": "Аппаратное кодирование видео",
+  "acceleration.cpu": "Программное кодирование видео",
 };

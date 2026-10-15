@@ -576,7 +576,7 @@ function isVideoExportSender(event) {
   try { return new URL(event.senderFrame.url).origin === `http://127.0.0.1:${localPort}`; } catch { return false; }
 }
 const exportSenders = new WeakSet();
-for (const [operation, method] of [['choose', 'chooseDestination'], ['write', 'write'], ['commit', 'commit'], ['cancel', 'cancel'], ['reveal', 'revealed']]) {
+for (const [operation, method] of [['choose', 'chooseDestination'], ['write', 'write'], ['reset', 'reset'], ['commit', 'commit'], ['cancel', 'cancel'], ['reveal', 'revealed']]) {
   ipcMain.handle('video-export:' + operation, async (event, data = {}) => {
     if (!isVideoExportSender(event)) throw Error('Untrusted video export request.');
     const sender = event.sender, owner = sender.id;

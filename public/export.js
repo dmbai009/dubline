@@ -490,7 +490,7 @@ async function renderOriginalVideo(progress, snapshot, settings = { mode: 'origi
     }
     job.check();
     const form = new FormData();
-    form.append('clientId', clientId); form.append('sessionId', snapshot.scene.activeSessionId); if (job.id) form.append('progressId', job.id); form.append('videoUrl', snapshot.videoUrl); form.append('source', settings.source);
+    form.append('clientId', clientId); form.append('sessionId', snapshot.scene.activeSessionId); if (job.id) form.append('progressId', job.id); form.append('videoUrl', snapshot.videoUrl); form.append('source', settings.source); form.append('acceleration', settings.acceleration || DublineVideoAcceleration.get());
     if (settings.mode === 'custom') form.append('options', JSON.stringify({ format: settings.format, codec: settings.codec, width: settings.width, height: settings.height, fps: settings.fps, bitrate: settings.bitrate }));
     form.append('soundtrack', soundtrack, 'soundtrack.' + extension);
     progress(75, t('render.originalMux')); job.report?.('video', { current: 0, total: duration, label: settings.mode === 'custom' ? 'encoding' : 'copying' });

@@ -1,6 +1,26 @@
 (() => {
   const policy = window.DublineVideoExportPolicy;
   async function render(settings, snapshot, progress, job) {
+    if (settings.mode !== 'custom') return renderOnce(settings, snapshot, progress, job);
+    const mb = await import('/vendor/mediabunny/mediabunny.min.mjs');
+    const config = { width: settings.width, height: settings.height, frameRate: settings.fps || settings.sourceInfo.fps, bitrate: settings.bitrate };
+    // Older desktop shells cannot restart an approved temporary file safely.
+    const mode = job.destination && !window.dublineVideoExport?.reset ? 'off' : settings.acceleration ?? DublineVideoAcceleration.get();
+    const hint = await DublineVideoAcceleration.encoderPreference(mb, settings.codec, config, mode, settings.sourceInfo).catch(error => { throw Error(t(error.message)); });
+    try { return await renderOnce({ ...settings, hardwareAcceleration: hint }, snapshot, progress, job); }
+    catch (error) {
+      if (hint === 'prefer-software' || !error.videoAcceleration || error.exportWrite || job.abort.signal.aborted || error.name === 'AbortError') throw error;
+      job.check();
+      if (!await mb.canEncodeVideo(settings.codec, { ...config, hardwareAcceleration: 'prefer-software' })) throw error;
+      if (job.destination) {
+        const reset = await dublineVideoExport.reset({ ticket: job.destination.ticket, sessionId: snapshot.scene.activeSessionId });
+        if (!reset.ok) throw Error(t(reset.key));
+      }
+      job.bytes = 0; job.percent = 0; job.resetProgress?.();
+      return renderOnce({ ...settings, hardwareAcceleration: 'prefer-software', accelerationFallback: true }, snapshot, progress, job);
+    }
+  }
+  async function renderOnce(settings, snapshot, progress, job) {
     snapshot.exportReport = job.report;
     const mb = await import('/vendor/mediabunny/mediabunny.min.mjs');
     const source = snapshot.videoBlob ? new mb.BlobSource(snapshot.videoBlob) : new mb.UrlSource(snapshot.videoUrl, { fetchFn: (url, options) => fetch(url, { ...options, signal: job.abort.signal }) });
@@ -13,7 +33,7 @@
       const codec = await track.getCodec(), decoderConfig = await track.getDecoderConfig(), duration = await track.computeDuration();
       if (!policy.valid(duration)) throw Error(t('render.noVideo'));
       if (!codec || !decoderConfig) throw Error(t('render.unknownCodec'));
-      job.report?.('video', { current: 0, total: duration, label: settings.mode === 'custom' ? 'encoding' : 'copying' });
+      job.report?.('video', { current: 0, total: duration, label: settings.mode === 'custom' ? 'encoding' : 'copying', ...(settings.accelerationFallback ? { detail: t('acceleration.fallback') } : {}) });
       const format = settings.format === 'webm' ? new mb.WebMOutputFormat() : new mb.Mp4OutputFormat({ fastStart: false });
       if (settings.mode !== 'custom' && !format.getSupportedVideoCodecs().includes(codec)) throw Error(t('exportVideo.unsupported'));
       const encoding = policy.formats[settings.format];
@@ -23,18 +43,21 @@
         const actual = { width: track.displayWidth, height: track.displayHeight, codedWidth: track.codedWidth, codedHeight: track.codedHeight, rotation: track.rotation, bitrate: statistics.averageBitrate,
           fps: metrics.frameRateIsConstant ? metrics.underlyingFrameRate : statistics.averagePacketRate };
         const reason = policy.validate(actual, settings); if (reason) throw Error(t(reason));
-        if (!await track.canDecode() || !await mb.canEncodeVideo(settings.codec, { width: settings.width, height: settings.height, frameRate: settings.fps || settings.sourceInfo.fps, bitrate: settings.bitrate })) throw Error(t('exportVideo.unsupported'));
+        if (!await track.canDecode() || !await mb.canEncodeVideo(settings.codec, { width: settings.width, height: settings.height, frameRate: settings.fps || settings.sourceInfo.fps, bitrate: settings.bitrate, hardwareAcceleration: settings.hardwareAcceleration })) throw Error(t('exportVideo.unsupported'));
       }
       const target = job.destination ? new mb.StreamTarget(new WritableStream({ write: async chunk => {
         for (let offset = 0; offset < chunk.data.byteLength; offset += 1024 * 1024) {
           job.check();
-          const result = await dublineVideoExport.write({ ticket: job.destination.ticket, sessionId: snapshot.scene.activeSessionId, position: chunk.position + offset, bytes: chunk.data.slice(offset, offset + 1024 * 1024) });
-          if (!result.ok) throw Error(t(result.key)); job.bytes = Math.max(job.bytes, result.bytes);
+          let result;
+          try { result = await dublineVideoExport.write({ ticket: job.destination.ticket, sessionId: snapshot.scene.activeSessionId, position: chunk.position + offset, bytes: chunk.data.slice(offset, offset + 1024 * 1024) });
+            if (!result.ok) throw Error(t(result.key));
+          } catch (error) { error.exportWrite = true; throw error; }
+          job.bytes = Math.max(job.bytes, result.bytes);
           job.report?.('saving', { current: job.bytes, unit: 'bytes' });
         }
       } }), { chunked: true, chunkSize: 1024 * 1024 }) : new mb.BufferTarget();
       output = new mb.Output({ format, target }); job.output = output;
-      const videoSource = settings.mode === 'custom' ? new mb.VideoSampleSource({ codec: settings.codec, bitrate: settings.bitrate, latencyMode: 'quality' }) : new mb.EncodedVideoPacketSource(codec);
+      const videoSource = settings.mode === 'custom' ? new mb.VideoSampleSource({ codec: settings.codec, bitrate: settings.bitrate, latencyMode: 'quality', hardwareAcceleration: settings.hardwareAcceleration }) : new mb.EncodedVideoPacketSource(codec);
       const audioSource = new mb.AudioBufferSource({ codec: encoding.audio, bitrate: policy.AUDIO_BITRATE });
       output.addVideoTrack(videoSource, settings.mode === 'custom' ? {} : { transformationMatrix: await track.getTransformationMatrix() }); output.addAudioTrack(audioSource);
       await output.start();
@@ -51,18 +74,20 @@
       await audioUntil(0.01);
       if (settings.mode === 'custom') {
         const canvas = document.createElement('canvas'); canvas.width = settings.width; canvas.height = settings.height;
-        const context = canvas.getContext('2d'), sink = new mb.VideoSampleSink(track);
+        const decoderHint = await DublineVideoAcceleration.decoderPreference(track, settings.hardwareAcceleration).catch(error => { throw Error(t(error.message)); });
+        const context = canvas.getContext('2d'), sink = new mb.VideoSampleSink(track, { hardwareAcceleration: decoderHint });
         let frameIndex = 0;
         const timestamps = function* () { for (let i = 0; i / settings.fps < duration; i++) yield i / settings.fps; };
         const frames = settings.fps ? sink.samplesAtTimestamps(timestamps()) : sink.samples();
-        for await (const sample of frames) {
+        const decode = async function* () { try { yield* frames; } catch (error) { error.videoAcceleration = true; throw error; } };
+        for await (const sample of decode()) {
           const timestamp = settings.fps ? frameIndex++ / settings.fps : sample?.timestamp;
           if (!sample) throw Error(t('render.playbackFailed'));
           try {
             job.check();
             sample.draw(context, 0, 0, canvas.width, canvas.height);
             const frame = new mb.VideoSample(canvas, { timestamp, duration: settings.fps ? Math.min(1 / settings.fps, duration - timestamp) : sample.duration });
-            try { await videoSource.add(frame); } finally { frame.close(); }
+            try { await videoSource.add(frame); } catch (error) { error.videoAcceleration = true; throw error; } finally { frame.close(); }
             await audioUntil(timestamp + 1); job.report?.('video', { current: Math.min(duration, timestamp + (sample.duration || 0)), total: duration, label: 'encoding' }); progress(Math.min(95, 10 + 85 * timestamp / duration), t('exportVideo.processing'));
           } finally { sample.close(); }
         }
@@ -73,13 +98,16 @@
           await audioUntil(packet.timestamp + 1); job.report?.('video', { current: Math.min(duration, packet.timestamp + (packet.duration || 0)), total: duration, label: 'copying' }); progress(Math.min(95, 10 + 85 * packet.timestamp / duration), t('exportVideo.copying'));
         }
       }
-      await audioUntil(Infinity); videoSource.close(); audioSource.close(); job.report?.('video', { current: duration, total: duration, state: 'done' }); job.report?.('finalizing', {}); progress(97, t('render.finalize')); await output.finalize(); job.check(); job.report?.('finalizing', { state: 'done' });
+      await audioUntil(Infinity); videoSource.close(); audioSource.close(); job.report?.('video', { current: duration, total: duration, state: 'done' }); job.report?.('finalizing', {}); progress(97, t('render.finalize'));
+      try { await output.finalize(); } catch (error) { if (settings.mode === 'custom' && !error.exportWrite) error.videoAcceleration = true; throw error; }
+      job.check(); job.report?.('finalizing', { state: 'done' });
       return job.destination ? { bytes: job.bytes, ext: settings.format } : { blob: new Blob([target.buffer], { type: encoding.mime }), ext: settings.format };
     } finally { await audioIterator?.return?.(); input.dispose(); if (output && output.state !== 'finalized') await output.cancel().catch(() => {}); job.output = null; }
   }
   async function realtime(settings, snapshot, progress, job) {
     snapshot.exportSignal = job.abort.signal; snapshot.exportReport = job.report;
     const audioOnly = !!settings.audioOnly;
+    if (!audioOnly && settings.acceleration === 'off') throw Error(t('exportVideo.unsupported'));
     const mime = audioOnly ? settings.audioMime : settings.format === 'mp4' ? 'video/mp4;codecs=avc1,mp4a.40.2' : 'video/webm;codecs=vp9,opus';
     if (!window.MediaRecorder || !MediaRecorder.isTypeSupported(mime) || !audioOnly && (!HTMLCanvasElement.prototype.captureStream || settings.fps != null)) throw Error(t('exportVideo.unsupported'));
     const duration = settings.sourceInfo.duration, elements = [], nodes = new Set(), timers = [], buffers = [], objectURLs = [];

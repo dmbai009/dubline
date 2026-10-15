@@ -1274,4 +1274,12 @@ window.DublineLocales.uk = {
   "exportProgress.download": "Файл підготовлено до завантаження",
   "exportProgress.opening": "Підготовка відео та даних експорту",
   "exportProgress.uploading": "Передавання готової звукової доріжки",
+  "acceleration.title": "Апаратне прискорення",
+  "acceleration.auto": "Автоматично",
+  "acceleration.on": "Увімкнено",
+  "acceleration.off": "Вимкнено",
+  "acceleration.help": "Обробка відео на цьому пристрої. Автоматичний режим обирає GPU для великих завдань і CPU для невеликих. Застосовується до нових експортів і підготовки сцен; інші учасники мають власне налаштування.",
+  "acceleration.fallback": "Повторна обробка на CPU",
+  "acceleration.gpu": "Апаратне кодування відео",
+  "acceleration.cpu": "Програмне кодування відео",
 };

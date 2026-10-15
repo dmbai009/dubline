@@ -30,6 +30,9 @@ header { flex-wrap:wrap; gap:8px 12px; flex-shrink:0; }
 .settings-categories .active { background:var(--accent-soft); border-color:var(--accent); color:var(--accent-2); }
 .settings-category { display:block; columns:2; column-gap:12px; }
 .settings-category > .setting-card { break-inside:avoid; margin-bottom:12px; }
+#videoAccelerationCard .setting-card-row { flex-wrap:wrap; }
+#videoAccelerationCard .setting-label { flex:1 1 150px; }
+#videoAccelerationCard select.text-input { flex:1 1 145px; max-width:100%; }
 #settingsModal [hidden] { display:none !important; }
 #settingsModal .setting-card { min-width:0; padding:14px; gap:10px; }
 #settingsModal .setting-card-row { min-width:0; gap:12px; }

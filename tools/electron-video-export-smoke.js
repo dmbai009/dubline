@@ -43,7 +43,7 @@ if (!process.versions.electron) {
       await evaluate("if(p2pConsentDialog.open)p2pConsentDecline.click();void 0;");
       await until(() => evaluate('!!localMedia?.videoBlob'));
       assert.equal(await evaluate('typeof require'), 'undefined'); assert.equal(await evaluate('typeof dublineDesktop'), 'undefined');
-      assert.deepEqual(await evaluate('Object.keys(dublineVideoExport).sort()'), ['cancel', 'choose', 'commit', 'reveal', 'write']);
+      assert.deepEqual(await evaluate('Object.keys(dublineVideoExport).sort()'), ['cancel', 'choose', 'commit', 'reset', 'reveal', 'write']);
       await evaluate("openFilesModal();switchFilesTab('export');void 0;"); await until(() => evaluate('!startRenderBtn.disabled'));
       await evaluate('startVideoRender()'); assert.equal(pickerCalls, 1); assert.equal(fs.existsSync(path.join(process.env.DUBLINE_NATIVE_EXPORT_DIR, filename)), false);
       assert.equal(await evaluate('renderInProgress'), false);
@@ -63,6 +63,16 @@ if (!process.versions.electron) {
       await until(() => evaluate('!startRenderBtn.disabled')); await evaluate('startVideoRender()');
       const custom = await require('../server/video-export-info').inspect(path.join(process.env.DUBLINE_NATIVE_EXPORT_DIR, filename));
       assert.equal(custom.codec, 'vp9'); assert.equal(custom.height, 240); assert.equal(await evaluate('exportSignals'), 1);
+      filename = 'cpu-retry.mp4';
+      await evaluate("DublineVideoAcceleration.set('on');videoExportFormat.value='mp4';videoExportFormat.dispatchEvent(new Event('change'));void 0;");
+      await until(() => evaluate('!startRenderBtn.disabled'));
+      await evaluate("(async()=>{const mb=await import('/vendor/mediabunny/mediabunny.min.mjs');window.hwNativePreference=DublineVideoAcceleration.encoderPreference;DublineVideoAcceleration.encoderPreference=async()=> 'no-preference';window.hwNativeFinalize=mb.Output.prototype.finalize;window.hwNativeCalls=0;mb.Output.prototype.finalize=async function(...args){const result=await hwNativeFinalize.apply(this,args);if(++hwNativeCalls===1)throw new DOMException('Simulated late driver loss','OperationError');return result;};await startVideoRender();})()");
+      assert.equal(await evaluate('renderStatusText.dataset.state'), 'success');
+      assert.equal(await evaluate("document.querySelector('[data-phase=video]').textContent.includes('CPU')"), true);
+      const retried = await require('../server/video-export-info').inspect(path.join(process.env.DUBLINE_NATIVE_EXPORT_DIR, filename));
+      assert.equal(retried.codec, 'avc'); assert.equal(retried.height, 240); assert.ok(Math.abs(retried.duration-12)<0.1);
+      assert.equal(await evaluate('hwNativeCalls'),2);
+      await evaluate("(async()=>{DublineVideoAcceleration.encoderPreference=hwNativePreference;(await import('/vendor/mediabunny/mediabunny.min.mjs')).Output.prototype.finalize=hwNativeFinalize;})()");
       // A selected ticket cannot write to a caller-supplied path.
       assert.equal(await evaluate("dublineVideoExport.write({ticket:'missing',sessionId:session.activeSessionId,position:0,bytes:new Uint8Array([1]),path:'C:\\\\arbitrary.mp4'}).then(result=>result.ok)"), false);
       const untrusted = new BrowserWindow({ show: false, webPreferences: { preload: path.join(root, 'electron-guest-preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true } });

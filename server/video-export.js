@@ -74,15 +74,17 @@ app.post('/api/export-original-video', diskUpload(['soundtrack'],req => {
     const ext = options ? '.' + options.format : '.' + info.extension;
     const output=path.join(temp,'result'+ext);
     const duration=info.duration, soundDuration=probeAudioDuration(req.file.path);
+    let backend = null, attempt = 0;
     const progress = (current, done = false) => {
       if (!req.body.progressId || req.body.sessionId !== room.activeSessionId || !confirmedHost(roomId, req.body.clientId)) return;
       for (const [socketId, member] of Object.entries(require('./state').roomSockets[roomId] || {})) if (member.clientId === req.body.clientId && member.nick) {
-        io.to(socketId).emit('video_export_progress', { progressId: req.body.progressId, sessionId: req.body.sessionId, current: Math.max(0, Math.min(duration, current)), total: duration, done });
+        io.to(socketId).emit('video_export_progress', { progressId: req.body.progressId, sessionId: req.body.sessionId, current: Math.max(0, Math.min(duration, current)), total: duration, done, ...(backend ? { backend, attempt } : {}) });
       }
     };
     if (!duration || !soundDuration || Math.abs(duration-soundDuration)>0.25) throw new HttpError(400,'Soundtrack duration differs from source','proxy.timing');
-    const videoArgs = options ? ['-vf',`scale=${options.width}:${options.height},setsar=1`,'-c:v', options.codec === 'avc' ? 'libx264' : 'libvpx-vp9',
-      ...(options.codec === 'avc' ? ['-preset','medium','-pix_fmt','yuv420p'] : ['-deadline','good','-cpu-used','2']), '-b:v',String(options.bitrate),
+    const hardware = require('./video-acceleration');
+    const videoArgs = encoder => options ? ['-vf',`scale=${options.width}:${options.height},setsar=1`,
+      ...(options.codec === 'avc' ? encoder === 'libx264' ? ['-c:v','libx264','-preset','medium','-pix_fmt','yuv420p'] : hardware.encoderArgs(encoder) : ['-c:v','libvpx-vp9','-deadline','good','-cpu-used','2']), '-b:v',String(options.bitrate),
       ...(options.fps == null ? ['-fps_mode','passthrough'] : ['-r',String(options.fps)])] : ['-c:v','copy'];
     sceneWatch = setInterval(() => { if (req.body.sessionId !== room.activeSessionId || room.videoUrl !== workingUrl || sourceUrl !== (req.body.source === 'working' ? room.videoUrl : room.originalVideoUrl || room.videoUrl) || !confirmedHost(roomId,req.body.clientId)) req.uploadAbort.abort(); }, 250);
     let audioCodec;
@@ -90,9 +92,13 @@ app.post('/api/export-original-video', diskUpload(['soundtrack'],req => {
     try { audioCodec = await (await soundtrack.getPrimaryAudioTrack())?.getCodec(); } catch { /* FFmpeg also accepts legacy inputs outside the demuxer's codec set. */ } finally { soundtrack.dispose(); }
     const targetAudio = ext === '.webm' ? 'opus' : 'aac';
     req.uploadAbort.signal.throwIfAborted();
-    await runFfmpeg(['-copyts','-start_at_zero','-i',source,'-i',req.file.path,'-map','0:v:0','-map','1:a:0', ...videoArgs,
+    const encode = encoder => runFfmpeg(['-copyts','-start_at_zero','-i',source,'-i',req.file.path,'-map','0:v:0','-map','1:a:0', ...videoArgs(encoder),
       ...(audioCodec === targetAudio ? ['-c:a','copy'] : ['-c:a',targetAudio === 'opus' ? 'libopus' : 'aac','-b:a','192k','-af','apad']),'-t',String(duration),...(ext==='.mp4'?['-movflags','+faststart']:[]),output],
       'Could not export original video',{signal:req.uploadAbort.signal,timeoutMs:2*60*60*1000,onProgress: time => progress(time)});
+    if (options?.codec === 'avc') await hardware.run({ mode: req.body.acceleration, info: { ...info, ...options }, signal: req.uploadAbort.signal,
+      onBackend: (encoder, fallback) => { attempt++; backend = fallback ? 'cpu-fallback' : encoder === 'libx264' ? 'cpu' : 'gpu'; progress(0); }
+    }, encode);
+    else await encode('libx264');
     if (res.destroyed || req.body.sessionId !== room.activeSessionId || room.videoUrl !== workingUrl || sourceUrl !== (req.body.source === 'working' ? room.videoUrl : room.originalVideoUrl || room.videoUrl) || !confirmedHost(roomId,req.body.clientId)) throw new HttpError(409,'The scene changed','error.importSceneChanged');
     const ticket=crypto.randomUUID(), folder=temp;
     let cleanup;
