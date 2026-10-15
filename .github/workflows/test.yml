@@ -44,6 +44,8 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      - name: Require an installed browser
+        run: node tools/require-browser.js
       - name: Run browser shard ${{ matrix.shard }} of 3
         run: node tools/e2e-shard.js ${{ matrix.shard }} 3
 
