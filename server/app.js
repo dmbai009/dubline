@@ -7,6 +7,8 @@ const { ROOT_DIR, PUBLIC_DIR, UPLOAD_DIR, PACKS_DIR } = require('./config');
 const { mediaAccessGate } = require('./desktop');
 
 const app = express();
+// Do not advertise the framework on every response.
+app.disable('x-powered-by');
 const server = http.createServer(app);
 // The page and the socket always share one origin, so other sites are not allowed to connect
 const io = new Server(server);
