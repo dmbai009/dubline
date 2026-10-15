@@ -57,6 +57,7 @@ let recordSpeechInterval = null;
 let activeRecording = null;
 let recordStartPending = false;
 const processingRecordings = new Set();
+function finishRecordingProcessing(operation) { processingRecordings.delete(operation); window.DublineSequence?.refresh(); }
 
 function reserveTake(lineId, sessionId, options = {}) {
   if (!socket.connected) return Promise.resolve(null);
@@ -235,7 +236,7 @@ window.handleStudioRecord = async function(lineId) {
 
     // Recording was interrupted by the host: don't save the take
     if (operation.discarded) {
-      processingRecordings.delete(operation);
+      finishRecordingProcessing(operation);
       console.warn(`[Dubline] Take for line #${lineId} discarded`);
       if (mayUpdateUi()) showInspector(selectedLine);
       return;
@@ -243,7 +244,7 @@ window.handleStudioRecord = async function(lineId) {
 
     const audioBlob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
     if (audioBlob.size === 0) {
-      processingRecordings.delete(operation);
+      finishRecordingProcessing(operation);
       // Never drop a take silently: the player must know it has to record again,
       // even if the inspector has been redrawn (or another line selected) meanwhile
       console.warn(`[Dubline] Take for line #${lineId} is empty (${chunks.length} chunks, audio context ${audioCtx && audioCtx.state})`);
@@ -257,10 +258,11 @@ window.handleStudioRecord = async function(lineId) {
 
     // Silence detection: find where speech starts and ends in the recording
     if (mayUpdateUi()) btn.innerText = t('record.trim');
-    let speech = null, duration = null;
+    let speech = null, duration = null, quality = null;
     try {
       const decoded = await decodeAudio(await audioBlob.arrayBuffer()); duration = decoded.duration;
       speech = detectSpeechBounds(decoded);
+      if (window.DublineTakeAnalysis?.enabled()) quality = await DublineSpeechAnalysis.measure(decoded, speech ? { from: speech.start, to: speech.end } : {}, 'quality').catch(() => null);
     } catch (err) {
       console.warn('[Dubline] Could not analyse the take:', err);
     }
@@ -274,25 +276,25 @@ window.handleStudioRecord = async function(lineId) {
       nick: operation.nick,
       takeSequence,
       ...historyConsent,
-      duration,
+      quality, duration,
       audioStart: recordingStartTime,
       trimStart: speech ? speech.start : null,
       trimEnd: speech ? speech.end : null,
       blob: audioBlob,
       createdAt: Date.now()
     });
-    processingRecordings.delete(operation);
+    finishRecordingProcessing(operation);
   };
 
   if (!window.DublineAudioDevices.live(recordingMic)) {
-    finishRecording({ discard: true }); processingRecordings.delete(operation);
+    finishRecording({ discard: true }); finishRecordingProcessing(operation);
     micSource.disconnect(); gainNode.disconnect(); voiceMeter.disconnect();
     audioDest.stream.getTracks().forEach(track => track.stop());
     showToast(t('audio.device.recordingInterrupted')); return;
   }
   try { recorder.start(100); }
   catch {
-    finishRecording({ discard: true }); processingRecordings.delete(operation);
+    finishRecording({ discard: true }); finishRecordingProcessing(operation);
     micSource.disconnect(); gainNode.disconnect(); voiceMeter.disconnect();
     audioDest.stream.getTracks().forEach(track => track.stop());
     showToast(t('error.mic')); return;
@@ -430,7 +432,7 @@ function finishRecording({ discard = false } = {}) {
     operation.recorder.stop();
   } else {
     // No stop event arrives if a device disappears before recorder.start.
-    processingRecordings.delete(operation);
+    finishRecordingProcessing(operation);
     if (selectedLine) showInspector(selectedLine);
   }
 }
@@ -549,6 +551,7 @@ function refreshPendingUi(lineId) {
   for (const entry of pendingTakes.values()) {
     if (!entry.sessionId || entry.sessionId === (session && session.activeSessionId)) pendingTakeLines.add(entry.lineId);
   }
+  window.DublineSequence?.refresh(); window.DublineSceneReview?.refresh();
   if (!session || !session.lines) return;
   const line = session.lines.find(l => l.id === lineId);
   if (line) updateLineBlock(line);
@@ -613,6 +616,7 @@ async function sendTake(entry) {
     form.append('trimStart', entry.trimStart);
     form.append('trimEnd', entry.trimEnd);
   }
+  if (entry.quality) form.append('quality', JSON.stringify(entry.quality));
   form.append('audio', entry.blob, 'take.webm');
 
   let res = null;
@@ -624,11 +628,13 @@ async function sendTake(entry) {
   } finally { delete entry.sending; }
 
   if (res && res.ok) {
-    if ((await res.clone().json().catch(() => ({}))).cleanupError) showToast(t('takeHistory.cleanupError'));
+    const confirmed = await res.clone().json().catch(() => ({}));
+    if (confirmed.cleanupError) showToast(t('takeHistory.cleanupError'));
     const wasRetry = entry.attempts > 0;
     pendingTakes.delete(entry.uploadId);
     takeStore.remove(entry.uploadId);
     refreshPendingUi(entry.lineId);
+    window.DublineSequence?.saved(entry, confirmed); window.DublineTakeAnalysis?.uploaded(entry, confirmed);
     if (wasRetry) showToast(t('toast.takeSent'));
     if (!pendingTakes.size) {
       retryDelay = 2000;

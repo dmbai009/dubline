@@ -780,6 +780,10 @@
   <script src="timeline-model.js"></script>
   <script src="take-mix.js"></script>
   <script src="voice-chain-model.js"></script>
+<script src="scene-review-model.js"></script>
+<script src="sequence-model.js"></script>
+<script src="speech-model.js"></script>
+<script src="speech-analysis.js"></script>
   <script src="voice-preset-model.js"></script>
   <script src="take-history-model.js"></script>
   <script src="cpu-jobs.js"></script>
@@ -825,8 +829,12 @@
   <script src="playback-controls.js"></script>
   <script src="timeline-scrub.js"></script>
   <script src="timeline-navigation.js"></script>
+<script src="scene-review.js"></script>
+<script src="sequence-recording.js"></script>
   <script src="retake-requests.js"></script>
   <script src="take-history.js"></script>
+<script src="take-compare.js"></script>
+<script src="take-analysis-ui.js"></script>
   <script src="media-settings.js"></script>
   <script src="snapshot-barrier.js"></script>
   <script src="cursor-model.js"></script>
@@ -854,6 +862,12 @@
     @keyframes search-flash { 0%,35% { outline:3px solid var(--accent-2); } 100% { outline:0 solid transparent; } }
     #mediaReadinessOverlay { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:#fff; background:#0007; pointer-events:none; z-index:3; }
     #mediaReadinessOverlay[hidden] { display:none; }
+    .media-readiness-card { max-width:min(90%,480px); max-height:90%; overflow:auto; background:var(--panel); color:var(--text); border:1px solid var(--border); border-radius:12px; padding:14px; pointer-events:auto; display:flex; flex-direction:column; gap:8px; font-size:14px; }
+    .media-readiness-card [hidden] { display:none!important; }
+    .media-readiness-card small, .media-readiness-card details { color:var(--text-dim); font-size:12px; }
+    .media-readiness-card p { overflow-wrap:anywhere; margin:8px 0 0; }
+    .media-readiness-actions { display:flex; flex-wrap:wrap; gap:8px; }
+    .media-readiness-card details summary { cursor:pointer; }
     .media-chunk-map { display:flex; height:5px; gap:1px; margin-top:4px; }
     .media-chunk-map i { flex:1; background:var(--accent); opacity:.2; }
   </style>

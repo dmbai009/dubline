@@ -1,4 +1,4 @@
-# Dubline Project formats 1–10
+# Dubline Project formats 1–11
 
 An archive uses the `.dubline` extension and a standard ZIP container. `project.json` is UTF-8 JSON with `format: "dubline-project"`, required `formatVersion` from 1 through 10, `project`, and `assets`. The serializer is `server/projects.js`; it never exports raw room persistence.
 
@@ -83,3 +83,10 @@ Settings resolve by each take's recordedBy, independently of current role owners
 Format 10 requires a scene-local `voicePresets` catalogue, alongside the validated RNNoise and chain/history fields from format 9. Each entry contains id, name (1–80 characters), ordered effects, optional pitch (−12…+12), createdBy and a positive safe-integer revision. The catalogue is limited to 50 entries. Presets never contain media, timing, mix, RNNoise state or another scene catalogue. Applying a preset copies settings into the ordinary role/take schema with new effect IDs; no persistent preset reference is stored in a take. Later catalogue changes do not alter applied takes.
 
 Formats 1–9 import an empty catalogue and reject a hidden voicePresets field. Format 10 is emitted only for a nonempty catalogue; otherwise the writer retains the lowest existing applicable format. Entry revisions preserve catalogue version history; editor-operation receipts remain runtime-only.
+
+
+## Live references, shared levels and private checks in version 11
+
+Version 11 is emitted for explicit live preset links, project.mix.normalizeVoices=true or stored recording checks. project.voicePresets is required even if empty. Main/historical takes and roles may contain voicePresetId (null or validated catalogue ID) and usePresetPitch (boolean). Effective chains retain role inheritance and individual extras; references and resource limits are validated before assets are staged. Preset pitch is optional. Formats 1–10 reject these reference fields and remain independent copies.
+
+The shared mix normalizes missing normalizeVoices to false. A take quality field is null or a validated version-1 advisory report: duration, peak, rms, silenceRatio, clippedSamples and a distinct known warnings array. Runtime import stores reports separately in private takeChecks by immutable take ID, excluding them from public scene/take broadcasts. Archived audio bytes remain unchanged. Runtime editor receipts and client capability fields are excluded from the manifest. See live-presets-workflow.md for authority, cache, algorithm and validation details.

@@ -80,6 +80,7 @@
     const activeTakeSources = new Map();
     const activeTakeGraphs = new Map();
     const lineGenerations = new Map();
+    let previewStarted = 0, previewOffset = 0, previewRate = 1;
     let previewGeneration = 0, previewGraph = null, previewPendingLine = null, previewEnded = null;
     let previewAudio = null;
     let previewSource = null;
@@ -163,6 +164,7 @@
     }
 
     function applyVolumes() {
+      updateLevels();
       const volumes = getVolumes();
       if (previewAudio) previewAudio.volume = volumes.isMuted ? 0 : Math.min(1, volumes.recorded);
       if (videoGain && backingGain && playCtx) {
@@ -225,7 +227,7 @@
       const voice = global.DublineVoiceChain?.resolve(line, request.scene || getSession());
       return `${line.audioUrl}|${voice ? global.DublineVoiceChain.key(voice) : `${line.effect || 'none'}|${line.pitch || 0}|${global.DublineTakeMix.normalize(line).effectAmount}`}|${line.trimEnabled !== false}|${line.trimStart}|${line.trimEnd}|${global.DublineNoiseModel?.settingKey(noise) || 'off'}`;
     }
-    function getProcessedTake(line, request = {}) {
+    function getVoiceTake(line, request = {}) {
       if (!line.audioUrl) return Promise.resolve(null);
       if (!request.signal && rawRequests.has(line.audioUrl)) rawRequests.get(line.audioUrl).shared = true;
       line = { ...line };
@@ -283,6 +285,25 @@
       return request.strict ? result.then(buffer => noiseFailedJobs.has(result) ? null : buffer) : result;
     }
 
+    const levelsEnabled = (line, scene = getSession()) => Object.hasOwn(line, '_exportLevel') ? line._exportLevel : (global.DublineProjectAudio ? global.DublineProjectAudio.normalize(scene || {}).normalizeVoices : scene?.projectAudio?.normalizeVoices === true);
+    function getLevelGain(buffer, line, scene = getSession()) { return levelsEnabled(line, scene) && buffer ? global.DublineSpeechAnalysis.factor(buffer, takeBounds(line, buffer.duration)) : 1; }
+    async function prepareTake(line, request = {}) {
+      const buffer = await getVoiceTake(line, request); let gain = 1;
+      if (buffer && levelsEnabled(line, request.scene || getSession())) { try { gain = global.DublineSpeechModel.gain(await global.DublineSpeechAnalysis.measure(buffer, takeBounds(line, buffer.duration), 'level', request.signal)); } catch (error) { if (request.strict || request.uncached || error.name === 'AbortError') throw error; global.showToast?.(global.DublineI18n.t('level.unavailable')); global.DublineSceneReview?.processingError(line, true); return { buffer: null, gain: 1 }; } }
+      if (buffer) global.DublineSceneReview?.processingError(line, false);
+      return { buffer, gain };
+    }
+    async function getProcessedTake(line, request = {}) { return (await prepareTake(line, request)).buffer; }
+    function updateLevels() {
+      const graphs = [...activeTakeGraphs.values(), previewGraph].filter(Boolean);
+      for (const graph of graphs) {
+        const line = graph.line, enabled = levelsEnabled(line); if (graph.levelEnabled === enabled || graph.levelPending === enabled) continue; graph.levelPending = enabled;
+        const captured = graph; Promise.resolve(enabled ? global.DublineSpeechAnalysis.measure(graph.baseBuffer, takeBounds(line, graph.baseBuffer.duration)) : null).then(measurement => {
+          const latest = captured.line; if (captured !== previewGraph && captured !== activeTakeGraphs.get(line.id) || levelsEnabled(latest) !== enabled) return;
+          const gain = enabled ? global.DublineSpeechModel.gain(measurement) : 1; graph.scale = (graph.baseBuffer.numberOfChannels === 1 ? Math.SQRT2 : 1) * gain; graph.levelEnabled = enabled; rampGain(graph.gain.gain, global.DublineTakeMix.normalize(latest).volume * graph.scale, .03, false);
+        }).catch(() => global.showToast?.(global.DublineI18n.t('level.unavailable'))).finally(() => { delete captured.levelPending; });
+      }
+    }
     function indexedTakes() {
       const session = getSession();
       if (!session?.lines) return null;
@@ -348,8 +369,8 @@
       const generation = playGeneration, lineGeneration = lineGenerations.get(line.id);
       const rate = playbackRate();
       line = { ...line };
-      const normal = await getProcessedTake(line);
-      const buffer = normal && await getPlaybackTake(line, rate);
+      const { buffer: normal, gain: levelGain } = await prepareTake(line);
+      const buffer = normal && (rate === 1 ? normal : await getPlaybackTake(line, rate));
       if (!buffer || generation !== playGeneration || lineGeneration !== lineGenerations.get(line.id) || video.paused || playbackRate() !== rate) return;
 
       const ctx = ensurePlayCtx();
@@ -366,7 +387,8 @@
       const at = ctx.currentTime + Math.max(0, when - now) / rate;
       fade.gain.setValueAtTime(0, at);
       fade.gain.linearRampToValueAtTime(1, at + 0.012);
-      const graph = fx.connectTake(ctx, source, fade, line);
+      const graph = fx.connectTake(ctx, source, fade, { ...line, _levelGain: levelGain });
+      graph.line = line; graph.baseBuffer = normal; graph.levelEnabled = levelsEnabled(line);
       graph.volume = global.DublineTakeMix.normalize(line).volume;
       graph.fade = fade;
       fade.connect(takesBus);
@@ -394,7 +416,7 @@
       };
     }
 
-    function stopTake(lineId) {
+    function stopTake(lineId, smooth = false) {
       lineGenerations.set(lineId, (lineGenerations.get(lineId) || 0) + 1);
       const timer = duckStartTimers.get(lineId);
       if (timer) clearTimeout(timer);
@@ -402,10 +424,10 @@
       const source = activeTakeSources.get(lineId);
       if (source) {
         activeTakeSources.delete(lineId);
-        try { source.stop(); } catch (error) {}
-        source.disconnect();
         const graph = activeTakeGraphs.get(lineId);
-        if (graph) { graph.gain.disconnect(); graph.panner.disconnect(); graph.fade.disconnect(); }
+        const release = () => { source.disconnect(); if (graph) { graph.gain.disconnect(); graph.panner.disconnect(); graph.fade.disconnect(); } };
+        if (smooth && graph && playCtx) { source.onended = release; rampGain(graph.fade.gain, 0, .03, false); try { source.stop(playCtx.currentTime + .035); } catch { release(); } }
+        else { try { source.stop(); } catch {} release(); }
         activeTakeGraphs.delete(lineId);
       }
       duckingTakes.delete(lineId);
@@ -423,27 +445,17 @@
       setDucking(false);
     }
 
-    function resetLine(lineId) {
-      stopTake(lineId);
+    function resetLine(lineId, smooth = false) {
+      stopTake(lineId, smooth);
       startedTakes.delete(lineId);
     }
 
-    function stopPreview() {
-      previewGeneration++;
-      const ended = previewEnded; previewEnded = null;
-      previewPendingLine = null;
-      if (previewGraph) { previewGraph.gain.disconnect(); previewGraph.panner.disconnect(); previewGraph = null; }
-      if (previewAudio) {
-        previewAudio.pause();
-        global.DublineAudioDevices?.unregisterElement(previewAudio);
-        previewAudio = null;
-      }
-      if (previewSource) {
-        previewSource.onended = null;
-        try { previewSource.stop(); } catch (error) {}
-        previewSource.disconnect();
-        previewSource = null;
-      }
+    function stopPreview(smooth = false) {
+      previewGeneration++; const ended = previewEnded; previewEnded = null; previewPendingLine = null;
+      const graph = previewGraph, source = previewSource; previewGraph = null; previewSource = null;
+      const release = () => { source?.disconnect(); if (graph) { graph.gain.disconnect(); graph.panner.disconnect(); } };
+      if (source) { source.onended = null; if (smooth && graph && playCtx) { rampGain(graph.gain.gain, 0, .03, false); source.onended = release; try { source.stop(playCtx.currentTime + .035); } catch { release(); } } else { try { source.stop(); } catch {} release(); } } else release();
+      if (previewAudio) { previewAudio.pause(); global.DublineAudioDevices?.unregisterElement(previewAudio); previewAudio = null; }
       ended?.();
     }
 
@@ -467,18 +479,20 @@
       previewPendingLine = line;
       const rate = playbackRate();
       const ctx = ensurePlayCtx();
-      const normal = await getProcessedTake(line);
-      const buffer = normal && await getPlaybackTake(line, rate);
+      const { buffer: normal, gain: levelGain } = await prepareTake(line);
+      const buffer = normal && (rate === 1 ? normal : await getPlaybackTake(line, rate));
       if (generation !== previewGeneration) return false;
       if (!buffer) { stopPreview(); return false; }
       const { from, to } = takeBounds(line, normal.duration);
       const source = ctx.createBufferSource();
       source.buffer = buffer;
-      previewGraph = fx.connectTake(ctx, source, takesBus, line);
+      previewGraph = fx.connectTake(ctx, source, takesBus, { ...line, _levelGain: levelGain });
+      previewGraph.line = line; previewGraph.baseBuffer = normal; previewGraph.levelEnabled = levelsEnabled(line);
       previewGraph.lineId = line.id; previewGraph.audioUrl = line.audioUrl;
       previewGraph.historicalPreview = line.historicalPreview;
       previewPendingLine = null;
-      source.start(0, from / rate, Math.max(0.05, to - from) / rate);
+      const offset = Math.max(0, Number(options.position) || 0), at = from + offset < to - .05 ? from + offset : from; previewOffset = at - from; previewStarted = ctx.currentTime; previewRate = rate;
+      source.start(0, at / rate, Math.max(0.05, to - at) / rate);
       previewSource = source;
       source.onended = () => { if (previewSource === source) stopPreview(); };
       return true;
@@ -490,7 +504,7 @@
       for (const url of [before.audioUrl, ...(before.takeHistory || []).map(take => take.audioUrl)]) if (url && !retained.has(url)) invalidateSource(url);
       takeIndex = null;
       global.invalidatePrompterIndex?.();
-      const processing = ['audioUrl', 'audioStart', 'start', 'character', 'recordedBy', 'blindRevealed', 'effect', 'pitch', 'effectAmount', 'trimEnabled', 'trimStart', 'trimEnd', 'effects', 'pitchMode', 'inheritRoleEffects', 'excludedRoleEffectIds'];
+      const processing = ['audioUrl', 'audioStart', 'start', 'character', 'recordedBy', 'blindRevealed', 'effect', 'pitch', 'effectAmount', 'trimEnabled', 'trimStart', 'trimEnd', 'effects', 'pitchMode', 'inheritRoleEffects', 'excludedRoleEffectIds', 'voicePresetId', 'usePresetPitch'];
       const defaults = { effect: 'none', pitch: 0, effectAmount: 1, trimEnabled: true };
       const changed = processing.some(key => JSON.stringify(before[key] ?? defaults[key]) !== JSON.stringify(after[key] ?? defaults[key]));
       if (changed) {
@@ -503,7 +517,7 @@
         if (!graph) return;
         rampGain(graph.gain.gain, mix.volume * graph.scale, 0.02, false);
         rampGain(graph.panner.pan, mix.pan, 0.02, false);
-        graph.volume = mix.volume;
+        graph.volume = mix.volume; graph.line = Object.hasOwn(graph.line, '_exportLevel') ? { ...after, _exportLevel: graph.line._exportLevel } : after;
       }
       const graph = activeTakeGraphs.get(after.id);
       update(graph);
@@ -518,11 +532,33 @@
     }
 
     return Object.freeze({
+      previewPosition: () => previewSource && playCtx ? previewOffset + (playCtx.currentTime - previewStarted) * previewRate : 0,
       cacheStats: () => ({ raw: rawTakeCache.stats?.(), processed: processedTakeCache.stats?.(), noise: { ...noiseStats,
         wetEntries: [...processedTakeCache.keys()].filter(key => key.startsWith('wet|')).length }, prefetching: prefetching.size, indexVisited: takeIndex?.visited || 0 }),
       getNoiseWet: (line, request = {}) => getRawTake(line.audioUrl, request).then(buffer => buffer && getWet(line.audioUrl, buffer, request)),
       invalidateSource,
       updateLine,
+      invalidatePresets: (previousPresets, previousRoles) => {
+        const scene = getSession(), previous = { ...scene, voicePresets: previousPresets, roleEffects: previousRoles || scene.roleEffects }, changed = [];
+        const changedPresets = new Set([...Object.keys(previousPresets || {}), ...Object.keys(scene.voicePresets || {})].filter(id => { const a = previousPresets?.[id], b = scene.voicePresets?.[id]; return JSON.stringify([a?.effects, a?.pitch]) !== JSON.stringify([b?.effects, b?.pitch]); }));
+        const changedRoles = new Set([...Object.keys(previous.roleEffects || {}), ...Object.keys(scene.roleEffects || {})].filter(name => JSON.stringify(previous.roleEffects?.[name]) !== JSON.stringify(scene.roleEffects?.[name]) || changedPresets.has(previous.roleEffects?.[name]?.voicePresetId) || changedPresets.has(scene.roleEffects?.[name]?.voicePresetId)));
+        for (const line of scene.lines || []) {
+          let affected = false;
+          for (const take of [line, ...(line.takeHistory || [])]) {
+            if (!changedPresets.has(take.voicePresetId) && !changedRoles.has(line.character)) continue;
+            const variant = { ...line, ...take };
+            if (global.DublineVoiceChain.key(global.DublineVoiceChain.resolve(variant, previous)) !== global.DublineVoiceChain.key(global.DublineVoiceChain.resolve(variant, scene))) { affected = true; if (take === line) resetLine(line.id, true); }
+          }
+          if (affected) changed.push(line.id);
+        }
+        if (changed.length) takeIndex = null;
+        // Resolved processing keys select the new variant. Bounded old variants
+        // remain valid for independent copies and frozen in-flight exports.
+        processedTakeCache.trim?.();
+        const changedPreview = item => item && global.DublineVoiceChain.key(global.DublineVoiceChain.resolve(item, previous)) !== global.DublineVoiceChain.key(global.DublineVoiceChain.resolve(item, scene));
+        if (changedPreview(previewPendingLine) || changedPreview(previewGraph?.line)) stopPreview(true);
+        return changed;
+      },
       invalidateRole: (name, previousRoles) => {
         takeIndex = null;
         const urls = new Set();
@@ -548,7 +584,9 @@
       },
       applyVolumes,
       ensurePlayCtx,
-      connectAudition: (source, fade, line) => { const ctx = ensurePlayCtx(); const graph = fx.connectTake(ctx, source, fade, line); fade.connect(takesBus); return graph; },
+      getLevelGain,
+      prepareTake,
+      connectAudition: (source, fade, line) => { const ctx = ensurePlayCtx(); const graph = fx.connectTake(ctx, source, fade, { ...line, _levelGain: Number.isFinite(line._levelGain) ? line._levelGain : getLevelGain(source.buffer, line) }); fade.connect(takesBus); return graph; },
       getProcessedTake,
       getRawTake,
       playAudio,

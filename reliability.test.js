@@ -48,6 +48,7 @@ function exportContext() {
     DublineAudioFx: { connectTake(ctx, source, destination, line) { source.clipMix = require('./public/take-mix').normalize(line); source.connect(destination); } },
     t: (key, args) => `${key}:${args?.source || ''}`, DublineProjectAudio: model,
     takeBounds: (line, duration) => ({ from: 0, to: duration }), getProcessedTake: async () => ({ duration: 1 }) };
+  context.audio = { prepareTake: async (...args) => ({ buffer: await context.getProcessedTake(...args), gain: 1 }) };
   context.window = context;
   vm.runInNewContext(fs.readFileSync('public/export.js', 'utf8'), context);
   return context;

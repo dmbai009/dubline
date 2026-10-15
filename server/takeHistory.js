@@ -38,13 +38,13 @@ function invalidateReservations(line) {
   line.takeInvalidatedThrough = next; line.takeCounter = next; line.takeSequence = next;
 }
 function commit(room, target, line, next) {
-  const previous = structuredClone(line), updatedAt = target.updatedAt;
+  const previous = structuredClone(line), updatedAt = target.updatedAt, previousChecks = target.takeChecks;
   const savedSession = target === room ? room.sessions?.[room.activeSessionId] : target, sessionUpdatedAt = savedSession?.updatedAt;
-  Object.assign(line, next); target.updatedAt = Date.now();
+  Object.assign(line, next); target.updatedAt = Date.now(); require('./sceneReview').pruneChecks(target);
   try { require('./rooms').flushRooms({ strict: true }); }
   catch (error) {
-    for (const field of Object.keys(line)) delete line[field]; Object.assign(line, previous); target.updatedAt = updatedAt;
-    if (savedSession) savedSession.updatedAt = sessionUpdatedAt;
+    for (const field of Object.keys(line)) delete line[field]; Object.assign(line, previous); target.updatedAt = updatedAt; target.takeChecks = previousChecks;
+    if (savedSession) { savedSession.updatedAt = sessionUpdatedAt; savedSession.takeChecks = previousChecks; }
     throw failure(['ENOSPC', 'EDQUOT'].includes(error.code) ? 'diskSpace' : 'storage', ['ENOSPC', 'EDQUOT'].includes(error.code) ? 507 : 500);
   }
 }
@@ -98,7 +98,7 @@ function action(room, line, data, nick, clientId) {
     if (take.pinned && data.confirmPinned !== true) throw failure('confirmDeleteRequired');
     deleted.push(take.audioUrl);
     if (current?.id === take.id) {
-      const settings = structuredClone(Object.fromEntries(['effect', 'pitch', 'trimEnabled', 'volume', 'pan', 'effectAmount', 'effects', 'pitchMode', 'inheritRoleEffects', 'excludedRoleEffectIds'].map(key => [key, line[key] ?? model.DEFAULTS[key]])));
+      const settings = structuredClone(Object.fromEntries(['effect', 'pitch', 'trimEnabled', 'volume', 'pan', 'effectAmount', 'effects', 'pitchMode', 'inheritRoleEffects', 'excludedRoleEffectIds', 'voicePresetId', 'usePresetPitch'].map(key => [key, line[key] ?? model.DEFAULTS[key]])));
       Object.assign(next, require('./parsers').emptyTake(), settings, { takeId: null, takePinned: false, takeCreatedAt: null, takeDuration: null, takeUploadedSequence: 0, takeMixRevision: (line.takeMixRevision || 0) + 1 });
       invalidateReservations(next); require('./retakes').clear(next);
     } else next.takeHistory = next.takeHistory.filter(item => item.id !== take.id);

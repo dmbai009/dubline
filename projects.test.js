@@ -360,3 +360,13 @@ describe('projects: real server and media', () => {
     }
   });
 });
+
+
+test('version 11 keeps levels and private recording checks through staging without public inline metrics', t => {
+  const f = fixture(t), model = require('./public/speech-model'), report = model.quality([new Float32Array(48000)], 48000), line = f.session.lines[0];
+  f.session.voicePresets = {}; f.session.projectAudio.normalizeVoices = true; line.takeId = 'checked-main'; line.takeHistory = [{ ...require('./public/take-history-model').extract(line), id: 'checked-old', audioUrl: 'voice.wav', archivedAt: null }];
+  f.session.takeChecks = { 'checked-main': report, 'checked-old': { ...report, warnings: [] } };
+  const snapshot = captureProject(f.session, f.resolve); assert.equal(snapshot.manifest.formatVersion, 11); assert.equal(snapshot.manifest.project.mix.normalizeVoices, true); assert.deepEqual(snapshot.manifest.project.lines[0].take.quality, report);
+  const staged = stageProject(archive(snapshot), f.dir); assert.deepEqual(staged.fields.takeChecks['checked-main'], report); assert.deepEqual(staged.fields.takeChecks['checked-old'].warnings, []); assert.equal(staged.fields.lines[0].quality, undefined); assert.equal(staged.fields.lines[0].takeHistory[0].quality, undefined); staged.rollback();
+  assert.throws(() => readProject(archive(snapshot, manifest => { manifest.project.lines[0].take.quality.warnings.push('needsRetake'); })), /recording check/i);
+});

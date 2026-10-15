@@ -18,11 +18,27 @@
     if (!validEntry(preset) || typeof newId !== 'function') throw Error('preset.invalid');
     const settings = chain.take(take), copied = preset.effects.map(effect => ({ ...structuredClone(effect), id: newId() }));
     settings.effects = append ? [...settings.effects, ...copied] : copied;
-    const next = { ...take, ...settings };
+    const next = { ...take, ...settings, ...(append ? {} : { voicePresetId: null, usePresetPitch: false }) };
     if (pitch && preset.pitch !== undefined) { next.pitch = preset.pitch; next.pitchMode = 'override'; }
     if (!chain.validTake(chain.take(next)) || !chain.safe(chain.resolve(next, scene))) throw Error('fx.limit');
     return next;
   }
-  const api = { MAX_PRESETS, MAX_NAME, name, validSettings, validEntry, validLibrary, apply };
+  function link(take, scene, selected, usePitch = false) {
+    const value = scene?.voicePresets?.[selected]; if (!validEntry(value, selected) || typeof usePitch !== 'boolean') throw Error('preset.invalid');
+    const next = { ...take, ...chain.take(take), effects: [], voicePresetId: selected, usePresetPitch: usePitch };
+    if (!chain.safe(chain.resolve(next, scene))) throw Error('fx.limit'); return next;
+  }
+  function detach(take, scene, newId) {
+    const own = chain.take(take), linked = chain.preset(scene, own), next = { ...take, ...own, voicePresetId: null, usePresetPitch: false };
+    next.effects = [...(linked?.effects || []), ...own.effects].map(effect => ({ ...structuredClone(effect), id: newId() }));
+    if (own.usePresetPitch && linked?.pitch !== undefined) { next.pitch = linked.pitch; next.pitchMode = 'override'; }
+    if (!chain.validTake(chain.take(next)) || !chain.safe(chain.resolve(next, scene))) throw Error('fx.limit'); return next;
+  }
+  function usage(scene, id) {
+    const roles = Object.entries(scene?.roleEffects || {}).filter(([, entry]) => entry.voicePresetId === id).map(([name]) => name);
+    const lines = (scene?.lines || []).filter(line => [line, ...(line.takeHistory || [])].some(take => take.voicePresetId === id || roles.includes(line.character) && (take.inheritRoleEffects !== false || chain.take(take).pitchMode === 'inherit' && chain.role(scene, line.character).usePresetPitch === true)));
+    return { roles, lines: lines.map(line => line.id), variants: (scene?.lines || []).reduce((sum, line) => sum + [line, ...(line.takeHistory || [])].filter(take => take.voicePresetId === id).length, 0) };
+  }
+  const api = { MAX_PRESETS, MAX_NAME, name, validSettings, validEntry, validLibrary, apply, link, detach, usage };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.DublineVoicePresets = api;
 })(typeof window === 'undefined' ? globalThis : window);

@@ -25,7 +25,7 @@
   }
   const options = () => opened ? [...opened.options].map((option, index) => ({ option, index })).filter(({ option }) => !option.hidden && (!query || option.textContent.toLocaleLowerCase().includes(query))) : [];
   const unavailable = option => option.disabled || option.parentElement?.tagName === 'OPTGROUP' && option.parentElement.disabled;
-  const optionKey = select => JSON.stringify([...select.options].map(option => [option.textContent, option.value, option.selected, option.hidden, !!unavailable(option)]));
+  const optionKey = select => JSON.stringify([...select.options].map(option => [option.textContent, option.value, option.selected, option.hidden, !!unavailable(option), option.dataset.disabledReason || option.title]));
   function position() {
     if (!opened) return;
     const anchor = controls.get(opened)?.button; if (!anchor?.isConnected || !anchor.getClientRects().length) return close(false);
@@ -47,7 +47,7 @@
     list.replaceChildren();
     for (const { option, index } of entries) {
       const row = document.createElement('div'); row.id = 'dubOption' + index; row.role = 'option'; row.dataset.index = index;
-      row.textContent = option.textContent; row.setAttribute('aria-selected', String(option.selected)); row.setAttribute('aria-disabled', String(!!unavailable(option))); row.className = index === active ? 'dub-select-active' : '';
+      row.textContent = option.textContent; const reason = option.dataset.disabledReason || option.title; if (unavailable(option) && reason) { const help = document.createElement('small'); help.textContent = reason; row.append(help); row.dataset.tooltip = reason; row.setAttribute('aria-description', reason); } row.setAttribute('aria-selected', String(option.selected)); row.setAttribute('aria-disabled', String(!!unavailable(option))); row.className = index === active ? 'dub-select-active' : '';
       row.onpointermove = () => { if (!unavailable(option) && active !== index) { active = index; mark(); } };
       row.onpointerdown = event => event.preventDefault(); row.onclick = () => choose(index); list.append(row);
     }
@@ -104,7 +104,7 @@
       for (const select of document.querySelectorAll('select')) { attach(select); sync(select); }
     });
   }
-  const observer = new MutationObserver(records => { if (records.some(record => !record.target.parentElement?.closest('.dub-select-popup, .dub-select-button') && !record.target.closest?.('.dub-select-popup, .dub-select-button'))) refresh(); }); observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['disabled', 'selected', 'label', 'value', 'hidden'] });
+  const observer = new MutationObserver(records => { if (records.some(record => !record.target.parentElement?.closest('.dub-select-popup, .dub-select-button') && !record.target.closest?.('.dub-select-popup, .dub-select-button'))) refresh(); }); observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['disabled', 'selected', 'label', 'value', 'hidden', 'title', 'aria-label', 'data-disabled-reason'] });
   // Programmatic selection without a change event still updates the visible label.
   for (const property of ['value', 'selectedIndex']) {
     const descriptor = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, property);
@@ -117,7 +117,7 @@
   window.addEventListener('resize', position); window.addEventListener('scroll', event => { if (!popup.contains(event.target)) position(); }, true);
   window.addEventListener('dubline-language-changed', () => { close(); refresh(); });
   window.addEventListener('pagehide', () => { close(); observer.disconnect(); });
-  window.addEventListener('pageshow', event => { if (event.persisted) { observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['disabled', 'selected', 'label', 'value', 'hidden'] }); refresh(); } });
+  window.addEventListener('pageshow', event => { if (event.persisted) { observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['disabled', 'selected', 'label', 'value', 'hidden', 'title', 'aria-label', 'data-disabled-reason'] }); refresh(); } });
   window.DublineDropdown = { refresh, close, button: select => controls.get(select)?.button };
   refresh();
 })();

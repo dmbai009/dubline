@@ -96,7 +96,7 @@ describe('scene presets, consistent controls and one-shot previews', { skip: ski
   });
   test('preset application is private until Apply, copies independent IDs and keeps pitch/inheritance unless explicitly selected', async () => {
     await actor.evaluate(() => DublineVoiceEditor.open(2, 'takes')); await actor.$eval('#fxPresets', node => { node.open = true; }); await actor.select('#fxPresetSelect', savedId);
-    assert.equal(await actor.$eval('#fxPresetPitch', node => node.checked), false); await actor.click('#fxPresetApply');
+    assert.equal(await actor.$eval('#fxPresetPitch', node => node.checked), false); if (await actor.$eval('#fxPresetMode', node => node.value) === 'link') await actor.select('#fxPresetMode', 'replace'); await actor.click('#fxPresetApply');
     assert.equal(await actor.evaluate(() => session.lines.find(line => line.id === 2).effects?.length || 0), 0);
     assert.equal(await actor.$$eval('#fxRows .fx-item', nodes => nodes.length), 3);
     await actor.click('#fxApply'); await waitFor(host, () => session.lines.find(line => line.id === 2).effects?.length === 3);
@@ -105,7 +105,7 @@ describe('scene presets, consistent controls and one-shot previews', { skip: ski
   });
   test('optional preset pitch is explicit; Save on close commits a dirty chain and unchanged close asks nothing', async () => {
     await actor.evaluate(() => DublineVoiceEditor.open(2, 'takes')); await actor.$eval('#fxPresets', node => { node.open = true; }); await actor.select('#fxPresetSelect', savedId);
-    await actor.$eval('#fxPresetPitch', node => { node.checked = true; node.dispatchEvent(new Event('change')); }); await actor.click('#fxPresetApply');
+    await actor.$eval('#fxPresetPitch', node => { node.checked = true; node.dispatchEvent(new Event('change')); }); if (await actor.$eval('#fxPresetMode', node => node.value) === 'link') await actor.select('#fxPresetMode', 'replace'); await actor.click('#fxPresetApply');
     await waitFor(actor, () => document.querySelector('dialog.text-prompt[open]')); await actor.click('#textPromptSave'); assert.equal(await actor.$eval('#fxPitch', node => node.value), '-2');
     await actor.click('#fxApply'); await waitFor(host, () => session.lines.find(line => line.id === 2).pitch === -2 && session.lines.find(line => line.id === 2).pitchMode === 'override');
     await actor.evaluate(() => DublineVoiceEditor.open(2, 'takes')); await actor.$eval('#fxPitch', node => { node.value = '-1'; node.dispatchEvent(new Event('input')); }); await actor.click('#fxClose');
@@ -123,7 +123,7 @@ describe('scene presets, consistent controls and one-shot previews', { skip: ski
   });
   test('a preset exceeding combined chain limits leaves the entire draft and saved take unchanged', async () => {
     await actor.evaluate(() => DublineVoiceEditor.open(2, 'takes')); await actor.$eval('#fxPresets', node => { node.open = true; }); await actor.select('#fxPresetSelect', savedId); await actor.select('#fxPresetMode', 'append');
-    const before = await actor.evaluate(() => JSON.stringify(DublineVoiceEditor.draft())); await actor.click('#fxPresetApply'); assert.equal(await actor.$eval('#fxPresetStatus', node => node.textContent), await actor.evaluate(() => t('fx.limit')));
+    const before = await actor.evaluate(() => JSON.stringify(DublineVoiceEditor.draft())); if (await actor.$eval('#fxPresetMode', node => node.value) === 'link') await actor.select('#fxPresetMode', 'replace'); await actor.click('#fxPresetApply'); assert.equal(await actor.$eval('#fxPresetStatus', node => node.textContent), await actor.evaluate(() => t('fx.limit')));
     assert.equal(await actor.evaluate(() => JSON.stringify(DublineVoiceEditor.draft())), before); assert.equal(await actor.evaluate(() => session.lines.find(line => line.id === 2).effects.length), 6); await closeFx(actor);
   });
   test('lost voice ACKs recover the original immutable operation and cannot lose a draft through close', async () => {
@@ -195,7 +195,7 @@ describe('scene presets, consistent controls and one-shot previews', { skip: ski
     await actor.select('#timelineScopeFilter', 'all');
   });
   test('six themes, three locales, long names and 150% narrow dialogs keep popup, focus and footer usable', async () => {
-    await actor.setViewport({ width: 640, height: 850 }); await actor.evaluate(() => DublineVoiceEditor.open(2, 'takes')); await waitFor(actor, () => document.getElementById('fxDialog').open);
+    await actor.setViewport({ width: 640, height: 850 }); await actor.evaluate(() => DublineVoiceEditor.open(2, 'takes')); await waitFor(actor, () => document.getElementById('fxDialog').open); await waitFor(actor, () => !!document.getElementById('fxStatus').dataset.i18n);
     for (const theme of ['midnight', 'graphite', 'light', 'ocean', 'forest', 'sunset']) for (const language of ['en', 'ru', 'uk']) {
       await actor.evaluate(async (theme, language) => { document.documentElement.dataset.theme = theme; await DublineI18n.setLanguage(language); document.body.style.zoom = '150%'; await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); DublineDropdown.button(document.getElementById('fxType')).click(); }, theme, language);
       await waitFor(actor, () => { const button = getComputedStyle(DublineDropdown.button(document.getElementById('fxType'))), dialog = getComputedStyle(document.getElementById('fxDialog')); return button.backgroundColor === dialog.backgroundColor && button.color === dialog.color; });

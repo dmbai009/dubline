@@ -1,7 +1,9 @@
 (() => {
   const policy = DublineVideoExportPolicy, panel = document.getElementById('videoExportPanel');
   const el = suffix => document.getElementById('videoExport' + suffix);
-  let metadata = null, metadataKey = '', metadataJob = null, metadataError = '', generation = 0, capabilities = null, active = null, planning = false, lastSaved = null;
+  let metadata = null, metadataKey = '', metadataJob = null, metadataError = '', generation = 0, capabilities = null, active = null, planning = false, lastSaved = null, lastResult = null;
+  const resultCard = document.createElement('section'); resultCard.id = 'videoExportResult'; resultCard.className = 'setting-card'; resultCard.hidden = true; resultCard.setAttribute('role', 'status'); document.getElementById('renderProgressBox').after(resultCard);
+  function paintResult() { resultCard.replaceChildren(); resultCard.hidden = !lastResult; if (!lastResult) return; const title = document.createElement('strong'), file = document.createElement('p'), details = document.createElement('p'); title.textContent = t(lastResult.saved ? 'review.exportSaved' : 'review.exportPrepared'); file.textContent = lastResult.file; file.className = 'setting-sub'; details.className = 'setting-sub'; details.textContent = t('review.exportDetails', { duration: Math.floor(lastResult.duration / 60) + ':' + String(Math.floor(lastResult.duration % 60)).padStart(2, '0'), format: lastResult.format + ' · ' + lastResult.width + '×' + lastResult.height, size: formatSize(lastResult.bytes), n: lastResult.takes }); resultCard.append(title, file, details); if (lastResult.warnings) { const warning = document.createElement('p'); warning.className = 'setting-sub'; warning.textContent = t('review.exportWarnings', { n: lastResult.warnings }); resultCard.append(warning); } }
   const mode = () => panel.querySelector('input[name=videoExportMode]:checked')?.value || 'fast';
   const key = () => `${currentRoom}:${session?.activeSessionId}:${session?.videoUrl}:${amHost()}`;
   const info = () => mode() === 'original' || mode() === 'custom' && el('Source').value === 'original' ? metadata?.original : metadata?.working;
@@ -30,8 +32,8 @@
   }
   function configureSource() {
     const source = info(); if (!source) return;
-    for (const option of el('Resolution').options) option.disabled = option.value !== 'source' && Number(option.value) > Math.min(source.width || 0, source.height || 0);
-    for (const option of el('Fps').options) option.disabled = option.value !== 'source' && (!policy.valid(source.fps) || Number(option.value) > source.fps);
+    for (const option of el('Resolution').options) option.hidden = option.disabled = option.value !== 'source' && Number(option.value) > Math.min(source.width || 0, source.height || 0);
+    for (const option of el('Fps').options) option.hidden = option.disabled = option.value !== 'source' && (!policy.valid(source.fps) || Number(option.value) > source.fps);
     if (el('Resolution').selectedOptions[0]?.disabled) el('Resolution').value = 'source';
     if (el('Fps').selectedOptions[0]?.disabled) el('Fps').value = 'source';
     el('Bitrate').max = policy.valid(source.bitrate) ? String(source.bitrate / 1000000) : '';
@@ -59,12 +61,15 @@
   }
   async function paint() {
     const attempt = ++generation, chosen = settings(), source = chosen.sourceInfo;
+    if (source) { for (const option of el('Fps').options) option.hidden = option.disabled = option.value !== 'source' && (!policy.valid(source.fps) || Number(option.value) > source.fps); }
     el('Custom').hidden = chosen.mode !== 'custom'; el('SoundLabel').hidden = !native();
     panel.querySelector('fieldset').setAttribute('aria-label', t('exportVideo.mode'));
-    el('Source').querySelector('[value=original]').disabled = !amHost() || !metadata?.original;
+    const originalOption = el('Source').querySelector('[value=original]'); originalOption.disabled = !amHost() || !metadata?.original; originalOption.dataset.disabledReason = t(!amHost() ? 'onlyHost' : !metadata ? 'exportVideo.loading' : metadata?.originalError || 'exportVideo.sourceMissing');
+    if (chosen.mode === 'custom' && chosen.source === 'original' && originalOption.disabled) { el('Source').value = 'working'; configureSource(); return paint(); }
     const originalAudio = metadata?.original?.extension === 'webm' ? 'webm' : 'mp4';
     const original = panel.querySelector('input[value=original]'); original.disabled = !amHost() || !metadata?.original || !(capabilities?.audio[originalAudio] || capabilities?.audioMimes[originalAudio]);
-    original.title = !amHost() ? t('onlyHost') : !metadata?.original ? t(metadata?.originalError || 'exportVideo.sourceMissing') : '';
+    original.title = !amHost() ? t('onlyHost') : !metadata ? t('exportVideo.loading') : !metadata.original ? t(metadata.originalError || 'exportVideo.sourceMissing') : original.disabled ? t('exportVideo.unsupported') : ''; window.setControlHelp?.(original, original.disabled ? original.title : '');
+    original.closest('label')?.setAttribute('aria-description', original.title);
     showMetadata();
     const bytes = source && policy.estimate(source, chosen);
     el('Estimate').textContent = bytes ? t('exportVideo.estimate', { size: formatSize(bytes) }) : t('exportVideo.noEstimate');
@@ -79,9 +84,9 @@
         localEncoding[option.value] = !reason && capabilities.webcodecs && capabilities.audio[option.value] && await capabilities.mb.canEncodeVideo(format.codec, { width: chosen.width, height: chosen.height, frameRate: chosen.fps || source.fps, bitrate: chosen.bitrate });
         const available = chosen.source === 'original' ? amHost() && (capabilities.audio[option.value] || capabilities.audioMimes[option.value]) : localEncoding[option.value] || capabilities.realtime[option.value];
         if (attempt !== generation) return;
-        option.disabled = !available;
+        option.disabled = !available; option.dataset.disabledReason = available ? '' : t(chosen.source === 'original' && !amHost() ? 'onlyHost' : 'exportVideo.unsupported');
       }
-      if (el('Format').selectedOptions[0]?.disabled) reason = 'exportVideo.unsupported';
+      if (el('Format').selectedOptions[0]?.disabled) { const available = [...el('Format').options].find(option => !option.disabled); if (available) { el('Format').value = available.value; return paint(); } reason = 'exportVideo.unsupported'; }
       realtime = chosen.source === 'working' && !reason && !localEncoding[chosen.format];
       if (realtime) {
         for (const option of el('Fps').options) option.disabled = option.value !== 'source';
@@ -124,7 +129,7 @@
     if (event.target.id === 'videoExportSound') try { localStorage.setItem('dubline_export_sound', el('Sound').checked ? '1' : '0'); } catch { /* Optional preference. */ }
     void paint();
   });
-  el('Bitrate').addEventListener('input', () => { void paint(); });
+  el('Bitrate').addEventListener('input', () => { paintResult(); void paint(); });
   el('Retry').onclick = () => { void open(); };
   try { el('Sound').checked = localStorage.getItem('dubline_export_sound') !== '0'; } catch { /* Default sound remains available. */ }
   document.getElementById('revealVideoExportBtn').onclick = () => { if (lastSaved) void dublineVideoExport.reveal({ ticket: lastSaved.ticket }).catch(() => showToast(t('exportVideo.destinationExpired'))); };
@@ -133,10 +138,14 @@
     if (planning || renderInProgress || recordState !== 'idle') return showToast(t('studio.mediaBusy'));
     if (pendingTakeLines.size || processingRecordings.size || editorQueue.length) return showToast(t('project.pendingTakes'));
     if (!session?.loaded) return showToast(t('error.noScene'));
-    planning = true;
+    planning = true; lastResult = null; paintResult(); document.getElementById('renderProgressBox').style.display = 'none'; document.getElementById('revealVideoExportBtn').hidden = true; document.getElementById('renderStatusText').style.color = 'var(--text-secondary)'; document.getElementById('renderStatusText').dataset.state = 'preparing';
     let destination, job, lease, elapsedTimer;
     try {
       await open(); if (panel.dataset.ready !== 'true') return;
+      if (window.DublineSceneReview) await DublineSceneReview.checkFiles();
+      const report = window.DublineSceneReview?.snapshot(), dubGain = readRenderGains().dub; const inactiveTakeIssue = issue => issue.lineId != null && (dubGain <= 0 || DublineTakeMix.normalize(session.lines.find(line => line.id === issue.lineId)).volume <= 0); const fatal = report?.errors.find(issue => issue.key !== 'review.processing' && !inactiveTakeIssue(issue)); if (fatal) throw Error(t(fatal.key, fatal.params));
+      // A known DSP failure is retried by strict preparation; it cannot fall back
+      // to dry audio, and a successful retry clears that configuration's warning.
       const chosen = settings(); let snapshot = createExportSnapshot();
       // Hidden takes stay outside the exported guest mix. The existing reveal rules remain authoritative.
       snapshot.takes = snapshot.scene.lines.filter(line => line.audioUrl && canHearLine(line));
@@ -178,7 +187,7 @@
       lease = { ...await leaseResponse.json(), room }; job.check();
       const permitted = new Set(lease.takeIds);
       snapshot.scene = lease.scene; snapshot.takes = lease.scene.lines.filter(line => permitted.has(line.id));
-      snapshot.takes.forEach(line => { line._exportNoise = window.DublineNoiseModel?.resolve(line, lease.scene) || null; line._exportVoice = window.DublineVoiceChain?.resolve(line, lease.scene); });
+      snapshot.takes.forEach(line => { line._exportNoise = window.DublineNoiseModel?.resolve(line, lease.scene) || null; line._exportVoice = window.DublineVoiceChain?.resolve(line, lease.scene); line._exportLevel = DublineProjectAudio.normalize(lease.scene).normalizeVoices; });
       snapshot.gains = readRenderGains(lease.scene);
       const sources = DublineProjectAudio.sources(lease.scene); snapshot.originalUrl = sources.original; snapshot.backingUrl = sources.backing;
       job.permitted = permitted;
@@ -200,7 +209,7 @@
         }
         job.check(); document.getElementById('cancelVideoExportBtn').disabled = true;
         const saved = await dublineVideoExport.commit({ ticket: destination.ticket, sessionId: scene, bytes: job.bytes }); if (!saved.ok) throw Error(t(saved.key));
-        lastSaved = destination; document.getElementById('revealVideoExportBtn').hidden = false;
+        job.bytes = saved.bytes; lastSaved = destination; document.getElementById('revealVideoExportBtn').hidden = false;
         document.getElementById('renderProgressBar').style.width = '100%'; document.getElementById('renderStatusText').textContent = t('exportVideo.saved', { size: formatSize(saved.bytes) });
         if (el('Sound').checked && !saved.alreadySaved) await completionSound();
       } else {
@@ -208,7 +217,9 @@
         else downloadBlob(result.blob, result.ext, snapshot.scene.title);
         document.getElementById('renderStatusText').textContent = t('exportVideo.download', { size: formatSize(result.bytes || result.blob?.size) });
       }
-    } catch (error) { document.getElementById('renderProgressBox').style.display = 'block'; document.getElementById('renderStatusText').textContent = error.name === 'AbortError' || job?.abort.signal.aborted ? t('exportVideo.cancelled') : error.message; }
+      document.getElementById('renderStatusText').style.color = 'var(--success)'; document.getElementById('renderStatusText').dataset.state = 'success';
+      lastResult = { saved: !!destination, file: destination?.name || result.filename || policy.filename(snapshot.scene.title, result.ext || chosen.format), duration: chosen.sourceInfo.duration, format: String(result.ext || chosen.format).toUpperCase(), width: chosen.width, height: chosen.height, bytes: destination ? job.bytes : result.bytes || result.blob?.size, takes: snapshot.gains.dub > 0 ? snapshot.takes.filter(line => DublineTakeMix.normalize(line).volume > 0).length : 0, warnings: (report?.warnings.length || 0) + (report?.errors.filter(issue => issue.key !== 'review.processing' && inactiveTakeIssue(issue)).length || 0) }; paintResult();
+    } catch (error) { const cancelled = error.name === 'AbortError' || job?.abort.signal.aborted; document.getElementById('renderStatusText').style.color = cancelled ? 'var(--text-secondary)' : 'var(--danger)'; document.getElementById('renderStatusText').dataset.state = cancelled ? 'cancelled' : 'error'; document.getElementById('renderProgressBox').style.display = 'block'; document.getElementById('renderStatusText').textContent = error.name === 'AbortError' || job?.abort.signal.aborted ? t('exportVideo.cancelled') : error.message; }
     finally {
       clearInterval(elapsedTimer); job?.abort.abort();
       if (lease?.ticket) {

@@ -17,7 +17,7 @@ const timelineBounds = require('../public/timeline-model');
 // Scene fields that belong to a session (see "Sessions" below)
 const SESSION_FIELDS = ['loaded', 'title', 'kind', 'zipUrl', 'videoUrl', 'backingUrl', 'lines', 'characterClaims', 'createdAt', 'updatedAt',
   'audioTracks', 'originalTrack', 'backingTrack', 'baseBackingUrl', 'deletedLines', 'mode', 'trackOrder', 'nextLineId', 'blindMode',
-  'externalOriginalUrl', 'audioMetadata', 'projectAudio', 'videoHasAudio', 'takeLatency', 'videoDuration', 'workshopSource', 'originalVideoUrl', 'originalVideoName', 'protectTimings', 'noiseReduction', 'roleEffects', 'voicePresets'];
+  'externalOriginalUrl', 'audioMetadata', 'projectAudio', 'videoHasAudio', 'takeLatency', 'videoDuration', 'workshopSource', 'originalVideoUrl', 'originalVideoName', 'protectTimings', 'noiseReduction', 'roleEffects', 'voicePresets', 'takeChecks'];
 let repairedOnLoad = false;
 
 function loadRooms() {
@@ -87,7 +87,14 @@ function normalizeEditorState(session) {
   session.protectTimings = session.protectTimings === true;
   session.characterClaims = Object.assign(Object.create(null), session.characterClaims);
   session.takeLatency = Object.assign(Object.create(null), session.takeLatency);
+  session.takeChecks = Object.assign(Object.create(null), session.takeChecks);
+  require('./sceneReview').pruneChecks(session);
   session.roleEffects = Object.assign(Object.create(null), session.roleEffects);
+  // Old copies stay independent. Broken persisted references fall back to their
+  // individual settings, rather than making playback or room startup fail.
+  for (const entry of [...Object.values(session.roleEffects), ...session.lines.flatMap(line => [line, ...(line.takeHistory || [])]), ...(session.deletedLines || []).flatMap(batch => (batch.lines || []).flatMap(item => item.line ? [item.line, ...(item.line.takeHistory || [])] : []))]) {
+    if (entry.voicePresetId && !Object.hasOwn(session.voicePresets, entry.voicePresetId)) { entry.voicePresetId = null; entry.usePresetPitch = false; repairedOnLoad = true; }
+  }
   session.projectAudio = projectAudio.normalize(session);
   if (session.videoUrl && !Number.isFinite(session.videoDuration)) {
     const file = diskPathForUrl(session.videoUrl);
@@ -239,7 +246,7 @@ function emptySession() {
     baseBackingUrl: undefined, // the pack's own backing track, restored when "none" is picked
     noiseReduction: require('./noiseReduction').empty(),
     roleEffects: Object.create(null),
-    voicePresets: Object.create(null),
+    voicePresets: Object.create(null), takeChecks: Object.create(null),
     deletedLines: []          // trash of the host's deletions for undo (Ctrl+Z), the last MAX_UNDO_BATCHES
   };
 }
@@ -329,7 +336,7 @@ function deleteSessionFiles(session) {
 
 // Secrets (players' clientIds) never reach clients
 function publicRoom(room) {
-  const { hostClientId, nickOwners, chat, sessions, passwordHash, passwordSalt, admitted, banned, deletedLines, originalVideoUrl, moderators, ...rest } = room;
+  const { hostClientId, nickOwners, chat, sessions, takeChecks, passwordHash, passwordSalt, admitted, banned, deletedLines, originalVideoUrl, moderators, ...rest } = room;
   return {
     ...rest,
     moderators: require('./moderators').publicRecords(room),
@@ -351,7 +358,7 @@ function publicRoom(room) {
 }
 
 function emitSession(roomId) {
-  require('./noiseReduction').enforce(roomId, getRoom(roomId));
+  require('./noiseReduction').enforce(roomId, getRoom(roomId)); require('./voiceChains').enforce(roomId, getRoom(roomId));
   io.to(roomId).emit('session_updated', publicRoom(getRoom(roomId)));
   require('./waveform').prewarm(getRoom(roomId));
   require('./selectionPresence').broadcast(roomId);

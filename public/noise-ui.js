@@ -95,7 +95,7 @@
       const scene = structuredClone(session), draft = { ...model.protocol(), ...state.draft };
       const line = { ...sample, _exportNoise: draft.enabled && draft.strength > 0 ? draft : null,
         _exportVoice: $('noiseEffects').checked ? DublineVoiceChain.resolve(sample, scene) : { pitch: 0, effects: [], tail: 0 } };
-      const buffer = await audio.getProcessedTake(line, { uncached: true, strict: true, scene, priority: 'preview', signal: state.abort.signal });
+      const { buffer, gain } = await audio.prepareTake(line, { uncached: true, strict: true, scene, priority: 'preview', signal: state.abort.signal }); line._levelGain = gain;
       if (!current(state) || generation !== sampleGeneration || state.abort.signal.aborted) return false;
       if (!buffer) throw Error('noise.previewError');
       state.buffer = buffer; const bounds = audio.takeBounds(line, buffer.duration); state.begin = bounds.from; state.end = bounds.to;
@@ -215,6 +215,8 @@
     const switchScene = window.switchSession;
     window.switchSession = async (...args) => { if (await beforeExit()) return switchScene(...args); };
     socket.on('noise_updated', receive);
+    socket.on('project_audio_updated', () => { if (visible() && context?.sample) refreshAudition(); });
+    window.addEventListener('dubline-presets-changed', event => { if ($('noiseEffects').checked && context?.sample && event.detail.ids.includes(context.sample.id)) refreshAudition(); });
     socket.on('session_updated', () => {
       if (audioScene !== session?.activeSessionId) { audioScene = session?.activeSessionId; DublineNoiseAudio.cancelAll(); suspend(); }
       else if (context?.key !== scopeKey()) suspend();

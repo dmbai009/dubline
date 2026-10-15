@@ -414,7 +414,7 @@ function connectTake(ctx, source, destination, line) {
   const mix = window.DublineTakeMix.normalize(line);
   const gain = ctx.createGain(), panner = ctx.createStereoPanner();
   // Keep legacy mono takes at the same centre level with equal-power panning.
-  const scale = source.buffer.numberOfChannels === 1 ? Math.SQRT2 : 1;
+  const scale = (source.buffer.numberOfChannels === 1 ? Math.SQRT2 : 1) * (Number.isFinite(line._levelGain) && line._levelGain > 0 ? line._levelGain : 1);
   gain.gain.value = mix.volume * scale;
   panner.pan.value = mix.pan;
   source.connect(gain).connect(panner).connect(destination);

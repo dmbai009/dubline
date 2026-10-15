@@ -136,4 +136,17 @@ function renameNick(roomId, oldName, newName) {
   }
 }
 
-module.exports = { lineBefore, record, recordLines, peekFor, popFor, hasFor, rebase, clear, renameNick, LINE_FIELDS, canUndoLine, noteUndo };
+function usesPreset(roomId, room, id) {
+  return (histories.get(keyOf(roomId, room)) || []).some(entry => entry.roleEffects?.voicePresetId === id || Object.values(entry.voiceChanges || {}).some(pair => pair.some(role => role?.voicePresetId === id)));
+}
+// Preserve Undo's identity pointers after the durable trash snapshot changes.
+function detachPreset(roomId, room, before, id) {
+  const chain = require('../public/voice-chain-model');
+  const detach = role => { if (!role || role.voicePresetId !== id) return role; const preset = chain.preset(before, role); return { ...role, voicePresetId: null, usePresetPitch: false, pitch: role.usePresetPitch && preset?.pitch !== undefined ? preset.pitch : role.pitch, effects: [...(preset?.effects || []), ...(role.effects || [])].map(effect => structuredClone(effect)) }; };
+  for (const entry of histories.get(keyOf(roomId, room)) || []) {
+    if (entry.batch) { const index = before.deletedLines?.indexOf(entry.batch); if (index >= 0) entry.batch = room.deletedLines[index]; }
+    if (entry.roleEffects) entry.roleEffects = detach(entry.roleEffects);
+    for (const [name, pair] of Object.entries(entry.voiceChanges || {})) entry.voiceChanges[name] = pair.map(detach);
+  }
+}
+module.exports = { usesPreset, detachPreset, lineBefore, record, recordLines, peekFor, popFor, hasFor, rebase, clear, renameNick, LINE_FIELDS, canUndoLine, noteUndo };

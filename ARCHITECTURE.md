@@ -135,3 +135,7 @@ RNNoise uses public/rnnoise-dsp.mjs in one local module Worker; Raw → cached f
 ## UI and scene presets
 
 voicePresets joins SESSION_FIELDS and explicit portable format 10. voice-preset-model validates bounded snapshots; voicePresets server handlers reuse scene authorization, snapshot barriers, immutable editor receipts and strict disk persistence before ACK/broadcast. Application deep-copies stages through the existing voice_update path. dropdown.js keeps native selects as the data/change interface and uses one popup in the appropriate top-layer/dialog/picker surface.
+
+## Live presets and recording workflow
+
+Live voicePresetId/usePresetPitch resolve scene catalogues through the common model; format 11 stores explicit bindings and optional normalizeVoices/quality. A bounded speech worker returns numeric measurement/gain alongside unchanged PCM. Private takeChecks follows immutable take IDs and is excluded from publicRoom; scene-review metadata filters by canListen. Shared levels use the existing strict editor mutation/receipt journal. Preset deletion freezes dependants and rebinds editor-history trash identities. Review, sequence, A/B and media status reuse the existing modules rather than add parallel protocols.

@@ -6,9 +6,9 @@ const model = require('./public/project-audio');
 
 function fixture() {
   const video = new EventTarget(); Object.assign(video, { readyState: 3, currentTime: 4, paused: false, seeking: false, ended: false, error: null, playbackRate: 1, currentSrc: '/video.mp4', buffered: { length: 1, start: () => 0, end: () => 30 }, getAttribute: () => '/video.mp4' });
-  let now = 0; const sent = [], listeners = {}, overlay = {}, timers = [];
+  let now = 0; const sent = [], listeners = {}, overlay = { dataset: {} }, timers = []; const children = new Map(); overlay.querySelector = key => { if (!children.has(key)) children.set(key, { querySelector: overlay.querySelector }); return children.get(key); }; Object.defineProperty(overlay, 'textContent', { get: () => children.get('span')?.textContent });
   const context = { video, session: { loaded: true, activeSessionId: 'one', videoHash: 'hash', videoSize: 42 }, socket: { connected: true, emit: (event, data) => sent.push({ event, data }), on: (event, handler) => { listeners[event] = handler; } },
-    document: { createElement: () => Object.assign(overlay, { setAttribute() {} }), querySelector: () => ({ append() {} }) }, window: {}, performance: { now: () => now }, setInterval: fn => timers.push(fn), setTimeout, clearTimeout, t: key => key };
+    document: { createElement: () => Object.assign(overlay, { setAttribute() {} }), querySelector: () => ({ append() {} }) }, window: { addEventListener() {} }, performance: { now: () => now }, setInterval: fn => timers.push(fn), setTimeout, clearTimeout, t: key => key };
   vm.runInNewContext(fs.readFileSync('public/media-readiness.js', 'utf8'), context);
   const tick = (seconds = .2) => { now += seconds * 1000; video.dispatchEvent(new Event('timeupdate')); };
   return { video, overlay, context, sent, tick, update: listeners.session_updated, latest: () => sent.at(-1)?.data };

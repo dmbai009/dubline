@@ -723,7 +723,7 @@ function showInspector(line) {
     <div class="insp-actions">${primary}${window.DublineTakeHistory?.mainHtml(line) || ''}</div>
     ${secondary.length || deleteLineBtn ? `<div class="insp-actions secondary">${secondary.join('')}${deleteLineBtn}</div>` : ''}
     ${hint}
-    ${window.DublineTakeHistory?.html(line) || ''}
+    ${window.DublineTakeAnalysis?.html(line) || ''}${window.DublineTakeHistory?.html(line) || ''}
     <canvas id="visualizerCanvas" width="320" height="28"></canvas>
     ${micRow}
     ${window.DublineVoiceEditor?.html(line) || ''}

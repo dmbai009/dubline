@@ -45,3 +45,16 @@
 .fx-dialog:not([open]) { display: none !important; }
 .take-panel [hidden] { display: none !important; }
 @media (max-width: 420px) { .fx-header, .fx-footer { padding:10px 12px; } .fx-body { padding:0 12px 10px; } .fx-item-head { gap:2px; } .fx-item { padding:10px; } }
+
+.review-issues { display:grid; gap:8px; }
+.review-issue { display:flex; align-items:center; justify-content:space-between; gap:12px; font-size:12px; }
+.review-issue span { min-width:0; overflow-wrap:anywhere; }
+.review-issue button { flex-shrink:0; }
+#sceneReviewBtn { font-size:11px; }
+
+.sequence-recording { font-size:11px; position:relative; }
+.sequence-recording summary { cursor:pointer; }
+.sequence-content { padding:8px 0; display:grid; gap:8px; }
+.sequence-content > label { display:flex; gap:10px; align-items:center; }
+#takeCompareDialog .fx-body > label { display:flex; gap:8px; align-items:center; margin:8px 0; }
+#takeCompareDialog .dub-select-button { flex:1; }

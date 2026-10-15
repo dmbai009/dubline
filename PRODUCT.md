@@ -25,7 +25,7 @@ My Settings contains microphone, monitoring, local auto-duck, ADR volume/prepara
 
 ## Scope
 
-1.4 emphasizes portable projects, workflow, timeline reliability, settings clarity, and regression coverage. Large launcher/theme redesigns are deferred. AI transcription, source separation, voice removal, video editing, multi-take history, director approval, accounts, and cloud project hosting are outside scope.
+1.4 emphasizes portable projects, workflow, timeline reliability, settings clarity, and regression coverage. Large launcher/theme redesigns are deferred. AI transcription, source separation, voice removal, video editing, director approval, accounts, and cloud project hosting are outside scope.
 
 ## Large project storage
 
@@ -62,3 +62,8 @@ RNNoise replaces microphone-profile calibration. Scene settings belong to record
 ## UI and scene presets
 
 Scene-local shared effect presets support creation by admitted participants and management by their creator or moderators. Copies apply only through the ordinary role/take editor. Unified dropdowns and one-shot audition keep existing recording, RNNoise and project workflows; retake requests belong only to host/moderator authority.
+
+
+## Live presets and recording workflow
+
+Scene presets may remain live links; common edits are private until saved, while explicit copy/detach preserve independent sound. Optional own-line sequence, existing-history A/B, advisory capture checks, shared voice volume correction (off by default), compact scene review, clearer export choices/results and media retry/cancel states reuse the existing studio. Quality hints are personal and never mark retakes automatically. Shared correction retains manual levels and the same play/export result. See docs/live-presets-workflow.md.

@@ -40,7 +40,7 @@ function downloadBlob(blob, ext, title = session.title) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `Dubline_${title}_export.${ext}`;
+  a.download = window.DublineVideoExportPolicy?.filename(title, ext) || `Dubline_${title}_export.${ext}`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
@@ -62,7 +62,7 @@ function exportableTake(line) {
 function createExportSnapshot() {
   const scene = structuredClone(session);
   const sources = window.DublineProjectAudio.sources(scene);
-  scene.lines.forEach(line => { line._exportNoise = window.DublineNoiseModel?.resolve(line, scene) || null; line._exportVoice = window.DublineVoiceChain?.resolve(line, scene); });
+  scene.lines.forEach(line => { line._exportNoise = window.DublineNoiseModel?.resolve(line, scene) || null; line._exportVoice = window.DublineVoiceChain?.resolve(line, scene); line._exportLevel = window.DublineProjectAudio.normalize(scene).normalizeVoices; });
   return { scene, takes: scene.lines.filter(exportableTake), gains: readRenderGains(scene),
     originalUrl: mediaUrl(sources.original), backingUrl: mediaUrl(sources.backing),
     videoUrl: scene.videoUrl, videoBlob: exportLocalVideo(scene), assets: localMedia?.sessionId === scene.activeSessionId ? localMedia.assets : {} };
@@ -105,9 +105,7 @@ async function requireExportTake(line, signal = null) {
     signal.addEventListener('abort', abort, { once: true });
     Promise.resolve(promise).then(resolve, reject).finally(() => signal.removeEventListener('abort', abort));
   });
-  const buffer = await wait(getProcessedTake(line, { signal, strict: true })) || await wait(getProcessedTake(line, { signal, strict: true }));
-  if (!buffer) throw exportAudioError(`#${line.id}`);
-  return buffer;
+  try { let prepared = await wait(audio.prepareTake(line, { signal, strict: true })); if (!prepared.buffer) prepared = await wait(audio.prepareTake(line, { signal, strict: true })); const buffer = prepared.buffer; if (!buffer) throw exportAudioError(`#${line.id}`); line._levelGain = prepared.gain; window.DublineSceneReview?.processingError(line, false); return buffer; } catch (error) { if (error.name === 'AbortError') throw error; window.DublineSceneReview?.processingError(line, true); throw exportAudioError(`#${line.id} · ${t('review.processing')}`); }
 }
 
 async function decodeExportSource(url, label) {

@@ -80,6 +80,7 @@ module.exports = function registerRoomHandlers(socket, conn) {
 
     const nextRoomId = resolveRoomId(data.room);
     const candidateRoom = getRoom(nextRoomId);
+    if (require('../voiceChains').requiresClient(candidateRoom) && data.voiceVersion !== 1) return socket.emit('join_denied', { reason: 'voiceVersion' });
     if (require('../noiseReduction').required(candidateRoom) && data.noiseVersion !== require('../../public/noise-model').PROCESSING_VERSION) return socket.emit('join_denied', { reason: 'noiseVersion' });
     const desktopHost = hasDesktopHostProof(nextRoomId, data.desktopHostToken);
     if (desktopHost) {
@@ -137,7 +138,7 @@ module.exports = function registerRoomHandlers(socket, conn) {
     socket.join(conn.roomId);
     if (!roomSockets[conn.roomId]) roomSockets[conn.roomId] = Object.create(null);
     roomSockets[conn.roomId][socket.id] = { nick: conn.nick, clientId: conn.clientId,
-      noiseVersion: data.noiseVersion === require('../../public/noise-model').PROCESSING_VERSION ? data.noiseVersion : null };
+      voiceVersion: data.voiceVersion === 1 ? 1 : null, noiseVersion: data.noiseVersion === require('../../public/noise-model').PROCESSING_VERSION ? data.noiseVersion : null };
 
     // The Electron host uses this only as a positive readiness signal for VPN/Porthole modes.
     // It does not expose room data and is never sent for the desktop host itself.

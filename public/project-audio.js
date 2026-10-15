@@ -9,7 +9,7 @@
   function normalize(session) {
     const raw = session.projectAudio || {};
     const result = { revision: Number.isInteger(raw.revision) ? Math.max(0, raw.revision) : 0,
-      autoDuckEnabled: raw.autoDuckEnabled !== false,
+      normalizeVoices: raw.normalizeVoices === true, autoDuckEnabled: raw.autoDuckEnabled !== false,
       autoDuckAmount: number(raw.autoDuckAmount, 0.4, 0, 0.8) };
     for (const channel of CHANNELS) {
       const source = raw[channel] || {};

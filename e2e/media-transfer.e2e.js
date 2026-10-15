@@ -252,7 +252,7 @@ describe('Authorized media delivery with optional P2P', { skip: skipReason }, ()
           }, corrupt)
         });
         if (!corrupt) {
-          await waitFor(guest, () => [...partialFiles.values()].some(file => file.durable.size > 0));
+          await waitFor(guest, () => [...partialFiles.values()].some(file => file.durable.size > 0) && mediaDownload?.diagnostic?.p2pBytes >= 262144);
           await seed.evaluate(() => { settingsP2P.checked = false; settingsP2P.dispatchEvent(new Event('change')); releasePartialUpload?.(); });
           await waitFor(guest, () => typeof releasePartialHttp === 'function'); await guest.evaluate(() => releasePartialHttp());
         } else {

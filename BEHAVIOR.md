@@ -127,3 +127,7 @@ Noise reduction drafts are local to room/scene/nickname. Normal settings/categor
 ## UI and scene presets
 
 Preset catalogues are per scene and never contain audio, mix, RNNoise or a live reference from a take. Any admitted participant may create; only creator/host/moderator may manage. Revisions reject stale edits; failed writes roll back. Replace/append are draft-only until Apply, optional pitch defaults off, inheritance survives and combined limits reject without truncation. Only host/moderator may request retakes; original recording bytes remain unchanged.
+
+## Live presets and recording workflow
+
+Common preset drafts do not alter shared sound until durable Save. Copy and Detach remain explicit; old projects never infer live links. All batch members/current/history/trash are validated before mutation. Required audio cannot silently fall back to dry export. Shared volume correction starts off and retains manual gain/pan; quality hints neither reject takes nor request retakes and hidden takes never expose their reports. Sequence progression waits for confirmed upload and never records automatically. A/B restores through the original history operation. Unknown operation results retain their immutable payload. Cancelled export/loading is not reported as success.

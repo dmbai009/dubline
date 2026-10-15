@@ -105,7 +105,7 @@ function editorResult(result) {
 }
 
 function editorFailureMessage(reason) {
-  if (typeof reason === 'string' && reason.startsWith('takeHistory.')) return t(reason);
+  if (typeof reason === 'string' && (reason.startsWith('takeHistory.') || reason.startsWith('fx.'))) return t(reason);
   const keys = { conflict: 'editor.conflict', exists: 'editor.trackExists', caption: 'editor.captionTooLong',
     timingsProtected: 'editor.timingsProtected', cancelled: 'editor.cancelled', pending: 'assignment.pending', owner: 'assignment.denied' };
   const reasons = ['locked', 'invalid', 'mode', 'session', 'empty', 'missing', 'expired', 'capacity', 'operation', 'snapshot', 'room', 'name', 'storage', 'unconfirmed', 'legacy', 'unavailable'];
@@ -118,7 +118,7 @@ function editorOutcome(result) {
   if (result?.reason?.startsWith('takeHistory.')) return 'rejected';
   // Retain ambiguous results and intent bound to a scene that is no longer active.
   if (!result || ['expired', 'operation', 'unconfirmed', 'legacy', 'storage', 'timeout', 'session'].includes(result.reason)) return 'recovery';
-  return ['locked', 'invalid', 'mode', 'session', 'empty', 'missing', 'capacity', 'snapshot', 'room', 'name', 'caption', 'timingsProtected', 'exists', 'unavailable', 'cancelled'].includes(result.reason) ? 'rejected' : 'recovery';
+  return ['locked', 'invalid', 'mode', 'session', 'empty', 'missing', 'capacity', 'snapshot', 'room', 'name', 'caption', 'timingsProtected', 'exists', 'unavailable', 'cancelled', 'host', 'fx.clientUpdate'].includes(result.reason) ? 'rejected' : 'recovery';
 }
 
 // Authoritative data is never modified by optimistic edits. Requests capture the
@@ -142,7 +142,7 @@ let editorStorageReadIssue = false;
 let editorConfirmedConnection = null, editorConfirmedScene = null, editorResyncing = 0;
 function editorOperationModeAllowed(operation) {
   if (operation.payload?.dubAssignment) return session?.mode === 'dub' && operation.event === 'set_line_character';
-  return session?.mode === 'edit' || operation.event === 'editor_add_track' || operation.event === 'set_needs_retake' || operation.event === 'take_history_update';
+  return session?.mode === 'edit' || operation.event === 'editor_add_track' || operation.event === 'set_needs_retake' || operation.event === 'take_history_update' || operation.event === 'project_audio_update';
 }
 function persistEditorOperation(operation, remove = false) {
   const record = remove ? null : structuredClone({ schemaVersion: 2, id: operation.id, event: operation.event, payload: operation.payload,
@@ -311,17 +311,17 @@ function renderEditorSyncState() {
 
 let editorReviewBusy = false, editorReviewSummary = '';
 function canKeepEditorOperation(operation) {
-  return operation.status === 'conflict' && editorUpdates(operation).length > 0;
+  return operation.status === 'conflict' && (editorUpdates(operation).length > 0 || operation.event === 'project_audio_update');
 }
 function canRetryEditorSave(operation) {
-  return canKeepEditorOperation(operation) || operation.status === 'recovery' && operation.outcome?.confirmed && editorUpdates(operation).length > 0;
+  return canKeepEditorOperation(operation) || operation.status === 'recovery' && operation.outcome?.confirmed && (editorUpdates(operation).length > 0 || operation.event === 'project_audio_update');
 }
 function renderEditorConflicts() {
   const panel = document.getElementById('editorConflictPanel');
   if (panel.hidden) return;
   const scroll = panel.querySelector('.editor-conflict-list')?.scrollTop || 0;
   panel.innerHTML = `<div class="editor-conflict-actions">${editorConflicts.some(canKeepEditorOperation) ? `<button class="btn-play" data-review-all="keep" ${editorReviewBusy ? 'disabled' : ''}>${t('editor.keepAll')}</button>` : ''}<button class="btn-delete" data-review-all="discard" ${editorReviewBusy ? 'disabled' : ''}>${t('editor.discardAll')}</button></div><p role="status">${esc(editorReviewSummary)}</p><div class="editor-conflict-list">` + editorConflicts.map(operation => `<div class="editor-conflict-item">${editorIntentHtml(operation)}
-    ${canRetryEditorSave(operation) ? `<button class="btn-play" data-retry-operation="${operation.id}" ${editorReviewBusy || operation.sessionId !== session?.activeSessionId || session?.mode !== 'edit' ? 'disabled' : ''}>${t(canKeepEditorOperation(operation) ? 'editor.keepMine' : 'editor.retrySave')}</button>` : `<p>${esc(t('editor.repeatAction'))}</p>`}
+    ${canRetryEditorSave(operation) ? `<button class="btn-play" data-retry-operation="${operation.id}" ${editorReviewBusy || operation.sessionId !== session?.activeSessionId || !editorOperationModeAllowed(operation) ? 'disabled' : ''}>${t(canKeepEditorOperation(operation) ? 'editor.keepMine' : 'editor.retrySave')}</button>` : `<p>${esc(t('editor.repeatAction'))}</p>`}
     ${operation.status === 'recovery' && !operation.outcome?.confirmed && operation.request?.operationId && (operation.sent || ['storage', 'legacy', 'unconfirmed'].includes(operation.outcome?.reason)) ? `<button class="btn-outline" data-check-operation="${operation.id}" ${editorReviewBusy || !socket.connected || !operation.sent && operation.sessionId !== session?.activeSessionId ? 'disabled' : ''}>${t('editor.checkResult')}</button>` : ''}
     <button class="btn-outline" data-discard-operation="${operation.id}" ${editorReviewBusy ? 'disabled' : ''}>${t('editor.discardPending')}</button></div>`).join('') + '</div>';
   panel.querySelector('.editor-conflict-list').scrollTop = scroll;
@@ -342,10 +342,11 @@ window.reviewEditorConflicts = function() {
 window.openEditorSyncReview = function() { if (editorConflicts.length) reviewEditorConflicts(); };
 
 async function retryEditorConflict(operation, sceneId) {
-  if (!socket.connected || session?.activeSessionId !== sceneId || operation.sessionId !== sceneId || session.mode !== 'edit' || operation.roomId !== currentRoom || operation.clientId !== clientId || !myName || window.snapshotFrozen) return false;
+  if (!socket.connected || session?.activeSessionId !== sceneId || operation.sessionId !== sceneId || !editorOperationModeAllowed(operation) || operation.roomId !== currentRoom || operation.clientId !== clientId || !myName || window.snapshotFrozen) return false;
   if (!canRetryEditorSave(operation)) return false;
-  if (editorQueue.length || !await resyncEditor() || session?.activeSessionId !== sceneId || session.mode !== 'edit') return false;
+  if (editorQueue.length || !await resyncEditor() || session?.activeSessionId !== sceneId || !editorOperationModeAllowed(operation)) return false;
   const payload = structuredClone(operation.payload);
+  if (operation.event === 'project_audio_update' && canKeepEditorOperation(operation)) payload.revision = DublineProjectAudio.normalize(session).revision;
   for (const patch of editorUpdates({ ...operation, payload })) {
     const line = editorAuthoritative.get(patch.lineId);
     if (!line || session.protectTimings && (patch.start !== undefined && patch.start !== line.start || patch.end !== undefined && patch.end !== line.end)) return false;
@@ -368,7 +369,7 @@ async function resolveEditorConflicts(action, operations) {
       if (!editorConflicts.includes(operation)) continue;
       if (action === 'keep') {
         if (!canRetryEditorSave(operation)) continue;
-        if (!socket.connected || session?.activeSessionId !== sceneId || session.mode !== 'edit' || editorQueue.length) break;
+        if (!socket.connected || session?.activeSessionId !== sceneId || !editorOperationModeAllowed(operation) || editorQueue.length) break;
         if (await retryEditorConflict(operation, sceneId)) applied++;
         else rejected++;
       } else if (await discardEditorOperation(operation)) {
@@ -387,10 +388,10 @@ document.addEventListener('click', event => {
 });
 
 function editorIntentHtml(operation) {
-  const labels = { editor_create_line: 'editor.addLine', editor_update_line: 'editor.line', editor_update_lines: 'editor.line', editor_delete_lines: 'editor.delete', editor_add_track: 'editor.addTrack', editor_undo: 'editor.undo', set_line_character: 'editor.track', set_lines_character: 'editor.track', rename_character: 'editor.track' };
+  const labels = { project_audio_update: 'level.title', editor_create_line: 'editor.addLine', editor_update_line: 'editor.line', editor_update_lines: 'editor.line', editor_delete_lines: 'editor.delete', editor_add_track: 'editor.addTrack', editor_undo: 'editor.undo', set_line_character: 'editor.track', set_lines_character: 'editor.track', rename_character: 'editor.track' };
   const patches = editorUpdates(operation);
   const targets = patches.length ? patches : operation.event === 'set_needs_retake' ? [{ lineId: operation.payload.lineId }] : editorRevisionTargets(operation);
-  const details = targets.map(patch => {
+  const details = operation.event === 'project_audio_update' ? `<p>${esc(t(operation.payload.field === 'normalizeVoices' ? 'level.title' : 'studio.mix'))} · ${esc(typeof operation.payload.value === 'boolean' ? t(operation.payload.value ? 'fx.enabled' : 'fx.disabled') : String(operation.payload.value))}</p>` : targets.map(patch => {
     const line = session?.lines.find(item => item.id === patch.lineId);
     const number = line ? lineNumber(line) : patch.lineId;
     return `<p><b>#${number}</b> ${esc(patch.caption ?? '')} ${patch.start !== undefined || patch.end !== undefined ? `${patch.start ?? patch.base?.start}–${patch.end ?? patch.base?.end}s` : ''} ${esc(patch.character ?? operation.payload.character ?? '')}</p>`;
@@ -502,6 +503,7 @@ function finishEditorOperation(operation, result, category = editorOutcome(resul
   // even when the new attempt receives an ordinary refusal (for example a lease).
   if (category === 'rejected' && operation.replacesId) category = 'recovery';
   if (result?.ok) {
+    if (operation.event === 'project_audio_update' && result.mix && operation.sessionId === session?.activeSessionId && result.mix.revision >= DublineProjectAudio.normalize(session).revision) { session.projectAudio = DublineProjectAudio.normalize({ ...session, projectAudio: result.mix }); applyVolumes(); }
     const lines = result.lines || (result.line ? [result.line] : []);
     for (const next of editorQueue) {
       if (next.sent) continue;
@@ -515,7 +517,7 @@ function finishEditorOperation(operation, result, category = editorOutcome(resul
     }
   }
   operation.status = category;
-  operation.outcome = { reason: result?.reason || (result?.ok ? 'ok' : 'unconfirmed'), confirmed: !!result && !['expired', 'operation', 'unconfirmed', 'legacy', 'storage', 'timeout'].includes(result.reason), manual: ['conflict', 'recovery'].includes(category) };
+  operation.outcome = { reason: result?.reason || (result?.ok ? 'ok' : 'unconfirmed'), confirmed: !!result && (result.reason === 'storage' && typeof result.editorProtocol?.epoch === 'string' || !['expired', 'operation', 'unconfirmed', 'legacy', 'storage', 'timeout'].includes(result.reason)), manual: ['conflict', 'recovery'].includes(category) };
   if (['conflict', 'recovery'].includes(category)) editorConflicts.push(operation);
   const saved = ['confirmed', 'rejected'].includes(category) ? retireEditorOperation(operation) : persistEditorOperation(operation);
   // UI rollback also runs for local lease failures and scene/mode boundaries.
@@ -524,7 +526,7 @@ function finishEditorOperation(operation, result, category = editorOutcome(resul
     if (operation.event === 'editor_reorder_track') renderTimeline();
     else refreshEditorTimeline(editorUpdates(operation).map(patch => editorAuthoritative.get(patch.lineId)).filter(Boolean));
   }
-  saved.then(() => operation.resolve(result || { ok: false, reason: 'unconfirmed' }));
+  saved.then(() => { if (operation.event === 'project_audio_update' && operation.payload.field === 'normalizeVoices' && result?.ok) window.DublineTakeAnalysis?.confirmed(result); operation.resolve(result || { ok: false, reason: 'unconfirmed' }); });
 }
 
 async function pumpEditorQueue() {

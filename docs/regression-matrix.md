@@ -60,3 +60,7 @@ RNNoise: actual mono/stereo/resampling/partial frames; author/history/rename/mig
 ## UI and scene presets
 
 Added coverage: shared scene presets, copied settings and IDs, optional pitch, inherited complexity, creator/moderator rights, rollback/receipt recovery, format 10 and legacy import, scene isolation, author-read-only retake comments, single-play RNNoise/FX, shared dropdown input/focus/top-layer behavior and dirty-draft Save/Discard/Continue. Manual: screen readers, touch, physical audio devices and external WAN/tunnels.
+
+## Live presets and recording workflow
+
+Live-preset/current-history-trash/Undo bindings, private check metadata, format-11 levels, immutable setting/preset recovery and strict disk rollback have dedicated tests. Browser workflow covers sequence upload confirmation, A/B restore, hidden review, actual export report and real media failure/cancel/retry. DSP checks compare actual rendered stem PCM and independent FFmpeg peaks; native workflow uses real Electron recording and a browser listener. The visual matrix captures actual screens. See live-presets-workflow.md for final counts and measured limitations.

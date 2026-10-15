@@ -736,6 +736,7 @@ app.post('/api/upload-line-audio', acceptFile('audio', MAX_TAKE_MB, requireConfi
     const lineId = parseInt(req.body.lineId, 10);
     const userName = sanitizeNick(req.body.userName);
     const audioStart = parseSeconds(req.body.audioStart);
+    let quality = null; if (req.body.quality) { try { if (typeof req.body.quality !== 'string' || req.body.quality.length > 2048) throw Error('quality'); quality = JSON.parse(req.body.quality); } catch { throw new HttpError(400, 'Invalid recording check', 'error.badRequest'); } if (!require('../public/speech-model').validQuality(quality)) throw new HttpError(400, 'Invalid recording check', 'error.badRequest'); }
     const trimStart = parseSeconds(req.body.trimStart);
     const trimEnd = parseSeconds(req.body.trimEnd);
 
@@ -805,8 +806,9 @@ app.post('/api/upload-line-audio', acceptFile('audio', MAX_TAKE_MB, requireConfi
     if (!next.effect) next.effect = 'none';
     if (!next.pitch) next.pitch = 0;
 
+    const previousChecks = target.takeChecks; if (quality) target.takeChecks = Object.assign(Object.create(null), target.takeChecks, { [next.takeId]: quality });
     try { takeHistory.commit(room, target, line, next); }
-    catch (error) { deleteTakeFile(newUrl); throw error; }
+    catch (error) { target.takeChecks = previousChecks; if (target === room) snapshotActive(room); deleteTakeFile(newUrl); throw error; }
     const cleanupError = takeHistory.cleanup(deleted, roomId, sessionId, line.id);
     if (isActiveSession) require('./sessionScope').emitLines(roomId, [line]);
     else emitSession(roomId); // the take went to an inactive session: only refresh its progress in the list
@@ -850,3 +852,5 @@ app.post('/api/delete-line-audio', (req, res) => {
     sendError(res, err);
   }
 });
+
+require('./sceneReview').register();

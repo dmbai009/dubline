@@ -1,9 +1,10 @@
 (() => {
   const model = DublineVoicePresets, editor = DublineVoiceEditor, $ = id => document.getElementById(id);
-  let operation = null, sending = false;
+  let operation = null, sending = false, audioScene = session?.activeSessionId, audioCatalog = structuredClone(session?.voicePresets || {}), audioRoles = structuredClone(session?.roleEffects || {});
+  function synchronizeAudio() { if (audioScene === session?.activeSessionId) { const ids = audio.invalidatePresets(audioCatalog, audioRoles); if (ids.length) window.dispatchEvent(new CustomEvent('dubline-presets-changed', { detail: { ids } })); } audioScene = session?.activeSessionId; audioCatalog = structuredClone(session?.voicePresets || {}); audioRoles = structuredClone(session?.roleEffects || {}); }
   function status(key = '') { const node = $('fxPresetStatus'); if (key) node.dataset.i18n = key; else delete node.dataset.i18n; node.textContent = key ? t(key) : ''; }
   const area = document.createElement('details'); area.className = 'fx-presets'; area.id = 'fxPresets';
-  area.innerHTML = `<summary data-i18n="preset.title"></summary><div class="fx-preset-controls"><select id="fxPresetSelect" aria-label="${esc(t('preset.title'))}"></select><button type="button" id="fxPresetApply" class="btn-outline" data-i18n="preset.apply"></button><select id="fxPresetMode" aria-label="${esc(t('preset.mode'))}"><option value="replace" data-i18n="preset.replace"></option><option value="append" data-i18n="preset.append"></option></select></div>
+  area.innerHTML = `<summary data-i18n="preset.title"></summary><div class="fx-preset-controls"><select id="fxPresetSelect" aria-label="${esc(t('preset.title'))}"></select><button type="button" id="fxPresetApply" class="btn-outline" data-i18n="preset.apply"></button><select id="fxPresetMode" aria-label="${esc(t('preset.mode'))}"><option value="link" data-i18n="live.link"></option><option value="replace" data-i18n="live.copyReplace"></option><option value="append" data-i18n="live.copyAppend"></option></select></div>
     <label class="fx-preset-pitch"><span data-i18n="preset.pitch"></span><span class="switch-ui"><input type="checkbox" id="fxPresetPitch" aria-label="${esc(t('preset.pitch'))}"><span class="switch-slider"></span></span></label><p class="setting-sub" data-i18n="preset.inheritanceHelp"></p><p id="fxPresetDescription" class="setting-sub"></p>
     <div class="insp-actions"><button type="button" id="fxPresetSave" class="btn-outline" data-i18n="preset.saveAs"></button><details class="fx-preset-menu"><summary data-i18n="preset.manage"></summary><div class="insp-actions"><button type="button" id="fxPresetRename" class="btn-outline" data-i18n="preset.rename"></button><button type="button" id="fxPresetUpdate" class="btn-outline" data-i18n="preset.update"></button><button type="button" id="fxPresetDelete" class="btn-outline" data-i18n="preset.delete"></button></div></details></div>
     <p id="fxPresetStatus" role="status" aria-live="polite"></p><button type="button" id="fxPresetRetry" class="btn-outline" data-i18n="preset.retry" hidden></button>`;
@@ -11,7 +12,10 @@
   const selected = () => Object.hasOwn(session?.voicePresets || {}, $('fxPresetSelect').value) ? session.voicePresets[$('fxPresetSelect').value] : null;
   function refresh() {
     $('fxPresetSelect').setAttribute('aria-label', t('preset.title')); $('fxPresetMode').setAttribute('aria-label', t('preset.mode')); $('fxPresetPitch').setAttribute('aria-label', t('preset.pitch'));
-    const previous = $('fxPresetSelect').value, presets = Object.values(session?.voicePresets || {});
+    const draft = editor.draft(), shared = draft?.scope === 'preset';
+    area.querySelector('.fx-preset-controls').hidden = shared; $('fxPresetPitch').closest('label').hidden = shared; area.querySelector('[data-i18n="preset.inheritanceHelp"]').hidden = shared;
+    area.querySelector('summary').dataset.i18n = shared ? 'live.actions' : 'preset.title'; area.querySelector('summary').textContent = t(area.querySelector('summary').dataset.i18n); $('fxPresetSave').dataset.i18n = shared ? 'live.saveAsNew' : 'preset.saveAs'; $('fxPresetSave').textContent = t($('fxPresetSave').dataset.i18n);
+    const previous = shared ? draft.presetId : $('fxPresetSelect').value, presets = Object.values(session?.voicePresets || {});
     $('fxPresetSelect').replaceChildren(new Option(t('preset.choose'), ''), ...presets.map(preset => new Option(preset.name, preset.id)));
     if (presets.some(preset => preset.id === previous)) $('fxPresetSelect').value = previous;
     const preset = selected(), own = !!preset && (canModerate() || preset.createdBy === myName), locked = sending || !!operation;
@@ -23,7 +27,7 @@
   }
   function receive(data) {
     if (data.sessionId !== session.activeSessionId || !model.validLibrary(data.voicePresets) || !acceptSessionProtocol(data.editorProtocol)) return;
-    session.voicePresets = data.voicePresets; refresh();
+    session.voicePresets = data.voicePresets; if (data.roleEffects) session.roleEffects = data.roleEffects; synchronizeAudio(); if (data.lines?.length) applyTakeUpdates(data.sessionId, data.lines, data.editorProtocol, { prewarm: false }); else if (selectedLine) showInspector(selectedLine); refresh(); window.DublineVoiceEditor.catalogChanged?.();
   }
   const call = (event, request) => new Promise(resolve => socket.timeout(5000).emit(event, request, (error, answer) => resolve(error ? null : answer)));
   async function send() {
@@ -38,6 +42,7 @@
       if (!answer) { captured.sent = true; for (let attempt = 0; attempt < 2 && !answer; attempt++) answer = await call('voice_preset_update', captured.request); }
       if (!answer) { const known = await call('editor_operation_status', { event: 'voice_preset_update', request: captured.request }); if (known?.ok && known.state === 'known') answer = known.result; }
       if (captured !== operation) return;
+      if (answer?.ok && captured.request.action === 'delete' && !await resyncEditor()) { status('preset.syncError'); return; }
       if (answer) operation = null;
       if (answer?.ok) { receive({ sessionId: captured.request.sessionId, voicePresets: answer.voicePresets, editorProtocol: answer.editorProtocol }); status('preset.saved'); if (session.activeSessionId === captured.request.sessionId && Object.hasOwn(session.voicePresets || {}, captured.request.id)) { $('fxPresetSelect').value = captured.request.id; refresh(); } }
       else status(answer?.reason?.startsWith('preset.') ? answer.reason : 'preset.syncError');
@@ -54,23 +59,24 @@
     if (name && editor.draft()?.sessionId === draft.sessionId) mutate({ action: 'create', id: newUploadId(), revision: 0, name, settings }, draft);
   };
   $('fxPresetApply').onclick = async () => {
-    const draft = editor.draft(), preset = structuredClone(selected()), append = $('fxPresetMode').value === 'append', pitch = $('fxPresetPitch').checked; if (!draft || !preset) return;
+    const draft = editor.draft(), preset = structuredClone(selected()), append = $('fxPresetMode').value === 'append', linked = $('fxPresetMode').value === 'link', pitch = $('fxPresetPitch').checked; if (!draft || !preset) return;
     if (!append && editor.dirty()) { const decision = await askDraftDecision(); if (!decision) return; if (decision === 'save' && !await editor.apply(true)) return; }
     else if (!append && draft.effects.length && !await askConfirm(t('preset.replaceConfirm'))) return;
     if (editor.draft()?.sessionId !== draft.sessionId || editor.draft()?.character !== draft.character) return;
-    try { editor.usePreset(preset, append, pitch); status('preset.draftApplied'); }
+    try { editor.usePreset(preset, append, pitch, linked); status('preset.draftApplied'); }
     catch (error) { status(error.message); }
   };
   for (const action of ['rename', 'update', 'delete']) $('fxPreset' + action[0].toUpperCase() + action.slice(1)).onclick = async () => {
     const draft = editor.draft(), preset = structuredClone(selected()); if (!draft || !preset || operation) return;
     const data = { action, id: preset.id, revision: preset.revision };
+    if (action === 'update') { if (await editor.close()) editor.open(preset.id, 'preset'); return; }
     if (action === 'rename') { data.name = await askText(t('preset.name'), preset.name, model.MAX_NAME); if (!data.name) return; }
-    else { data.settings = { effects: structuredClone(draft.effects), pitch: draft.pitch }; if (!await askConfirm(t(action === 'delete' ? 'preset.deleteConfirm' : 'preset.updateConfirm', { name: preset.name }), { danger: action === 'delete' })) return; if (action === 'delete') delete data.settings; }
+    else { data.settings = { effects: structuredClone(draft.effects), pitch: draft.pitch }; if (!await askConfirm(t(action === 'delete' && (model.usage(session, preset.id).lines.length || model.usage(session, preset.id).roles.length) ? 'live.deleteUsed' : action === 'delete' ? 'preset.deleteConfirm' : 'preset.updateConfirm', { name: preset.name, n: model.usage(session, preset.id).lines.length, r: model.usage(session, preset.id).roles.length }), { danger: action === 'delete' })) return; if (action === 'delete') { delete data.settings; data.detach = true; } }
     mutate(data, draft);
   };
   $('fxPresetSelect').onchange = refresh; $('fxPresetRetry').onclick = () => send();
-  socket.on('voice_presets_updated', receive); socket.on('session_updated', refresh);
+  socket.on('voice_presets_updated', receive); socket.on('session_updated', () => { synchronizeAudio(); refresh(); window.DublineVoiceEditor.catalogChanged?.(); });
   window.addEventListener('dubline-language-changed', () => { DublineI18n.apply(area); refresh(); });
-  window.DublinePresetUI = { refresh, begin: () => { $('fxPresetPitch').checked = false; $('fxPresetMode').value = 'replace'; status(); refresh(); }, pending: () => !!operation || sending };
+  window.DublinePresetUI = { refresh, begin: () => { $('fxPresetPitch').checked = false; $('fxPresetMode').value = 'link'; status(); refresh(); }, pending: () => !!operation || sending, receive };
   DublineI18n.apply(area); refresh();
 })();

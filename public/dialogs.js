@@ -68,3 +68,9 @@ textPrompt.addEventListener('keydown', event => {
   event.preventDefault();
   controls[(index + (event.shiftKey ? -1 : 1) + controls.length) % controls.length].focus();
 });
+
+// All compact native dialogs use the same interface-zoom geometry.
+window.observeDialogZoom = dialog => {
+  const adjust = () => { const zoom = String((Number(getComputedStyle(document.body).zoom) || 1) * (Number(getComputedStyle(document.documentElement).zoom) || 1)); if (dialog.style.getPropertyValue('--fx-ui-zoom') !== zoom) dialog.style.setProperty('--fx-ui-zoom', zoom); };
+  const observer = new ResizeObserver(adjust); observer.observe(dialog); adjust(); return observer;
+};

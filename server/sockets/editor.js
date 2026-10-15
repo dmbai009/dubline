@@ -378,6 +378,7 @@ module.exports = function registerEditorHandlers(socket, conn) {
       const lines = room.lines.map(line => characters.has(line.id) ? { ...line, character: characters.get(line.id) } : line);
       try { require('../voiceChains').validateScene({ ...room, roleEffects: roles, lines, trackOrder: [...new Set([...room.trackOrder, ...lines.map(line => line.character)])] }); } catch { return reply({ ok: false, reason: 'fx.limit' }); }
     }
+    if (pendingUndo?.type === 'removeTrack' && pendingUndo.roleEffects) { const roles = { ...room.roleEffects, [pendingUndo.character]: pendingUndo.roleEffects }; try { require('../voiceChains').validateScene({ ...room, roleEffects: roles, trackOrder: [...new Set([...room.trackOrder, pendingUndo.character])] }); } catch { return reply({ ok: false, reason: 'fx.limit' }); } }
     if (room.protectTimings && pendingUndo?.lines?.some(item => item.changes.start || item.changes.end)) return reply({ ok: false, reason: 'timingsProtected' });
     const entry = history.popFor(conn.roomId, room, conn.clientId);
     if (!entry) return reply({ ok: false, reason: 'empty' });

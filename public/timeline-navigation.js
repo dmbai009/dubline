@@ -26,8 +26,9 @@
   const next = document.createElement('button'); next.className = 'btn-icon'; next.textContent = '↓'; next.setAttribute('aria-label', t('find.next'));
   const close = document.createElement('button'); close.className = 'btn-icon'; close.textContent = '×'; close.setAttribute('aria-label', t('find.close'));
   search.append(input, count, prev, next, close); filters.after(search);
-  let results = [], selectedResult = -1, searchTimer = null, resultSignature = '';
+  let temporaryReveal = null, results = [], selectedResult = -1, searchTimer = null, resultSignature = '';
   function visible(line) {
+    if (line.id === temporaryReveal) return true;
     const owned = scope.value !== 'mine' || !!myName && getLineOwner(line) === myName;
     const chosen = scope.value !== 'choose' || (lineOverrides.has(line.id) ? lineOverrides.get(line.id) : selectedRoles.has(line.character));
     return owned && chosen && (!role.value || line.character === role.value) && (status.value === 'all' || status.value === 'recorded' && !!line.audioUrl || status.value === 'unrecorded' && !line.audioUrl || status.value === 'retake' && !!line.audioUrl && line.needsRetake === true);
@@ -39,7 +40,7 @@
   function restoreFilter() {
     const key = session?.activeSessionId ? `dubline_timeline_filter_v1:${encodeURIComponent(currentRoom)}:${session.activeSessionId}` : null;
     if (key === storageKey) return;
-    storageKey = key; selectedRoles.clear(); lineOverrides.clear(); scope.value = 'all'; status.value = 'all'; role.value = '';
+    storageKey = key; temporaryReveal = null; selectedRoles.clear(); lineOverrides.clear(); scope.value = 'all'; status.value = 'all'; role.value = '';
     picker.hidden = true; choose.setAttribute('aria-expanded', 'false');
     try {
       const saved = JSON.parse(localStorage.getItem(key));
@@ -85,7 +86,8 @@
     }
     positionPicker();
   }
-  function changed() { saveFilter(); applyFilters(); }
+  function changed() {
+    temporaryReveal = null; saveFilter(); applyFilters(); }
   choose.onclick = () => { picker.hidden = !picker.hidden; choose.setAttribute('aria-expanded', String(!picker.hidden)); refreshPicker(); if (!picker.hidden) allRoles.focus(); };
   document.addEventListener('pointerdown', event => { if (!picker.hidden && !picker.contains(event.target) && !choose.contains(event.target)) { picker.hidden = true; choose.setAttribute('aria-expanded', 'false'); } });
   picker.addEventListener('keydown', event => { if (event.key === 'Escape') { event.stopPropagation(); picker.hidden = true; choose.setAttribute('aria-expanded', 'false'); choose.focus(); } });
@@ -138,6 +140,7 @@
   }
   window.showMyRetakes = () => { scope.value = 'mine'; status.value = 'retake'; role.value = ''; changed(); };
   window.DublineTimelineFilters = Object.freeze({ visible, ids: () => (session?.lines || []).filter(visible).map(line => line.id) });
+  window.revealTimelineLine = id => { const line = session?.lines.find(line => line.id === id); if (!line) return false; temporaryReveal = id; applyFilters(); clearMultiSelection(); selectLine(line); const block = document.getElementById('line-block-' + id); block?.scrollIntoView({ block: 'nearest', inline: 'center' }); block?.focus({ preventScroll: true }); return true; };
   window.refreshTimelineNavigation = () => { refreshRoles(); applyFilters(); };
   window.openTimelineSearch = () => { search.hidden = false; updateSearch(); input.focus(); input.select(); };
   window.closeTimelineSearch = () => { if (search.hidden) return false; search.hidden = true; input.blur(); return true; };

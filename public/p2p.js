@@ -615,7 +615,7 @@ async function downloadFile({ url, size, hash, type, direct }, onProgress, abort
   const job = {
     url, size, manifest,
     diagnostic,
-    phase: phase => { diagnostic.phase = phase; diagnostic.phaseLabel = t('media.transfer.phase.' + phase); },
+    phase: phase => { diagnostic.phase = phase; diagnostic.phaseLabel = t('media.transfer.phase.' + phase); onProgress(job); },
     received: () => { if (diagnostic.firstByteMs === null) diagnostic.firstByteMs = performance.now() - diagnostic.startedAt; },
     scheduler: new DublineTransferUtils.DownloadScheduler(manifest.chunks.length),
     parts,
@@ -723,6 +723,7 @@ function cancelMediaDownload(manual = false) {
     window.reportPlayerActivity?.('idle', 100, true);
   }
   mediaDownload = null;
+  if (manual) window.updateMediaTransfer?.({ downloading: false });
   if (manual || sceneMediaState.status === 'loading') { sceneMediaState.status = 'cancelled'; p2pStatus = { state: 'cancelled' }; updateP2pStatus(); }
 }
 
@@ -866,7 +867,7 @@ async function loadSceneMedia(force = false) {
           }
           return Math.max(0, Math.min(100, Math.round(received / (to - from) * 100)));
         });
-        window.updateMediaTransfer?.({ downloading: true, videoReady: sceneMediaState.videoReady, pct: p2pStatus.pct, buckets, downloadRate });
+        window.updateMediaTransfer?.({ downloading: true, videoReady: sceneMediaState.videoReady, pct: p2pStatus.pct, buckets, downloadRate, receivedBytes: bytes, totalBytes: totalSize });
         updateP2pStatus();
         window.reportPlayerActivity?.('downloading', p2pStatus.pct);
       }, assetAbort); }
@@ -904,7 +905,7 @@ async function loadSceneMedia(force = false) {
   } catch (err) {
     if (mediaDownload !== download) return; // cancelled: already loading something else
     mediaDownload = null;
-    console.warn('[Dubline] Could not preload the video, watching from the host:', err.message);
+    console.warn('[Dubline] Media preload failed', { code: typeof err.code === 'string' ? err.code.slice(0, 30) : 'network', status: Number.isInteger(err.status) ? err.status : null });
     sceneMediaState.status = abort.signal.aborted ? 'cancelled' : 'failed';
     sceneMediaState.error = { code: err.code || (err instanceof TypeError ? 'network' : 'integrity'), status: err.status ?? null };
     sceneMediaState.diagnostic = download.diagnostic;
@@ -954,6 +955,7 @@ function updateP2pStatus() {
     + (p2pStatus?.state === 'failed' ? `<br><button class="btn-outline" onclick="retrySceneMedia()">${t('media.transfer.retry')}</button>` : '');
   p2pProgressBar.parentElement.style.display = pct === null ? 'none' : '';
   if (pct !== null) p2pProgressBar.style.width = `${pct}%`;
+  window.refreshMediaReadiness?.();
 }
 
 socket.on('connect', () => announceHave(true));

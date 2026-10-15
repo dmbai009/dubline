@@ -27,7 +27,7 @@
       return `<div class="take-history-row" data-history-row="${esc(take.id)}">${button('play', take, !blocked() && video.paused && !watchMode && canHearLine({ ...line, ...take }), active ? 'takeHistory.stop' : 'takeHistory.listen', active)}<span class="take-history-label" title="${esc(label + (take.recordedBy ? ' · ' + take.recordedBy : ''))}">${esc(label)}${take.recordedBy ? `<small>${esc(take.recordedBy)}</small>` : ''}</span>${button('pin', take, edit, take.pinned ? 'takeHistory.unpin' : 'takeHistory.pin', take.pinned)}${button('restore', take, edit, 'takeHistory.restore')}${button('delete', take, edit, 'takeHistory.delete')}</div>`;
     }).join('');
     const conflicts = issues.map(entry => `<div class="take-history-conflict"><span>${esc(t(entry.historyIssue))}</span><button type="button" class="btn-outline" data-history-retry="${esc(entry.uploadId)}" ${blocked() || !socket.connected ? 'disabled' : ''}>${esc(t('takeHistory.retry'))}</button><button type="button" class="btn-outline" data-history-discard="${esc(entry.uploadId)}">${esc(t('takeHistory.discardLocal'))}</button></div>`).join('');
-    return `<details class="take-history" ${expanded ? 'open' : ''}><summary>${esc(t('takeHistory.title'))}<span>${history.length}/3${history.some(take => take.pinned) ? ' · 📌' : ''}</span></summary>${rows}${conflicts}</details>`;
+    return `<details class="take-history" ${expanded ? 'open' : ''}><summary>${esc(t('takeHistory.title'))}<span>${history.length}/3${history.some(take => take.pinned) ? ' · 📌' : ''}</span></summary>${[model.extract(line), ...history].filter(take => take && canHearLine({ ...line, ...take })).length >= 2 ? `<button type="button" class="btn-outline" data-history-compare="true">${esc(t('compare.title'))}</button>` : ''}${rows}${conflicts}</details>`;
   }
   function stop() { generation++; if (playing) { playing = null; audio.stopPreview(); refresh(); } }
   function refresh() { if (selectedLine && recordState === 'idle' && multiSelection.size < 2) showInspector(selectedLine); }
@@ -91,6 +91,7 @@
     const btn = event.target.closest('button'); if (!btn || btn.disabled || !selectedLine) return;
     if (btn.dataset.historyRetry) return void window.retryHistoryTake?.(btn.dataset.historyRetry);
     if (btn.dataset.historyDiscard) return void window.discardHistoryTake?.(btn.dataset.historyDiscard);
+    if (btn.dataset.historyCompare) return window.DublineTakeCompare?.open(selectedLine.id);
     if (!btn.dataset.historyAction) return;
     const line = selectedLine, take = [model.extract(line), ...(Array.isArray(line.takeHistory) ? line.takeHistory : [])].find(take => take?.id === btn.dataset.historyTake);
     if (!take) return;
@@ -101,5 +102,5 @@
   socket.on('session_updated', () => { if (view && (!selectedLine || view !== key(selectedLine))) stop(); });
   socket.on('disconnect', stop);
   socket.on('take_history_warning', message => { if (message.sessionId === session?.activeSessionId) showToast(t('takeHistory.cleanupError')); });
-  window.DublineTakeHistory = Object.freeze({ capture, restoreFocus, mainHtml, html, stop, beforeRecord });
+  window.DublineTakeHistory = Object.freeze({ capture, restoreFocus, mainHtml, html, stop, beforeRecord, choose: (line, take) => change(line, take, 'restore') });
 })();

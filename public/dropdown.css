@@ -8,6 +8,7 @@
 .dub-select-popup [aria-selected=true] { font-weight:600; box-shadow:inset 3px 0 var(--accent); }
 .dub-select-popup .dub-select-active { background:var(--bg-hover, var(--bg)); outline:1px solid var(--accent); outline-offset:-1px; }
 .dub-select-popup [aria-disabled=true] { opacity:.5; cursor:default; }
+.dub-select-popup [aria-disabled=true] small { display:block; font-weight:normal; font-size:11px; }
 .dub-select-search { position:sticky; top:0; display:block; width:100%; box-sizing:border-box; margin-bottom:5px; background:var(--panel); }
 .dub-select-popup[hidden], .dub-select-search[hidden], .dub-select-button[hidden] { display:none !important; }
 .retake-switch-row { display:flex; gap:10px; align-items:center; }

@@ -135,3 +135,9 @@ RNNoise checks: noise-reduction.test.js, e2e/noise-reduction.e2e.js, test:electr
 ## UI and scene presets
 
 voice-preset.test.js and e2e/ui-presets.e2e.js cover real shared creation/application/management, rights, revision conflicts, failed disk writes, immutable lost-ACK recovery, independent instance IDs, format 10/reopen/restart, nickname transfer, scene isolation and exact original bytes. The browser suite also checks keyboard dropdowns, parent-picker retention, all six themes/three locales and 150% geometry/contrast. Native chain/project/UI workflows use the new editor. See docs/ui-presets-integration.md for actual results and manual acceptance.
+
+## Live presets and recording workflow
+
+New checks: live-presets.test.js, speech.test.js, scene-review.test.js, sequence.test.js; e2e/live-presets.e2e.js, workflow-next.e2e.js, speech-levels.e2e.js and media-next.e2e.js. npm run test:electron:workflow checks real Electron capture/RNNoise/effects with private checks and format 11. tools/visual-workflow-next.js supports browser, --native and --packaged with six themes/three languages/three scales. tools/live-preset-stress.js measures an exact external archived baseline or --levels on an owned 400-line/25-minute/ten-client scene. Actual results and remaining manual coverage are recorded in docs/live-presets-workflow.md.
+
+Final local verification for this stage: 406/406 unit/server checks; corrected affected browser profiles 72/72 and 38/38; native capture and video export PASS; Windows source-matched build PASS. The full browser command was 520/521 before correcting the new delayed-analysis test fixture; affected cases were rerun successfully. Browser/native visual matrices capture 216 images each, with a final 12-image packaged refresh. Detailed exact results and single-run benchmark limitations are in docs/live-presets-workflow.md.

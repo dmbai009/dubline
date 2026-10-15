@@ -225,4 +225,6 @@ RNNoise noise reduction is built in: My Settings → Audio, private audition and
 
 ## UI and scene presets
 
-Scene effect presets are shared with participants and saved in projects. In the effect editor, Save as preset captures a separate snapshot; Replace/Append first edits your draft, and Apply confirms the take or role. Preset pitch is optional. RNNoise/effect previews play once by default, and the inspector uses one chain editor for effects and pitch. Only hosts/moderators may request retakes.
+Scene effect presets can stay linked to takes and roles. Edit shared preset keeps a private draft until Save and shows how many lines will change; Detach preserves the current sound. Copy Replace/Append remain available for independent settings. Preset pitch is optional. Old projects keep their copied settings. RNNoise/effect previews play once by default, and only hosts/moderators may request retakes.
+
+The optional recording sequence offers Listen, Keep and next, or Skip for your own missing/retake/filtered lines. Take history includes A/B comparison. Check scene summarizes progress and known problems without downloading every recording. Room / Project Settings → Audio offers shared voice volume correction, disabled by default; My Settings → Audio has optional recording-quality hints that never demand a retake. Export explains unavailable choices and reports the actual result. See [implementation, migration and validation](docs/live-presets-workflow.md).

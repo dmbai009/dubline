@@ -5,7 +5,11 @@
   let diagnosticGeneration = 0;
   window.videoPlaybackDiagnostic = null;
   const overlay = document.createElement('div'); overlay.id = 'mediaReadinessOverlay'; overlay.setAttribute('role', 'status'); overlay.hidden = true;
+  overlay.innerHTML = '<div class="media-readiness-card"><span id="mediaReadinessMessage"></span><small id="mediaReadinessProgress"></small><div class="media-readiness-actions"><button type="button" id="mediaReadinessRetry" class="btn-outline"></button><button type="button" id="mediaReadinessCancel" class="btn-outline"></button></div><details id="mediaReadinessDetails"><summary></summary><p></p></details></div>';
   document.querySelector('.video-wrapper').append(overlay);
+  const message = overlay.querySelector('span'), progress = overlay.querySelector('small'), retry = overlay.querySelector('#mediaReadinessRetry'), cancel = overlay.querySelector('#mediaReadinessCancel'), details = overlay.querySelector('details');
+  retry.onclick = () => { if (!socket.connected || !window.hasSceneMediaAccess?.()) return; const time = video.currentTime; if (video.error && DublineMediaTransfer.stats().status !== 'failed') { video.load(); video.addEventListener('loadedmetadata', () => { if (Number.isFinite(video.duration)) video.currentTime = Math.min(time, video.duration); }, { once: true }); } else window.retrySceneMedia?.(); };
+  cancel.onclick = () => cancelMediaDownload(true);
   function bufferedSeconds() {
     for (let index = 0; index < video.buffered.length; index++) if (video.buffered.start(index) <= video.currentTime && video.buffered.end(index) >= video.currentTime) return video.buffered.end(index) - video.currentTime;
     return 0;
@@ -44,13 +48,26 @@
     const changed = latest?.state !== state || latest?.sessionId !== sceneId;
     overlay.hidden = ['ready', 'fallback'].includes(state) || state === 'downloading' && decodable && (window.isWatchingHostMedia?.() || transfer.videoReady);
     const errorKey = { 1: 'media.aborted', 2: 'media.networkFailed', 3: 'media.decodeFailed', 4: 'media.unsupported' }[video.error?.code];
-    overlay.textContent = t(state === 'failed' && errorKey ? errorKey : 'media.' + state, { pct: Math.round(pct) });
+    const media = window.DublineMediaTransfer?.stats(), errorStatus = media?.error?.status, failedTransfer = media?.status === 'failed' && !decodable;
+    const preparation = window.sceneMediaPreparation?.(), authorization = media?.status === 'waiting_for_authorization' || [401, 403].includes(errorStatus), cancelled = media?.status === 'cancelled' && !decodable;
+    const verifying = transfer.downloading && media?.diagnostic?.phase === 'verification';
+    const key = authorization ? [401, 403].includes(errorStatus) ? 'media.transfer.error.403' : 'media.transfer.authorization' : cancelled ? 'media.transfer.state.cancelled' : failedTransfer ? 'media.transfer.error.' + ([403, 404, 409, 416, 429].includes(errorStatus) ? errorStatus : errorStatus >= 500 ? 'server' : 'network') : verifying ? 'media.transfer.phase.verification' : state === 'failed' && errorKey ? errorKey : preparation?.key ? preparation.loading ? 'media.preparingAudio' : preparation.key : 'media.' + state;
+    if (authorization || cancelled || failedTransfer || preparation?.key) overlay.hidden = false;
+    overlay.dataset.phase = verifying ? 'checking' : authorization ? 'access' : cancelled ? 'cancelled' : failedTransfer ? 'network' : state === 'failed' ? 'decode' : preparation?.key ? 'audio' : state;
+    message.textContent = t(key, { pct: Math.round(pct), status: errorStatus, channels: (preparation?.channels || []).map(channel => t('studio.' + channel)).join(', ') });
+    progress.hidden = !transfer.downloading || verifying; progress.textContent = transfer.downloading ? [Number.isFinite(transfer.totalBytes) && transfer.totalBytes > 0 ? `${formatSize(transfer.receivedBytes || 0)} / ${formatSize(transfer.totalBytes)}` : '', transfer.downloadRate > 0 ? `${formatSize(transfer.downloadRate)}/s` : ''].filter(Boolean).join(' · ') : '';
+    retry.textContent = t('media.transfer.retry'); retry.hidden = !(state === 'failed' || failedTransfer || cancelled); retry.disabled = !socket.connected || !window.hasSceneMediaAccess?.();
+    cancel.textContent = t('media.cancel'); cancel.hidden = !transfer.downloading;
+    details.hidden = !(state === 'failed' || failedTransfer || authorization); details.querySelector('summary').textContent = t('media.details');
     const info = window.videoPlaybackDiagnostic;
-    overlay.title = info?.codec ? `${info.codec} / ${info.profile} / ${info.pixelFormat}; HTTP ${info.status ?? '—'}; ${info.mime || '—'}; Range ${info.range || '—'}` : '';
+    const safe = value => typeof value === 'string' ? value.replace(/[^a-zA-Z0-9 ._+/:;-]/g, '').slice(0, 100) : '';
+    details.querySelector('p').textContent = [info?.code ? `MediaError ${Number(info.code)}` : '', Number.isInteger(info?.status ?? errorStatus) ? `HTTP ${info?.status ?? errorStatus}` : '', safe(info?.codec), safe(info?.profile), safe(info?.pixelFormat), safe(info?.mime), media?.diagnostic?.phaseLabel || '', t('media.safeDetails')].filter(Boolean).join(' · '); overlay.title = '';
     if (!force && !changed && performance.now() - lastSent < 1000) return;
     latest = data; lastSent = performance.now();
     socket.emit('media_presence_update', data);
   }
+  window.refreshMediaReadiness = () => report(true);
+  window.addEventListener('dubline-language-changed', () => report(true));
   window.updateMediaTransfer = data => { scope(); transfer = { ...transfer, ...data }; report(true); };
   video.addEventListener('error', async () => {
     scope();

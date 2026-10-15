@@ -29,13 +29,15 @@ app.post('/api/video-export-lease', (req, res, next) => {
   }
   if (!room.loaded || req.body.sessionId !== room.activeSessionId || req.body.videoUrl !== room.videoUrl) return res.status(409).json({ key: 'render.sceneChanged' });
   if (leases.size >= 32 || [...leases.values()].filter(lease => lease.identity === identity).length >= 2) return res.status(429).json({ key: 'project.busy' });
+  try { require('./voiceChains').validateScene(room); } catch { return res.status(409).json({ key: 'review.chain' }); }
   const scene = require('./rooms').publicRoom(room), nick = member[1].nick;
   const takes = scene.lines.filter(line => {
     if (!line.audioUrl) return false;
     const author = line.recordedBy || require('./auth').getLineOwner(room, line);
     return room.singlePlayer || !author || author === nick || line.blindRevealed || !room.blindMode && !(room.blindPlayers || []).includes(author);
   });
-  const sources = require('../public/project-audio').sources(scene);
+  const audio = require('../public/project-audio'), sources = audio.sources(scene), gains = audio.gains(audio.normalize(scene), sources);
+  try { for (const url of [scene.videoUrl, ...['original', 'backing'].filter(channel => gains[channel] > 0).map(channel => sources[channel]), ...takes.filter(line => gains.dub > 0 && require('../public/take-mix').normalize(line).volume > 0).map(line => line.audioUrl)].filter(Boolean)) { const file = require('./files').diskPathForUrl(url), stat = file && require('node:fs').lstatSync(file); if (!stat?.isFile() || stat.isSymbolicLink() || !stat.size) throw Error('missing'); } } catch { return res.status(404).json({ key: 'review.missingSource' }); }
   const ticket = crypto.randomUUID(), socket = io.sockets.sockets.get(member[0]);
   const lease = { roomId, identity, sessionId: room.activeSessionId, videoUrl: room.videoUrl, socket, releaseFiles: require('./files').retainTakeFiles([scene.videoUrl, sources.original, sources.backing, ...takes.map(line => line.audioUrl)]), onDisconnect: () => release(ticket) };
   leases.set(ticket, lease); socket?.once('disconnect', lease.onDisconnect); arm(ticket, lease);
