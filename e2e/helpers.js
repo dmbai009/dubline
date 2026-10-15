@@ -36,15 +36,12 @@ function findChrome() {
 }
 
 const CHROME = findChrome();
-const skipReason = CHROME ? false : 'Chrome/Edge not found: set its path in CHROME_PATH';
-
-// A missing browser must not turn the whole browser suite into a green run.
-// CI sets DUBLINE_REQUIRE_BROWSER=1, which makes the absence fatal instead of skippable.
-function requireBrowser(chrome = CHROME, env = process.env) {
-  if (chrome || env.DUBLINE_REQUIRE_BROWSER !== '1') return;
-  throw new Error(`[Dubline] ${skipReason}. Install Chrome/Edge or remove DUBLINE_REQUIRE_BROWSER=1.`);
-}
-requireBrowser();
+// Local runs may skip without a browser. CI instead runs tools/require-browser.js
+// first, so a missing browser fails the job instead of silently skipping every
+// suite. The check deliberately lives outside this module: unit tests also load
+// these helpers and must never depend on a browser being installed.
+const NO_BROWSER = 'Chrome/Edge not found: set its path in CHROME_PATH';
+const skipReason = CHROME ? false : NO_BROWSER;
 
 async function launchBrowser(port, { fakeAudioFile = null, secureOrigin = true, certificateSPKI = null } = {}) {
   const puppeteer = require('puppeteer-core');
@@ -285,7 +282,7 @@ function uploadFileCount(server) {
 module.exports = {
   answerTextPrompt,
   FIXTURE_LINES, FIXTURE_PACK, SCENE_SECONDS,
-  skipReason, requireBrowser, wait, launchBrowser, startServer, openPlayer, waitFor, waitUntil,
+  skipReason, chromePath: CHROME, NO_BROWSER, wait, launchBrowser, startServer, openPlayer, waitFor, waitUntil,
   loadFixture, claimAndSelect, recordTake, uploadFileCount, buildFixturePack, buildVoiceFile, fixtureVideoPath, buildMultiTrackVideo
 };
 
