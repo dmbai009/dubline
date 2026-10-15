@@ -9,6 +9,10 @@ const { zipFiles } = require('./tools/build-distributions');
 const { PortableUpdater, validateMetadata, extractUpdate } = require('./electron-portable-update');
 const { createManifest, manifestBytes, bytesHash, fileHash, verifyTree, changesBetween, safeRelative, MANIFEST_PATH } = require('./electron-managed-files');
 const helper = path.join(__dirname, 'resources', 'portable-update-helper.ps1');
+// The external updater helper is Windows PowerShell. Outside Windows these three
+// tests would report a missing powershell.exe as a product defect, so they skip
+// with an explicit reason instead of failing the whole run.
+const REQUIRE_WINDOWS_POWERSHELL = process.platform === 'win32' ? false : 'Requires Windows powershell.exe (portable update helper)';
 async function tree(folder, version, code) {
   await fsp.mkdir(path.join(folder, 'resources', 'bin'), { recursive: true });
   const marker = { schemaVersion: 1, channel: 'github-portable', version, commit: (version.endsWith('0') ? 'a' : 'b').repeat(40), electronVersion: '44.5.0', arch: 'x64', platform: 'win32' };
@@ -71,7 +75,7 @@ test('Portable rejects malformed paths, wrong channels, architecture, downgrade,
     await assert.rejects(extractUpdate(badZip, stage, f.target, f.target.files, null), /unsafe|Unexpected/);
   } finally { await fsp.rm(f.folder, { recursive: true, force: true }); }
 });
-test('Portable stages changed files only, falls back to full for modified base, and preserves unknown projects through the actual external helper', async () => {
+test('Portable stages changed files only, falls back to full for modified base, and preserves unknown projects through the actual external helper', { skip: REQUIRE_WINDOWS_POWERSHELL }, async () => {
   for (const modified of [false, true]) {
     const f = await fixture();
     try {
@@ -110,7 +114,7 @@ test('Portable stages changed files only, falls back to full for modified base, 
     } finally { await fsp.rm(f.folder, { recursive: true, force: true }); }
   }
 });
-test('Portable helper rolls back earlier replacements when a new managed path is occupied by an unknown user file', async () => {
+test('Portable helper rolls back earlier replacements when a new managed path is occupied by an unknown user file', { skip: REQUIRE_WINDOWS_POWERSHELL }, async () => {
   const f = await fixture();
   try {
     await fsp.writeFile(path.join(f.b, 'resources', 'zzz-new.js'), 'new-app-code');
@@ -131,7 +135,7 @@ test('Portable helper rolls back earlier replacements when a new managed path is
     assert.equal(await fsp.readFile(path.join(f.a, 'resources', 'zzz-new.js'), 'utf8'), 'unknown-user-file');
   } finally { await fsp.rm(f.folder, { recursive: true, force: true }); }
 });
-test('a killed Portable helper leaves a durable journal; the next helper restores the base and completes the target', async () => {
+test('a killed Portable helper leaves a durable journal; the next helper restores the base and completes the target', { skip: REQUIRE_WINDOWS_POWERSHELL }, async () => {
   const f = await fixture(); let child;
   try {
     const generated = path.join(f.b, 'resources', 'recovery-fixture'); await fsp.mkdir(generated);
