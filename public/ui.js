@@ -687,9 +687,9 @@ function showInspector(line) {
   const hint = isOwnedByMe && !line.audioUrl && recordState === 'idle' ? `<p class="take-hint">${t('record.hint')}</p>` : '';
 
   const micRow = isOwnedByMe ? `
-    <div class="insp-row" title="${esc(t('micLevel'))}">
-      <span class="insp-label">🎙</span>
-      <input type="range" data-reset-value="100" data-reset-event="input" min="30" max="300" step="10" value="${Math.round(userMicGain * 100)}" oninput="updateUserMicGain(this.value)">
+    <div class="insp-row insp-mic" title="${esc(t('micLevel'))}">
+      <span class="insp-label">${esc(t('inspector.mic'))}</span>
+      <input type="range" data-reset-value="100" data-reset-event="input" min="30" max="300" step="10" value="${Math.round(userMicGain * 100)}" aria-label="${esc(t('micLevel'))}" oninput="updateUserMicGain(this.value)">
       <span id="gainDisplay" class="take-val">${Math.round(userMicGain * 100)}%</span>
     </div>` : '';
 
@@ -723,6 +723,7 @@ function showInspector(line) {
     ${window.DublineVoiceEditor?.html(line) || ''}
     ${takePanelHtml(line, canEditTake(line))}
   `;
+  window.DublineInspector?.arrange(line);
   window.DublineRetakes?.restoreFocus(retakeFocus);
   window.DublineTakeHistory?.restoreFocus(historyFocus);
 }
@@ -751,6 +752,7 @@ function showMultiInspector() {
     </div>
     <p class="take-hint">${t('multi.hint')}</p>
   `;
+  window.DublineInspector?.arrange();
 }
 
 window.assignSelectedCharacter = function(e) {
@@ -947,7 +949,7 @@ window.toggleVideoFullscreen = async function() {
 const LAYOUT_KEY = 'dubline_layout';
 const layoutLimits = {
   lobby: [190, 460],
-  inspector: [280, 660],
+  inspector: [280, 960],
   chat: [220, 540],
   top: [200, () => window.innerHeight - 220]
 };

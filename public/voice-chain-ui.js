@@ -10,7 +10,7 @@
   const icon = type => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + icons[type] + '</svg>';
   const label = items => items.length ? items.map(item => `${t('effect.' + item.type)} ${Math.round(item.amount * 100)}%${item.enabled ? '' : ' (' + t('fx.disabled') + ')'}`).join(' → ') : t('effect.none');
   const button = (text, action, disabled = false) => `<button type="button" class="btn-outline" ${disabled ? 'disabled' : ''} onclick="${action}">${esc(text)}</button>`;
-  const fingerprint = () => state && JSON.stringify({ settings: { ...state.settings, revision: undefined }, pitch: state.pitch, presetHasPitch: state.presetHasPitch, action: state.action,
+  const fingerprint = () => state && JSON.stringify({ settings: { ...state.settings, revision: undefined }, pitch: state.pitch, presetHasPitch: state.presetHasPitch, presetIcon: state.scope === 'preset' ? state.presetIcon : undefined, action: state.action,
     edits: state.takes.length > 1 ? [state.editPitch, state.editInheritance, state.editExceptions] : [] });
   const dirty = () => !!state && fingerprint() !== state.baseline;
   function summary(line) { const effects = model.active(model.resolve(line, session).effects); return label(effects.slice(0, 3)) + (effects.length > 3 ? ` (+${effects.length - 3})` : ''); }
@@ -24,10 +24,9 @@
   function html(line) {
     const role = model.roleVoice(session, line.character), own = model.take(line);
     const key = `${currentRoom}:${session.activeSessionId}:${line.id}`;
-    return `<details class="fx-details" ${expandedKey === key ? 'open' : ''} ontoggle="DublineVoiceEditor.expand(this.open, ${line.id})"><summary title="${esc(label(model.resolve(line, session).effects))}">${esc(t('voice'))} · ${esc(summary(line))}</summary><section class="take-panel fx-summary"><b>${esc(t('fx.role'))}: ${esc(line.character)}</b><p>${esc(label(role.effects))}${role.pitch ? ' · ' + esc(t('pitch')) + ' ' + role.pitch : ''}</p>
-      ${button(t('fx.configureRole'), `DublineVoiceEditor.open(${line.id}, 'role')`, !canModerate())}
-      <b>${esc(t('fx.take'))}</b><p>${esc(own.voicePresetId ? (session.voicePresets[own.voicePresetId]?.name || t('preset.missing')) + ' · ' + label(model.preset(session, own)?.effects || []) : label(own.effects))} · ${esc(t(own.inheritRoleEffects ? 'fx.inheriting' : 'fx.individual'))}</p>
-      ${button(t('fx.configureTake'), `DublineVoiceEditor.open(${line.id}, 'takes')`, !canEditTake(line))}</section></details>`;
+    return `<section class="fx-inspector"><div class="insp-section-title"><b>${esc(t('voice'))}</b>${button(t('preset.quick.editor'), `DublineVoiceEditor.open(${line.id}, 'takes')`, !canEditTake(line))}</div>
+      ${window.DublineInspector?.presetHtml(line) || ''}<p class="insp-chain-text" title="${esc(label(model.resolve(line, session).effects))}">${esc(summary(line))}</p>
+      <div class="insp-role-voice"><span>${esc(line.character)} · ${esc(label(role.effects))}</span>${button(t('fx.configureRole'), `DublineVoiceEditor.open(${line.id}, 'role')`, !canModerate())}</div></section>`;
   }
   function bulkHtml(lines) {
     const eligible = lines.filter(line => line.audioUrl && canEditTake(line));
@@ -46,7 +45,7 @@
     const presetLines = scope === 'preset' ? new Set(DublineVoicePresets.usage(session, sharedPreset.id).lines) : null, presetSamples = presetLines ? lines.filter(item => presetLines.has(item.id)) : [];
     own.excludedRoleEffectIds = own.excludedRoleEffectIds.filter(id => model.roleVoice(session, line.character).effects.some(item => item.id === id));
     state = { scope, sessionId: session.activeSessionId, character: line.character, revision: role.revision || 0,
-      presetId: sharedPreset?.id, presetHasPitch: sharedPreset?.pitch !== undefined, presetRevision: sharedPreset?.revision, presetOriginal: sharedPreset && JSON.stringify([sharedPreset.effects, sharedPreset.pitch]), previousPresetRevision: role.voicePresetId ? model.preset(session, role)?.revision : undefined, editPreset: false,
+      presetId: sharedPreset?.id, presetIcon: sharedPreset?.icon || model.preset(session, scope === 'role' ? role : own)?.icon || 'voice', presetHasPitch: sharedPreset?.pitch !== undefined, presetRevision: sharedPreset?.revision, presetOriginal: sharedPreset && JSON.stringify([sharedPreset.effects, sharedPreset.pitch, sharedPreset.icon]), previousPresetRevision: role.voicePresetId ? model.preset(session, role)?.revision : undefined, editPreset: false,
       settings: scope === 'preset' ? { effects: structuredClone(sharedPreset.effects), pitch: sharedPreset.pitch ?? 0 } : scope === 'role' ? structuredClone(role) : own, pitch: scope === 'preset' ? sharedPreset.pitch ?? 0 : scope === 'role' ? role.pitch : line.pitch || 0, editPitch: false, editInheritance: false, editExceptions: false, action: 'replace', effectDrafts: { replace: structuredClone(own.effects), append: [] },
       pitchSnapshot: lines.map(item => ({ character: item.character, pitch: item.pitch || 0, mode: model.take(item).pitchMode })),
       takes: lines.map(item => ({ lineId: item.id, character: item.character, audioUrl: item.audioUrl, takeId: item.takeId || null, takeMixRevision: item.takeMixRevision || 0, presetRevision: model.preset(session, item)?.revision })),
@@ -190,7 +189,7 @@
   async function apply(keepOpen = false) {
     if (!state || state.pending) return false;
     const presetEdit = state.scope === 'preset', event = presetEdit ? 'voice_preset_update' : 'voice_update';
-    const captured = state, request = state.pendingRequest || (presetEdit ? { sessionId: state.sessionId, action: 'update', id: state.presetId, revision: state.presetRevision, settings: { effects: structuredClone(state.settings.effects), ...(state.presetHasPitch ? { pitch: state.pitch } : {}) }, operationId: newUploadId(), operationEpoch: session.editorProtocol.epoch, operationTime: Date.now() } : { sessionId: state.sessionId, scope: state.scope, character: state.character, revision: state.revision, settings: structuredClone(state.settings), pitch: state.pitch,
+    const captured = state, request = state.pendingRequest || (presetEdit ? { sessionId: state.sessionId, action: 'update', id: state.presetId, revision: state.presetRevision, icon: state.presetIcon, settings: { effects: structuredClone(state.settings.effects), ...(state.presetHasPitch ? { pitch: state.pitch } : {}) }, operationId: newUploadId(), operationEpoch: session.editorProtocol.epoch, operationTime: Date.now() } : { sessionId: state.sessionId, scope: state.scope, character: state.character, revision: state.revision, settings: structuredClone(state.settings), pitch: state.pitch,
       takes: state.takes, action: $('fxAction').value, editPitch: state.editPitch, editInheritance: state.editInheritance, editExceptions: state.editExceptions, value: state.settings.inheritRoleEffects, operationId: newUploadId(), operationEpoch: session.editorProtocol.epoch, operationTime: Date.now(), editPreset: state.editPreset, presetRevision: model.preset(session, state.settings)?.revision, previousPresetRevision: state.previousPresetRevision });
     if (state.scope === 'role' && !state.pendingRequest) request.settings.pitch = state.pitch;
     if (!model.validEffects(request.settings.effects) || state.scope === 'takes' && !model.validTake(request.settings)) return showToast(t('fx.invalid'));
@@ -225,7 +224,7 @@
   dialog.innerHTML = `<div class="modal-header-row"><h2 id="fxTitle"></h2><button type="button" id="fxClose" class="btn-icon" aria-label="${esc(t('close'))}">×</button></div><p id="fxScope"></p>
     <label id="fxInheritRow"><span>${esc(t('fx.inherit'))}</span><span class="switch-ui"><input type="checkbox" id="fxInherit"><span class="switch-slider"></span></span></label><div class="fx-pitch"><label>${esc(t('pitch'))}<select id="fxPitchMode"><option value="inherit">${esc(t('fx.pitchInherit'))}</option><option value="override">${esc(t('fx.pitchOverride'))}</option></select></label><input id="fxPitch" type="range" data-reset-value="0" data-reset-event="input" min="-12" max="12" value="0"><output id="fxPitchValue">0</output></div><div id="fxExceptions"></div>
     <div id="fxActionRow"><label>${esc(t('fx.bulkAction'))}<select id="fxAction"><option value="replace">${esc(t('fx.replace'))}</option><option value="append">${esc(t('fx.append'))}</option><option value="clear">${esc(t('fx.clear'))}</option><option value="inherit">${esc(t('fx.inheritOnly'))}</option></select></label></div>
-    <div id="fxRows" role="list"></div><div class="insp-actions"><select id="fxType">${model.TYPES.map(type => `<option value="${type}">${esc(t('effect.' + type))}</option>`).join('')}</select><button type="button" id="fxAdd" class="btn-outline">${esc(t('fx.add'))}</button><button type="button" id="fxClear" class="btn-outline">${esc(t('fx.clear'))}</button></div>
+    <div id="fxRows" role="list" tabindex="-1"></div><div class="insp-actions"><select id="fxType">${model.TYPES.map(type => `<option value="${type}">${esc(t('effect.' + type))}</option>`).join('')}</select><button type="button" id="fxAdd" class="btn-outline">${esc(t('fx.add'))}</button><button type="button" id="fxClear" class="btn-outline">${esc(t('fx.clear'))}</button></div>
     <section class="fx-preview"><label>${esc(t('fx.sample'))}<select id="fxSample"></select></label><div class="insp-actions"><button type="button" id="fxPlay" class="btn-play">${esc(t('fx.play'))}</button><select id="fxAB"><option value="dry">${esc(t('fx.dry'))}</option><option value="wet" selected>${esc(t('fx.wet'))}</option></select><label><span>${esc(t('fx.loop'))}</span><span class="switch-ui"><input type="checkbox" id="fxLoop"><span class="switch-slider"></span></span></label></div></section>
     <p id="fxStatus" role="status" aria-live="polite"></p><div class="insp-actions"><button id="fxApply" type="button" class="btn-play">${esc(t('char.apply'))}</button><button id="fxCancel" type="button" class="btn-outline">${esc(t('dialog.cancel'))}</button><button id="fxRefresh" type="button" class="btn-outline" hidden>${esc(t('fx.refresh'))}</button></div>`;
   document.body.append(dialog);
@@ -269,7 +268,7 @@
     else { state.action = 'detach'; const option = new Option(t('live.detach'), 'detach'); $('fxAction').append(option); $('fxAction').value = 'detach'; }
     state.editPreset = true; rows(); exclusions(); paintPitch(); schedule();
   }
-  function catalogChanged() { if (!state) return; const preset = session.voicePresets[state.presetId]; if (state.scope === 'preset' && preset && state.presetOriginal === JSON.stringify([preset.effects, preset.pitch])) state.presetRevision = preset.revision; if (state.scope === 'preset' && state.presetRevision !== session.voicePresets[state.presetId]?.revision && !state.pending) { status('preset.conflict'); $('fxRefresh').hidden = false; } paintScope(); rows(); schedule(); }
+  function catalogChanged() { if (!state) return; const preset = session.voicePresets[state.presetId]; if (state.scope === 'preset' && preset && state.presetOriginal === JSON.stringify([preset.effects, preset.pitch, preset.icon])) state.presetRevision = preset.revision; if (state.scope === 'preset' && state.presetRevision !== session.voicePresets[state.presetId]?.revision && !state.pending) { status('preset.conflict'); $('fxRefresh').hidden = false; } paintScope(); rows(); schedule(); }
   window.addEventListener('dubline-presets-changed', () => { if (state && state.scope !== 'preset') schedule(); });
   const sizeObserver = observeDialogZoom(dialog);
   $('fxClose').onclick = $('fxCancel').onclick = () => close(); dialog.oncancel = event => { event.preventDefault(); void close(); };
@@ -318,7 +317,8 @@
     const grip = event.target.closest('.fx-grip'); if (!grip || event.button !== 0 || !state || state.pending || state.pendingRequest || linkedDraft()) return;
     cleanupDrag(); const row = grip.closest('[data-fx-id]'), box = row.getBoundingClientRect();
     drag = { id: row.dataset.fxId, scope: state, row, grip, pointerId: event.pointerId, x: event.clientX, y: event.clientY, dx: event.clientX - box.left, dy: event.clientY - box.top, moved: false };
-    $('fxRows').setPointerCapture(event.pointerId); event.preventDefault();
+    // Keep keyboard focus on the stable container while its cards are reinserted.
+    $('fxRows').focus({ preventScroll: true }); $('fxRows').setPointerCapture(event.pointerId); event.preventDefault();
   });
   $('fxRows').addEventListener('pointermove', event => {
     if (!drag || event.pointerId !== drag.pointerId) return;
@@ -394,5 +394,5 @@
     state.action = bulkAppend ? 'append' : 'replace'; $('fxAction').value = state.action; $('fxInherit').disabled = bulkAppend; $('fxPitchMode').disabled = bulkAppend;
     $('fxPitchMode').value = state.settings.pitchMode || 'override'; rows(); exclusions(); paintPitch(); schedule();
   }
-  window.DublineVoiceEditor = { html, bulkHtml, summary, open, close, catalogChanged, detach, dirty, apply, usePreset, draft: () => state && ({ scope: state.scope, presetId: state.presetId, sessionId: state.sessionId, character: state.character, effects: structuredClone(state.settings.effects), pitch: state.scope === 'preset' && !state.presetHasPitch ? undefined : state.scope !== 'takes' || state.settings.pitchMode === 'override' ? state.pitch : model.roleVoice(session, state.character).pitch }), expand: (value, id) => { expandedKey = value ? `${currentRoom}:${session.activeSessionId}:${id}` : null; }, bulk: () => { const lines = session.lines.filter(line => multiSelection.has(line.id) && line.audioUrl && canEditTake(line)); if (lines.length) open(lines[0].id, 'takes', lines.map(item => item.id)); } };
+  window.DublineVoiceEditor = { setIcon: value => { if (!state || !DublineVoicePresets.validIcon(value) || state.pending || state.pendingRequest) return; state.presetIcon = value; paintScope(); }, html, bulkHtml, summary, open, close, catalogChanged, detach, dirty, apply, usePreset, draft: () => state && ({ scope: state.scope, presetId: state.presetId, icon: state.presetIcon, sessionId: state.sessionId, character: state.character, effects: structuredClone(state.scope === 'preset' ? state.settings.effects : [...(model.preset(session, state.settings)?.effects || []), ...state.settings.effects]), pitch: state.settings.usePresetPitch && model.preset(session, state.settings)?.pitch !== undefined ? model.preset(session, state.settings).pitch : state.scope === 'preset' && !state.presetHasPitch ? undefined : state.scope !== 'takes' || state.settings.pitchMode === 'override' ? state.pitch : model.roleVoice(session, state.character).pitch }), expand: (value, id) => { expandedKey = value ? `${currentRoom}:${session.activeSessionId}:${id}` : null; }, bulk: () => { const lines = session.lines.filter(line => multiSelection.has(line.id) && line.audioUrl && canEditTake(line)); if (lines.length) open(lines[0].id, 'takes', lines.map(item => item.id)); } };
 })();

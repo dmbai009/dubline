@@ -1,6 +1,6 @@
-# Dubline Project formats 1–11
+# Dubline Project formats 1–12
 
-An archive uses the `.dubline` extension and a standard ZIP container. `project.json` is UTF-8 JSON with `format: "dubline-project"`, required `formatVersion` from 1 through 10, `project`, and `assets`. The serializer is `server/projects.js`; it never exports raw room persistence.
+An archive uses the `.dubline` extension and a standard ZIP container. `project.json` is UTF-8 JSON with `format: "dubline-project"`, required `formatVersion` from 1 through 12, `project`, and `assets`. The serializer is `server/projects.js`; it never exports raw room persistence.
 
 ## Manifest
 
@@ -90,3 +90,8 @@ Formats 1–9 import an empty catalogue and reject a hidden voicePresets field. 
 Version 11 is emitted for explicit live preset links, project.mix.normalizeVoices=true or stored recording checks. project.voicePresets is required even if empty. Main/historical takes and roles may contain voicePresetId (null or validated catalogue ID) and usePresetPitch (boolean). Effective chains retain role inheritance and individual extras; references and resource limits are validated before assets are staged. Preset pitch is optional. Formats 1–10 reject these reference fields and remain independent copies.
 
 The shared mix normalizes missing normalizeVoices to false. A take quality field is null or a validated version-1 advisory report: duration, peak, rms, silenceRatio, clippedSamples and a distinct known warnings array. Runtime import stores reports separately in private takeChecks by immutable take ID, excluding them from public scene/take broadcasts. Archived audio bytes remain unchanged. Runtime editor receipts and client capability fields are excluded from the manifest. See live-presets-workflow.md for authority, cache, algorithm and validation details.
+
+
+## Preset icons (format 12)
+
+A scene catalogue may include optional `icon` metadata from the fixed voice-preset-model icon keys. Icon-bearing scenes emit version 12, using the same explicit audio/reference/check fields as version 11. Earlier-version manifests reject icon metadata. Readers retain formats 1–11; icon-free scenes keep the lowest applicable version. The default voice icon is represented by omission. Icons do not affect PCM, chain order, preset links, pitch or cache keys. Runtime client capability 2 is separate from the archive. See [inspector-refresh.md](inspector-refresh.md).

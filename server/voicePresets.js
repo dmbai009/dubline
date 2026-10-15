@@ -2,6 +2,7 @@ const model = require('../public/voice-preset-model');
 const fail = key => { throw Error('preset.' + key); };
 function plan(room, conn, data, moderator) {
   if (!data || !['create', 'rename', 'update', 'delete'].includes(data.action) || !require('../public/voice-chain-model').id(data.id) || !Number.isSafeInteger(data.revision) || data.revision < 0) fail('invalid');
+  if (data.icon !== undefined && !model.validIcon(data.icon)) fail('invalid');
   const next = Object.assign(Object.create(null), structuredClone(room.voicePresets || {})), previous = Object.hasOwn(next, data.id) ? next[data.id] : null;
   if (data.action === 'create') {
     if (previous || data.revision !== 0) fail('conflict');
@@ -19,6 +20,8 @@ function plan(room, conn, data, moderator) {
         { id: previous.id, name: previous.name, ...structuredClone(data.settings), createdBy: previous.createdBy, revision: previous.revision + 1 };
     }
   }
+  if (data.action !== 'delete' && data.icon !== undefined) { if (data.icon === 'voice') delete next[data.id].icon; else next[data.id].icon = data.icon; }
+  else if (data.action === 'update' && previous.icon !== undefined) next[data.id].icon = previous.icon;
   if (!model.validLibrary(next)) fail('invalid');
   return next;
 }
@@ -58,6 +61,7 @@ function register(socket, conn) {
       if (!conn.nick || !auth.isAuthorized(room, conn.nick, conn.clientId)) fail('owner');
       if (!room.loaded || !room.activeSessionId) fail('missing');
       if (data.action === 'delete' && !data.detach && require('./editHistory').usesPreset(conn.roomId, room, data.id)) fail('inUse');
+      if (data.icon && data.icon !== 'voice' && require('./voiceChains').incompatible(conn.roomId, 2).length) fail('clientUpdate');
       const next = planScene(room, conn, data, auth.canModerate(room, conn.clientId));
       const previous = { voicePresets: room.voicePresets, roleEffects: room.roleEffects, lines: room.lines, deletedLines: room.deletedLines, updatedAt: room.updatedAt };
       for (const key of ['voicePresets', 'roleEffects', 'lines', 'deletedLines']) room[key] = next[key]; room.updatedAt = Date.now();

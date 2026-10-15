@@ -67,3 +67,8 @@ Scene-local shared effect presets support creation by admitted participants and 
 ## Live presets and recording workflow
 
 Scene presets may remain live links; common edits are private until saved, while explicit copy/detach preserve independent sound. Optional own-line sequence, existing-history A/B, advisory capture checks, shared voice volume correction (off by default), compact scene review, clearer export choices/results and media retry/cancel states reuse the existing studio. Quality hints are personal and never mark retakes automatically. Shared correction retains manual levels and the same play/export result. See docs/live-presets-workflow.md.
+
+
+## Adaptive inspector and compact effects
+
+The inspector uses its available panel width for one, two or three columns while retaining existing recording, history and mix controls. Scene presets can be linked directly from the inspector without losing individual effects or pitch. The compact full editor retains chain dragging/presets and adds built-in preset icons; portable format 12 preserves optional icon metadata. The former single-role timeline selector is replaced by the existing multi-role filter. See docs/inspector-refresh.md.

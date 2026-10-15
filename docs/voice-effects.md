@@ -60,3 +60,8 @@ Optional per-take level correction follows voice DSP and precedes manual volume/
 ## Wide effect workspace
 
 Role, individual-take and common-preset editing use the same responsive workspace, with sound controls and numbered effect cards on the left, a visible preset panel on the right and audition/apply controls in a fixed footer. Effects are added directly from a nine-choice palette; Echo fields and preset management stay visible. The signal path resolves inherited and linked stages using the same draft as audition. Theme-colored switches enable stages. Cards drag with a pointer-following ghost and an animated insertion placeholder; only release inside the chain changes the local draft. Escape, blur, capture loss and scene closure cancel the gesture. Move buttons support keyboard use. Narrow/zoomed windows stack the panels and scroll the body while retaining footer access. See [visual verification](effects-workspace.md).
+
+
+## Adaptive inspector and compact editor
+
+The current inspector offers linked preset assignment directly, preserving individual stages and manual pitch. Replacing a link requires confirmation; removing it detaches while retaining the sound. The full editor is now capped at 1,060 × 840 px and includes a bounded preset-icon selector. Saving a linked draft as new includes its linked and extra stages. See [inspector-refresh.md](inspector-refresh.md) for responsive layout, durable assignment, format-12 metadata and actual verification.

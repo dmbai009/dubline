@@ -1,0 +1,43 @@
+/* Panel-width layout, retaining all existing recorder/editor/audio controls. */
+#inspector { container-type:inline-size; padding:12px; gap:8px; }
+#inspector .insp-head { padding-bottom:7px; }
+#inspector .insp-title { font-size:14px; }
+#inspector .insp-meta { font-size:10px; margin:0; }
+#inspector .insp-caption { padding:8px 9px; border-radius:5px; font-style:normal; box-shadow:none; line-height:1.45; }
+#inspector .insp-columns { display:grid; grid-template-columns:minmax(0,1fr); gap:12px; min-width:0; }
+#inspector .insp-section { min-width:0; display:flex; flex-direction:column; align-self:start; gap:8px; padding-top:10px; border-top:1px solid var(--border); }
+#inspector .insp-section h4 { font-size:11px; font-weight:700; color:var(--muted); margin:0; }
+#inspector .insp-actions { gap:5px; }
+#inspector .insp-actions button { padding:6px 8px; font-size:11px; }
+#inspector .insp-actions.secondary button { padding:4px 6px; font-size:10px; }
+#inspector .take-panel, #inspector #editorLineForm { background:none; border:0; border-radius:0; box-shadow:none; padding:0; gap:8px; }
+#inspector .insp-mic { display:grid; grid-template-columns:auto minmax(35px,1fr) 37px; gap:7px; }
+#inspector .insp-mic .insp-label { font-size:10px; }
+#inspector .insp-mic input { width:100%; min-width:0; }
+#inspector #visualizerCanvas { width:100%; height:22px; }
+#inspector:not(:has(.insp-mic)) #visualizerCanvas { display:none; }
+#inspector .fx-inspector { display:grid; gap:8px; min-width:0; }
+#inspector .insp-section-title { display:flex; justify-content:space-between; align-items:center; gap:8px; font-size:12px; }
+#inspector .fx-inspector button { font-size:10px; padding:5px 7px; }
+#inspector .insp-preset { display:grid; gap:5px; min-width:0; }
+#inspector .insp-preset-controls { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:5px; }
+#inspector .insp-preset-controls .dub-select-button { width:100%; min-width:0; }
+#inspector .insp-chain-text { font-size:11px; line-height:1.5; overflow-wrap:anywhere; }
+#inspector .insp-preset-help { font-size:10px; line-height:1.4; }
+#inspector .insp-role-voice { border-top:1px solid var(--border); padding-top:7px; display:flex; flex-wrap:wrap; align-items:center; gap:5px; color:var(--muted); font-size:10px; }
+#inspector .insp-role-voice > span { flex:1 1 130px; overflow-wrap:anywhere; }
+#inspector .take-history { margin:0; background:none; border-radius:5px; }
+#inspector .take-history summary { padding:6px; font-size:11px; }
+#inspector .take-history-row { gap:2px; }
+#inspector .take-history-icon { flex-basis:23px; width:23px; height:25px; }
+#inspector .retake-controls { gap:6px; font-size:11px; }
+#inspector .insp-char-form { flex:initial; min-width:0; }
+#inspector .insp-char-form .dub-select-button { flex:1; min-width:0; }
+#inspector .insp-editor-take { display:contents; }
+#inspector .insp-editing { min-width:0; }
+#inspector #editorLineForm { min-width:0; display:grid; gap:7px; }
+#inspector #editorLineForm textarea { width:100%; min-width:0; resize:vertical; }
+#inspector .take-hint { font-size:10px; margin:0; }
+#inspector .insp-section:empty { display:none; }
+@container (min-width:460px) { #inspector .insp-columns { grid-template-columns:repeat(2,minmax(0,1fr)); column-gap:18px; } }
+@container (min-width:760px) { #inspector .insp-columns { grid-template-columns:repeat(3,minmax(0,1fr)); } }

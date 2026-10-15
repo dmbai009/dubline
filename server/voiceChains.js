@@ -62,9 +62,10 @@ function plan(room, conn, data, moderator, owner) {
   validateScene({ ...room, roleEffects: roles, lines: room.lines.map(line => replacements.get(line.id) || line) });
   return { roles, lines };
 }
+const minimumVersion = room => Object.values(room.voicePresets || {}).some(preset => preset.icon !== undefined) ? 2 : requiresClient(room) ? 1 : 0;
 const requiresClient = room => room.projectAudio?.normalizeVoices === true || Object.values(room.roleEffects || {}).some(role => role.voicePresetId) || (room.lines || []).some(line => [line, ...(line.takeHistory || [])].some(take => take.voicePresetId));
-const incompatible = roomId => Object.entries(require('./state').roomSockets[roomId] || {}).filter(([, member]) => member.voiceVersion !== 1).map(([id]) => id);
-function enforce(roomId, room) { if (requiresClient(room)) for (const id of incompatible(roomId)) { const socket = require('./app').io.sockets.sockets.get(id); socket?.emit('join_denied', { reason: 'voiceVersion' }); socket?.disconnect(true); } }
+const incompatible = (roomId, version = 1) => Object.entries(require('./state').roomSockets[roomId] || {}).filter(([, member]) => (member.voiceVersion || 0) < version).map(([id]) => id);
+function enforce(roomId, room) { if (minimumVersion(room)) for (const id of incompatible(roomId, minimumVersion(room))) { const socket = require('./app').io.sockets.sockets.get(id); socket?.emit('join_denied', { reason: 'voiceVersion' }); socket?.disconnect(true); } }
 function register(socket, conn) {
   require('./editorOperations').registerMutation(socket, conn, 'voice_update', (data, ack) => {
     try {
@@ -96,4 +97,4 @@ function checkTransfers(room, assignments, removed = null) {
   for (const name of assignments.values()) tracks.add(name);
   validateScene({ ...room, roleEffects: roles, trackOrder: [...tracks], lines: room.lines.map(line => assignments.has(line.id) ? { ...line, character: assignments.get(line.id) } : line) });
 }
-module.exports = { model, plan, register, validateScene, rename, checkTransfers, requiresClient, incompatible, enforce };
+module.exports = { model, plan, register, validateScene, rename, checkTransfers, requiresClient, minimumVersion, incompatible, enforce };

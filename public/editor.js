@@ -142,7 +142,7 @@ let editorStorageReadIssue = false;
 let editorConfirmedConnection = null, editorConfirmedScene = null, editorResyncing = 0;
 function editorOperationModeAllowed(operation) {
   if (operation.payload?.dubAssignment) return session?.mode === 'dub' && operation.event === 'set_line_character';
-  return session?.mode === 'edit' || operation.event === 'editor_add_track' || operation.event === 'set_needs_retake' || operation.event === 'take_history_update' || operation.event === 'project_audio_update';
+  return session?.mode === 'edit' || operation.event === 'editor_add_track' || operation.event === 'set_needs_retake' || operation.event === 'take_history_update' || operation.event === 'project_audio_update' || operation.event === 'voice_update';
 }
 function persistEditorOperation(operation, remove = false) {
   const record = remove ? null : structuredClone({ schemaVersion: 2, id: operation.id, event: operation.event, payload: operation.payload,
@@ -388,10 +388,10 @@ document.addEventListener('click', event => {
 });
 
 function editorIntentHtml(operation) {
-  const labels = { project_audio_update: 'level.title', editor_create_line: 'editor.addLine', editor_update_line: 'editor.line', editor_update_lines: 'editor.line', editor_delete_lines: 'editor.delete', editor_add_track: 'editor.addTrack', editor_undo: 'editor.undo', set_line_character: 'editor.track', set_lines_character: 'editor.track', rename_character: 'editor.track' };
+  const labels = { voice_update: 'preset.title', project_audio_update: 'level.title', editor_create_line: 'editor.addLine', editor_update_line: 'editor.line', editor_update_lines: 'editor.line', editor_delete_lines: 'editor.delete', editor_add_track: 'editor.addTrack', editor_undo: 'editor.undo', set_line_character: 'editor.track', set_lines_character: 'editor.track', rename_character: 'editor.track' };
   const patches = editorUpdates(operation);
   const targets = patches.length ? patches : operation.event === 'set_needs_retake' ? [{ lineId: operation.payload.lineId }] : editorRevisionTargets(operation);
-  const details = operation.event === 'project_audio_update' ? `<p>${esc(t(operation.payload.field === 'normalizeVoices' ? 'level.title' : 'studio.mix'))} · ${esc(typeof operation.payload.value === 'boolean' ? t(operation.payload.value ? 'fx.enabled' : 'fx.disabled') : String(operation.payload.value))}</p>` : targets.map(patch => {
+  const details = operation.event === 'voice_update' ? `<p>${esc(operation.payload.takes.map(target => '#' + lineNumber(session.lines.find(line => line.id === target.lineId) || { id: target.lineId })).join(', '))} · ${esc(session.voicePresets?.[operation.payload.settings?.voicePresetId]?.name || t('preset.quick.detach'))}</p>` : operation.event === 'project_audio_update' ? `<p>${esc(t(operation.payload.field === 'normalizeVoices' ? 'level.title' : 'studio.mix'))} · ${esc(typeof operation.payload.value === 'boolean' ? t(operation.payload.value ? 'fx.enabled' : 'fx.disabled') : String(operation.payload.value))}</p>` : targets.map(patch => {
     const line = session?.lines.find(item => item.id === patch.lineId);
     const number = line ? lineNumber(line) : patch.lineId;
     return `<p><b>#${number}</b> ${esc(patch.caption ?? '')} ${patch.start !== undefined || patch.end !== undefined ? `${patch.start ?? patch.base?.start}–${patch.end ?? patch.base?.end}s` : ''} ${esc(patch.character ?? operation.payload.character ?? '')}</p>`;
@@ -836,9 +836,9 @@ window.showEditorInspector = function(line, capture = true) {
   draft = editorDrafts.get(key);
   // Unrelated room snapshots must not reset focus, selection or partially typed numbers.
   if (capture && oldForm && oldForm.dataset.draftKey === key &&
-      oldForm.dataset.revision === String(line.revision || 0) && oldForm.dataset.tracks === JSON.stringify(tracks)) {
+      oldForm.dataset.revision === String(line.revision || 0) && oldForm.dataset.tracks === JSON.stringify(tracks) && oldForm.dataset.language === DublineI18n.getLanguage()) {
     const mix = inspector.querySelector('[data-editor-take]');
-    if (mix) mix.innerHTML = (window.DublineVoiceEditor?.html(line) || '') + takePanelHtml(line, canEditTake(line));
+    if (mix) mix.innerHTML = window.DublineInspector.takeHtml(line);
     return;
   }
   const focused = oldForm && oldForm.contains(document.activeElement) ? document.activeElement : null;
@@ -872,14 +872,16 @@ window.showEditorInspector = function(line, capture = true) {
       </div>
     </form>
     ${retakeControlHtml(line)}
-    <div data-editor-take>${window.DublineVoiceEditor?.html(line) || ''}${takePanelHtml(line, canEditTake(line))}</div>
+    <div data-editor-take>${window.DublineInspector.takeHtml(line)}</div>
     <p class="take-hint">${t('editor.dragHint')}</p>
   `;
+  window.DublineInspector?.arrange(line);
   const form = inspector.querySelector('#editorLineForm');
   form.querySelectorAll('[data-editor-field="start"], [data-editor-field="end"]').forEach(input => { input.disabled = session.protectTimings === true; });
   form.dataset.draftKey = key;
   form.dataset.revision = String(line.revision || 0);
   form.dataset.tracks = JSON.stringify(tracks);
+  form.dataset.language = DublineI18n.getLanguage();
   form.editorBase = draft ? draft.base : { ...line };
   window.bindEditorLeases?.(form);
   form.addEventListener('input', () => { rememberEditorDraft(form); validateEditorForm(form, line); });

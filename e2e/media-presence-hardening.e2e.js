@@ -340,7 +340,7 @@ describe('Media/presence recovery and local timeline controls', { skip: skipReas
     await page.type('#timelineSearchInput', '#2'); await page.keyboard.press('Enter');
     assert.equal(await page.evaluate(() => selectedLine.id), 2);
     await page.keyboard.press('Escape'); assert.equal(await page.$eval('#timelineSearch', el => el.hidden), true);
-    await page.select('#timelineRoleFilter', 'Hero');
+    await page.select('#timelineScopeFilter', 'choose'); await page.click('#timelineChooseFilter'); await page.click('[data-filter-role=Hero]'); await page.click('#timelineChooseFilter');
     assert.equal(await page.$$eval('.track-row:not([hidden])', rows => rows.every(row => row.dataset.character === 'Hero')), true);
     await page.select('#timelineStatusFilter', 'recorded');
     assert.equal(await page.$$eval('.line-block:not([hidden])', blocks => blocks.length), 0);

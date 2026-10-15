@@ -4,19 +4,24 @@
   function synchronizeAudio() { if (audioScene === session?.activeSessionId) { const ids = audio.invalidatePresets(audioCatalog, audioRoles); if (ids.length) window.dispatchEvent(new CustomEvent('dubline-presets-changed', { detail: { ids } })); } audioScene = session?.activeSessionId; audioCatalog = structuredClone(session?.voicePresets || {}); audioRoles = structuredClone(session?.roleEffects || {}); }
   function status(key = '') { const node = $('fxPresetStatus'); if (key) node.dataset.i18n = key; else delete node.dataset.i18n; node.textContent = key ? t(key) : ''; }
   const area = document.createElement('section'); area.className = 'fx-presets'; area.id = 'fxPresets';
-  area.innerHTML = `<h3 data-i18n="preset.title"></h3><div class="fx-preset-controls"><select id="fxPresetSelect" aria-label="${esc(t('preset.title'))}"></select><button type="button" id="fxPresetApply" class="btn-outline" data-i18n="preset.apply"></button><select id="fxPresetMode" aria-label="${esc(t('preset.mode'))}"><option value="link" data-i18n="live.link"></option><option value="replace" data-i18n="live.copyReplace"></option><option value="append" data-i18n="live.copyAppend"></option></select></div>
+  area.innerHTML = `<h3 data-i18n="preset.title"></h3><label class="fx-icon-row"><span data-i18n="preset.icon"></span><select id="fxPresetIcon"></select></label><div class="fx-preset-controls"><select id="fxPresetSelect" aria-label="${esc(t('preset.title'))}"></select><button type="button" id="fxPresetApply" class="btn-outline" data-i18n="preset.apply"></button><select id="fxPresetMode" aria-label="${esc(t('preset.mode'))}"><option value="link" data-i18n="live.link"></option><option value="replace" data-i18n="live.copyReplace"></option><option value="append" data-i18n="live.copyAppend"></option></select></div>
     <label class="fx-preset-pitch"><span data-i18n="preset.pitch"></span><span class="switch-ui"><input type="checkbox" id="fxPresetPitch" aria-label="${esc(t('preset.pitch'))}"><span class="switch-slider"></span></span></label><p class="setting-sub" data-i18n="preset.inheritanceHelp"></p><p id="fxPresetDescription" class="setting-sub"></p>
     <div class="insp-actions"><button type="button" id="fxPresetSave" class="btn-outline" data-i18n="preset.saveAs"></button><div class="fx-preset-menu"><p class="setting-sub" data-i18n="fx.layout.library"></p><div class="insp-actions"><button type="button" id="fxPresetRename" class="btn-outline" data-i18n="preset.rename"></button><button type="button" id="fxPresetUpdate" class="btn-outline" data-i18n="preset.update"></button><button type="button" id="fxPresetDelete" class="btn-outline" data-i18n="preset.delete"></button></div></div></div>
     <p id="fxPresetStatus" role="status" aria-live="polite"></p><button type="button" id="fxPresetRetry" class="btn-outline" data-i18n="preset.retry" hidden></button>`;
   $('fxDialog').querySelector('.fx-sidebar').append(area);
+  $('fxPresetIcon').replaceChildren(...Object.entries(model.ICONS).map(([key, glyph]) => new Option(glyph + ' ' + t(DublineVoiceChain.TYPES.includes(key) ? 'fx.name.' + key : 'preset.icon.' + key), key)));
+  $('fxPresetIcon').onchange = () => editor.setIcon($('fxPresetIcon').value);
   const selected = () => Object.hasOwn(session?.voicePresets || {}, $('fxPresetSelect').value) ? session.voicePresets[$('fxPresetSelect').value] : null;
   function refresh() {
     $('fxPresetSelect').setAttribute('aria-label', t('preset.title')); $('fxPresetMode').setAttribute('aria-label', t('preset.mode')); $('fxPresetPitch').setAttribute('aria-label', t('preset.pitch'));
     const draft = editor.draft(), shared = draft?.scope === 'preset';
+    area.querySelector('.fx-icon-row > span').dataset.i18n = shared ? 'preset.icon' : 'preset.icon.new'; area.querySelector('.fx-icon-row > span').textContent = t(shared ? 'preset.icon' : 'preset.icon.new');
+    $('fxPresetIcon').value = draft?.icon || 'voice'; $('fxPresetIcon').disabled = sending || !!operation;
+    for (const option of $('fxPresetIcon').options) option.textContent = model.ICONS[option.value] + ' ' + t(DublineVoiceChain.TYPES.includes(option.value) ? 'fx.name.' + option.value : 'preset.icon.' + option.value);
     area.querySelector('.fx-preset-controls').hidden = shared; $('fxPresetPitch').closest('label').hidden = shared; area.querySelector('[data-i18n="preset.inheritanceHelp"]').hidden = shared;
     area.querySelector('h3').dataset.i18n = shared ? 'live.actions' : 'preset.title'; area.querySelector('h3').textContent = t(area.querySelector('h3').dataset.i18n); $('fxPresetSave').dataset.i18n = shared ? 'live.saveAsNew' : 'preset.saveAs'; $('fxPresetSave').textContent = t($('fxPresetSave').dataset.i18n);
     const previous = shared ? draft.presetId : $('fxPresetSelect').value, presets = Object.values(session?.voicePresets || {});
-    $('fxPresetSelect').replaceChildren(new Option(t('preset.choose'), ''), ...presets.map(preset => new Option(preset.name, preset.id)));
+    $('fxPresetSelect').replaceChildren(new Option(t('preset.choose'), ''), ...presets.map(preset => new Option(model.icon(preset) + ' ' + preset.name, preset.id)));
     if (presets.some(preset => preset.id === previous)) $('fxPresetSelect').value = previous;
     const preset = selected(), own = !!preset && (canModerate() || preset.createdBy === myName), locked = sending || !!operation;
     for (const id of ['fxPresetSelect', 'fxPresetMode', 'fxPresetPitch', 'fxPresetSave']) $(id).disabled = locked;
@@ -56,7 +61,7 @@
   }
   $('fxPresetSave').onclick = async () => { const draft = editor.draft(); if (!draft || operation) return;
     const settings = { effects: structuredClone(draft.effects), pitch: draft.pitch }, name = await askText(t('preset.name'), draft.character.slice(0, model.MAX_NAME), model.MAX_NAME);
-    if (name && editor.draft()?.sessionId === draft.sessionId) mutate({ action: 'create', id: newUploadId(), revision: 0, name, settings }, draft);
+    if (name && editor.draft()?.sessionId === draft.sessionId) mutate({ action: 'create', id: newUploadId(), revision: 0, name, icon: draft.icon, settings }, draft);
   };
   $('fxPresetApply').onclick = async () => {
     const draft = editor.draft(), preset = structuredClone(selected()), append = $('fxPresetMode').value === 'append', linked = $('fxPresetMode').value === 'link', pitch = $('fxPresetPitch').checked; if (!draft || !preset) return;

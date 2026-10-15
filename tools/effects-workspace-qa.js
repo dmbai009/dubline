@@ -40,10 +40,10 @@ async function main() {
           const dialog = fxDialog.getBoundingClientRect(), body = document.querySelector('#fxDialog .fx-body');
           const cards = [...fxRows.children].map(node => { const box = node.getBoundingClientRect(); return { w: box.width, h: box.height, contained: box.left >= dialog.left && box.right <= dialog.right && box.top >= dialog.top && box.bottom <= dialog.bottom }; });
           const missing = [...fxDialog.querySelectorAll('[data-i18n]')].filter(node => node.getBoundingClientRect().height && node.textContent === node.dataset.i18n).map(node => node.dataset.i18n);
-          return { fits: dialog.left >= 0 && dialog.right <= innerWidth && dialog.bottom <= innerHeight, scroll: body.scrollHeight - body.clientHeight, overflow: fxDialog.scrollWidth - fxDialog.clientWidth, cards, missing };
+          return { fits: dialog.left >= 0 && dialog.right <= innerWidth && dialog.bottom <= innerHeight, width: dialog.width, height: dialog.height, scroll: body.scrollHeight - body.clientHeight, overflow: fxDialog.scrollWidth - fxDialog.clientWidth, cards, missing };
         });
         await page.screenshot({ path: path.join(destination, "latest-layout.png") });
-        assert.ok(geometry.fits && geometry.scroll <= 1 && geometry.overflow <= 1 && geometry.cards.every(c => c.w > 130 && c.contained) && !geometry.missing.length, JSON.stringify({ scope, count, theme, language, geometry }));
+        assert.ok(geometry.fits && geometry.width <= 1061 && geometry.height <= 841 && (count === 8 || geometry.scroll <= 1) && geometry.overflow <= 1 && geometry.cards.every(c => c.w > 130 && (count === 8 || c.contained)) && !geometry.missing.length, JSON.stringify({ scope, count, theme, language, geometry }));
         assert.equal(await page.locator('#fxRows .switch-ui').count(), count);
         const filename = `${scope}-${count}-${theme}-${language}.png`; await page.screenshot({ path: path.join(destination, filename) }); results.push({ filename, geometry });
       }
