@@ -5,16 +5,12 @@ on:
   pull_request:
 
 jobs:
-  test:
-    # Windows like the players: the e2e suite drives the runner's preinstalled Chrome
+  source:
+    # Syntax plus the unit/integration suite: the layer that needs no browser.
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
     permissions:
       contents: read
-    env:
-      # The browser suite skips locally without Chrome, but here a missing browser
-      # must fail the run instead of silently skipping every e2e test.
-      DUBLINE_REQUIRE_BROWSER: '1'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -24,7 +20,47 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npm test
-      - run: npm run test:e2e
+
+  browser:
+    # The browser suite grew to 38 suites and no longer fits one job: on the old
+    # single-job layout it was cancelled by the 30-minute job timeout, which also
+    # skipped the Electron jobs below and left every review without a signal.
+    # Shards come from the same list as `npm run test:e2e` (tools/e2e-shard.js).
+    runs-on: windows-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    env:
+      # A runner without Chrome/Edge must fail instead of skipping every suite.
+      DUBLINE_REQUIRE_BROWSER: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Run browser shard ${{ matrix.shard }} of 3
+        run: node tools/e2e-shard.js ${{ matrix.shard }} 3
+
+  electron:
+    # Native shells are independent of the browser shards, so they get their own
+    # job and still run when a browser shard is slow.
+    runs-on: windows-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
       - run: npm run test:electron:editor
       - run: npm run test:electron:ui
       - run: npm run test:electron:hosting
