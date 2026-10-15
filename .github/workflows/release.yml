@@ -38,6 +38,10 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npm test
+      - name: Require an installed browser
+        run: node tools/require-browser.js
+        env:
+          DUBLINE_REQUIRE_BROWSER: '1'
       - run: npm run test:e2e
         env:
           # Release verification must not pass with every browser test skipped.
