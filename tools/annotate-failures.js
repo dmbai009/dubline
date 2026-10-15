@@ -4,29 +4,39 @@
 // run summary and through the API, so a red browser shard names the suites that
 // broke instead of leaving the reader with an exit code.
 const fs = require('fs');
+const { stripVTControlCharacters } = require('node:util');
 
 const LIMIT = 20;
 
 function failingTests(text) {
-  // The spec reporter writes one "✖ name (12ms)" line per failing test and
-  // repeats the name in a "test at <file>:<line>" reference just below it.
-  const failures = [];
-  const lines = text.split(/\r?\n/);
-  for (let i = 0; i < lines.length; i += 1) {
-    const match = /^(\s*)✖ (.+?) \(\d+(?:\.\d+)?ms\)\s*$/.exec(lines[i]);
-    if (!match) continue;
-    const name = match[2].trim();
-    // The reporter prints the error block first and the "test at" reference
-    // afterwards, so both are collected from the same window in any order.
-    let where = '';
-    let why = '';
-    for (let j = i + 1; j < Math.min(i + 40, lines.length) && !(where && why); j += 1) {
-      where = where || (/^\s*test at (\S+?):(\d+):\d+/.exec(lines[j]) || []).slice(1).join(':');
-      why = why || (/^\s*(?:AssertionError|Error|TypeError|RangeError|ReferenceError|SyntaxError)\b.*$/.exec(lines[j]) || [])[0];
+  const failures = [], lines = stripVTControlCharacters(text).split(/\r?\n/);
+  // Node repeats failures in a detailed footer, with each location BEFORE its
+  // test header. Prefer that footer; never count both copies of a failure.
+  const summary = lines.findIndex(line => /^\s*✖ failing tests:\s*$/.test(line));
+  let current = null, location = '';
+  const finish = () => {
+    if (!current) return;
+    const detail = [current.where, current.why].filter(Boolean).join(' — ');
+    failures.push(detail ? `${current.name} — ${detail}` : current.name);
+    current = null;
+  };
+  for (const line of lines.slice(summary < 0 ? 0 : summary + 1)) {
+    const reference = /^\s*test at (.+):(\d+):\d+\s*$/.exec(line);
+    if (reference) {
+      const where = reference[1] + ':' + reference[2];
+      if (summary < 0) { if (current && !current.where) current.where = where; }
+      else { finish(); location = where; }
+      continue;
     }
-    const detail = [where, why && why.trim().slice(0, 160)].filter(Boolean).join(' — ');
-    failures.push(detail ? `${name} — ${detail}` : name);
+    const header = /^\s*✖ (.+?) \(\d+(?:\.\d+)?ms\)\s*$/.exec(line);
+    if (header) {
+      finish(); current = { name: header[1].trim(), where: location, why: '' }; location = '';
+      continue;
+    }
+    if (/^\s*[✔▶ℹ]/.test(line)) { finish(); location = ''; continue; }
+    if (current && !current.why && /^\s*(?:AssertionError|Error|TypeError|RangeError|ReferenceError|SyntaxError)\b/.test(line)) current.why = line.trim().slice(0, 160);
   }
+  finish();
   return failures;
 }
 
