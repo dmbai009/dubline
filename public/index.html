@@ -462,6 +462,8 @@
           <div id="renderProgressBox" style="display: none; background: var(--bg); padding:10px; border-radius: var(--radius-sm); border:1px solid var(--border);">
             <span id="renderStatusText" data-i18n="rendering" style="font-size:12px; font-weight:700; color: var(--success);">⏳ Exporting video…</span>
             <div class="progress" style="margin-top:6px;"><div id="renderProgressBar" style="background: var(--success);"></div></div>
+            <div id="renderProgressDetails" class="export-progress-details"></div>
+            <p id="renderProgressActivity" class="setting-sub export-progress-activity" aria-live="off"></p>
           </div>
           <div id="renderOriginalNotice" class="setting-sub" role="status" style="display:none;"></div>
           <button id="startRenderBtn" class="btn-play" onclick="startVideoRender()" style="padding: 9px 14px;">
@@ -793,6 +795,7 @@
   <script src="import.js"></script>
   <script src="export.js"></script>
   <script src="video-export-policy.js"></script>
+  <script src="export-progress.js"></script>
   <script src="video-export-audio.js"></script>
   <script src="video-export-engine.js"></script>
   <script src="room.js"></script>

@@ -54,6 +54,8 @@ if (!process.versions.electron) {
       const inspected = await require('../server/video-export-info').inspect(movie); assert.equal(inspected.width, 640); assert.equal(inspected.height, 360);
       assert.ok(Math.abs(inspected.duration - 12) < 0.1); assert.equal(await evaluate('exportSignals'), 1);
       assert.equal(await evaluate('renderProgressBar.style.width'), '100%');
+      assert.equal(await evaluate("['takes','audio','video','saving'].every(phase => document.querySelector('[data-phase=' + phase + ']').dataset.state === 'done')"), true);
+      assert.equal(await evaluate("document.querySelector('[data-phase=saving] progress').max"), fs.statSync(movie).size);
       assert.equal(fs.readdirSync(process.env.DUBLINE_NATIVE_EXPORT_DIR).some(name => name.endsWith('.part')), false);
       const hashed = require('node:child_process').spawnSync(require('ffmpeg-static'), ['-hide_banner', '-loglevel', 'error', '-i', movie, '-map', '0:v:0', '-c:v', 'copy', '-f', 'hash', '-hash', 'sha256', '-'], { encoding: 'utf8', windowsHide: true }); assert.equal(hashed.status, 0, hashed.stderr); assert.equal(hashed.stdout.trim(), process.env.DUBLINE_NATIVE_EXPORT_HASH);
       filename = 'custom.webm';

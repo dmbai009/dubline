@@ -1,6 +1,7 @@
 (() => {
   const policy = window.DublineVideoExportPolicy;
   async function render(settings, snapshot, progress, job) {
+    snapshot.exportReport = job.report;
     const mb = await import('/vendor/mediabunny/mediabunny.min.mjs');
     const source = snapshot.videoBlob ? new mb.BlobSource(snapshot.videoBlob) : new mb.UrlSource(snapshot.videoUrl, { fetchFn: (url, options) => fetch(url, { ...options, signal: job.abort.signal }) });
     const input = new mb.Input({ source, formats: mb.ALL_FORMATS });
@@ -12,6 +13,7 @@
       const codec = await track.getCodec(), decoderConfig = await track.getDecoderConfig(), duration = await track.computeDuration();
       if (!policy.valid(duration)) throw Error(t('render.noVideo'));
       if (!codec || !decoderConfig) throw Error(t('render.unknownCodec'));
+      job.report?.('video', { current: 0, total: duration, label: settings.mode === 'custom' ? 'encoding' : 'copying' });
       const format = settings.format === 'webm' ? new mb.WebMOutputFormat() : new mb.Mp4OutputFormat({ fastStart: false });
       if (settings.mode !== 'custom' && !format.getSupportedVideoCodecs().includes(codec)) throw Error(t('exportVideo.unsupported'));
       const encoding = policy.formats[settings.format];
@@ -28,6 +30,7 @@
           job.check();
           const result = await dublineVideoExport.write({ ticket: job.destination.ticket, sessionId: snapshot.scene.activeSessionId, position: chunk.position + offset, bytes: chunk.data.slice(offset, offset + 1024 * 1024) });
           if (!result.ok) throw Error(t(result.key)); job.bytes = Math.max(job.bytes, result.bytes);
+          job.report?.('saving', { current: job.bytes, unit: 'bytes' });
         }
       } }), { chunked: true, chunkSize: 1024 * 1024 }) : new mb.BufferTarget();
       output = new mb.Output({ format, target }); job.output = output;
@@ -60,22 +63,22 @@
             sample.draw(context, 0, 0, canvas.width, canvas.height);
             const frame = new mb.VideoSample(canvas, { timestamp, duration: settings.fps ? Math.min(1 / settings.fps, duration - timestamp) : sample.duration });
             try { await videoSource.add(frame); } finally { frame.close(); }
-            await audioUntil(timestamp + 1); progress(Math.min(95, 10 + 85 * timestamp / duration), t('exportVideo.processing'));
+            await audioUntil(timestamp + 1); job.report?.('video', { current: Math.min(duration, timestamp + (sample.duration || 0)), total: duration, label: 'encoding' }); progress(Math.min(95, 10 + 85 * timestamp / duration), t('exportVideo.processing'));
           } finally { sample.close(); }
         }
       } else {
         let first = true;
         for await (const packet of new mb.EncodedPacketSink(track).packets()) {
           job.check(); await videoSource.add(packet, first ? { decoderConfig } : undefined); first = false;
-          await audioUntil(packet.timestamp + 1); progress(Math.min(95, 10 + 85 * packet.timestamp / duration), t('exportVideo.copying'));
+          await audioUntil(packet.timestamp + 1); job.report?.('video', { current: Math.min(duration, packet.timestamp + (packet.duration || 0)), total: duration, label: 'copying' }); progress(Math.min(95, 10 + 85 * packet.timestamp / duration), t('exportVideo.copying'));
         }
       }
-      await audioUntil(Infinity); videoSource.close(); audioSource.close(); progress(97, t('render.finalize')); await output.finalize(); job.check();
+      await audioUntil(Infinity); videoSource.close(); audioSource.close(); job.report?.('video', { current: duration, total: duration, state: 'done' }); job.report?.('finalizing', {}); progress(97, t('render.finalize')); await output.finalize(); job.check(); job.report?.('finalizing', { state: 'done' });
       return job.destination ? { bytes: job.bytes, ext: settings.format } : { blob: new Blob([target.buffer], { type: encoding.mime }), ext: settings.format };
     } finally { await audioIterator?.return?.(); input.dispose(); if (output && output.state !== 'finalized') await output.cancel().catch(() => {}); job.output = null; }
   }
   async function realtime(settings, snapshot, progress, job) {
-    snapshot.exportSignal = job.abort.signal;
+    snapshot.exportSignal = job.abort.signal; snapshot.exportReport = job.report;
     const audioOnly = !!settings.audioOnly;
     const mime = audioOnly ? settings.audioMime : settings.format === 'mp4' ? 'video/mp4;codecs=avc1,mp4a.40.2' : 'video/webm;codecs=vp9,opus';
     if (!window.MediaRecorder || !MediaRecorder.isTypeSupported(mime) || !audioOnly && (!HTMLCanvasElement.prototype.captureStream || settings.fps != null)) throw Error(t('exportVideo.unsupported'));
@@ -147,7 +150,7 @@
           for (let offset = 0; offset < event.data.size; offset += 1024 * 1024) {
             job.check(); const bytes = new Uint8Array(await event.data.slice(offset, offset + 1024 * 1024).arrayBuffer());
             const result = await dublineVideoExport.write({ ticket: job.destination.ticket, sessionId: snapshot.scene.activeSessionId, position: job.bytes, bytes });
-            if (!result.ok) throw Error(t(result.key)); job.bytes = result.bytes;
+            if (!result.ok) throw Error(t(result.key)); job.bytes = result.bytes; job.report?.('saving', { current: job.bytes, unit: 'bytes' });
           }
           queuedBytes -= event.data.size;
         }).catch(failed);
@@ -169,13 +172,13 @@
         if (source.offset > 0) timers.push(setTimeout(() => { void source.element.play().catch(failed); }, source.offset * 1000));
         else void source.element.play().catch(failed);
       }
-      const draw = () => { try { job.check(); if (drawing) { drawing.drawImage(movie, 0, 0, canvas.width, canvas.height); videoTrack.requestFrame(); } progress(Math.min(95, 10 + movie.currentTime / duration * 85), t('render.realtimeProgress', { current: Math.round(movie.currentTime), total: Math.round(duration) })); if (movie.ended || movie.currentTime >= duration) finish(); else if (movie.requestVideoFrameCallback) frame = movie.requestVideoFrameCallback(draw); } catch (error) { failed(error); } };
+      const draw = () => { try { job.check(); if (drawing) { drawing.drawImage(movie, 0, 0, canvas.width, canvas.height); videoTrack.requestFrame(); } job.report?.(audioOnly ? 'audio' : 'video', { current: movie.currentTime, total: duration, label: audioOnly ? 'audio' : 'realtime' }); progress(Math.min(95, 10 + movie.currentTime / duration * 85), t('render.realtimeProgress', { current: Math.round(movie.currentTime), total: Math.round(duration) })); if (movie.ended || movie.currentTime >= duration) finish(); else if (movie.requestVideoFrameCallback) frame = movie.requestVideoFrameCallback(draw); } catch (error) { failed(error); } };
       if (movie.requestVideoFrameCallback) frame = movie.requestVideoFrameCallback(draw);
       let scheduling = false, lastTime = 0, lastProgress = performance.now();
       watchdog = setInterval(() => {
         try {
           job.check(); if (movie.error) throw Error(t('render.playbackFailed'));
-          if (audioOnly) progress(Math.min(95, 10 + movie.currentTime / duration * 85), t('render.encodeSoundtrack'));
+          if (audioOnly) { job.report?.('audio', { current: movie.currentTime, total: duration }); progress(Math.min(95, 10 + movie.currentTime / duration * 85), t('render.encodeSoundtrack')); }
           if (audioOnly && !movie.requestVideoFrameCallback) draw();
           if (movie.currentTime !== lastTime) { lastTime = movie.currentTime; lastProgress = performance.now(); }
           if (movie.ended || movie.currentTime >= duration - 0.01) return finish();
@@ -184,7 +187,7 @@
           if (!scheduling) { scheduling = true; void schedule(movie.currentTime + 5).catch(failed).finally(() => { scheduling = false; }); }
         } catch (error) { failed(error); }
       }, 100);
-      await finished; recorder.stop(); await stopped; await writing; if (failure) throw failure; job.check();
+      await finished; recorder.stop(); await stopped; await writing; if (failure) throw failure; job.check(); job.report?.('audio', { current: duration, total: duration, state: 'done' }); if (!audioOnly) job.report?.('video', { current: duration, total: duration, state: 'done' });
       return job.destination ? { bytes: job.bytes, ext: settings.format } : { blob: new Blob(buffers, { type: audioOnly ? mime : policy.formats[settings.format].mime }), ext: audioOnly ? mime.includes('webm') ? 'webm' : 'm4a' : settings.format };
     } finally {
       ended = true;

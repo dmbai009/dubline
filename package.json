@@ -28,11 +28,11 @@
     "test:electron:guest": "node tools/electron-guest-smoke.js",
     "test:electron:cloudflare": "node tools/electron-smoke.js cloudflare",
     "test": "node --test",
-    "test:e2e": "node --test --test-concurrency=1 e2e/launcher.e2e.js e2e/desktop.e2e.js e2e/studio.e2e.js e2e/room.e2e.js e2e/media.e2e.js e2e/media-stage-three.e2e.js e2e/media-transfer.e2e.js e2e/p2p-consent.e2e.js e2e/security.e2e.js e2e/workflow.e2e.js e2e/reliability.e2e.js e2e/audit-fixes.e2e.js e2e/projects.e2e.js e2e/workflow14.e2e.js e2e/direct-media.e2e.js e2e/solo-feedback.e2e.js e2e/proxy.e2e.js e2e/take-mix.e2e.js e2e/editor-hardening.e2e.js e2e/media-presence-hardening.e2e.js e2e/ui-cleanup.e2e.js e2e/editor-improvements.e2e.js e2e/group-reliability.e2e.js e2e/editor-outcomes.e2e.js e2e/collaboration-ux.e2e.js e2e/collaborative-dubbing.e2e.js e2e/take-history.e2e.js e2e/video-export.e2e.js e2e/noise-reduction.e2e.js e2e/voice-chain.e2e.js e2e/ui-presets.e2e.js e2e/live-presets.e2e.js e2e/workflow-next.e2e.js e2e/speech-levels.e2e.js e2e/media-next.e2e.js e2e/inspector-presets.e2e.js e2e/ux-fixes.e2e.js",
+    "test:e2e": "node --test --test-concurrency=1 e2e/launcher.e2e.js e2e/desktop.e2e.js e2e/studio.e2e.js e2e/room.e2e.js e2e/media.e2e.js e2e/media-stage-three.e2e.js e2e/media-transfer.e2e.js e2e/p2p-consent.e2e.js e2e/security.e2e.js e2e/workflow.e2e.js e2e/reliability.e2e.js e2e/audit-fixes.e2e.js e2e/projects.e2e.js e2e/workflow14.e2e.js e2e/direct-media.e2e.js e2e/solo-feedback.e2e.js e2e/proxy.e2e.js e2e/take-mix.e2e.js e2e/editor-hardening.e2e.js e2e/media-presence-hardening.e2e.js e2e/ui-cleanup.e2e.js e2e/editor-improvements.e2e.js e2e/group-reliability.e2e.js e2e/editor-outcomes.e2e.js e2e/collaboration-ux.e2e.js e2e/collaborative-dubbing.e2e.js e2e/take-history.e2e.js e2e/video-export.e2e.js e2e/noise-reduction.e2e.js e2e/voice-chain.e2e.js e2e/ui-presets.e2e.js e2e/live-presets.e2e.js e2e/workflow-next.e2e.js e2e/speech-levels.e2e.js e2e/media-next.e2e.js e2e/inspector-presets.e2e.js e2e/ux-fixes.e2e.js e2e/export-progress.e2e.js",
     "check": "node tools/check.js",
     "test:electron:take-history": "node tools/electron-take-history-smoke.js",
     "test:electron:take-mix": "node tools/electron-take-mix-smoke.js",
-    "test:ui": "node --test --test-concurrency=1 e2e/ui-cleanup.e2e.js e2e/editor-improvements.e2e.js e2e/group-reliability.e2e.js e2e/collaborative-dubbing.e2e.js e2e/take-history.e2e.js e2e/noise-reduction.e2e.js e2e/voice-chain.e2e.js e2e/ui-presets.e2e.js e2e/live-presets.e2e.js e2e/workflow-next.e2e.js e2e/speech-levels.e2e.js e2e/inspector-presets.e2e.js e2e/ux-fixes.e2e.js",
+    "test:ui": "node --test --test-concurrency=1 e2e/ui-cleanup.e2e.js e2e/editor-improvements.e2e.js e2e/group-reliability.e2e.js e2e/collaborative-dubbing.e2e.js e2e/take-history.e2e.js e2e/noise-reduction.e2e.js e2e/voice-chain.e2e.js e2e/ui-presets.e2e.js e2e/live-presets.e2e.js e2e/workflow-next.e2e.js e2e/speech-levels.e2e.js e2e/inspector-presets.e2e.js e2e/ux-fixes.e2e.js e2e/export-progress.e2e.js",
     "test:electron:ui": "node tools/electron-ui-cleanup-smoke.js",
     "test:electron:hosting": "node tools/electron-hosting-smoke.js",
     "qa:ui": "node tools/visual-ui-cleanup.js",
@@ -45,7 +45,8 @@
     "qa:inspector": "node tools/inspector-workspace-qa.js",
     "qa:single-chain": "node tools/single-chain-workspace-qa.js",
     "qa:ux-fixes": "node tools/ux-fixes-qa.js",
-    "qa:toggles": "node tools/toggle-workspace-qa.js"
+    "qa:toggles": "node tools/toggle-workspace-qa.js",
+    "qa:export-progress": "node tools/export-progress-qa.js"
   },
   "dependencies": {
     "@shiguredo/rnnoise-wasm": "2025.1.5",

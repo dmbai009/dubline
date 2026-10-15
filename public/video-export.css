@@ -17,4 +17,14 @@
 .video-export-destination { font-size:11px; color:var(--muted); overflow-wrap:anywhere; }
 .video-export-panel .setting-sub { overflow-wrap:anywhere; }
 .video-export-panel button { white-space:normal; }
+.export-progress-details { display:grid; gap:6px; margin-top:10px; font-size:11px; font-variant-numeric:tabular-nums; }
+/* The detailed meters replace the old coarse, weighted overall bar. */
+#renderProgressBox > .progress { display:none; }
+.export-progress-row { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:4px 12px; align-items:center; }
+.export-progress-row > span { overflow-wrap:anywhere; }
+.export-progress-row > strong { text-align:right; font-weight:600; }
+.export-progress-row > progress { grid-column:1 / -1; width:100%; height:5px; accent-color:var(--accent); }
+.export-progress-row[data-state=done] { color:var(--muted); }
+.export-progress-activity { margin:8px 0 0; line-height:1.5; }
+.export-progress-activity[data-waiting=true] { color:var(--warning-text); }
 @media (max-width:700px) { .video-export-modes { grid-template-columns:1fr; } .video-export-metadata { grid-template-columns:repeat(2,minmax(0,1fr)); } }

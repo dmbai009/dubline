@@ -17,16 +17,27 @@
     decodeContext ||= new OfflineAudioContext(1, 1, RATE);
     return decodeContext.decodeAudioData(bytes);
   }
-  async function prepare(snapshot, duration, progress, check) {
-    const takes = [];
-    for (const line of snapshot.gains.dub > 0 ? snapshot.takes : []) {
+  async function prepare(snapshot, duration, progress, check, { concurrency = 2 } = {}) {
+    const eligible = (snapshot.gains.dub > 0 ? snapshot.takes : []).filter(line => DublineTakeMix.normalize(line).volume > 0), takes = [];
+    const report = snapshot.exportReport || (() => {}); let completed = 0;
+    report('takes', { current: 0, total: eligible.length, unit: 'count' });
+    // Only two independent existing decode/offline pipelines may run at once.
+    // RNNoise keeps its own bounded worker/queue; no unbounded Promise.all over a scene.
+    const width = Math.max(1, Math.min(2, Math.floor(concurrency) || 1));
+    for (let offset = 0; offset < eligible.length; offset += width) {
       check();
-      if (DublineTakeMix.normalize(line).volume === 0) continue;
-      progress(t('render.takes', { current: takes.length + 1, total: snapshot.takes.length }));
-      const buffer = await requireExportTake(line, snapshot.exportSignal), bounds = takeBounds(line, buffer.duration);
-      takes.push({ line, ...bounds, start: exportTakeStart(line, snapshot.scene) });
-      // Only metadata is retained here. The existing processed-take cache remains bounded.
+      const batch = await Promise.allSettled(eligible.slice(offset, offset + width).map(async line => {
+        check(); progress(t('render.takes', { current: completed + 1, total: eligible.length }));
+        report('takes', { current: completed, total: eligible.length, unit: 'count', detail: '#' + lineNumber(line) });
+        const buffer = await requireExportTake(line, snapshot.exportSignal); check();
+        const bounds = takeBounds(line, buffer.duration); completed++;
+        report('takes', { current: completed, total: eligible.length, unit: 'count' });
+        return { line, ...bounds, start: exportTakeStart(line, snapshot.scene) };
+      }));
+      const failed = batch.find(result => result.status === 'rejected'); if (failed) throw failed.reason;
+      takes.push(...batch.map(result => result.value)); // Retain metadata, never the scene's PCM buffers.
     }
+    report('takes', { current: completed, total: eligible.length, unit: 'count', detail: '', state: 'done' });
     const intervals = takes.map(take => [Math.max(0, take.start + take.from), Math.min(duration, take.start + take.to)]);
     const mix = snapshot.gains.mix;
     const curves = {};
@@ -55,6 +66,7 @@
   }
   async function* chunks(mb, snapshot, duration, progress, check) {
     const prepared = await prepare(snapshot, duration, progress, check), sources = [];
+    const report = snapshot.exportReport || (() => {}); report('audio', { current: 0, total: duration });
     try {
       for (const name of ['original', 'backing']) {
         const url = snapshot[name + 'Url'];
@@ -109,8 +121,9 @@
           check(); const buffer = await requireExportTake(take.line, snapshot.exportSignal);
           place(buffer, snapshot.gains.dub, take.start, take.from, take.to, limiter, take.line);
         }
-        check(); progress(t('render.mix'));
+        check(); progress(t('render.mix')); report('audio', { current: position, total: duration });
         const buffer = await context.startRendering(); check();
+        report('audio', { current: end, total: duration, state: end >= duration ? 'done' : 'running' });
         yield { buffer: sliceAudioBuffer(buffer, Math.round((position - begin) * RATE), buffer.length), end };
       }
     } finally { for (const source of sources) source.input.dispose(); }

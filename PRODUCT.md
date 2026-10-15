@@ -77,3 +77,8 @@ The inspector uses its available panel width for one, two or three columns while
 ## Studio UX corrections
 
 The effect sidebar grows with the workspace while preserving chain space and four-card rows. Line/role terminology, recording/voice headings, compact history placement and themed silence-trim switches use the existing editor/audio controls. The sequence recorder and historical A/B dialog are removed. Next line wraps within the current owned role before moving to another owned role, reveals the target without changing saved filters and never starts recording. Requested retakes use the minimap warning color on the timeline. Completion checks sit before player names; moderators use a contrasting blue shield. Fractional-zoom dropdown positioning is stable, invitation copy-with-PIN shares its PIN row and fullscreen subtitles clear the actual wrapped transport height. See docs/studio-ux-fixes.md.
+
+
+## Export progress
+
+Video export reports completed recording counts, audio/video timeline positions, acknowledged output bytes and elapsed/quiet time, with a 15-second no-new-progress notice and cancellation. The fast mode labels video copying explicitly. Recordings prepare in bounded pairs through existing audio pipelines; RNNoise worker/cache limits and exported sound remain unchanged. See docs/export-progress.md for measured preparation speed, validation and limits.

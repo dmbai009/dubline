@@ -471,7 +471,7 @@ async function renderOriginalVideo(progress, snapshot, settings = { mode: 'origi
   const duration = settings.sourceInfo?.duration || snapshot.scene.videoDuration || video.duration;
   const webm = settings.format === 'webm';
   let output, soundtrack, extension = webm ? 'webm' : 'm4a';
-  snapshot.exportSignal = job.abort.signal;
+  snapshot.exportSignal = job.abort.signal; snapshot.exportReport = job.report;
   try {
     if (settings.audioRealtime) {
       const audioJob = { ...job, destination: null, bytes: 0 };
@@ -490,11 +490,14 @@ async function renderOriginalVideo(progress, snapshot, settings = { mode: 'origi
     }
     job.check();
     const form = new FormData();
-    form.append('clientId', clientId); form.append('sessionId', snapshot.scene.activeSessionId); form.append('videoUrl', snapshot.videoUrl); form.append('source', settings.source);
+    form.append('clientId', clientId); form.append('sessionId', snapshot.scene.activeSessionId); if (job.id) form.append('progressId', job.id); form.append('videoUrl', snapshot.videoUrl); form.append('source', settings.source);
     if (settings.mode === 'custom') form.append('options', JSON.stringify({ format: settings.format, codec: settings.codec, width: settings.width, height: settings.height, fps: settings.fps, bitrate: settings.bitrate }));
     form.append('soundtrack', soundtrack, 'soundtrack.' + extension);
-    progress(75, t('render.originalMux'));
-    const response = await fetch('/api/export-original-video?room=' + encodeURIComponent(currentRoom), { method: 'POST', body: form, signal: job.abort.signal });
+    progress(75, t('render.originalMux')); job.report?.('video', { current: 0, total: duration, label: settings.mode === 'custom' ? 'encoding' : 'copying' });
+    job.report?.('uploading', { current: 0, unit: 'bytes' });
+    const send = window.DublineNetwork?.upload || fetch;
+    const response = await send('/api/export-original-video?room=' + encodeURIComponent(currentRoom), { method: 'POST', body: form, signal: job.abort.signal,
+      onUploadProgress: data => job.report?.('uploading', { current: data.loaded, total: data.total, unit: 'bytes', state: data.done ? 'done' : 'running' }) });
     if (!response.ok) throw new Error(await readError(response));
     const prepared = await response.json(); job.check(); return prepared;
   } finally { if (output && output.state !== 'finalized') await output.cancel().catch(() => {}); job.output = null; }

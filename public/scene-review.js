@@ -23,9 +23,9 @@
     }
     if (!report.issues.length) $('sceneReviewIssues').textContent = t('review.ready'); $('sceneReviewCheck').disabled = checking || !socket.connected;
   }
-  async function checkFiles() {
+  async function checkFiles({ signal } = {}) {
     if (checking || !session?.loaded) throw Error(t('review.checking')); scoped(); const id = sceneId; checking = true; $('sceneReviewStatus').textContent = t('review.checking'); paint();
-    try { const response = await fetch('/api/scene-review?' + new URLSearchParams({ room: currentRoom, clientId, sessionId: id })); if (!response.ok) throw Error(await readError(response)); const result = await response.json(); if (id !== session.activeSessionId) return;
+    try { const response = await fetch('/api/scene-review?' + new URLSearchParams({ room: currentRoom, clientId, sessionId: id }), { signal }); if (!response.ok) throw Error(await readError(response)); const result = await response.json(); if (id !== session.activeSessionId) return;
       availability.clear(); sourceIssues = (result.sources || []).filter(source => source.status !== 'ready').map(source => ({ key: source.status === 'missing' ? 'review.sourceFile' : 'review.sourceTemporary', severity: source.status === 'missing' ? 'error' : 'warning', resource: source.channel })); for (const take of result.takes || []) { const line = session.lines.find(line => line.id === take.lineId); if (line?.takeId === take.takeId && canHearLine(line)) { availability.set(line.audioUrl, take.status); if (take.quality) window.DublineTakeAnalysis?.receive(line.audioUrl, take.quality); } }
       $('sceneReviewStatus').textContent = t('review.checked'); const source = (result.sources || []).find(source => source.status !== 'ready'); if (source) $('sceneReviewStatus').textContent = t('review.missingSource');
     } catch (error) { if (id === session?.activeSessionId) $('sceneReviewStatus').textContent = error.message; throw error; }

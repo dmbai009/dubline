@@ -84,7 +84,8 @@
       const xhr = new XMLHttpRequest(); let up = 0, down = 0;
       xhr.open(options.method || 'POST', url); xhr.responseType = 'blob';
       for (const [key, value] of Object.entries(options.headers || {})) xhr.setRequestHeader(key, value);
-      xhr.upload.onprogress = event => { meter.add('up', event.loaded - up); up = event.loaded; };
+      xhr.upload.onprogress = event => { meter.add('up', event.loaded - up); up = event.loaded; options.onUploadProgress?.({ loaded: event.loaded, total: event.lengthComputable ? event.total : undefined, done: false }); };
+      xhr.upload.onload = event => { options.onUploadProgress?.({ loaded: event.loaded, total: event.lengthComputable ? event.total : undefined, done: true }); };
       xhr.onprogress = event => { meter.add('down', event.loaded - down); down = event.loaded; };
       const abort = () => xhr.abort();
       xhr.onloadend = () => options.signal?.removeEventListener('abort', abort);

@@ -1,7 +1,7 @@
 // Original-quality export: upload only the rendered soundtrack, copy source video on disk.
 const fs = require('node:fs'), path = require('node:path'), crypto = require('node:crypto');
 const {pipeline} = require('node:stream/promises');
-const {app} = require('./app');
+const {app, io} = require('./app');
 const {DATA_DIR, HttpError} = require('./config');
 const {getRoom} = require('./rooms');
 const {isHost} = require('./auth');
@@ -47,6 +47,7 @@ app.post('/api/export-original-video', diskUpload(['soundtrack'],req => {
   try {
     roomId=resolveRoomId(req.query.room);const room=getRoom(roomId);
     if (!confirmedHost(roomId,req.body.clientId)) throw new HttpError(403,'Host rights changed','onlyHost');
+    if (req.body.progressId != null && (typeof req.body.progressId !== 'string' || !/^[\w-]{1,80}$/.test(req.body.progressId))) throw new HttpError(400,'Invalid progress identity','exportVideo.unsupported');
     if (req.body.sessionId !== room.activeSessionId) throw new HttpError(409,'The scene changed','error.importSceneChanged');
     if (req.body.videoUrl && req.body.videoUrl !== room.videoUrl) throw new HttpError(409,'The video changed','render.sceneChanged');
     const workingUrl = room.videoUrl;
@@ -73,6 +74,12 @@ app.post('/api/export-original-video', diskUpload(['soundtrack'],req => {
     const ext = options ? '.' + options.format : '.' + info.extension;
     const output=path.join(temp,'result'+ext);
     const duration=info.duration, soundDuration=probeAudioDuration(req.file.path);
+    const progress = (current, done = false) => {
+      if (!req.body.progressId || req.body.sessionId !== room.activeSessionId || !confirmedHost(roomId, req.body.clientId)) return;
+      for (const [socketId, member] of Object.entries(require('./state').roomSockets[roomId] || {})) if (member.clientId === req.body.clientId && member.nick) {
+        io.to(socketId).emit('video_export_progress', { progressId: req.body.progressId, sessionId: req.body.sessionId, current: Math.max(0, Math.min(duration, current)), total: duration, done });
+      }
+    };
     if (!duration || !soundDuration || Math.abs(duration-soundDuration)>0.25) throw new HttpError(400,'Soundtrack duration differs from source','proxy.timing');
     const videoArgs = options ? ['-vf',`scale=${options.width}:${options.height},setsar=1`,'-c:v', options.codec === 'avc' ? 'libx264' : 'libvpx-vp9',
       ...(options.codec === 'avc' ? ['-preset','medium','-pix_fmt','yuv420p'] : ['-deadline','good','-cpu-used','2']), '-b:v',String(options.bitrate),
@@ -85,7 +92,7 @@ app.post('/api/export-original-video', diskUpload(['soundtrack'],req => {
     req.uploadAbort.signal.throwIfAborted();
     await runFfmpeg(['-copyts','-start_at_zero','-i',source,'-i',req.file.path,'-map','0:v:0','-map','1:a:0', ...videoArgs,
       ...(audioCodec === targetAudio ? ['-c:a','copy'] : ['-c:a',targetAudio === 'opus' ? 'libopus' : 'aac','-b:a','192k','-af','apad']),'-t',String(duration),...(ext==='.mp4'?['-movflags','+faststart']:[]),output],
-      'Could not export original video',{signal:req.uploadAbort.signal,timeoutMs:2*60*60*1000});
+      'Could not export original video',{signal:req.uploadAbort.signal,timeoutMs:2*60*60*1000,onProgress: time => progress(time)});
     if (res.destroyed || req.body.sessionId !== room.activeSessionId || room.videoUrl !== workingUrl || sourceUrl !== (req.body.source === 'working' ? room.videoUrl : room.originalVideoUrl || room.videoUrl) || !confirmedHost(roomId,req.body.clientId)) throw new HttpError(409,'The scene changed','error.importSceneChanged');
     const ticket=crypto.randomUUID(), folder=temp;
     let cleanup;
@@ -93,6 +100,7 @@ app.post('/api/export-original-video', diskUpload(['soundtrack'],req => {
     const timer=setTimeout(()=>{void release().catch(console.error);},5*60*1000);timer.unref();
     const filename='Dubline_'+String(room.title || 'scene').replace(/[<>:"/\\|?*\x00-\x1f]/g,'_').slice(0,100)+'_export'+ext;
     const bytes = fs.statSync(output).size;
+    progress(duration, true);
     downloads.set(ticket,{roomId,sessionId: room.activeSessionId,videoUrl: workingUrl,clientId:req.body.clientId,output,filename,bytes,ext,timer,release});
     transferred=true;
     res.json({downloadUrl:'/api/download-original-video?ticket='+ticket,filename,bytes,ext:ext.slice(1)});
