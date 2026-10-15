@@ -1,5 +1,9 @@
 # Role and take voice effect chains
 
+Current workflow: [one own effect chain per take](single-effect-chain.md). The
+legacy copy/append and extra-layer descriptions below document compatibility
+behavior; they no longer describe the effect editor.
+
 Role definitions are stored once in scene-scoped `roleEffects`. Each named role has `pitch`, ordered `effects` and a runtime revision. A take retains an ordered individual `effects` array, `pitchMode`, `inheritRoleEffects`, and `excludedRoleEffectIds`. Instance IDs are stable ASCII IDs, independent of array positions; duplicate types are supported. Disabled and zero-amount instances retain their parameters. Exclusions refer only to role-instance IDs and never copy the role definition into the take.
 
 `public/voice-chain-model.js` resolves the effective pitch and inherited/individual stages for playback, previews and exports. Individual pitch replaces role pitch; it is not added. Existing takes without chain fields use a single-stage adapter and retain their explicit pitch. New takes use pitch inheritance. Existing `effect`/`effectAmount` fields remain readable until a chain is explicitly edited; they are compatibility fields rather than a second active processor.
@@ -65,3 +69,13 @@ Role, individual-take and common-preset editing use the same responsive workspac
 ## Adaptive inspector and compact editor
 
 The current inspector offers linked preset assignment directly, preserving individual stages and manual pitch. Replacing a link requires confirmation; removing it detaches while retaining the sound. The full editor is now capped at 1,060 × 840 px and includes a bounded preset-icon selector. Saving a linked draft as new includes its linked and extra stages. See [inspector-refresh.md](inspector-refresh.md) for responsive layout, durable assignment, format-12 metadata and actual verification.
+
+## One own chain per take (current)
+
+The editor expands a selected preset into editable stages. Changing them creates a
+private modified snapshot; selecting a new preset replaces the complete own chain.
+Role inheritance precedes that one chain. Save for take, Save as preset and Update
+source preset have distinct, explicit effects; only the last publishes to existing
+links after confirmation. The inspector retains quick selection and shows modified
+state. Portable format 13 and client capability 3 preserve these semantics. Legacy
+overlays migrate to identical-sounding snapshots on load/import.

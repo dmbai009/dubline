@@ -72,11 +72,11 @@ test('history activation retains explicit preset links and missing runtime IDs s
   assert.equal(restored.voicePresetId, 'phone'); assert.equal(chain.resolve(restored, room).pitch, -2); delete room.voicePresets.phone;
   assert.doesNotThrow(() => chain.resolve(restored, room)); assert.throws(() => voices.validateScene({ ...room, lines: [restored] }), /fx.limit/);
 });
-test('format 11 preserves 420 explicit links and history; format 10 cannot smuggle links or relink copies', async () => {
+test('format 13 preserves 420 explicit links and history; format 10 cannot smuggle links or relink copies', async () => {
   fs.writeFileSync(path.join(root, 'uploads', 'scene.mp4'), Buffer.from('synthetic-video')); fs.writeFileSync(path.join(root, 'uploads', 'take.wav'), Buffer.from('synthetic-take'));
   const room = scene(); room.lines = Array.from({ length: 420 }, (_, i) => ({ ...presets.link(take(i + 1), room, 'phone', true), caption: '', claimedBy: null }));
   room.lines[0].takeHistory = [{ ...history.extract({ ...room.lines[0], takeId: 'historical' }), audioUrl: '/uploads/old.wav', archivedAt: 1 }]; fs.writeFileSync(path.join(root, 'uploads', 'old.wav'), Buffer.from('historical-take'));
-  const archived = projects.readProject((await projects.exportProject(room)).buffer); assert.equal(archived.manifest.formatVersion, 11); assert.equal(archived.manifest.project.lines.filter(line => line.take.voicePresetId === 'phone').length, 420);
+  const archived = projects.readProject((await projects.exportProject(room)).buffer); assert.equal(archived.manifest.formatVersion, 13); assert.equal(archived.manifest.project.lines.filter(line => line.take.voicePresetId === 'phone').length, 420);
   const corrupted = structuredClone(archived.manifest); corrupted.formatVersion = 10; assert.throws(() => projects.validateManifest(corrupted), /version 11/);
   const stage = projects.stageProject((await projects.exportProject(room)).buffer, path.join(root, 'uploads')); try { const reopened = stage.commit(); assert.equal(reopened.lines[0].takeHistory[0].voicePresetId, 'phone'); assert.equal(chain.resolve(reopened.lines[419], reopened).pitch, -2); } finally { stage.rollback(); }
   const copied = { ...room, lines: [{ ...presets.apply(take(), room, entry(), { newId }), caption: '', claimedBy: null }] }; const old = projects.readProject((await projects.exportProject(copied)).buffer); assert.equal(old.manifest.formatVersion, 10); assert.equal(old.manifest.project.lines[0].take.voicePresetId, undefined);

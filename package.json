@@ -42,7 +42,8 @@
     "test:hardening": "node --test --test-concurrency=1 e2e/editor-hardening.e2e.js e2e/media-presence-hardening.e2e.js e2e/editor-improvements.e2e.js",
     "test:electron:workflow": "node tools/electron-noise-reduction-smoke.js workflow",
     "qa:workflow": "node tools/visual-workflow-next.js",
-    "qa:inspector": "node tools/inspector-workspace-qa.js"
+    "qa:inspector": "node tools/inspector-workspace-qa.js",
+    "qa:single-chain": "node tools/single-chain-workspace-qa.js"
   },
   "dependencies": {
     "@shiguredo/rnnoise-wasm": "2025.1.5",

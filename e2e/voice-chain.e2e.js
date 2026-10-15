@@ -161,9 +161,9 @@ describe('voice chains: real DSP, inspector, author rights and scoped collaborat
     const added = await host.evaluate(() => new Promise(resolve => socket.emit('editor_add_track', { sessionId: session.activeSessionId, character: 'Empty role' }, resolve))); assert.equal(added.ok, true);
     await waitFor(host, () => document.querySelector('[data-character="Empty role"] .track-fx'));
     await host.locator('[data-character="Empty role"] .track-fx').click(); assert.equal(await host.$eval('#fxRows', node => node.children.length), 0);
-    await host.click('[data-fx-type="' + 'echo' + '"]'); await host.click('#fxApply');
+    await host.click('[data-fx-type="' + 'echo' + '"]'); await host.click('#fxPresetSave'); await waitFor(host,()=>textPrompt.open); await host.$eval('#textPromptInput',n=>{n.value='Empty echo';}); await host.click('#textPromptSave'); await waitFor(host,()=>!DublinePresetUI.pending()&&DublineVoiceEditor.draft()?.presetId); await host.click('#fxApply');
     await waitFor(host, () => document.querySelector('dialog.text-prompt[open]')); await host.click('#textPromptSave');
-    await waitFor(guest, () => session.roleEffects?.['Empty role']?.effects?.[0]?.type === 'echo'); assert.equal(await guest.evaluate(() => session.lines.filter(line => line.character === 'Empty role').length), 0);
+    await waitFor(guest, () => DublineVoiceChain.roleVoice(session, 'Empty role').effects?.[0]?.type === 'echo'); assert.equal(await guest.evaluate(() => session.lines.filter(line => line.character === 'Empty role').length), 0);
   });
   test('host/moderator concurrent role edits reject the stale revision instead of losing a change', async () => {
     assert.equal((await host.evaluate(() => new Promise(resolve => socket.emit('host_grant_moderator', { nick: 'Actor' }, resolve)))).ok, true); await waitFor(guest, () => canModerate());
@@ -183,20 +183,20 @@ describe('voice chains: real DSP, inspector, author rights and scoped collaborat
     await guest.evaluate(() => { document.body.style.zoom = ''; DublineVoiceEditor.close(); });
     await guest.setViewport({ width: 1600, height: 900 });
   });
-  test('bulk inspector appends only the new effect and keeps different pitch/inheritance after real confirmation', async () => {
+  test('bulk own-chain replacement keeps different pitch/inheritance after real confirmation', async () => {
     const own = (type, amount, mode, inherit) => ({ effects: [effect(type, amount)], pitchMode: mode, inheritRoleEffects: inherit, excludedRoleEffectIds: [] });
     assert.equal((await update(host, { ...await takeRequest(host, [1], own('telephone', .3, 'override', false)), pitch: 4 })).ok, true);
     assert.equal((await update(guest, await takeRequest(guest, [2], own('radio', .4, 'inherit', true)))).ok, true);
     await waitFor(host, () => session.lines.find(line => line.id === 2).effects[0].type === 'radio');
     await host.evaluate(() => { multiSelection.clear(); multiSelection.add(1); multiSelection.add(2); DublineVoiceEditor.bulk(); });
     assert.equal(await host.$eval('#fxPitchMode', node => node.value), 'mixed'); assert.equal(await host.$eval('#fxInherit', node => node.indeterminate), true);
-    await host.select('#fxAction', 'append'); assert.equal(await host.$eval('#fxRows', node => node.children.length), 0);
+    await host.click('#fxClearChain'); assert.equal(await host.$eval('#fxRows', node => node.children.length), 0);
     await host.click('[data-fx-type="' + 'echo' + '"]');
     await host.$eval('#fxRows input[type="range"]', node => { node.value = '20'; node.dispatchEvent(new Event('input', { bubbles: true })); });
     await host.click('#fxApply'); await waitFor(host, () => document.querySelector('dialog.text-prompt[open]')); await host.click('#textPromptSave');
-    await waitFor(guest, () => [1, 2].every(id => session.lines.find(line => line.id === id).effects.length === 2));
-    const values = await guest.evaluate(() => [1, 2].map(id => { const line = session.lines.find(item => item.id === id); return { types: line.effects.map(item => item.type), pitch: line.pitch, mode: line.pitchMode, inherit: line.inheritRoleEffects, echo: line.effects[1].amount }; }));
-    assert.deepEqual(values[0], { types: ['telephone', 'echo'], pitch: 4, mode: 'override', inherit: false, echo: .2 }); assert.equal(values[1].mode, 'inherit'); assert.equal(values[1].inherit, true); assert.deepEqual(values[1].types, ['radio', 'echo']);
+    await waitFor(guest, () => [1, 2].every(id => session.lines.find(line => line.id === id).effects.length === 1 && session.lines.find(line => line.id === id).effects[0].type === 'echo' && session.lines.find(line => line.id === id).effects[0].amount === .2));
+    const values = await guest.evaluate(() => [1, 2].map(id => { const line = session.lines.find(item => item.id === id); return { types: line.effects.map(item => item.type), pitch: line.pitch, mode: line.pitchMode, inherit: line.inheritRoleEffects, echo: line.effects[0].amount }; }));
+    assert.deepEqual(values[0], { types: ['echo'], pitch: 4, mode: 'override', inherit: false, echo: .2 }); assert.equal(values[1].mode, 'inherit'); assert.equal(values[1].inherit, true); assert.deepEqual(values[1].types, ['echo']);
     await host.evaluate(() => { multiSelection.clear(); });
   });
 });

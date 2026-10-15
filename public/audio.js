@@ -504,7 +504,7 @@
       for (const url of [before.audioUrl, ...(before.takeHistory || []).map(take => take.audioUrl)]) if (url && !retained.has(url)) invalidateSource(url);
       takeIndex = null;
       global.invalidatePrompterIndex?.();
-      const processing = ['audioUrl', 'audioStart', 'start', 'character', 'recordedBy', 'blindRevealed', 'effect', 'pitch', 'effectAmount', 'trimEnabled', 'trimStart', 'trimEnd', 'effects', 'pitchMode', 'inheritRoleEffects', 'excludedRoleEffectIds', 'voicePresetId', 'usePresetPitch'];
+      const processing = ['audioUrl', 'audioStart', 'start', 'character', 'recordedBy', 'blindRevealed', 'effect', 'pitch', 'effectAmount', 'trimEnabled', 'trimStart', 'trimEnd', 'effects', 'pitchMode', 'inheritRoleEffects', 'excludedRoleEffectIds', 'voicePresetId', 'usePresetPitch', 'presetModified'];
       const defaults = { effect: 'none', pitch: 0, effectAmount: 1, trimEnabled: true };
       const changed = processing.some(key => JSON.stringify(before[key] ?? defaults[key]) !== JSON.stringify(after[key] ?? defaults[key]));
       if (changed) {

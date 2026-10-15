@@ -1,6 +1,6 @@
-# Dubline Project formats 1–12
+# Dubline Project formats 1–13
 
-An archive uses the `.dubline` extension and a standard ZIP container. `project.json` is UTF-8 JSON with `format: "dubline-project"`, required `formatVersion` from 1 through 12, `project`, and `assets`. The serializer is `server/projects.js`; it never exports raw room persistence.
+An archive uses the `.dubline` extension and a standard ZIP container. `project.json` is UTF-8 JSON with `format: "dubline-project"`, required `formatVersion` from 1 through 13, `project`, and `assets`. The serializer is `server/projects.js`; it never exports raw room persistence.
 
 ## Manifest
 
@@ -95,3 +95,18 @@ The shared mix normalizes missing normalizeVoices to false. A take quality field
 ## Preset icons (format 12)
 
 A scene catalogue may include optional `icon` metadata from the fixed voice-preset-model icon keys. Icon-bearing scenes emit version 12, using the same explicit audio/reference/check fields as version 11. Earlier-version manifests reject icon metadata. Readers retain formats 1–11; icon-free scenes keep the lowest applicable version. The default voice icon is represented by omission. Icons do not affect PCM, chain order, preset links, pitch or cache keys. Runtime client capability 2 is separate from the archive. See [inspector-refresh.md](inspector-refresh.md).
+
+## Version 13: one own chain
+
+Optional boolean presetModified distinguishes live links (false, empty own effects)
+from complete private snapshots (true, optional voicePresetId origin metadata).
+Modified snapshots do not resolve origin effects or pitch. Both roles and current/
+historical takes retain this flag. Up to sixteen stored stages preserve old
+preset-plus-extras chains with disabled settings; active processing limits stay
+unchanged. Version 1–12 readers remain supported; earlier-version manifests reject
+new metadata. Staging migrates legacy overlays without changing their sound or
+media. See [single-chain behavior](single-effect-chain.md).
+
+The project metadata budget is 8 MiB, allowing complete private snapshots to
+preserve large legacy overlay projects. Media bounds, per-scene counts, asset
+verification and active DSP budgets are unchanged.

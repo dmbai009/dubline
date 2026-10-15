@@ -95,6 +95,7 @@ function normalizeEditorState(session) {
   for (const entry of [...Object.values(session.roleEffects), ...session.lines.flatMap(line => [line, ...(line.takeHistory || [])]), ...(session.deletedLines || []).flatMap(batch => (batch.lines || []).flatMap(item => item.line ? [item.line, ...(item.line.takeHistory || [])] : []))]) {
     if (entry.voicePresetId && !Object.hasOwn(session.voicePresets, entry.voicePresetId)) { entry.voicePresetId = null; entry.usePresetPitch = false; repairedOnLoad = true; }
   }
+  if (require('../public/voice-chain-model').migrateScene(session)) repairedOnLoad = true;
   session.projectAudio = projectAudio.normalize(session);
   if (session.videoUrl && !Number.isFinite(session.videoDuration)) {
     const file = diskPathForUrl(session.videoUrl);

@@ -25,7 +25,7 @@ function joinRoom() {
     room: currentRoom,
     nick: myName,
     clientId,
-    noiseVersion: window.DublineNoiseModel.PROCESSING_VERSION, voiceVersion: 2,
+    noiseVersion: window.DublineNoiseModel.PROCESSING_VERSION, voiceVersion: 3,
     password: pendingRoomPassword || undefined,
     desktopHostToken: desktopHostToken || undefined
   });

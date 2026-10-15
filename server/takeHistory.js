@@ -98,7 +98,7 @@ function action(room, line, data, nick, clientId) {
     if (take.pinned && data.confirmPinned !== true) throw failure('confirmDeleteRequired');
     deleted.push(take.audioUrl);
     if (current?.id === take.id) {
-      const settings = structuredClone(Object.fromEntries(['effect', 'pitch', 'trimEnabled', 'volume', 'pan', 'effectAmount', 'effects', 'pitchMode', 'inheritRoleEffects', 'excludedRoleEffectIds', 'voicePresetId', 'usePresetPitch'].map(key => [key, line[key] ?? model.DEFAULTS[key]])));
+      const settings = structuredClone(Object.fromEntries(['effect', 'pitch', 'trimEnabled', 'volume', 'pan', 'effectAmount', 'effects', 'pitchMode', 'inheritRoleEffects', 'excludedRoleEffectIds', 'voicePresetId', 'usePresetPitch', 'presetModified'].map(key => [key, line[key] ?? model.DEFAULTS[key]])));
       Object.assign(next, require('./parsers').emptyTake(), settings, { takeId: null, takePinned: false, takeCreatedAt: null, takeDuration: null, takeUploadedSequence: 0, takeMixRevision: (line.takeMixRevision || 0) + 1 });
       invalidateReservations(next); require('./retakes').clear(next);
     } else next.takeHistory = next.takeHistory.filter(item => item.id !== take.id);

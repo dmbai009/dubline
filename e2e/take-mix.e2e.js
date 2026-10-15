@@ -95,7 +95,7 @@ describe('clip mixing: real sockets, inspector and audio', { skip: skipReason, t
   });
 
   test('bulk effect, strength and pan apply in both modes; guest selection changes only own recordings', async () => {
-    await host.evaluate(() => DublineVoiceEditor.bulk()); await host.select('#fxAction','append'); await host.click('[data-fx-type="' + 'behindDoor' + '"]');
+    await host.evaluate(() => DublineVoiceEditor.bulk()); await host.click('#fxClearChain'); await host.click('[data-fx-type="' + 'behindDoor' + '"]');
     await host.$eval('#fxRows input[type=range]',input=>{input.value='55';input.dispatchEvent(new Event('input',{bubbles:true}));}); await host.click('#fxApply');
     await waitFor(guest,()=>session.lines.slice(0,2).every(line=>line.effects?.some(effect=>effect.type==='behindDoor' && effect.amount===.55)));
     await change(host, 'pan', -60); await waitFor(guest, () => session.lines[0].pan === -0.6 && session.lines[1].pan === -0.6);
@@ -273,7 +273,7 @@ describe('clip mixing: real sockets, inspector and audio', { skip: skipReason, t
       return Array.from(new Uint8Array(await response.arrayBuffer()));
     });
     const archive = Buffer.from(bytes), parsed = readProject(archive);
-    assert.equal(parsed.manifest.formatVersion, 8);
+    assert.equal(parsed.manifest.formatVersion, 13);
     assert.deepEqual(parsed.manifest.project.lines[0].take.effects, expected[0].effects);
     assert.ok(parsed.manifest.project.lines[0].takeHistory.length > 0);
     assert.equal(parsed.manifest.project.lines[0].take.volume, expected[0].volume);
@@ -315,13 +315,13 @@ describe('clip mixing: real sockets, inspector and audio', { skip: skipReason, t
     await other.evaluate(() => selectLine(session.lines[0]));
     assert.equal(await other.$eval('[data-clip-field=volume]', input => { const value=input.value;input.dispatchEvent(new MouseEvent('dblclick',{bubbles:true}));return input.disabled && input.value===value; }),true);
   });
-  test('bulk inspector has one effect editor and appends new stages atomically without replacing existing settings', async () => {
+  test('bulk inspector replaces one own chain atomically while preserving clip mix and pitch', async () => {
     await host.evaluate(() => { clearMultiSelection(); selectLine(session.lines[0]); toggleMultiSelect(2); });
     assert.equal(await host.$('[data-clip-field=effect]'),null); assert.equal(await host.$('[data-clip-field=pitch]'),null); assert.equal(await host.$('[data-clip-field=effectAmount]'),null);
     const before=await host.evaluate(() => session.lines.slice(0,2).map(line => ({ effects:DublineVoiceChain.take(line).effects.length,pitch:line.pitch,mode:DublineVoiceChain.take(line).pitchMode })));
-    await host.evaluate(() => DublineVoiceEditor.bulk()); await host.select('#fxAction','append'); await host.click('[data-fx-type="' + 'radio' + '"]');
+    await host.evaluate(() => DublineVoiceEditor.bulk()); await host.click('#fxClearChain'); await host.click('[data-fx-type="' + 'radio' + '"]');
     await host.$eval('#fxRows input[type=range]', input => { input.value='55';input.dispatchEvent(new Event('input',{bubbles:true})); });
-    await host.click('#fxApply'); await waitFor(guest, before => session.lines.slice(0,2).every((line,i) => line.effects?.length===before[i].effects+1),10000,before);
+    await host.click('#fxApply'); await waitFor(guest, before => session.lines.slice(0,2).every((line,i) => line.effects?.length===1 && line.effects[0].type==='radio' && line.effects[0].amount===.55),10000,before);
     const after=await guest.evaluate(() => session.lines.slice(0,2).map(line => ({ amount:line.effects.at(-1).amount,type:line.effects.at(-1).type,pitch:line.pitch,mode:line.pitchMode })));
     for(let i=0;i<2;i++){assert.equal(after[i].amount,.55);assert.equal(after[i].type,'radio');assert.equal(after[i].pitch,before[i].pitch);assert.equal(after[i].mode,before[i].mode);}
   });

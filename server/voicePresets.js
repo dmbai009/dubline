@@ -30,11 +30,11 @@ function planScene(room, conn, data, moderator) {
   let lines = room.lines, roles = room.roleEffects, deletedLines = room.deletedLines;
   if (data.action === 'delete') {
     const deleted = (room.deletedLines || []).flatMap(batch => (batch.lines || []).map(entry => entry.line)).filter(Boolean);
-    const used = usage.lines.length || usage.roles.length || (room.deletedLines || []).some(batch => Object.values(batch.roleEffects || {}).some(entry => entry?.voicePresetId === data.id)) || deleted.some(line => [line, ...(line.takeHistory || [])].some(take => take.voicePresetId === data.id));
+    const used = room.lines.some(line => [line, ...(line.takeHistory || [])].some(take => take.voicePresetId === data.id)) || Object.values(room.roleEffects || {}).some(role => role.voicePresetId === data.id) || usage.lines.length || usage.roles.length || (room.deletedLines || []).some(batch => Object.values(batch.roleEffects || {}).some(entry => entry?.voicePresetId === data.id)) || deleted.some(line => [line, ...(line.takeHistory || [])].some(take => take.voicePresetId === data.id));
     if (used && data.detach !== true) fail('inUse');
     if (used) {
       const newId = () => require('node:crypto').randomUUID();
-      function detachRole(entry) { if (!entry || entry.voicePresetId !== data.id) return entry; const linked = chain.preset(room, entry); return { ...entry, voicePresetId: null, usePresetPitch: false, effects: [...(linked?.effects || []), ...entry.effects].map(effect => structuredClone(effect)), pitch: entry.usePresetPitch && linked?.pitch !== undefined ? linked.pitch : entry.pitch, revision: (entry.revision || 0) + 1 }; }
+      function detachRole(entry) { if (!entry || entry.voicePresetId !== data.id) return entry; const linked = chain.preset(room, entry); return { ...entry, voicePresetId: null, usePresetPitch: false, presetModified: true, effects: chain.ownEffects(entry, room).map(effect => structuredClone(effect)), pitch: entry.presetModified !== true && entry.usePresetPitch && linked?.pitch !== undefined ? linked.pitch : entry.pitch, revision: (entry.revision || 0) + 1 }; }
       const detachRoles = entries => Object.assign(Object.create(null), Object.fromEntries(Object.entries(entries || {}).map(([name, entry]) => [name, detachRole(entry)])));
       roles = detachRoles(room.roleEffects);
       function detachLine(original) {
@@ -63,6 +63,7 @@ function register(socket, conn) {
       if (data.action === 'delete' && !data.detach && require('./editHistory').usesPreset(conn.roomId, room, data.id)) fail('inUse');
       if (data.icon && data.icon !== 'voice' && require('./voiceChains').incompatible(conn.roomId, 2).length) fail('clientUpdate');
       const next = planScene(room, conn, data, auth.canModerate(room, conn.clientId));
+      if (require('./voiceChains').incompatible(conn.roomId, require('./voiceChains').minimumVersion(next)).length) fail('clientUpdate');
       const previous = { voicePresets: room.voicePresets, roleEffects: room.roleEffects, lines: room.lines, deletedLines: room.deletedLines, updatedAt: room.updatedAt };
       for (const key of ['voicePresets', 'roleEffects', 'lines', 'deletedLines']) room[key] = next[key]; room.updatedAt = Date.now();
       try { rooms.flushRooms({ strict: true }); }
