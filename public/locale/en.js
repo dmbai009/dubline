@@ -1274,4 +1274,12 @@ window.DublineLocales.en = {
   "exportProgress.download": "File prepared for download",
   "exportProgress.opening": "Opening video and export data",
   "exportProgress.uploading": "Sending the prepared soundtrack",
+  "acceleration.title": "Hardware acceleration",
+  "acceleration.auto": "Automatic",
+  "acceleration.on": "On",
+  "acceleration.off": "Off",
+  "acceleration.help": "Video processing on this device. Automatic uses the GPU for longer, larger jobs and the CPU for small ones. Applies to new exports and scene preparation; other participants keep their own setting.",
+  "acceleration.fallback": "Retrying on CPU",
+  "acceleration.gpu": "Hardware video encoding",
+  "acceleration.cpu": "Software video encoding",
 };

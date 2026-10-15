@@ -25,6 +25,13 @@ function audioFixture(process) {
   return context.window.DublineVideoExportAudio;
 }
 const scene = () => ({ takes: Array.from({ length: 6 }, (_, id) => ({ id, start: id, volume: id === 2 ? 0 : 1 })), gains: { dub: 1, original: 1, backing: 0, mix: { autoDuckEnabled: false } } });
+test('a CPU retry resets work counters but retains total elapsed time', () => {
+  let now = 0; const tracker = create(() => now); tracker.update('video', { current: 9, total: 10 }); now = 5000;
+  tracker.restart(); tracker.update('video', { current: 0, total: 10 });
+  assert.equal(tracker.snapshot().elapsed, 5000); assert.equal(tracker.snapshot().rows[0].current, 0); assert.equal(tracker.snapshot().quiet, 0);
+  tracker.update('audio', { current: 10, total: 10, state:'done' }); tracker.resetPhase('video'); tracker.update('video', { current: 0, total: 10 });
+  assert.equal(tracker.snapshot().rows.find(row=>row.phase==='audio').current,10); assert.equal(tracker.snapshot().rows.find(row=>row.phase==='video').current,0);
+});
 test('preparation is bounded to two jobs, preserves chronological order and counts only audible takes', async () => {
   let active = 0, peak = 0; const reports = [];
   const audio = audioFixture(async line => { active++; peak = Math.max(peak, active); await new Promise(resolve => setTimeout(resolve, line.id % 2 ? 1 : 6)); active--; return { duration: 1 }; });

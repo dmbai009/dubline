@@ -192,6 +192,18 @@
           </div>
         </div>
 
+        <div class="setting-card" id="videoAccelerationCard">
+          <div class="setting-card-row">
+            <label class="setting-label" for="settingsVideoAcceleration" data-i18n="acceleration.title">Hardware acceleration</label>
+            <select id="settingsVideoAcceleration" class="text-input" aria-describedby="videoAccelerationHelp">
+              <option value="auto" data-i18n="acceleration.auto">Automatic</option>
+              <option value="on" data-i18n="acceleration.on">On</option>
+              <option value="off" data-i18n="acceleration.off">Off</option>
+            </select>
+          </div>
+          <div id="videoAccelerationHelp" class="setting-sub" data-i18n="acceleration.help">Video processing on this device. Applies to new exports and scene preparation; other participants keep their own setting.</div>
+        </div>
+
         <div class="setting-card desktop-only" id="desktopStorageCard">
           <div class="setting-label" data-i18n="storage.title"></div>
           <div class="setting-sub" data-i18n="storage.help"></div>
@@ -768,6 +780,7 @@
   </style>
   <script src="local-database.js"></script>
   <script src="state.js"></script>
+  <script src="video-acceleration.js"></script>
   <script src="dialogs.js"></script>
   <script src="control-help.js"></script>
   <script src="project-audio.js"></script>
@@ -817,6 +830,7 @@
   <script src="ui.js"></script>
   <script src="video-export-ui.js"></script>
   <script src="settings-layout.js"></script>
+  <script src="video-acceleration-ui.js"></script>
   <script src="noise-ui.js"></script>
   <script src="inspector-layout.js"></script>
   <script src="voice-chain-ui.js"></script>

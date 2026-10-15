@@ -78,6 +78,20 @@ function createVideoExportFiles({ choose, freeSpace = async directory => {
     } catch (error) { return { ok: false, key: error.message.startsWith('exportVideo.') || error.message === 'project.busy' ? error.message : errorKey(error) }; }
     finally { if (ownsWrite) job.writing = false; }
   }
+  async function reset(owner, data) {
+    let job, ownsReset = false;
+    try {
+      job = get(owner, data);
+      if (data.sessionId !== job.sessionId || job.committed || job.committing || job.writing) throw Error('exportVideo.fileError');
+      job.writing = true; ownsReset = true;
+      job.pending = (async () => {
+        if (job.file) await job.file.truncate(0);
+        job.bytes = 0; job.ranges = [];
+      })();
+      await job.pending; return { ok: true, bytes: 0 };
+    } catch (error) { return { ok: false, key: error.message.startsWith('exportVideo.') ? error.message : errorKey(error) }; }
+    finally { if (ownsReset) job.writing = false; }
+  }
   async function commit(owner, data) {
     let job, ownsCommit = false;
     try {
@@ -103,6 +117,6 @@ function createVideoExportFiles({ choose, freeSpace = async directory => {
   }
   function revealed(owner, data) { const job = get(owner, data); if (!job.committed) throw Error('exportVideo.fileError'); return job.destination; }
   async function releaseOwner(owner) { await Promise.all([...jobs].filter(([, job]) => job.owner === owner).map(async ([ticket, job]) => { if (job.committing) await job.pending.catch(() => {}); await cancel(owner, { ticket }); jobs.delete(ticket); })); }
-  return { chooseDestination, write, commit, cancel, revealed, releaseOwner, get busy() { return choosing.size > 0 || [...jobs.values()].some(job => !job.committed); }, close: () => Promise.all([...new Set([...jobs.values()].map(job => job.owner))].map(releaseOwner)) };
+  return { chooseDestination, write, reset, commit, cancel, revealed, releaseOwner, get busy() { return choosing.size > 0 || [...jobs.values()].some(job => !job.committed); }, close: () => Promise.all([...new Set([...jobs.values()].map(job => job.owner))].map(releaseOwner)) };
 }
 module.exports = { createVideoExportFiles, MAX_CHUNK, MAX_FILE };

@@ -82,3 +82,7 @@ The effect sidebar grows with the workspace while preserving chain space and fou
 ## Export progress
 
 Video export reports completed recording counts, audio/video timeline positions, acknowledged output bytes and elapsed/quiet time, with a 15-second no-new-progress notice and cancellation. The fast mode labels video copying explicitly. Recordings prepare in bounded pairs through existing audio pipelines; RNNoise worker/cache limits and exported sound remain unchanged. See docs/export-progress.md for measured preparation speed, validation and limits.
+
+## Personal video acceleration
+
+Personal settings → Interface provides Automatic / On / Off for video processing on this device. Custom exports and scene working-copy preparation use supported hardware encoders where appropriate, with a software fallback and a safe retry of private staged output. The preference is independent of rooms and portable projects. Stream copying and existing audio processing retain their current paths. See docs/video-acceleration.md.

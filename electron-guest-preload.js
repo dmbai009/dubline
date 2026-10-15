@@ -11,11 +11,13 @@ function exportRequest(operation, data = {}) {
     payload = { ticket, sessionId, position: data.position, bytes: new Uint8Array(data.bytes) };
   }
   if (operation === 'commit') payload = { ticket, sessionId, bytes: Number(data.bytes) };
+  if (operation === 'reset') payload = { ticket, sessionId };
   return ipcRenderer.invoke('video-export:' + operation, payload);
 }
 if (process.isMainFrame) contextBridge.exposeInMainWorld('dublineVideoExport', Object.freeze({
   choose: data => exportRequest('choose', data),
   write: data => exportRequest('write', data),
+  reset: data => exportRequest('reset', data),
   commit: data => exportRequest('commit', data),
   cancel: data => exportRequest('cancel', data),
   reveal: data => exportRequest('reveal', data)

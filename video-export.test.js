@@ -27,6 +27,7 @@ test('portrait and nonstandard resolutions keep aspect ratio and never increase 
 });
 async function fixture(t, config = {}) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'dubline-video-export-')), destination = path.join(directory, 'export.mp4');
+  if (config.existing) fs.writeFileSync(destination, config.existing);
   const files = createVideoExportFiles({ choose: async () => ({ filePath: destination }), freeSpace: async () => 10 * 1024 ** 3, ...config });
   t.after(async () => { await files.close(); fs.rmSync(directory, { recursive: true, force: true }); });
   const selected = await files.chooseDestination('owner', { extension: 'mp4', sessionId: 'scene', estimatedBytes: 100, title: 'Scene' });
@@ -35,6 +36,20 @@ async function fixture(t, config = {}) {
 test('save dialog cancellation creates no output or temporary file', async t => {
   const f = await fixture(t, { choose: async () => ({ canceled: true }) });
   assert.deepEqual(f.selected, { ok: true, canceled: true }); assert.deepEqual(fs.readdirSync(f.directory), []);
+});
+
+test('a CPU retry resets only its owned temporary output and commits no stale GPU tail', async t => {
+  const f = await fixture(t, { existing: 'previous saved export' });
+  await f.files.write('owner', { ...f.request, position: 0, bytes: Uint8Array.of(1, 2, 3, 4, 5, 6) });
+  assert.equal((await f.files.reset('other', f.request)).ok, false);
+  assert.equal((await f.files.reset('owner', { ...f.request, sessionId: 'other' })).ok, false);
+  assert.equal((await f.files.reset('owner', f.request)).ok, true);
+  assert.equal(fs.readFileSync(f.destination, 'utf8'), 'previous saved export');
+  await f.files.write('owner', { ...f.request, position: 0, bytes: Uint8Array.of(7, 8) });
+  assert.equal((await f.files.commit('owner', { ...f.request, bytes: 2 })).ok, true);
+  assert.deepEqual([...fs.readFileSync(f.destination)], [7, 8]);
+  assert.equal((await f.files.reset('owner', f.request)).ok, false);
+  assert.deepEqual([...fs.readFileSync(f.destination)], [7, 8]);
 });
 test('streamed random-access writes commit exact bytes and reveal only an owned saved destination', async t => {
   const f = await fixture(t);
