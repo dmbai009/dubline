@@ -47,7 +47,19 @@ jobs:
       - name: Require an installed browser
         run: node tools/require-browser.js
       - name: Run browser shard ${{ matrix.shard }} of 3
-        run: node tools/e2e-shard.js ${{ matrix.shard }} 3
+        shell: bash
+        run: node tools/e2e-shard.js ${{ matrix.shard }} 3 2>&1 | tee shard-${{ matrix.shard }}.log
+      - name: Name the suites that failed
+        if: failure()
+        shell: bash
+        run: node tools/annotate-failures.js shard-${{ matrix.shard }}.log
+      - name: Keep the shard log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-shard-${{ matrix.shard }}-log
+          path: shard-${{ matrix.shard }}.log
+          retention-days: 7
 
   electron:
     # Native shells are independent of the browser shards, so they get their own
