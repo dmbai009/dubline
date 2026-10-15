@@ -39,6 +39,9 @@ jobs:
       - run: npm run check
       - run: npm test
       - run: npm run test:e2e
+        env:
+          # Release verification must not pass with every browser test skipped.
+          DUBLINE_REQUIRE_BROWSER: '1'
       - run: npm run test:electron:projects
       - run: npm run test:electron:editor
       - run: npm run test:electron:take-mix
