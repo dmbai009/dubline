@@ -90,4 +90,3 @@ Personal settings → Interface provides Automatic / On / Off for video processi
 ## Export reliability and background operations
 
 Video exports keep reader and job cancellation, bounded operation diagnostics and the existing audio/packet pipeline. One compact themed background panel presents private export progress/results and server-authoritative scene creation to admitted room participants, with reconnect recovery and permission-aware actions. Custom bitrate defaults to a source-aware automatic recommendation with a manual slider/precise input; hosts default to an available original. See docs/export-reliability.md.
-

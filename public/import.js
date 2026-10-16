@@ -204,7 +204,7 @@ window.uploadCustomScene = async function() {
   if (intershumFile) form.append('intershum', intershumFile);
   renderCustomImportStatus();
   try {
-    const res = await window.DublineNetwork.upload(`/api/upload-custom?room=${encodeURIComponent(currentRoom)}${optimize?'&optimize=1':''}`, { method: 'POST', body: form, signal:abort.signal,onUploadProgress:data=>{if(customImportStatus.uploadedBytes!==data.loaded){customImportStatus.uploadedBytes=data.loaded;customImportStatus.lastAdvance=performance.now();}Object.assign(customImportStatus,{phase:'upload',percent:data.total?Math.round(data.loaded/data.total*100):0});renderCustomImportStatus();} });
+    const res = await window.DublineNetwork.upload(`/api/upload-custom?room=${encodeURIComponent(currentRoom)}${optimize?'&optimize=1':''}`, { method: 'POST', body: form, signal:abort.signal,onUploadProgress:data=>{if(customImportStatus?.requestId!==id||!customImportStatus.active||customImportStatus.phase!=='upload')return;if(customImportStatus.uploadedBytes!==data.loaded){customImportStatus.uploadedBytes=data.loaded;customImportStatus.lastAdvance=performance.now();}customImportStatus.percent=data.total?Math.round(data.loaded/data.total*100):null;renderCustomImportStatus();} });
     if (!res.ok) throw new Error(await readError(res));
     const result = await res.json().catch(() => ({}));
     const skipped = Number(result.skippedTimings) || 0;
