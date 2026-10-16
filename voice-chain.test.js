@@ -83,3 +83,46 @@ test('portable version 8 retains role/individual/history settings and rejects ma
   const bad = structuredClone(read.manifest); bad.project.lines[0].take.effects[0].parameters.feedback = 2; assert.throws(() => projects.validateManifest(bad), /Invalid voice chain/);
   const older = structuredClone(read.manifest); older.formatVersion = 7; assert.throws(() => projects.validateManifest(older));
 });
+
+test('pitch stages validate semitones, bypass zero and remain ordered with role/take effects', () => {
+  const pitch = { ...fx('pitch'), parameters: { semitones: -12 } };
+  assert.equal(model.validEffects([pitch]), true);
+  for (const semitones of [-13, 13, NaN, Infinity, '3', null]) assert.equal(model.validEffects([{ ...pitch, parameters: { semitones } }]), false);
+  assert.equal(model.validEffects([{ ...pitch, amount: .5 }]), false);
+  assert.equal(model.validEffects([{ ...pitch, parameters: { semitones: 3, path: '/private' } }]), false);
+  assert.deepEqual(model.active([{ ...pitch, parameters: { semitones: 0 } }, { ...pitch, enabled: false }]), []);
+  const room = scene(); room.roleEffects.A = { pitch: 0, effects: [pitch], revision: 1 };
+  Object.assign(room.lines[0], { effect: 'none', pitch: 0, effects: [fx('radio')], inheritRoleEffects: true });
+  assert.deepEqual(model.resolve(room.lines[0], room).effects.map(item => item.type), ['pitch', 'radio']);
+  room.lines[0].inheritRoleEffects = false;
+  assert.deepEqual(model.resolve(room.lines[0], room).effects.map(item => item.type), ['radio']);
+  assert.equal(server.minimumVersion(room), 4);
+  for (const malformed of [null, { lines: 'bad' }, { lines: [null, { effects: 'bad', takeHistory: 3 }], deletedLines: {} }]) assert.equal(model.hasPitchStage(malformed), false);
+});
+
+test('legacy pitch becomes an editor card without mutating saved settings or preset references', () => {
+  const room = scene(), original = structuredClone(room.lines[0]);
+  const cards = model.editorEffects({ ...model.take(original), pitch: original.pitch }, room);
+  assert.deepEqual(cards.map(item => item.type), ['pitch', 'monster']);
+  assert.equal(cards[0].parameters.semitones, -2);
+  assert.deepEqual(room.lines[0], original);
+  cards[0].parameters.semitones = 12;
+  assert.equal(model.resolve(original, room).pitch, -2);
+  assert.equal(model.editorEffects({ effects: [], pitch: 4 }, room, false).length, 0);
+});
+
+test('format 14 round trips pitch stages in takes, history and presets and rejects downgrade', async () => {
+  const room = scene(), pitch = { ...fx('pitch'), parameters: { semitones: 7 } };
+  for (const name of ['scene.mp4', 'line_one.wav']) fs.writeFileSync(path.join(root, 'uploads', name), Buffer.from('fixture ' + name));
+  room.roleEffects = {};
+  Object.assign(room.lines[0], { effects: [pitch], effect: 'none', pitch: 0, presetModified: true });
+  room.voicePresets = { voice: { id: 'voice', name: 'High', createdBy: 'Actor', revision: 1, effects: [pitch] } };
+  fs.writeFileSync(path.join(root, 'uploads', 'old_pitch.wav'), Buffer.from('historical fixture'));
+  room.lines[0].takeHistory = [{ ...history.extract(room.lines[0]), audioUrl: '/uploads/old_pitch.wav', id: 'old-pitch', archivedAt: 123 }];
+  const archive = await projects.exportProject(room), read = projects.readProject(archive.buffer);
+  assert.equal(read.manifest.formatVersion, 14);
+  const staged = projects.stageProject(archive.buffer, path.join(root, 'uploads'));
+  try { const fields = staged.commit(); assert.deepEqual(fields.lines[0].effects, [pitch]); assert.deepEqual(fields.lines[0].takeHistory[0].effects, [pitch]); assert.deepEqual(fields.voicePresets.voice.effects, [pitch]); } finally { staged.rollback(); }
+  const older = structuredClone(read.manifest); older.formatVersion = 13;
+  assert.throws(() => projects.validateManifest(older), /Pitch stages require version 14/);
+});

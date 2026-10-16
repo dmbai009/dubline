@@ -24,7 +24,7 @@ const { startServer, launchBrowser, openPlayer, loadFixture } = require('../e2e/
     fs.writeFileSync(path.join(directory, 'README.txt'), 'dry = decoded saved voice without voice effects. Other files process that same voice through the named chain. No artificial noise was added. Originals and project data remain unchanged. Compare each chain with dry at the same playback volume. Echo/reverb files contain longer tails.\n');
     await loadFixture(page); await page.evaluate(async () => { await DublineI18n.setLanguage('ru'); DublineVoiceEditor.open('Hero', 'role'); });
     for (const type of ['robot', 'echo', 'telephone']) { await page.click('[data-fx-type="' + type + '"]'); }
-    await page.$eval('#fxPitch', node => { node.value = '-3'; node.dispatchEvent(new Event('input')); });
+    await require('../e2e/helpers').setEffectPitch(page, -3);
     await page.screenshot({ path: path.join(directory, 'role-editor-midnight-ru.png') });
     await page.setViewport({ width: 640, height: 850 }); await page.evaluate(() => { document.documentElement.dataset.theme = 'light'; document.body.style.zoom = '150%'; });
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));

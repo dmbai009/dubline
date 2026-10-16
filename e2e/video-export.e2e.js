@@ -32,6 +32,26 @@ describe('video export: sources, guest rights, local rendering and bounded setti
     assert.equal(/uploads|clientId|token|source_video/.test(JSON.stringify(result.data)), false);
     await open(guest); assert.equal(await guest.$eval('[value=original][name=videoExportMode]', button => button.disabled), true);
   });
+  test('unavailable browser encoders explain the limitation on the panel and disabled button in all languages', async () => {
+    const limited = await openPlayer(browser, server.url(room), 'Limited', { beforeLoad: async page => {
+      await page.evaluateOnNewDocument(() => { window.AudioEncoder = undefined; window.MediaRecorder = undefined; });
+    } });
+    try {
+      await waitFor(limited, () => session?.loaded);
+      await limited.evaluate(async () => { openFilesModal(); switchFilesTab('export'); await DublineVideoExportPanel.open(); });
+      for (const language of ['en', 'ru', 'uk']) {
+        await limited.evaluate(language => DublineI18n.setLanguage(language), language);
+        await waitFor(limited, () => startRenderBtn.disabled && videoExportMethod.textContent === t('exportVideo.browserUnsupported') && startRenderBtn.parentElement.dataset.tooltip === t('exportVideo.browserUnsupported'));
+        assert.equal(await limited.$eval('#startRenderBtn', button => button.title), await limited.evaluate(() => t('exportVideo.browserUnsupported')));
+        await limited.hover('#startRenderBtn');
+        await waitFor(limited, () => !dublineTooltip.hidden && dublineTooltip.textContent === t('exportVideo.browserUnsupported'));
+        assert.equal(await limited.evaluate(() => videoExportPanel.dataset.ready), 'false');
+      }
+      assert.deepEqual(limited.errors, []);
+    } finally { await limited.browserContext().close(); }
+    await open(guest);
+    assert.equal(await guest.$eval('#startRenderBtn', button => button.title), '');
+  });
   test('host and guest fast exports from a Voxalike pack retain the encoded video packets', async () => {
     await claimAndSelect(host, 1); await recordTake(host, 1);
     const source = await host.evaluate(() => session.videoUrl);

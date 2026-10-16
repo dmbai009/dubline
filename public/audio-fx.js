@@ -4,6 +4,7 @@
 // ==========================================
 const VOICE_EFFECTS = {
   none: 'No effect',
+  pitch: 'Pitch',
   robot: '🤖 Robot',
   radio: '📻 Radio',
   telephone: '☎ Telephone',
@@ -348,7 +349,7 @@ async function renderVoice(buffer, effect = 'none', pitch = 0, bounds = null, ef
   const amount = window.DublineTakeMix.normalize({ effectAmount }).effectAmount;
   const dry = pitch ? await pitchShiftBuffer(buffer, pitch) : buffer;
   if (!amount || !effect || effect === 'none' || !VOICE_EFFECTS[effect]) return dry;
-  const totalPitch = (pitch || 0) + (EFFECT_PITCH[effect] || 0);
+  const totalPitch = (pitch || 0) + (effect === 'pitch' ? options.parameters?.semitones || 0 : EFFECT_PITCH[effect] || 0);
   const wet = totalPitch === pitch ? dry : await pitchShiftBuffer(buffer, totalPitch);
   const tail = effect === 'echo' ? window.DublineVoiceChain.tail({ type: effect, enabled: true, amount, parameters: options.parameters }) : effectTailSeconds(effect, amount);
   const ctx = new OfflineAudioContext(1, wet.length + Math.ceil(tail * wet.sampleRate), wet.sampleRate);

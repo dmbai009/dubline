@@ -1,8 +1,14 @@
 # One own effect chain per take
 
+Pitch now also has an ordered effect card; new pitch-stage scenes use project
+version 14 and voice capability 4. Legacy scalar pitch remains compatible. See
+[Pitch as an effect stage](pitch-stage.md) for the current editor and migration.
+
 A session has one shared `voicePresets` catalogue. Admitted participants can create
-preset entries; the creator, host and moderators can manage them. Applying presets
-to recordings and roles retains the existing take-author and moderator permissions.
+preset entries; the creator, host and moderators can manage them. A claimed role's
+owner may also change its effects and its same-named preset. See
+[Role presets and selection](role-preset-workflow.md) for current permissions,
+automatic role presets, bulk inspector assignment and spatial Shift selection.
 
 The inspector links a chosen preset to the take. It replaces the complete own
 chain, including preset pitch, after confirmation if any selected take has settings.
@@ -11,7 +17,8 @@ preserved. Removing the link keeps the audible own chain as an independent copy.
 
 The editor shows the entire own chain as editable stages. Its first stage/parameter,
 pitch or order edit freezes the linked chain into a private variant and displays
-“(modified)”. Applying saves only that take/role variant. Save as preset creates a
+“(modified)”. Applying a take saves only its variant. Applying a role now publishes
+its chain to the shared preset named after that role, after confirmation. Save as preset creates a
 new catalogue entry from this exact own chain and selects that new link in the
 draft; applying the draft remains explicit. Update source preset publishes the
 draft to the original catalogue entry after impact confirmation and a revision/
@@ -19,7 +26,7 @@ permission check. Other independent variants keep their sound. Ordinary links,
 including existing recordings, historical takes and role references, stay live.
 
 Inherited role processing precedes the take's one own chain. Take inheritance can
-be disabled. New role chains must be saved/selected as presets before applying;
+be disabled. Applying a role automatically creates or updates its named preset;
 old independent role definitions remain a compatibility role preset without
 rewriting their audio or filling an already-full session catalogue.
 

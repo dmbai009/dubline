@@ -52,6 +52,7 @@ const pendingTakeLines = new Set();
 // Several selected lines (Ctrl/Shift+click) for assigning a character in bulk
 const multiSelection = new Set();
 let lastClickedLineId = null;
+let selectionSceneId = null;
 let revealLineId = null; // line to scroll the timeline to after a redraw (its character changed)
 
 // Video/background picked from the player's own disk, so they don't go through the tunnel
@@ -393,6 +394,7 @@ let visibleLineNumbers = new Map();
 function lineNumber(line) { return visibleLineNumbers.get(line.id) ?? line.id; }
 
 function renderTimeline() {
+  if (selectionSceneId !== session.activeSessionId) { lastClickedLineId = null; selectionSceneId = session.activeSessionId; }
   window.DublineNextLine?.refresh();
   if (window.activeEditorGesture) { cancelEditorGesture(); }
   visibleLineNumbers = window.DublineTimeline.numbers(session.lines || []);
@@ -548,7 +550,7 @@ function enableTakeDrag(el, lineId) {
 
     // Shift moves all your takes at once: that is the microphone delay correction
     if (e.shiftKey) {
-      if (line.recordedBy !== myName) { showToast(t('take.foreignLatency')); return; }
+      if (line.recordedBy !== myName) return;
       return startLatencyDrag(e, el);
     }
 
@@ -987,13 +989,13 @@ function toggleMultiSelect(lineId) {
   refreshMultiSelection();
 }
 
-// Shift+click: all lines in time between the previous click and this one
+// Shift+click selects the time/track rectangle, not a range of cue numbers.
 function selectLineRange(fromId, toId) {
-  const ordered = [...session.lines].sort((a, b) => a.start - b.start || a.id - b.id);
-  const a = ordered.findIndex(l => l.id === fromId);
-  const b = ordered.findIndex(l => l.id === toId);
-  if (a === -1 || b === -1) return;
-  ordered.slice(Math.min(a, b), Math.max(a, b) + 1).forEach(l => multiSelection.add(l.id));
+  const visible = session.lines.filter(line => document.getElementById(`line-block-${line.id}`)?.getClientRects().length);
+  if (!visible.some(line => line.id === fromId)) { fromId = toId; lastClickedLineId = toId; }
+  const ids = DublineTimeline.selectionRange(visible, session.trackOrder, fromId, toId);
+  if (!ids.length) return;
+  multiSelection.clear(); ids.forEach(id => multiSelection.add(id));
   refreshMultiSelection();
 }
 
@@ -1090,7 +1092,7 @@ function buildRoleRow(char, trackWidth, allowCharacterClaims, editing) {
     // Track structure belongs to the shared editor, so every collaborator may rename it.
     const canRenameTrack = editing;
     const renameTrackBtn = canRenameTrack ? `<button class="track-rename" title="${esc(t('char.renameTrack', { name: char }))}" onclick="renameCharacterTrack(${jsArg(char)})">✎</button>` : '';
-    const voiceRoleBtn = canModerate() ? `<button class="btn-icon track-fx" title="${esc(t('fx.configureRole'))}" aria-label="${esc(t('fx.configureRole'))}" onclick="DublineVoiceEditor.open(${jsArg(char)}, 'role')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 7h16M4 17h16M9 4v6M15 14v6"/></svg></button>` : '';
+    const voiceRoleBtn = DublineVoicePresets.canEditRole(session, char, myName, canModerate()) ? `<button class="btn-icon track-fx" title="${esc(t('fx.configureRole'))}" aria-label="${esc(t('fx.configureRole'))}" onclick="DublineVoiceEditor.open(${jsArg(char)}, 'role')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 7h16M4 17h16M9 4v6M15 14v6"/></svg></button>` : '';
     label.innerHTML = `
       <div class="track-label-inner">
         <span class="char-name-row">${voiceRoleBtn}<span class="char-name" title="${esc(char)}">${esc(char)}</span>${renameTrackBtn}</span>
@@ -1182,7 +1184,7 @@ function buildRoleRow(char, trackWidth, allowCharacterClaims, editing) {
           clearMultiSelection();
           selectLine(session.lines.find(l => l.id === line.id) || line);
         }
-        lastClickedLineId = line.id;
+        if (!e.shiftKey || lastClickedLineId == null) lastClickedLineId = line.id;
       };
       trackArea.appendChild(block);
 

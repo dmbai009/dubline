@@ -1,3 +1,4 @@
+const { setEffectPitch } = require('./helpers');
 const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs'), path = require('node:path');
@@ -59,7 +60,7 @@ describe('live scene presets: confirmed multi-user sound, drafts, history and pr
       socket.emit = function(event, ...args) { if (event === 'voice_preset_update' && liveRequests.length < 2) { dropped.add(this.ids); liveRequests.push(args[0].operationId); } return emit.call(this, event, ...args); };
       socket.onack = function(packet) { if (dropped.delete(packet.id)) return; return onack.call(this, packet); };
     });
-    try { await actor.$eval('#fxPitch', node => { node.value = '-3'; node.dispatchEvent(new Event('input', { bubbles: true })); }); await actor.click('#fxApply'); await waitFor(actor, () => !!document.querySelector('dialog.text-prompt[open]')); await actor.click('#textPromptSave'); await actor.click('#fxClose'); assert.equal(await actor.$eval('#fxDialog', node => node.open && node.querySelector('.fx-body').inert), true);
+    try { await setEffectPitch(actor, -3); await actor.click('#fxApply'); await waitFor(actor, () => !!document.querySelector('dialog.text-prompt[open]')); await actor.click('#textPromptSave'); await actor.click('#fxClose'); assert.equal(await actor.$eval('#fxDialog', node => node.open && node.querySelector('.fx-body').inert), true);
       await waitFor(actor, () => !document.getElementById('fxDialog').open, 18000); assert.equal(await actor.evaluate(() => new Set(liveRequests).size), 1); assert.equal(await host.evaluate(() => session.voicePresets.phone.revision), 3);
     } finally { await actor.evaluate(() => restoreLiveAck()); }
   });
@@ -67,7 +68,7 @@ describe('live scene presets: confirmed multi-user sound, drafts, history and pr
     await claimAndSelect(actor, 2); await actor.evaluate(async () => { const buffer = new AudioBuffer({ length: 48000, sampleRate: 48000, numberOfChannels: 1 }); for (let i = 0; i < buffer.length; i++) buffer.getChannelData(0)[i] = .07 * Math.sin(i * .09); await submitTake({ uploadId: newUploadId(), room: currentRoom, sessionId: session.activeSessionId, lineId: 2, nick: myName, audioStart: 0, trimStart: .1, trimEnd: .8, blob: new Blob([audioBufferToWav(buffer)], { type: 'audio/wav' }), createdAt: Date.now() }); });
     await waitFor(actor, () => session.lines.find(line => line.id === 2).takeHistory.length === 1); assert.equal(await actor.evaluate(() => session.lines.find(line => line.id === 2).takeHistory[0].voicePresetId), 'phone');
     for (const action of ['pin', 'restore']) { const request = await actor.evaluate(action => { const line = session.lines.find(line => line.id === 2), take = line.takeHistory[0]; return { room: currentRoom, lineId: 2, takeId: take.id, historyRevision: line.takeHistoryRevision, expectedOwner: getLineOwner(line), action, value: true }; }, action); assert.equal((await call(actor, 'take_history_update', request)).ok, true); }
-    await waitFor(host, () => session.lines.find(line => line.id === 2).takePinned); assert.equal(await host.evaluate(() => DublineVoiceChain.resolve(session.lines.find(line => line.id === 2).takeHistory[0], session).effects[0].amount), .3);
+    await waitFor(host, () => session.lines.find(line => line.id === 2).takePinned); assert.equal(await host.evaluate(() => DublineVoiceChain.resolve(session.lines.find(line => line.id === 2).takeHistory[0], session).effects.find(e => e.type === 'telephone').amount), .3);
   });
   test('history captures and restores the live link; one-take detach changes only its own settings', async () => {
     const saved = await actor.evaluate(() => { const line = session.lines.find(line => line.id === 2); return DublineTakeHistoryModel.extract(line); }); assert.equal(saved.voicePresetId, 'phone');
@@ -86,12 +87,12 @@ describe('live scene presets: confirmed multi-user sound, drafts, history and pr
     assert.equal((await call(actor, 'voice_preset_update', { action: 'delete', id: 'phone', revision: 3, detach: true })).ok, true); await waitFor(host, () => !session.voicePresets.phone && session.lines.find(line => line.id === 1).voicePresetId === null);
     assert.equal(await host.evaluate(() => DublineVoiceChain.key(DublineVoiceChain.resolve(session.lines.find(line => line.id === 1), session))), sound);
   });
-  test('format 13 and host restart retain explicit live links, metadata and exact recording bytes', async () => {
+  test('format 14 and host restart retain explicit live links, metadata and exact recording bytes', async () => {
     const id = await actor.evaluate(() => Object.values(session.voicePresets).find(preset => preset.name === 'Variant').id);
     const request = await actor.evaluate(id => { const line = session.lines.find(line => line.id === 2); return { scope: 'takes', action: 'replace', editPreset: true, presetRevision: 1, settings: DublineVoiceChain.take(DublineVoicePresets.link(line, session, id, true)), takes: [{ lineId: line.id, character: line.character, audioUrl: line.audioUrl, takeId: line.takeId, takeMixRevision: line.takeMixRevision || 0 }] }; }, id);
     assert.equal((await call(actor, 'voice_update', request)).ok, true); await waitFor(host, id => session.lines.find(line => line.id === 2).voicePresetId === id, 10000, id);
     const bytes = await host.evaluate(async () => { const barrier = await prepareSafeSnapshot('project'); const response = await fetch('/api/export-project', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ room: currentRoom, clientId, ...barrier }) }); if (!response.ok) throw Error(await response.text()); return Array.from(new Uint8Array(await response.arrayBuffer())); });
-    const read = require('../server/projects').readProject(Buffer.from(bytes)); assert.equal(read.manifest.formatVersion, 13); assert.equal(read.manifest.project.lines.find(line => line.id === 2).take.voicePresetId, id);
+    const read = require('../server/projects').readProject(Buffer.from(bytes)); assert.equal(read.manifest.formatVersion, 14); assert.equal(read.manifest.project.lines.find(line => line.id === 2).take.voicePresetId, id);
     await server.restart(); await waitFor(host, id => socket.connected && hasSceneMediaAccess() && session.lines.find(line => line.id === 2)?.voicePresetId === id, 20000, id);
     const current = await host.evaluate(async () => Array.from(new Uint8Array(await (await fetch(session.lines.find(line => line.id === 1).audioUrl)).arrayBuffer()))); assert.deepEqual(current, originalHash);
   });

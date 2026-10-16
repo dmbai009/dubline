@@ -280,11 +280,16 @@ function uploadFileCount(server) {
 }
 
 module.exports = {
-  answerTextPrompt,
+  answerTextPrompt, setEffectPitch,
   FIXTURE_LINES, FIXTURE_PACK, SCENE_SECONDS,
   skipReason, chromePath: CHROME, NO_BROWSER, wait, launchBrowser, startServer, openPlayer, waitFor, waitUntil,
   loadFixture, claimAndSelect, recordTake, uploadFileCount, buildFixturePack, buildVoiceFile, fixtureVideoPath, buildMultiTrackVideo
 };
+
+async function setEffectPitch(page, value) {
+  if (!await page.$('#fxRows [data-action=semitones]')) await page.click('[data-fx-type=pitch]');
+  await page.$eval('#fxRows [data-action=semitones]', (node, value) => { node.value = String(value); node.dispatchEvent(new Event('input', { bubbles: true })); }, value);
+}
 
 async function answerTextPrompt(page, value) {
   await waitFor(page, () => document.querySelector('dialog.text-prompt[open]'));
