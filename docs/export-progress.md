@@ -25,6 +25,22 @@ Processed PCM SHA-256 hashes match exactly across configurations. These are prep
 
 ## Verification
 
+### Cold PCM regression fixture (2026-10-16)
+
+The cold sequential/parallel hash comparison now uses Radio and Telephone with
+the same pitch/RNNoise matrix and exact SHA-256 equality. Chrome's native
+ConvolverNode can produce different Cave PCM on independent renders, without
+export or any preparation batching: an isolated repeated-render probe reproduced
+four variants within 112 renders, with a maximum sample difference of 0.022.
+This is larger than rounding noise; it remains a separate audio-engine finding.
+No production DSP, effects or recording data changed in this test maintenance.
+
+A separate Cave regression checks both batch widths against the exact cached
+processed buffer, its hash and its reverb-tail length. This verifies preparation
+does not alter or replace convolved audio without treating independent native
+convolver renders as a deterministic hash oracle. The timing table above records
+the earlier fixture and is not a new benchmark for the changed fixture.
+
 - Syntax check PASS; all 429 unit/server tests PASS.
 - Seven new unit cases cover genuine advancement versus heartbeat, waiting in the picker, interleaved monotonic counters, muted/zero inputs, two-job bounds, order, failure draining and cancellation.
 - All 28 affected real-browser scenarios PASS (export-progress, video-export, workflow-next). They cover the real exported video packet hashes, windowed audio versus full mix, MP4/WebM/custom output, real-time fallback, errors/cancellation, permissions, host-only progress delivery, stale request isolation and exact PCM equality.

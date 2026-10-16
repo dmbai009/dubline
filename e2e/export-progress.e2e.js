@@ -59,7 +59,10 @@ describe('export progress and bounded preparation', { skip: skipReason, timeout:
         const b = new AudioBuffer({ length: 48000, sampleRate: 48000, numberOfChannels: 1 }); for (let i = 0; i < b.length; i++) b.getChannelData(0)[i] = .08 * Math.sin(i * .1);
         const blob = new Blob([audioBufferToWav(b)], { type: 'audio/wav' }), urls = Array.from({ length: 24 }, () => URL.createObjectURL(blob));
         try {
-          const snapshot = createExportSnapshot(); snapshot.takes = urls.map((audioUrl, id) => { const line = { ...snapshot.scene.lines[0], id: id + 100, audioUrl, effect: id % 2 ? 'radio' : 'cave', pitch: id % 5 - 2, pitchMode: 'override', audioStart: id / 2, _exportNoise: { enabled: noise, strength: .6 }, _exportLevel: false }; delete line._exportVoice; line._exportVoice = DublineVoiceChain.resolve(line, snapshot.scene); return line; });
+          // Native ConvolverNode is not bit-deterministic across independent cold
+          // renders (also reproducible without export). Keep this strict PCM
+          // comparison on deterministic filters; test convolved cache reuse below.
+          const snapshot = createExportSnapshot(); snapshot.takes = urls.map((audioUrl, id) => { const line = { ...snapshot.scene.lines[0], id: id + 100, audioUrl, effect: id % 2 ? 'radio' : 'telephone', pitch: id % 5 - 2, pitchMode: 'override', audioStart: id / 2, _exportNoise: { enabled: noise, strength: .6 }, _exportLevel: false }; delete line._exportVoice; line._exportVoice = DublineVoiceChain.resolve(line, snapshot.scene); return line; });
           const begin = performance.now(), prepared = await DublineVideoExportAudio.prepare(snapshot, 20, () => {}, () => assertExportScene(snapshot), { concurrency }), ms = performance.now() - begin;
           const hashes = []; for (const take of prepared.takes) { const buffer = await requireExportTake(take.line); const hash = await crypto.subtle.digest('SHA-256', buffer.getChannelData(0)); hashes.push(Array.from(new Uint8Array(hash), n => n.toString(16).padStart(2, '0')).join('')); }
           results.push({ noise, run, concurrency, ms, hashes });
@@ -72,6 +75,29 @@ describe('export progress and bounded preparation', { skip: skipReason, timeout:
       const median = concurrency => cases.filter(r => r.concurrency === concurrency).map(r => r.ms).sort((a, b) => a - b)[1]; console.log('24 cold recordings:', JSON.stringify({ rnnoise: noise, sequentialMs: median(1), parallelMs: median(2) }));
     }
     fs.mkdirSync(path.resolve('audit'), { recursive: true }); fs.writeFileSync(path.resolve('audit/export-progress-benchmark.json'), JSON.stringify(result.map(({ hashes, ...metrics }) => metrics), null, 2));
+  });
+  test('batch preparation preserves the exact cached Cave PCM and tail', async () => {
+    const result = await host.evaluate(async () => {
+      const buffer = new AudioBuffer({ length: 48000, sampleRate: 48000, numberOfChannels: 1 });
+      for (let i = 0; i < buffer.length; i++) buffer.getChannelData(0)[i] = .08 * Math.sin(i * .1);
+      const url = URL.createObjectURL(new Blob([audioBufferToWav(buffer)], { type: 'audio/wav' }));
+      try {
+        const snapshot = createExportSnapshot(), line = { ...snapshot.scene.lines[0], audioUrl: url, effect: 'cave', pitch: 0, effects: null, voicePresetId: null, pitchMode: 'override', inheritRoleEffects: false, _exportNoise: { enabled: false }, _exportLevel: false };
+        delete line._exportVoice; line._exportVoice = DublineVoiceChain.resolve(line, snapshot.scene);
+        snapshot.takes = Array.from({ length: 4 }, (_, id) => ({ ...line, id: 100 + id }));
+        const expected = await requireExportTake(line);
+        const hash = async pcm => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', pcm.getChannelData(0))), n => n.toString(16).padStart(2, '0')).join('');
+        const before = await hash(expected), actual = [];
+        for (const concurrency of [1, 2]) {
+          await DublineVideoExportAudio.prepare(snapshot, 20, () => {}, () => assertExportScene(snapshot), { concurrency });
+          const rendered = await requireExportTake(line);
+          actual.push({ hash: await hash(rendered), sameBuffer: rendered === expected, frames: rendered.length });
+        }
+        return { before, frames: expected.length, rate: expected.sampleRate, actual };
+      } finally { audio.invalidateSource(url); URL.revokeObjectURL(url); }
+    });
+    assert.ok(result.frames > result.rate, 'the reverb tail is retained');
+    for (const item of result.actual) { assert.equal(item.hash, result.before); assert.equal(item.frames, result.frames); assert.equal(item.sameBuffer, true); }
   });
   test('no unhandled errors', () => { assert.deepEqual(host.errors, []); assert.deepEqual(guest.errors, []); });
 });
