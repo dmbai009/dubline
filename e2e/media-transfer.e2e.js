@@ -217,6 +217,13 @@ describe('Authorized media delivery with optional P2P', { skip: skipReason }, ()
       try {
         await waitFor(seed, () => localMedia?.videoBlob && !mediaDownload);
         await seed.evaluate(corrupt => {
+          // Exercise a real peer that connects after the HTTP fallback grace.
+          // The scenario requires some peer bytes before disconnect/corruption.
+          const setRemoteDescription = RTCPeerConnection.prototype.setRemoteDescription;
+          RTCPeerConnection.prototype.setRemoteDescription = async function(...args) {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            return setRemoteDescription.apply(this, args);
+          };
           if (corrupt) {
             window.corruptedTestBytes = 0;
             const channel = DublineNetwork.channel;
@@ -238,18 +245,17 @@ describe('Authorized media delivery with optional P2P', { skip: skipReason }, ()
         }, corrupt);
         await waitFor(host, name => seedingNicks.has(name), 10000, await seed.evaluate(() => myName));
         guest = await openPlayer(browser, server.url('media-transfer', 'dubline.test'), corrupt ? 'Integrity receiver' : 'Partial receiver', { p2pConsent: 'accepted',
-          beforeLoad: page => page.evaluateOnNewDocument(corrupt => {
-            const original = fetch; let held = false;
-            // Integrity checks require corrupt bytes to actually enter the receiver.
+          beforeLoad: page => page.evaluateOnNewDocument(() => {
+            const original = fetch;
+            // Both scenarios require peer bytes to actually enter the receiver.
             // Keep HTTP from winning this setup race; the fallback latency has its
             // own separate real-time test and production settings remain untouched.
-            const gate = corrupt ? new Promise(resolve => { window.releasePartialHttp = resolve; }) : null;
+            const gate = new Promise(resolve => { window.releasePartialHttp = resolve; });
             window.fetch = async (url, options) => {
-              if (gate && options?.headers?.Range) await gate;
-              if (!corrupt && options?.headers?.Range && !held) { held = true; await new Promise(resolve => { window.releasePartialHttp = resolve; }); }
+              if (options?.headers?.Range) await gate;
               return original(url, options);
             };
-          }, corrupt)
+          })
         });
         if (!corrupt) {
           await waitFor(guest, () => [...partialFiles.values()].some(file => file.durable.size > 0) && mediaDownload?.diagnostic?.p2pBytes >= 262144);
