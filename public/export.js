@@ -468,6 +468,8 @@ async function renderRealtime(progress, snapshot = createExportSnapshot(), setti
 
 async function renderOriginalVideo(progress, snapshot, settings = { mode: 'original', source: 'original' }, job = null) {
   job ||= { abort: new AbortController(), check: () => assertExportScene(snapshot) };
+  const ownsOperations=!job.operations; job.operations ||= DublineExportOperations.create(job.abort.signal);
+  const operations=job.operations; snapshot.exportOperations=operations;
   const duration = settings.sourceInfo?.duration || snapshot.scene.videoDuration || video.duration;
   const webm = settings.format === 'webm';
   let output, soundtrack, extension = webm ? 'webm' : 'm4a';
@@ -478,15 +480,15 @@ async function renderOriginalVideo(progress, snapshot, settings = { mode: 'origi
       const result = await DublineVideoExportEngine.realtime({ ...settings, audioOnly: true, fps: null }, snapshot, (percent, text) => progress(Math.min(70, percent * 0.7), text), audioJob);
       soundtrack = result.blob; extension = result.ext;
     } else {
-      const mb = await import('/vendor/mediabunny/mediabunny.min.mjs');
+      const mb = await operations.run('engine-load',()=>import('/vendor/mediabunny/mediabunny.min.mjs'));
       output = new mb.Output({ format: webm ? new mb.WebMOutputFormat() : new mb.Mp4OutputFormat({ fastStart: false }), target: new mb.BufferTarget() });
-      job.output = output;
+      job.output = output; operations.own(()=>DublineExportOperations.abortOutput(output));
       const source = new mb.AudioBufferSource({ codec: webm ? 'opus' : 'aac', bitrate: DublineVideoExportPolicy.AUDIO_BITRATE });
-      output.addAudioTrack(source); await output.start();
-      for await (const chunk of DublineVideoExportAudio.chunks(mb, snapshot, duration, text => progress(5, text), job.check)) {
-        job.check(); await source.add(chunk.buffer); progress(10 + 60 * chunk.end / duration, t('render.encodeSoundtrack'));
+      output.addAudioTrack(source); await operations.run('soundtrack-start',()=>output.start());
+      for await (const chunk of operations.iterate(DublineVideoExportAudio.chunks(mb, snapshot, duration, text => progress(5, text), job.check),'soundtrack-window',{timeoutMs:Infinity})) {
+        job.check(); await operations.run('audio-encode',()=>source.add(chunk.buffer),{end:chunk.end}); progress(10 + 60 * chunk.end / duration, t('render.encodeSoundtrack'));
       }
-      source.close(); await output.finalize(); soundtrack = new Blob([output.target.buffer], { type: webm ? 'audio/webm' : 'audio/mp4' });
+      source.close(); await operations.run('soundtrack-finalize',()=>output.finalize()); soundtrack = new Blob([output.target.buffer], { type: webm ? 'audio/webm' : 'audio/mp4' });
     }
     job.check();
     const form = new FormData();
@@ -496,11 +498,11 @@ async function renderOriginalVideo(progress, snapshot, settings = { mode: 'origi
     progress(75, t('render.originalMux')); job.report?.('video', { current: 0, total: duration, label: settings.mode === 'custom' ? 'encoding' : 'copying' });
     job.report?.('uploading', { current: 0, unit: 'bytes' });
     const send = window.DublineNetwork?.upload || fetch;
-    const response = await send('/api/export-original-video?room=' + encodeURIComponent(currentRoom), { method: 'POST', body: form, signal: job.abort.signal,
-      onUploadProgress: data => job.report?.('uploading', { current: data.loaded, total: data.total, unit: 'bytes', state: data.done ? 'done' : 'running' }) });
+    const response = await operations.run('server-export',()=>send('/api/export-original-video?room=' + encodeURIComponent(currentRoom), { method: 'POST', body: form, signal: job.abort.signal,
+      onUploadProgress: data => job.report?.('uploading', { current: data.loaded, total: data.total, unit: 'bytes', state: data.done ? 'done' : 'running' }) }),null,{timeoutMs:Infinity});
     if (!response.ok) throw new Error(await readError(response));
-    const prepared = await response.json(); job.check(); return prepared;
-  } finally { if (output && output.state !== 'finalized') await output.cancel().catch(() => {}); job.output = null; }
+    const prepared = await operations.run('server-export-result',()=>response.json()); job.check(); return prepared;
+  } finally { if (output && output.state !== 'finalized') DublineExportOperations.abortOutput(output); job.output = null; if(ownsOperations)operations.close(); }
 }
 
 // ==========================================

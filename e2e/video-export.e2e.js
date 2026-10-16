@@ -42,7 +42,7 @@ describe('video export: sources, guest rights, local rendering and bounded setti
     await open(guest, 'custom');
     const bounds = await guest.evaluate(() => ({ info: DublineVideoExportPanel.settings().sourceInfo, resolution: [...videoExportResolution.options].filter(option => option.disabled).map(option => option.value), fps: [...videoExportFps.options].filter(option => option.disabled).map(option => option.value) }));
     assert.ok(bounds.resolution.includes('1080')); assert.ok(bounds.fps.includes('60'));
-    await guest.evaluate(() => { videoExportBitrate.value = '999'; videoExportBitrate.dispatchEvent(new Event('input')); });
+    await guest.evaluate(() => { videoExportBitrateMode.value='manual';videoExportBitrateMode.dispatchEvent(new Event('change'));videoExportBitrate.value = '999'; videoExportBitrate.dispatchEvent(new Event('input')); });
     await waitFor(guest, () => startRenderBtn.disabled);
     await guest.evaluate(() => { videoExportBitrate.value = String(Math.floor(DublineVideoExportPanel.settings().sourceInfo.bitrate / 2) / 1000000); videoExportBitrate.dispatchEvent(new Event('input')); });
     await waitFor(guest, () => !startRenderBtn.disabled);

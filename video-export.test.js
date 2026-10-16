@@ -4,10 +4,10 @@ const policy = require('./public/video-export-policy');
 const { createVideoExportFiles, MAX_CHUNK } = require('./electron-video-export');
 const info = { width: 1280, height: 720, duration: 1500, bitrate: 6000000, fps: 24 };
 const options = { format: 'mp4', codec: 'avc', width: 1280, height: 720, bitrate: 6000000, fps: null };
-test('custom bounds forbid upscaling either axis, video bitrate/FPS increases and unsupported codecs', () => {
+test('custom bounds forbid upscaling either axis, unbounded bitrate/FPS increases and unsupported codecs', () => {
   assert.equal(policy.validate(info, options), null);
   for (const change of [{ width: 1920, height: 1080 }, { width: 1282 }, { height: 722 }]) assert.equal(policy.validate(info, { ...options, ...change }), 'exportVideo.resolutionLimit');
-  assert.equal(policy.validate(info, { ...options, bitrate: 6000001 }), 'exportVideo.bitrateLimit');
+  assert.equal(policy.validate(info, { ...options, bitrate: policy.bitrateBounds(info).max+1 }), 'exportVideo.bitrateLimit');
   assert.equal(policy.validate(info, { ...options, fps: 30 }), 'exportVideo.fpsLimit');
   assert.equal(policy.validate(info, { ...options, format: 'webm' }), 'exportVideo.unsupported');
 });
@@ -184,3 +184,5 @@ test('an abandoned native destination expires, closes its writer and preserves t
   while ((f.files.busy || fs.readdirSync(f.directory).some(name => name.endsWith('.part'))) && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10));
   assert.equal(f.files.busy, false); assert.deepEqual(fs.readdirSync(f.directory), ['export.mp4']); assert.equal(fs.readFileSync(f.destination, 'utf8'), 'KEEP');
 });
+
+test('source-aware bitrate responds to pixels, frame rate and codec without making source bitrate an absolute ceiling',()=>{const source={...info,codec:'hevc'},full=policy.recommendedBitrate(source,options);assert.ok(full>source.bitrate);assert.ok(full<=policy.bitrateBounds(source).max);assert.ok(policy.recommendedBitrate(source,{...options,width:640,height:360})<full);assert.ok(policy.recommendedBitrate(source,{...options,fps:12})<full);assert.ok(policy.recommendedBitrate(source,{...options,codec:'vp9'})<full);assert.equal(policy.validate(info,{...options,bitrate:info.bitrate*1.2}),null);assert.equal(policy.validate(info,{...options,bitrate:Infinity}),'exportVideo.bitrateLimit');});

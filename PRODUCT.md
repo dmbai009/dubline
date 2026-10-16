@@ -86,3 +86,8 @@ Video export reports completed recording counts, audio/video timeline positions,
 ## Personal video acceleration
 
 Personal settings → Interface provides Automatic / On / Off for video processing on this device. Custom exports and scene working-copy preparation use supported hardware encoders where appropriate, with a software fallback and a safe retry of private staged output. The preference is independent of rooms and portable projects. Stream copying and existing audio processing retain their current paths. See docs/video-acceleration.md.
+
+## Export reliability and background operations
+
+Video exports keep reader and job cancellation, bounded operation diagnostics and the existing audio/packet pipeline. One compact themed background panel presents private export progress/results and server-authoritative scene creation to admitted room participants, with reconnect recovery and permission-aware actions. Custom bitrate defaults to a source-aware automatic recommendation with a manual slider/precise input; hosts default to an available original. See docs/export-reliability.md.
+

@@ -150,6 +150,7 @@ module.exports = function registerRoomHandlers(socket, conn) {
     socket.emit('nick_state', { nick: conn.nick, error, errorKey, errorParams });
     ensureAudioTracks(conn.roomId);
     socket.emit('session_updated', publicRoom(room));
+    socket.emit('scene_operations',{roomId:conn.roomId,operations:require('../background-operations').snapshot(conn.roomId)});
     socket.emit('selection_presence', require('../selectionPresence').snapshot(conn.roomId));
     socket.emit('edit_leases', require('../editLeases').snapshot(conn.roomId));
     socket.emit('media_presence', require('../mediaPresence').snapshot(conn.roomId));

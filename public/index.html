@@ -439,11 +439,11 @@
             <label class="video-export-mode"><input type="radio" name="videoExportMode" value="custom"><strong data-i18n="exportVideo.custom">Custom</strong><span data-i18n="exportVideo.customHelp">Re-encode at a lower or equal resolution, frame rate and video bitrate.</span></label>
           </fieldset>
           <div class="video-export-fields" id="videoExportCustom" hidden>
-            <label><span data-i18n="exportVideo.source">Source</span><select id="videoExportSource"><option value="working" data-i18n="exportVideo.working">Working video</option><option value="original" data-i18n="exportVideo.original">Original quality</option></select></label>
+            <label><span data-i18n="exportVideo.source">Source</span><select id="videoExportSource"><option value="working" data-i18n="exportVideo.working">Working video</option><option value="original" data-i18n="exportVideo.sourceOriginal">Original quality</option></select></label>
             <label><span data-i18n="exportVideo.format">Format / codec</span><select id="videoExportFormat"><option value="mp4">MP4 · H.264 / AAC</option><option value="webm">WebM · VP9 / Opus</option></select></label>
             <label><span data-i18n="exportVideo.resolution">Resolution</span><select id="videoExportResolution"><option value="source" data-i18n="exportVideo.unchanged">Same as source</option><option value="240">240p</option><option value="360">360p</option><option value="480">480p</option><option value="720">720p</option><option value="1080">1080p</option><option value="1440">1440p</option><option value="2160">2160p</option></select></label>
             <label><span>FPS</span><select id="videoExportFps"><option value="source" data-i18n="exportVideo.unchanged">Same as source</option><option>15</option><option>24</option><option>25</option><option>30</option><option>50</option><option>60</option></select></label>
-            <label><span data-i18n="exportVideo.bitrate">Average video bitrate · Mbps</span><input id="videoExportBitrate" type="number" min="0.000001" step="0.000001" inputmode="decimal"></label>
+            <div class="video-export-bitrate"><label for="videoExportBitrateMode" data-i18n="exportVideo.bitrate">Average video bitrate · Mbps</label><div class="video-export-bitrate-row"><select id="videoExportBitrateMode"><option value="auto" data-i18n="exportVideo.bitrateAuto">Automatic</option><option value="manual" data-i18n="exportVideo.bitrateManual">Manual</option></select><input id="videoExportBitrate" class="text-input" type="number" min="0" step="0.1" inputmode="decimal" data-i18n-aria-label="exportVideo.bitrate" aria-label="Video bitrate · Mbps"></div><input id="videoExportBitrateSlider" type="range" min="0.1" step="0.1" data-i18n-aria-label="exportVideo.bitrate" aria-label="Video bitrate · Mbps" hidden></div>
           </div>
           <div id="videoExportMethod" class="setting-sub" role="status"></div>
           <div id="videoExportLimits" class="setting-sub"></div>
@@ -809,6 +809,7 @@
   <script src="export.js"></script>
   <script src="video-export-policy.js"></script>
   <script src="export-progress.js"></script>
+  <script src="export-operations.js"></script>
   <script src="video-export-audio.js"></script>
   <script src="video-export-engine.js"></script>
   <script src="room.js"></script>
@@ -828,6 +829,7 @@
   <script src="chat.js"></script>
   <script src="update-presentation.js"></script>
   <script src="ui.js"></script>
+  <script src="background-operations.js"></script>
   <script src="video-export-ui.js"></script>
   <script src="settings-layout.js"></script>
   <script src="video-acceleration-ui.js"></script>
