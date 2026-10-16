@@ -641,6 +641,7 @@ function updateHostUi() {
   const projectSave = document.getElementById('projectExportBtn');
   projectSave.disabled = !canManagePacks || projectExportBusy;
   projectSave.title = canManagePacks ? t('project.saveHelp') : t('onlyHost');
+  updateSubtitleExportButtons();
   document.getElementById('localMediaInput').disabled = !session?.loaded;
   document.getElementById('projectHostNotice').hidden = canManagePacks;
 
