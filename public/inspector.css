@@ -35,6 +35,8 @@
 #inspector .insp-char-form .dub-select-button { flex:1; min-width:0; }
 #inspector .insp-editor-take { display:contents; }
 #inspector .insp-editing { min-width:0; }
+#inspector:has(#editorLineForm) .insp-editing,
+#inspector:has(#editorLineForm) .insp-voice { border-top:0; }
 #inspector #editorLineForm { min-width:0; display:grid; gap:7px; }
 #inspector #editorLineForm textarea { width:100%; min-width:0; resize:vertical; }
 #inspector .take-hint { font-size:10px; margin:0; }
