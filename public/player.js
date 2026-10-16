@@ -5,7 +5,7 @@
 const i18n = window.DublineI18n;
 const t = (key, params) => i18n.t(key, params);
 i18n.apply();
-const labelWidth = 180;
+let labelWidth = 180;
 
 // Timeline zoom: pixels per second (Ctrl+wheel, the − / + / "Whole scene" buttons)
 const ZOOM_DEFAULT = 60;
@@ -478,6 +478,7 @@ function renderTimeline() {
     }
   }
   window.refreshTimelineNavigation?.();
+  window.DublineRoleColumn?.attach(timeline);
 }
 
 function updateLineBlockVisual(el, line) {
@@ -1094,6 +1095,7 @@ function buildRoleRow(char, trackWidth, allowCharacterClaims, editing) {
         ${roleHtml}
       </div>
     `;
+    window.DublineRoleColumn?.attach(label);
     const progress = document.createElement('div'); progress.className = 'role-progress';
     progress.innerHTML = '<span class="role-progress-bar"><i></i></span><span class="role-progress-count"></span>';
     label.querySelector('.char-name-row').after(progress);

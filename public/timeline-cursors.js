@@ -153,6 +153,7 @@
   timelineContainer.addEventListener('pointerleave', hide); window.addEventListener('blur', hide);
   document.addEventListener('visibilitychange', () => { if (document.hidden) hide(); else paint(); });
   timelineContainer.addEventListener('scroll', paint, { passive: true }); window.addEventListener('resize', paint);
+  window.addEventListener('dubline-role-width-changed', paint);
   toggle.onchange = () => { visible = toggle.checked; try { localStorage.setItem('dubline_cursors', visible ? '1' : '0'); } catch { /* private profile */ } subscription = ''; subscribe(); paint(); };
   rate.onchange = () => { const value = Number(rate.value); if (amHost() && Number.isInteger(value) && value >= 5 && value <= 30) socket.emit('cursor_set_hz', { hz: value }); else rate.value = hz; };
   function subscribe() {
