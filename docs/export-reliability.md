@@ -1,5 +1,17 @@
 # Export reliability and background operations
 
+## Browser export availability
+
+When the browser's capability checks reject the selected encoding settings, the
+export panel and disabled Export button both explain that the browser cannot
+export with those settings and suggest Chrome, Edge or desktop DubLine. The
+message is translated into EN/RU/UK and depends on actual capabilities rather
+than blocking a browser by its name. Other validation and permission reasons
+retain their specific explanations. The browser regression in
+`e2e/video-export.e2e.js` removes encoding capabilities, checks all three panel
+and hover messages, and verifies a supported browser can still export. It does
+not claim a native Firefox test or change the encoding pipeline.
+
 ## Streaming and cancellation
 
 Working-copy exports keep the existing Mediabunny packet-copy/audio-window pipeline.

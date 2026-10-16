@@ -11,7 +11,7 @@ function plan(room, conn, data, moderator) {
     next[data.id] = { id: data.id, name: data.name.trim(), ...structuredClone(data.settings), createdBy: conn.nick, revision: 1 };
   } else {
     if (!previous) fail('missing');
-    if (!moderator && previous.createdBy !== conn.nick) fail('owner');
+    if (!model.canEditPreset(room, previous, conn.nick, moderator, data.action)) fail('owner');
     if (data.revision !== previous.revision || previous.revision >= Number.MAX_SAFE_INTEGER) fail('conflict');
     if (data.action === 'delete') delete next[data.id];
     else {
@@ -28,6 +28,18 @@ function plan(room, conn, data, moderator) {
 function planScene(room, conn, data, moderator) {
   const catalog = plan(room, conn, data, moderator), usage = model.usage(room, data.id), chain = require('../public/voice-chain-model');
   let lines = room.lines, roles = room.roleEffects, deletedLines = room.deletedLines;
+  if (data.action !== 'delete') {
+    const preset = catalog[data.id], character = model.roleNamed(room, preset.name);
+    if (character && (['create', 'rename'].includes(data.action) || data.roleTargets !== undefined)) {
+      if (!model.canEditRole(room, character, conn.nick, moderator)) fail('owner');
+      if (Object.values(catalog).some(entry => entry.id !== data.id && entry.name === character)) fail('roleExists');
+      const target = data.roleTargets?.[0], expected = model.roleTarget(room, character);
+      if (!Array.isArray(data.roleTargets) || data.roleTargets.length !== 1 || !target || target.character !== expected.character || target.revision !== expected.revision || target.voicePresetId !== expected.voicePresetId) fail('roleConfirm');
+      if (!Number.isSafeInteger(expected.revision + 1)) fail('invalid');
+      roles = Object.assign(Object.create(null), structuredClone(room.roleEffects || {}));
+      roles[character] = { pitch: 0, effects: [], voicePresetId: data.id, usePresetPitch: true, presetModified: false, revision: expected.revision + 1 };
+    } else if (data.roleTargets !== undefined) fail('roleConfirm');
+  }
   if (data.action === 'delete') {
     const deleted = (room.deletedLines || []).flatMap(batch => (batch.lines || []).map(entry => entry.line)).filter(Boolean);
     const used = room.lines.some(line => [line, ...(line.takeHistory || [])].some(take => take.voicePresetId === data.id)) || Object.values(room.roleEffects || {}).some(role => role.voicePresetId === data.id) || usage.lines.length || usage.roles.length || (room.deletedLines || []).some(batch => Object.values(batch.roleEffects || {}).some(entry => entry?.voicePresetId === data.id)) || deleted.some(line => [line, ...(line.takeHistory || [])].some(take => take.voicePresetId === data.id));
@@ -69,8 +81,8 @@ function register(socket, conn) {
       try { rooms.flushRooms({ strict: true }); }
       catch { Object.assign(room, previous); rooms.snapshotActive(room); fail('storage'); }
       if (data.action === 'delete') require('./editHistory').detachPreset(conn.roomId, room, { ...room, ...previous }, data.id);
-      require('./app').io.to(conn.roomId).emit('voice_presets_updated', { sessionId: room.activeSessionId, voicePresets: room.voicePresets, ...(data.action === 'delete' ? { roleEffects: room.roleEffects, lines: room.lines.filter(line => line !== previous.lines.find(old => old.id === line.id)) } : {}), editorProtocol: require('./editorOperations').snapshotProtocol(room) });
-      ack({ ok: true, voicePresets: room.voicePresets });
+      require('./app').io.to(conn.roomId).emit('voice_presets_updated', { sessionId: room.activeSessionId, voicePresets: room.voicePresets, ...(data.action === 'delete' || next.roleEffects !== previous.roleEffects ? { roleEffects: room.roleEffects, lines: room.lines.filter(line => line !== previous.lines.find(old => old.id === line.id)) } : {}), editorProtocol: require('./editorOperations').snapshotProtocol(room) });
+      ack({ ok: true, voicePresets: room.voicePresets, ...(next.roleEffects !== previous.roleEffects ? { roleEffects: room.roleEffects } : {}) });
     } catch (error) { ack({ ok: false, reason: error.message.startsWith('preset.') ? error.message : 'preset.invalid' }); }
   });
 }

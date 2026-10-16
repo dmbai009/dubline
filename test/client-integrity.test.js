@@ -125,7 +125,8 @@ test('client and server expose the same non-destructive voice effects', () => {
   const whitelist = server.match(/const VOICE_EFFECTS = \[([^\]]+)\]/);
   assert.ok(whitelist, 'server effect whitelist is missing');
   const serverEffects = [...whitelist[1].matchAll(/['"]([^'"]+)['"]/g)].map(match => match[1]).sort();
-  assert.deepEqual(clientEffects, serverEffects);
+  // Parameterized pitch belongs to the shared chain schema, not the legacy scalar effect whitelist.
+  assert.deepEqual(clientEffects, [...new Set([...serverEffects, ...require('../public/voice-chain-model').TYPES])].sort());
   assert.ok(context.window.DublineAudioFx.effectTailSeconds('behindDoor') > 0);
   assert.ok(context.window.DublineAudioFx.effectTailSeconds('thoughts') >= 0.5);
   assert.ok(context.window.DublineAudioFx.effectTailSeconds('cave') >= 1.5);

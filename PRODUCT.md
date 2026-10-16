@@ -89,6 +89,23 @@ Video export reports completed recording counts, audio/video timeline positions,
 
 Personal settings → Interface provides Automatic / On / Off for video processing on this device. Custom exports and scene working-copy preparation use supported hardware encoders where appropriate, with a software fallback and a safe retry of private staged output. The preference is independent of rooms and portable projects. Stream copying and existing audio processing retain their current paths. See docs/video-acceleration.md.
 
+## Pitch in effect chains
+
+Pitch is a movable effect card, adjustable from -12 to +12 semitones, with the
+same enable switch, shared presets and role inheritance as other stages. The
+former separate pitch controls are removed. Existing scalar pitch stays
+compatible without changing unedited recordings. See docs/pitch-stage.md.
+
+## Role presets and bulk selection
+
+Selected lines offer direct bulk preset assignment, with an explicit eligible
+count, replacement confirmation and one atomic write. Claimed role owners can
+edit their role's effects. Apply creates or updates the shared preset named after
+the role; manually using a role name warns and confirms its role binding. Shared
+updates retain current rights, revisions and live-reference behavior. Shift-click
+selects visible cues in a time/track rectangle anchored at the original cue;
+same-track selection stays on that track. See docs/role-preset-workflow.md.
+
 ## Export reliability and background operations
 
 Video exports keep reader and job cancellation, bounded operation diagnostics and the existing audio/packet pipeline. One compact themed background panel presents private export progress/results and server-authoritative scene creation to admitted room participants, with reconnect recovery and permission-aware actions. Custom bitrate defaults to a source-aware automatic recommendation with a manual slider/precise input; hosts default to an available original. See docs/export-reliability.md.

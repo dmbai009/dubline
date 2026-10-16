@@ -11,11 +11,12 @@ function validateScene(scene) {
 }
 function plan(room, conn, data, moderator, owner) {
   if (!data || !['role', 'takes'].includes(data.scope)) failure('invalid');
-  const roles = structuredClone(room.roleEffects || {}), lines = [];
+  let roles = structuredClone(room.roleEffects || {}), voicePresets;
+  const lines = [];
   Object.setPrototypeOf(roles, null);
   if (data.scope === 'role') {
-    if (!moderator) failure('owner');
     if (!room.trackOrder.includes(data.character)) failure('missing');
+    if (!require('../public/voice-preset-model').canEditRole(room, data.character, conn.nick, moderator)) failure('owner');
     const previous = model.role(room, data.character);
     if (previous.voicePresetId && data.previousPresetRevision !== model.preset(room, previous)?.revision) failure('conflict');
     if (data.settings?.voicePresetId && data.presetRevision !== model.preset(room, data.settings)?.revision) failure('conflict');
@@ -23,8 +24,15 @@ function plan(room, conn, data, moderator, owner) {
     if (!data.settings || !model.validEffects(data.settings.effects, data.settings.presetModified === true ? 16 : model.MAX_EFFECTS) || !Number.isFinite(data.settings.pitch) || Math.abs(data.settings.pitch) > 12) failure('invalid');
     if (data.settings.presetModified !== undefined && typeof data.settings.presetModified !== 'boolean') failure('invalid');
     if (data.settings.voicePresetId != null && !model.id(data.settings.voicePresetId) || data.settings.usePresetPitch !== undefined && typeof data.settings.usePresetPitch !== 'boolean') failure('invalid');
-    if (data.settings.presetModified !== undefined && !data.settings.voicePresetId && data.settings.effects.length) failure('rolePreset');
+    if (data.settings.presetModified !== undefined && !data.settings.voicePresetId && data.settings.effects.length && !data.rolePreset) failure('rolePreset');
     roles[data.character] = { voicePresetId: data.settings.voicePresetId ?? null, usePresetPitch: data.settings.usePresetPitch ?? false, pitch: data.settings.pitch, effects: structuredClone(data.settings.effects), ...(typeof data.settings.presetModified === 'boolean' ? { presetModified: data.settings.presetModified } : {}), revision: (previous.revision || 0) + 1 };
+    if (data.rolePreset !== undefined) {
+      const presets = require('../public/voice-preset-model'), existing = presets.rolePreset(room, data.character), binding = data.rolePreset;
+      if (!binding || !model.id(binding.id) || binding.id !== (existing?.id || binding.id) || binding.revision !== (existing?.revision || 0) || !existing && Object.hasOwn(room.voicePresets || {}, binding.id)) failure('conflict');
+      const request = { action: existing ? 'update' : 'create', id: binding.id, revision: binding.revision, name: data.character, icon: data.presetIcon, settings: { effects: structuredClone(model.ownEffects(data.settings, room)), pitch: model.ownPitch(data.settings, room) || 0 }, roleTargets: [presets.roleTarget(room, data.character)] };
+      const next = require('./voicePresets').planScene(room, conn, request, moderator);
+      roles = next.roleEffects; voicePresets = next.voicePresets;
+    }
   } else {
     if (['editPitch', 'editInheritance', 'editExceptions', 'editPreset'].some(key => data[key] !== undefined && typeof data[key] !== 'boolean')) failure('invalid');
     if (!Array.isArray(data.takes) || !data.takes.length || data.takes.length > 2000 || !['replace', 'append', 'clear', 'inherit', 'detach'].includes(data.action)) failure('invalid');
@@ -61,11 +69,11 @@ function plan(room, conn, data, moderator, owner) {
     }
   }
   const replacements = new Map(lines.map(line => [line.id, line]));
-  validateScene({ ...room, roleEffects: roles, lines: room.lines.map(line => replacements.get(line.id) || line) });
-  return { roles, lines };
+  validateScene({ ...room, ...(voicePresets ? { voicePresets } : {}), roleEffects: roles, lines: room.lines.map(line => replacements.get(line.id) || line) });
+  return { roles, lines, ...(voicePresets ? { voicePresets } : {}) };
 }
 const singleChain = room => [...Object.values(room.roleEffects || {}), ...(room.lines || []).flatMap(line => [line, ...(line.takeHistory || [])]), ...(room.deletedLines || []).flatMap(batch => [...Object.values(batch.roleEffects || {}), ...(batch.lines || []).flatMap(entry => entry.line ? [entry.line, ...(entry.line.takeHistory || [])] : [])])].some(entry => typeof entry?.presetModified === 'boolean');
-const minimumVersion = room => singleChain(room) || Object.values(room.voicePresets || {}).some(preset => preset.effects.length > model.MAX_EFFECTS) ? 3 : Object.values(room.voicePresets || {}).some(preset => preset.icon !== undefined) ? 2 : requiresClient(room) ? 1 : 0;
+const minimumVersion = room => model.hasPitchStage(room) ? 4 : singleChain(room) || Object.values(room.voicePresets || {}).some(preset => preset.effects.length > model.MAX_EFFECTS) ? 3 : Object.values(room.voicePresets || {}).some(preset => preset.icon !== undefined) ? 2 : requiresClient(room) ? 1 : 0;
 const requiresClient = room => room.projectAudio?.normalizeVoices === true || Object.values(room.roleEffects || {}).some(role => role.voicePresetId) || (room.lines || []).some(line => [line, ...(line.takeHistory || [])].some(take => take.voicePresetId));
 const incompatible = (roomId, version = 1) => Object.entries(require('./state').roomSockets[roomId] || {}).filter(([, member]) => (member.voiceVersion || 0) < version).map(([id]) => id);
 function enforce(roomId, room) { if (minimumVersion(room)) for (const id of incompatible(roomId, minimumVersion(room))) { const socket = require('./app').io.sockets.sockets.get(id); socket?.emit('join_denied', { reason: 'voiceVersion' }); socket?.disconnect(true); } }
@@ -75,16 +83,16 @@ function register(socket, conn) {
       const rooms = require('./rooms'), room = rooms.getRoom(conn.roomId), auth = require('./auth');
       if ((typeof data.settings?.presetModified === 'boolean' ? incompatible(conn.roomId, 3).length : data.settings?.voicePresetId && incompatible(conn.roomId).length)) failure('clientUpdate');
       const next = plan(room, conn, data, auth.canModerate(room, conn.clientId), line => auth.getLineOwner(room, line));
-      if (incompatible(conn.roomId, minimumVersion({ ...room, roleEffects: next.roles, lines: room.lines.map(line => next.lines.find(updated => updated.id === line.id) || line) })).length) failure('clientUpdate');
-      const previousRoles = room.roleEffects, previousAt = room.updatedAt;
+      if (incompatible(conn.roomId, minimumVersion({ ...room, ...(next.voicePresets ? { voicePresets: next.voicePresets } : {}), roleEffects: next.roles, lines: room.lines.map(line => next.lines.find(updated => updated.id === line.id) || line) })).length) failure('clientUpdate');
+      const previousRoles = room.roleEffects, previousPresets = room.voicePresets, previousAt = room.updatedAt;
       const originals = next.lines.map(line => room.lines.find(item => item.id === line.id)), copies = originals.map(line => structuredClone(line));
-      room.roleEffects = next.roles; originals.forEach((line, i) => Object.assign(line, next.lines[i])); room.updatedAt = Date.now();
+      room.roleEffects = next.roles; if (next.voicePresets) room.voicePresets = next.voicePresets; originals.forEach((line, i) => Object.assign(line, next.lines[i])); room.updatedAt = Date.now();
       try { rooms.flushRooms({ strict: true }); }
-      catch { room.roleEffects = previousRoles; room.updatedAt = previousAt; originals.forEach((line, i) => { for (const key of Object.keys(line)) delete line[key]; Object.assign(line, copies[i]); }); rooms.snapshotActive(room); failure('storage'); }
+      catch { room.roleEffects = previousRoles; room.voicePresets = previousPresets; room.updatedAt = previousAt; originals.forEach((line, i) => { for (const key of Object.keys(line)) delete line[key]; Object.assign(line, copies[i]); }); rooms.snapshotActive(room); failure('storage'); }
       require('./app').io.to(conn.roomId).emit('voice_updated', { sessionId: room.activeSessionId, character: data.scope === 'role' ? data.character : null,
-        roleEffects: room.roleEffects, lines: next.lines, editorProtocol: require('./editorOperations').snapshotProtocol(room) });
+        roleEffects: room.roleEffects, ...(next.voicePresets ? { voicePresets: room.voicePresets } : {}), lines: next.lines, editorProtocol: require('./editorOperations').snapshotProtocol(room) });
       ack({ ok: true, updated: next.lines.length });
-    } catch (error) { ack({ ok: false, reason: error.message.startsWith('fx.') ? error.message : 'fx.invalid' }); }
+    } catch (error) { ack({ ok: false, reason: error.message.startsWith('fx.') || error.message.startsWith('preset.') ? error.message : 'fx.invalid' }); }
   });
 }
 // Existing roles use names. Rename transfers their one shared definition; merge

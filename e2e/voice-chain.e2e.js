@@ -84,8 +84,8 @@ describe('voice chains: real DSP, inspector, author rights and scoped collaborat
     const a = await guest.$eval('#fxRows .fx-grip', node => { const r = node.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
     const b = await guest.$eval('#fxRows .fx-item:last-child', node => { const r = node.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
     await guest.mouse.move(a.x, a.y); await guest.mouse.down(); await guest.mouse.move(b.x, b.y, { steps: 8 }); await guest.mouse.up();
-    assert.deepEqual(await guest.$$eval('#fxRows .fx-item b', nodes => nodes.map(node => node.textContent)), await guest.evaluate(() => [t('fx.name.radio'), t('fx.name.telephone')]));
-    assert.equal(await guest.$eval('#fxRows .fx-item:last-child input[type="range"]', node => node.value), '40');
+    assert.deepEqual(await guest.$$eval('#fxRows .fx-item b', nodes => nodes.map(node => node.textContent)), await guest.evaluate(() => [t('fx.name.telephone'), t('fx.name.radio'), t('fx.name.pitch')]));
+    assert.equal(await guest.$eval('#fxRows [data-action=amount]', node => node.value), '40');
     await guest.click('#fxCancel'); await waitFor(guest, () => document.querySelector('dialog.text-prompt[open]')); await guest.click('#textPromptCancel'); await waitFor(guest, () => !document.getElementById('fxDialog').open); assert.equal(await host.evaluate(() => JSON.stringify(session.lines)), before);
   });
   test('replacement and history restore retain individual chain, inheritance, pitch and pin without duplicate stages', async () => {
@@ -183,20 +183,20 @@ describe('voice chains: real DSP, inspector, author rights and scoped collaborat
     await guest.evaluate(() => { document.body.style.zoom = ''; DublineVoiceEditor.close(); });
     await guest.setViewport({ width: 1600, height: 900 });
   });
-  test('bulk own-chain replacement keeps different pitch/inheritance after real confirmation', async () => {
+  test('bulk own-chain clearing removes pitch while preserving role inheritance after confirmation', async () => {
     const own = (type, amount, mode, inherit) => ({ effects: [effect(type, amount)], pitchMode: mode, inheritRoleEffects: inherit, excludedRoleEffectIds: [] });
     assert.equal((await update(host, { ...await takeRequest(host, [1], own('telephone', .3, 'override', false)), pitch: 4 })).ok, true);
     assert.equal((await update(guest, await takeRequest(guest, [2], own('radio', .4, 'inherit', true)))).ok, true);
     await waitFor(host, () => session.lines.find(line => line.id === 2).effects[0].type === 'radio');
     await host.evaluate(() => { multiSelection.clear(); multiSelection.add(1); multiSelection.add(2); DublineVoiceEditor.bulk(); });
-    assert.equal(await host.$eval('#fxPitchMode', node => node.value), 'mixed'); assert.equal(await host.$eval('#fxInherit', node => node.indeterminate), true);
+    assert.equal(await host.$('#fxPitchMode'), null); assert.equal(await host.$eval('#fxInherit', node => node.indeterminate), true);
     await host.click('#fxClearChain'); assert.equal(await host.$eval('#fxRows', node => node.children.length), 0);
     await host.click('[data-fx-type="' + 'echo' + '"]');
     await host.$eval('#fxRows input[type="range"]', node => { node.value = '20'; node.dispatchEvent(new Event('input', { bubbles: true })); });
     await host.click('#fxApply'); await waitFor(host, () => document.querySelector('dialog.text-prompt[open]')); await host.click('#textPromptSave');
     await waitFor(guest, () => [1, 2].every(id => session.lines.find(line => line.id === id).effects.length === 1 && session.lines.find(line => line.id === id).effects[0].type === 'echo' && session.lines.find(line => line.id === id).effects[0].amount === .2));
     const values = await guest.evaluate(() => [1, 2].map(id => { const line = session.lines.find(item => item.id === id); return { types: line.effects.map(item => item.type), pitch: line.pitch, mode: line.pitchMode, inherit: line.inheritRoleEffects, echo: line.effects[0].amount }; }));
-    assert.deepEqual(values[0], { types: ['echo'], pitch: 4, mode: 'override', inherit: false, echo: .2 }); assert.equal(values[1].mode, 'inherit'); assert.equal(values[1].inherit, true); assert.deepEqual(values[1].types, ['echo']);
+    assert.deepEqual(values[0], { types: ['echo'], pitch: 0, mode: 'override', inherit: false, echo: .2 }); assert.equal(values[1].mode, 'override'); assert.equal(values[1].inherit, true); assert.deepEqual(values[1].types, ['echo']);
     await host.evaluate(() => { multiSelection.clear(); });
   });
 });

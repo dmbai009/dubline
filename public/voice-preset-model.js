@@ -6,6 +6,16 @@
   const ICONS = Object.freeze({ voice: '◉', sparkles: '✦', robot: '🤖', radio: '📻', telephone: '☎', monster: '👹', thoughts: '💭', cave: '◈', behindDoor: '🚪', megaphone: '📣', echo: '≋', music: '♫' });
   const validIcon = value => typeof value === 'string' && Object.hasOwn(ICONS, value);
   const icon = preset => ICONS[preset?.icon] || ICONS.voice;
+  const roleNamed = (scene, name) => (scene?.trackOrder || scene?.roles || []).includes(name) ? name : null;
+  const rolePreset = (scene, name) => Object.values(scene?.voicePresets || {}).find(preset => preset.name === name) || null;
+  const canEditRole = (scene, name, actor, moderator) => !!actor && !!roleNamed(scene, name) && (!!moderator || scene?.singlePlayer === true || Object.hasOwn(scene?.characterClaims || {}, name) && scene.characterClaims[name] === actor);
+  function canEditPreset(scene, preset, actor, moderator, action = 'update') {
+    if (!preset || !actor) return false;
+    const role = roleNamed(scene, preset.name);
+    if (role && !canEditRole(scene, role, actor, moderator)) return false;
+    return !!moderator || preset.createdBy === actor || action === 'update' && !!role && canEditRole(scene, role, actor, moderator);
+  }
+  function roleTarget(scene, character) { const entry = chain.role(scene, character); return { character, revision: entry.revision || 0, voicePresetId: entry.voicePresetId || null }; }
   const name = value => typeof value === 'string' && value.trim().length > 0 && value.length <= MAX_NAME && !/[\x00-\x1f\x7f]/.test(value);
   function validSettings(value) {
     return object(value) && Object.keys(value).every(key => ['effects', 'pitch'].includes(key)) && chain.validEffects(value.effects, 16) &&
@@ -30,6 +40,7 @@
   function link(take, scene, selected, usePitch = false) {
     const value = scene?.voicePresets?.[selected]; if (!validEntry(value, selected) || typeof usePitch !== 'boolean') throw Error('preset.invalid');
     const next = { ...take, ...chain.take(take), effects: [], voicePresetId: selected, usePresetPitch: usePitch, presetModified: false };
+    if (usePitch) { next.pitch = 0; next.pitchMode = 'override'; }
     if (!chain.safe(chain.resolve(next, scene))) throw Error('fx.limit'); return next;
   }
   function detach(take, scene, newId) {
@@ -43,6 +54,6 @@
     const lines = (scene?.lines || []).filter(line => [line, ...(line.takeHistory || [])].some(take => take.voicePresetId === id && take.presetModified !== true || roles.includes(line.character) && (take.inheritRoleEffects !== false || chain.take(take).pitchMode === 'inherit' && chain.role(scene, line.character).usePresetPitch === true)));
     return { roles, lines: lines.map(line => line.id), variants: (scene?.lines || []).reduce((sum, line) => sum + [line, ...(line.takeHistory || [])].filter(take => take.voicePresetId === id && take.presetModified !== true).length, 0) };
   }
-  const api = { MAX_PRESETS, MAX_NAME, ICONS, validIcon, icon, name, validSettings, validEntry, validLibrary, apply, link, detach, usage };
+  const api = { MAX_PRESETS, MAX_NAME, ICONS, validIcon, icon, roleNamed, rolePreset, roleTarget, canEditRole, canEditPreset, name, validSettings, validEntry, validLibrary, apply, link, detach, usage };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.DublineVoicePresets = api;
 })(typeof window === 'undefined' ? globalThis : window);

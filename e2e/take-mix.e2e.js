@@ -310,12 +310,12 @@ describe('clip mixing: real sockets, inspector and audio', { skip: skipReason, t
     }
     await host.evaluate(() => DublineVoiceEditor.open(1, 'takes'));
     await host.$eval('#fxRows .fx-item:last-child input[type=range]', input => input.dispatchEvent(new MouseEvent('dblclick', { bubbles:true })));
-    await host.$eval('#fxPitch', input => input.dispatchEvent(new MouseEvent('dblclick', { bubbles:true })));
+    await host.$eval('#fxRows [data-action=semitones]', input => input.dispatchEvent(new MouseEvent('dblclick', { bubbles:true })));
     await host.click('#fxApply'); await waitFor(guest, () => session.lines[0].pitch === 0 && session.lines[0].effects.at(-1).amount === 1);
     await other.evaluate(() => selectLine(session.lines[0]));
     assert.equal(await other.$eval('[data-clip-field=volume]', input => { const value=input.value;input.dispatchEvent(new MouseEvent('dblclick',{bubbles:true}));return input.disabled && input.value===value; }),true);
   });
-  test('bulk inspector replaces one own chain atomically while preserving clip mix and pitch', async () => {
+  test('bulk inspector replaces the complete own chain including pitch while preserving clip mix', async () => {
     await host.evaluate(() => { clearMultiSelection(); selectLine(session.lines[0]); toggleMultiSelect(2); });
     assert.equal(await host.$('[data-clip-field=effect]'),null); assert.equal(await host.$('[data-clip-field=pitch]'),null); assert.equal(await host.$('[data-clip-field=effectAmount]'),null);
     const before=await host.evaluate(() => session.lines.slice(0,2).map(line => ({ effects:DublineVoiceChain.take(line).effects.length,pitch:line.pitch,mode:DublineVoiceChain.take(line).pitchMode })));
@@ -323,6 +323,6 @@ describe('clip mixing: real sockets, inspector and audio', { skip: skipReason, t
     await host.$eval('#fxRows input[type=range]', input => { input.value='55';input.dispatchEvent(new Event('input',{bubbles:true})); });
     await host.click('#fxApply'); await waitFor(guest, before => session.lines.slice(0,2).every((line,i) => line.effects?.length===1 && line.effects[0].type==='radio' && line.effects[0].amount===.55),10000,before);
     const after=await guest.evaluate(() => session.lines.slice(0,2).map(line => ({ amount:line.effects.at(-1).amount,type:line.effects.at(-1).type,pitch:line.pitch,mode:line.pitchMode })));
-    for(let i=0;i<2;i++){assert.equal(after[i].amount,.55);assert.equal(after[i].type,'radio');assert.equal(after[i].pitch,before[i].pitch);assert.equal(after[i].mode,before[i].mode);}
+    for(let i=0;i<2;i++){assert.equal(after[i].amount,.55);assert.equal(after[i].type,'radio');assert.equal(after[i].pitch,0);assert.equal(after[i].mode,'override');}
   });
 });

@@ -23,11 +23,11 @@
     const previous = shared ? draft.presetId : $('fxPresetSelect').value || draft?.presetId, presets = Object.values(session?.voicePresets || {});
     $('fxPresetSelect').replaceChildren(new Option(t('preset.choose'), ''), ...presets.map(preset => new Option(model.icon(preset) + ' ' + preset.name, preset.id)));
     if (presets.some(preset => preset.id === previous)) $('fxPresetSelect').value = previous;
-    const preset = selected(), own = !!preset && (canModerate() || preset.createdBy === myName), locked = sending || !!operation;
+    const preset = selected(), locked = sending || !!operation;
     for (const id of ['fxPresetSelect', 'fxPresetSave']) $(id).disabled = locked;
     $('fxPresetUpdate').hidden = shared || !!draft?.presetId && draft.presetId === preset?.id; $('fxPresetUpdate').textContent = t('chain.editLibrary'); delete $('fxPresetUpdate').dataset.i18n;
-    $('fxPresetApply').disabled = !preset || locked; for (const id of ['fxPresetRename', 'fxPresetUpdate', 'fxPresetDelete']) $(id).disabled = !own || locked;
-    $('fxPresetDescription').textContent = preset ? `${preset.createdBy} · ${preset.effects.map(effect => `${t('effect.' + effect.type)} ${Math.round(effect.amount * 100)}%${effect.enabled ? '' : ' (' + t('fx.disabled') + ')'}`).join(' → ') || t('effect.none')}${preset.pitch === undefined ? '' : ' · ' + t('pitch') + ' ' + preset.pitch}` : t('preset.empty');
+    $('fxPresetApply').disabled = !preset || locked; for (const [id, action] of [['fxPresetRename', 'rename'], ['fxPresetUpdate', 'update'], ['fxPresetDelete', 'delete']]) $(id).disabled = !model.canEditPreset(session, preset, myName, canModerate(), action) || locked;
+    $('fxPresetDescription').textContent = preset ? `${preset.createdBy} · ${preset.effects.map(effect => `${t('effect.' + effect.type)} ${effect.type === 'pitch' ? (effect.parameters.semitones > 0 ? '+' : '') + effect.parameters.semitones : Math.round(effect.amount * 100) + '%'}${effect.enabled ? '' : ' (' + t('fx.disabled') + ')'}`).join(' → ') || t('effect.none')}${preset.pitch === undefined ? '' : ' · ' + t('pitch') + ' ' + preset.pitch}` : t('preset.empty');
     $('fxPresetRetry').hidden = !operation; $('fxPresetRetry').disabled = sending;
   }
   function receive(data) {
@@ -49,10 +49,21 @@
       if (captured !== operation) return;
       if (answer?.ok && captured.request.action === 'delete' && !await resyncEditor()) { status('preset.syncError'); return; }
       if (answer) operation = null;
-      if (answer?.ok) { receive({ sessionId: captured.request.sessionId, voicePresets: answer.voicePresets, editorProtocol: answer.editorProtocol }); status('preset.saved'); editor.catalogSaved(captured.request.id, captured.request.revision); if (captured.linkDraft && editor.draft()?.sessionId === captured.request.sessionId && editor.draft()?.draftId === captured.draftId) { try { editor.usePreset(session.voicePresets[captured.request.id], false, true, true); } catch (error) { status(error.message); } } if (session.activeSessionId === captured.request.sessionId && Object.hasOwn(session.voicePresets || {}, captured.request.id)) { $('fxPresetSelect').value = captured.request.id; refresh(); } }
+      if (answer?.ok) { receive({ sessionId: captured.request.sessionId, voicePresets: answer.voicePresets, ...(answer.roleEffects ? { roleEffects: answer.roleEffects } : {}), editorProtocol: answer.editorProtocol }); status('preset.saved'); editor.catalogSaved(captured.request.id, captured.request.revision); if (captured.linkDraft && editor.draft()?.sessionId === captured.request.sessionId && editor.draft()?.draftId === captured.draftId) { try { editor.usePreset(session.voicePresets[captured.request.id], false, true, true); } catch (error) { status(error.message); } } if (session.activeSessionId === captured.request.sessionId && Object.hasOwn(session.voicePresets || {}, captured.request.id)) { $('fxPresetSelect').value = captured.request.id; refresh(); } }
       else status(answer?.reason?.startsWith('preset.') ? answer.reason : 'preset.syncError');
     } catch { status('preset.syncError'); }
     finally { sending = false; $('fxDialog').querySelector('.fx-body').inert = !!operation; refresh(); }
+  }
+  async function confirmRoleName(data, draft) {
+    const name = data.name?.trim(), character = model.roleNamed(session, name);
+    if (!character) return true;
+    if (!model.canEditRole(session, character, myName, canModerate())) { status('preset.owner'); return false; }
+    const target = model.roleTarget(session, character), existing = model.rolePreset(session, character);
+    if (!await askConfirm(t('preset.roleWarning', { name: character }))) return false;
+    if (editor.draft()?.draftId !== draft.draftId || session.activeSessionId !== draft.sessionId) return false;
+    data.roleTargets = [target];
+    if (data.action === 'create' && existing) { data.action = 'update'; data.id = existing.id; data.revision = existing.revision; }
+    return true;
   }
   function mutate(data, draft, linkDraft = false) {
     if (operation || sending || !draft || draft.sessionId !== session.activeSessionId || editor.draft()?.draftId !== draft.draftId) return;
@@ -61,7 +72,7 @@
   }
   $('fxPresetSave').onclick = async () => { const draft = editor.draft(); if (!draft || operation) return;
     const settings = { effects: structuredClone(draft.effects), pitch: draft.pitch }, name = await askText(t('preset.name'), draft.character.slice(0, model.MAX_NAME), model.MAX_NAME);
-    if (name && editor.draft()?.sessionId === draft.sessionId) mutate({ action: 'create', id: newUploadId(), revision: 0, name, icon: draft.icon, settings }, draft, draft.scope !== 'preset');
+    if (name && editor.draft()?.sessionId === draft.sessionId) { const data = { action: 'create', id: newUploadId(), revision: 0, name, icon: draft.icon, settings }; if (await confirmRoleName(data, draft)) mutate(data, draft, draft.scope !== 'preset'); }
   };
   $('fxPresetApply').onclick = async () => {
     const draft = editor.draft(), preset = structuredClone(selected()); if (!draft || !preset) return;
@@ -74,7 +85,7 @@
     const draft = editor.draft(), preset = structuredClone(selected()); if (!draft || !preset || operation) return;
     const data = { action, id: preset.id, revision: preset.revision };
     if (action === 'update') { if (draft.presetId === preset.id) await updateSource(); else if (await editor.close()) editor.open(preset.id, 'preset'); return; }
-    if (action === 'rename') { data.name = await askText(t('preset.name'), preset.name, model.MAX_NAME); if (!data.name) return; }
+    if (action === 'rename') { data.name = await askText(t('preset.name'), preset.name, model.MAX_NAME); if (!data.name || !await confirmRoleName(data, draft)) return; }
     else { data.settings = { effects: structuredClone(draft.effects), pitch: draft.pitch }; if (!await askConfirm(t(action === 'delete' && (model.usage(session, preset.id).lines.length || model.usage(session, preset.id).roles.length) ? 'live.deleteUsed' : action === 'delete' ? 'preset.deleteConfirm' : 'preset.updateConfirm', { name: preset.name, n: model.usage(session, preset.id).lines.length, r: model.usage(session, preset.id).roles.length }), { danger: action === 'delete' })) return; if (action === 'delete') { delete data.settings; data.detach = true; } }
     mutate(data, draft);
   };
@@ -83,7 +94,7 @@
   window.addEventListener('dubline-language-changed', () => { DublineI18n.apply(area); refresh(); });
   async function updateSource() {
     const draft = editor.draft(), preset = session.voicePresets?.[draft?.presetId];
-    if (!draft || !preset || operation || sending || !canModerate() && preset.createdBy !== myName) return;
+    if (!draft || !preset || operation || sending || !model.canEditPreset(session, preset, myName, canModerate())) return;
     const usage = model.usage(session, preset.id), revision = draft.sourceRevision;
     if (!await askConfirm(t('chain.updateConfirm', { name: preset.name, n: usage.lines.length, r: usage.roles.length }))) return;
     if (editor.draft()?.sessionId !== draft.sessionId || editor.draft()?.draftId !== draft.draftId) return;

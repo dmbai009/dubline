@@ -164,12 +164,15 @@
     if (chosen.source === 'original' && !amHost()) reason = 'onlyHost';
     if (source && !policy.valid(source.duration)) reason = 'exportVideo.sourceMissing';
     if (chosen.invalidRange) reason = 'range.invalid';
+    if (!native() && reason === 'exportVideo.unsupported') reason = 'exportVideo.browserUnsupported';
     el('Method').textContent = !source && metadataError ? metadataError : reason ? t(reason) : chosen.range ? t('range.encoding') : chosen.audioRealtime ? t('exportVideo.originalRealtime') : realtime ? t('exportVideo.realtime') : chosen.mode === 'custom' ? t('exportVideo.reencode') : chosen.mode === 'original' ? t(metadata.originalSame ? 'exportVideo.sameSource' : 'exportVideo.originalMethod') : t(metadata.originalSame ? 'exportVideo.copySame' : 'exportVideo.copyMethod');
     el('Limits').textContent = chosen.mode === 'custom' && source ? t('exportVideo.limits', { width: unknown(source.width), height: unknown(source.height), fps:policy.valid(source.fps)?number(source.fps,3):unknown(source.fps), bitrate:policy.valid(source.bitrate)?number(policy.bitrateBounds(source).max/1000000) : t('exportVideo.unknown') }) : !native() ? t('exportVideo.browserMemory') : '';
     document.getElementById('startRenderBtn').disabled = !!reason || planning || renderInProgress || recordState !== 'idle';
+    document.getElementById('startRenderBtn').title = reason ? t(reason) : '';
     panel.dataset.ready = String(!reason); panel.dataset.realtime = String(realtime);
     panel.querySelector('fieldset').disabled = planning || renderInProgress;
     for (const control of el('Custom').querySelectorAll('select,input')) control.disabled = planning || renderInProgress || control === el('Bitrate') && !policy.valid(source?.bitrate);
+    window.refreshActionHelp?.();
   }
   function open() {
     if (!session?.loaded) return;
@@ -180,7 +183,7 @@
     metadataKey = next; metadata = null; capabilities = null; metadataError = ''; ++generation;
     panel.dataset.ready = 'false'; panel.dataset.realtime = 'false';
     el('Retry').hidden = true;
-    document.getElementById('startRenderBtn').disabled = true; el('Metadata').textContent = t('exportVideo.loading');
+    document.getElementById('startRenderBtn').disabled = true; document.getElementById('startRenderBtn').title = t('exportVideo.loading'); el('Metadata').textContent = t('exportVideo.loading');
     const job = (async () => { try {
       const response = await fetch(`/api/video-export-info?room=${encodeURIComponent(currentRoom)}&clientId=${encodeURIComponent(clientId)}&sessionId=${encodeURIComponent(session.activeSessionId)}`,{signal:metadataAbort.signal});
       if (!response.ok) throw Error(await readError(response));
@@ -189,7 +192,7 @@
       metadata = loaded; capabilities = available;
       el('Source').value=amHost()&&loaded.original?'original':'working';
       configureSource(); await paint();
-    } catch (error) { if (next === key()) { metadataKey = ''; metadataError = error.message; panel.dataset.ready = 'false'; el('Retry').hidden = false; el('Metadata').textContent = error.message; el('Method').textContent = error.message; } }
+    } catch (error) { if (next === key()) { metadataKey = ''; metadataError = error.message; panel.dataset.ready = 'false'; el('Retry').hidden = false; el('Metadata').textContent = error.message; el('Method').textContent = error.message; document.getElementById('startRenderBtn').title = error.message; window.refreshActionHelp?.(); } }
     finally { if (metadataJob === job) metadataJob = null; } })();
     metadataJob = job; return job;
   }

@@ -1,3 +1,4 @@
+const { setEffectPitch } = require('./helpers');
 const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs'), path = require('node:path'), crypto = require('node:crypto');
@@ -72,11 +73,11 @@ describe('scene presets, consistent controls and one-shot previews', { skip: ski
     await actor.evaluate(() => { DublineVoiceEditor.open(2, 'takes'); const select = document.createElement('select'); select.id = 'fxDropdownTest'; select.setAttribute('aria-label', 'Dropdown fixture'); select.replaceChildren(...DublineVoiceChain.TYPES.map(type => new Option(t('effect.' + type), type))); document.querySelector('#fxDialog .fx-sidebar').append(select); }); await waitFor(actor, () => !!DublineDropdown.button(document.getElementById('fxDropdownTest')));
     await actor.evaluate(() => DublineDropdown.button(document.getElementById('fxDropdownTest')).focus()); await actor.keyboard.press('ArrowDown');
     assert.equal(await actor.$eval('#dubSelectPopup', node => !node.hidden && !!node.closest('dialog[open]')), true);
-    await actor.keyboard.press('Home'); await actor.keyboard.press('ArrowDown'); await actor.keyboard.press('Enter'); assert.equal(await actor.$eval('#fxDropdownTest', node => node.value), 'radio');
+    await actor.keyboard.press('Home'); await actor.keyboard.press('ArrowDown'); await actor.keyboard.press('Enter'); assert.equal(await actor.$eval('#fxDropdownTest', node => node.value), 'robot');
     await actor.evaluate(() => DublineDropdown.button(document.getElementById('fxDropdownTest')).click()); await actor.keyboard.press('Escape'); assert.equal(await actor.$eval('#fxDialog', node => node.open), true);
     await actor.evaluate(() => { document.getElementById('fxDropdownTest').value = 'echo'; }); await waitFor(actor, () => DublineDropdown.button(document.getElementById('fxDropdownTest')).textContent.includes(t('effect.echo')));
-    await actor.evaluate(() => { document.getElementById('fxDropdownTest').options[0].disabled = true; DublineDropdown.button(document.getElementById('fxDropdownTest')).click(); }); await actor.keyboard.press('Home'); await actor.keyboard.press('Enter'); assert.notEqual(await actor.$eval('#fxDropdownTest', node => node.value), 'robot');
-    await actor.evaluate(() => { document.getElementById('fxDropdownTest').options[0].disabled = false; DublineDropdown.button(document.getElementById('fxDropdownTest')).scrollIntoView({ block: 'nearest' }); DublineDropdown.button(document.getElementById('fxDropdownTest')).click(); }); await actor.locator('#dubSelectOptions [data-index="2"]').click(); assert.equal(await actor.$eval('#fxDropdownTest', node => node.value), 'telephone');
+    await actor.evaluate(() => { document.getElementById('fxDropdownTest').options[0].disabled = true; DublineDropdown.button(document.getElementById('fxDropdownTest')).click(); }); await actor.keyboard.press('Home'); await actor.keyboard.press('Enter'); assert.notEqual(await actor.$eval('#fxDropdownTest', node => node.value), 'pitch');
+    await actor.evaluate(() => { document.getElementById('fxDropdownTest').options[0].disabled = false; DublineDropdown.button(document.getElementById('fxDropdownTest')).scrollIntoView({ block: 'nearest' }); DublineDropdown.button(document.getElementById('fxDropdownTest')).click(); }); await actor.locator('#dubSelectOptions [data-index="3"]').click(); assert.equal(await actor.$eval('#fxDropdownTest', node => node.value), 'telephone');
     await actor.evaluate(() => document.getElementById('fxDropdownTest').remove()); await closeFx(actor);
   });
   test('one-shot chain preview and unavailable samples do not prevent editing', async () => {
@@ -89,28 +90,28 @@ describe('scene presets, consistent controls and one-shot previews', { skip: ski
   test('Save as preset captures a private role draft, broadcasts it, and survives discarding the role draft', async () => {
     await host.evaluate(() => DublineVoiceEditor.open('Hero', 'role')); await host.$eval('#fxPresets', node => { node.open = true; });
     for (const type of ['radio', 'robot', 'echo']) { await host.click('[data-fx-type="' + type + '"]'); }
-    await host.$eval('#fxPitch', node => { node.value = '-2'; node.dispatchEvent(new Event('input')); });
+    await setEffectPitch(host, -2);
     await host.click('#fxPresetSave'); await answerTextPrompt(host, 'Old radio'); await waitFor(actor, () => Object.values(session.voicePresets || {}).some(preset => preset.name === 'Old radio'));
     savedId = await actor.evaluate(() => Object.values(session.voicePresets).find(preset => preset.name === 'Old radio').id);
     await host.click('#fxCancel'); await waitFor(host, () => document.querySelector('dialog.text-prompt[open]'));
-    await host.click('#textPromptContinue'); assert.equal(await host.$eval('#fxDialog', node => node.open), true); assert.equal(await host.$$eval('#fxRows .fx-item', nodes => nodes.length), 3);
+    await host.click('#textPromptContinue'); assert.equal(await host.$eval('#fxDialog', node => node.open), true); assert.equal(await host.$$eval('#fxRows .fx-item', nodes => nodes.length), 4);
     await host.click('#fxCancel'); await waitFor(host, () => document.querySelector('dialog.text-prompt[open]')); await host.click('#textPromptCancel'); await waitFor(host, () => !document.getElementById('fxDialog').open);
     assert.equal(await actor.evaluate(() => DublineVoiceChain.role(session, 'Hero').effects.length), 0);
-    assert.equal(await actor.evaluate(id => session.voicePresets[id].effects.length, savedId), 3);
+    assert.equal(await actor.evaluate(id => session.voicePresets[id].effects.length, savedId), 4);
   });
   test('preset selection links one own chain and applies its complete settings without broadcasting the draft', async () => {
     await actor.evaluate(() => DublineVoiceEditor.open(2, 'takes')); await actor.select('#fxPresetSelect', savedId); await actor.click('#fxPresetApply');
     assert.equal(await actor.evaluate(() => session.lines.find(line => line.id === 2).voicePresetId || null), null);
-    assert.equal(await actor.$$eval('#fxRows .fx-item', nodes => nodes.length), 3);
+    assert.equal(await actor.$$eval('#fxRows .fx-item', nodes => nodes.length), 4);
     await actor.click('#fxApply'); await waitFor(host, id => session.lines.find(line => line.id === 2).voicePresetId === id, 10000, savedId);
     assert.deepEqual(await actor.evaluate(() => session.lines.find(line => line.id === 2).effects), []);
-    assert.equal(await actor.evaluate(() => DublineVoiceChain.resolve(session.lines.find(line => line.id === 2),session).pitch), -2);
+    assert.equal(await actor.evaluate(() => DublineVoiceChain.resolve(session.lines.find(line => line.id === 2),session).effects.find(e => e.type === 'pitch').parameters.semitones), -2);
   });
   test('editing preset pitch creates a private variant; Save on close commits only that chain', async () => {
-    await actor.evaluate(() => DublineVoiceEditor.open(2, 'takes')); await actor.select('#fxPitchMode','override');
-    await actor.$eval('#fxPitch', node => { node.value = '-1'; node.dispatchEvent(new Event('input')); }); await actor.click('#fxClose');
+    await actor.evaluate(() => DublineVoiceEditor.open(2, 'takes'));
+    await setEffectPitch(actor, -1); await actor.click('#fxClose');
     await waitFor(actor, () => document.querySelector('dialog.text-prompt[data-kind=decision][open]')); await actor.click('#textPromptSave');
-    await waitFor(host, () => session.lines.find(line => line.id === 2).pitch === -1 && session.lines.find(line => line.id === 2).presetModified === true);
+    await waitFor(host, () => session.lines.find(line => line.id === 2).effects?.find(e => e.type === 'pitch')?.parameters.semitones === -1 && session.lines.find(line => line.id === 2).presetModified === true);
     await waitFor(actor, () => !fxDialog.open); await actor.evaluate(() => DublineVoiceEditor.open(2,'takes')); await actor.click('#fxCancel'); assert.equal(await actor.$eval('#fxDialog',n=>n.open),false);
   });
   test('bulk preset replacement uses one shared chain per take and preserves unrelated settings', async () => {
@@ -120,7 +121,7 @@ describe('scene presets, consistent controls and one-shot previews', { skip: ski
     await host.evaluate(()=>multiSelection.clear());
   });
   test('combined resource limits refuse the entire preset draft without altering saved sound', async () => {
-    await actor.evaluate(()=>DublineVoiceEditor.open(2,'takes')); for(let i=0;i<5;i++) await actor.click('[data-fx-type=cave]');
+    await actor.evaluate(()=>DublineVoiceEditor.open(2,'takes')); await actor.click('#fxClearChain'); for(let i=0;i<5;i++) await actor.click('[data-fx-type=cave]');
     const before=await actor.evaluate(()=>JSON.stringify(session.lines.find(line=>line.id===2))); await actor.click('#fxApply');
     await waitFor(actor,()=>document.getElementById('fxStatus').textContent===t('fx.limit')); assert.equal(await actor.evaluate(()=>JSON.stringify(session.lines.find(line=>line.id===2))),before); await closeFx(actor);
   });
@@ -131,9 +132,9 @@ describe('scene presets, consistent controls and one-shot previews', { skip: ski
       socket.emit = function(event, ...args) { if (event === 'voice_update' && fxRequests.length < 2) { dropped.add(this.ids); fxRequests.push(args[0].operationId); } return emit.call(this, event, ...args); };
       socket.onack = function(packet) { if (dropped.delete(packet.id)) return; return onack.call(this, packet); };
     });
-    try { await actor.$eval('#fxPitch', node => { node.value = '1'; node.dispatchEvent(new Event('input')); }); await actor.click('#fxApply'); await actor.click('#fxClose'); assert.equal(await actor.$eval('#fxDialog', node => node.open && node.querySelector('.fx-body').inert), true);
+    try { await setEffectPitch(actor, 1); await actor.click('#fxApply'); await actor.click('#fxClose'); assert.equal(await actor.$eval('#fxDialog', node => node.open && node.querySelector('.fx-body').inert), true);
       await waitFor(actor, () => !document.getElementById('fxDialog').open, 18000); assert.equal(await actor.evaluate(() => new Set(fxRequests).size), 1); assert.equal(await actor.evaluate(() => fxRequests.length), 2);
-      assert.equal(await actor.evaluate(() => session.lines.find(line => line.id === 2).takeMixRevision), previous + 1); assert.equal(await actor.evaluate(() => session.lines.find(line => line.id === 2).pitch), 1);
+      assert.equal(await actor.evaluate(() => session.lines.find(line => line.id === 2).takeMixRevision), previous + 1); assert.equal(await actor.evaluate(() => session.lines.find(line => line.id === 2).effects.find(e => e.type === 'pitch').parameters.semitones), 1);
     } finally { await actor.evaluate(() => restoreFxAck()); }
   });
   test('lost preset ACKs confirm one saved snapshot through the receipt and never create duplicate presets', async () => {
@@ -246,9 +247,9 @@ describe('scene presets, consistent controls and one-shot previews', { skip: ski
     }
     await actor.evaluate(async () => { document.documentElement.dataset.theme = 'light'; await DublineI18n.setLanguage('ru'); }); await waitFor(actor, () => getComputedStyle(DublineDropdown.button(document.getElementById('fxPresetSelect'))).backgroundColor === 'rgb(255, 255, 255)'); await actor.screenshot({ path: path.join(__dirname, '../audit/ui-presets/dialog-light.png') }); await closeFx(actor); await actor.evaluate(() => { document.body.style.zoom = ''; }); await actor.setViewport({ width: 1600, height: 900 });
   });
-  test('portable format 13 reopens only the scene catalogue, survives host restart, and preserves recordings', async () => {
+  test('portable format 14 reopens only the scene catalogue, survives host restart, and preserves recordings', async () => {
     const bytes = await host.evaluate(async () => { const barrier = await prepareSafeSnapshot('project'), response = await fetch('/api/export-project', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ room: currentRoom, clientId, ...barrier }) }); if (!response.ok) throw Error(await response.text()); return Array.from(new Uint8Array(await response.arrayBuffer())); }); projectBytes = bytes;
-    const read = require('../server/projects').readProject(Buffer.from(bytes)); assert.equal(read.manifest.formatVersion, 13); assert.equal(read.manifest.project.voicePresets[savedId].revision, 4);
+    const read = require('../server/projects').readProject(Buffer.from(bytes)); assert.equal(read.manifest.formatVersion, 14); assert.equal(read.manifest.project.voicePresets[savedId].revision, 4);
     const old = await host.evaluate(() => session.activeSessionId);
     await host.evaluate(async bytes => { const form = new FormData(); form.append('clientId', clientId); form.append('sessionId', session.activeSessionId); form.append('project', new Blob([new Uint8Array(bytes)], { type: 'application/zip' }), 'presets.dubline'); const response = await fetch('/api/import-project?room=' + encodeURIComponent(currentRoom), { method: 'POST', body: form }); if (!response.ok) throw Error(await response.text()); }, projectBytes);
     await waitFor(actor, old => session.activeSessionId !== old && Object.keys(session.voicePresets || {}).length === 1, 20000, old);

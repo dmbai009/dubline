@@ -1,3 +1,4 @@
+const { setEffectPitch } = require('./helpers');
 const {describe,test,before,after}=require('node:test'),assert=require('node:assert/strict');
 const {skipReason,startServer,launchBrowser,openPlayer,loadFixture,claimAndSelect,waitFor,answerTextPrompt}=require('./helpers');
 describe('inspector linked presets and icon metadata',{skip:skipReason,timeout:120000},()=>{
@@ -9,7 +10,7 @@ describe('inspector linked presets and icon metadata',{skip:skipReason,timeout:1
    const b=new AudioBuffer({length:48000,sampleRate:48000,numberOfChannels:1});for(let i=0;i<b.length;i++)b.getChannelData(0)[i]=.05*Math.sin(i*.1);
    await submitTake({uploadId:newUploadId(),room:currentRoom,sessionId:session.activeSessionId,lineId:1,nick:myName,audioStart:0,duration:1,trimStart:.1,trimEnd:.9,blob:new Blob([audioBufferToWav(b)],{type:'audio/wav'}),createdAt:Date.now()});
    for(const [id,type]of [['radio','radio'],['phone','telephone']]){const r=await iconMutation('voice_preset_update',{action:'create',id,name:id,revision:0,settings:{effects:[{id:id+'-effect',type,enabled:true,amount:.4,parameters:{}}],pitch:5}});if(!r.ok)throw Error(JSON.stringify(r));}
-  });await waitFor(host,()=>!!session.lines[0].audioUrl);await host.evaluate(()=>{selectLine(session.lines[0]);DublineVoiceEditor.open(1,'takes');});await host.click('[data-fx-type=echo]');await host.select('#fxPitchMode','override');await host.$eval('#fxPitch',n=>{n.value=3;n.dispatchEvent(new Event('input',{bubbles:true}));});await host.click('#fxApply');await waitFor(host,()=>!fxDialog.open&&session.lines[0].effects?.length===1);
+  });await waitFor(host,()=>!!session.lines[0].audioUrl);await host.evaluate(()=>{selectLine(session.lines[0]);DublineVoiceEditor.open(1,'takes');});await host.click('[data-fx-type=echo]');await setEffectPitch(host, 3);await host.click('#fxApply');await waitFor(host,()=>!fxDialog.open&&session.lines[0].effects?.length===2);
   original=await host.evaluate(()=>({effects:structuredClone(session.lines[0].effects),pitch:session.lines[0].pitch,trim:session.lines[0].trimStart}));guest=await openPlayer(browser,server.url('quick-presets'),'Guest');await waitFor(guest,()=>session.loaded);
  });
  after(async()=>{await browser?.close();await server?.cleanup();});

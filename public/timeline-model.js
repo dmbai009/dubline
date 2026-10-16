@@ -39,6 +39,14 @@
     return updates;
   }
   function numbers(lines) { return new Map([...lines].sort((a, b) => a.start - b.start || a.id - b.id).map((line, index) => [line.id, index + 1])); }
+  function selectionRange(lines, tracks, fromId, toId) {
+    const from = lines.find(line => line.id === fromId), to = lines.find(line => line.id === toId);
+    if (!from || !to) return [];
+    const a = tracks.indexOf(from.character), b = tracks.indexOf(to.character);
+    if (a < 0 || b < 0) return [];
+    const left = Math.min(from.start, to.start), right = Math.max(from.end, to.end);
+    return lines.filter(line => { const row = tracks.indexOf(line.character); return row >= Math.min(a, b) && row <= Math.max(a, b) && line.end > left && line.start < right; }).map(line => line.id);
+  }
   function coordinate(clientX, originLeft, pixelsPerSecond) { return (clientX - originLeft) / pixelsPerSecond; }
   function laneGeometry(laneCount, preferredHeight) {
     const count = Number.isSafeInteger(laneCount) && laneCount > 0 ? laneCount : 1;
@@ -49,7 +57,7 @@
     const cueHeight = (height - padding * 2 - (count - 1) * gap) / count;
     return { height, minimum, cueHeight, stride: cueHeight + gap, padding, gap };
   }
-  const api = Object.freeze({ MAX_SECONDS, limit, valid, create, move, resize, roles, numbers, coordinate, laneGeometry });
+  const api = Object.freeze({ MAX_SECONDS, limit, valid, create, move, resize, roles, numbers, coordinate, laneGeometry, selectionRange });
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else global.DublineTimeline = api;
 })(typeof window !== 'undefined' ? window : globalThis);

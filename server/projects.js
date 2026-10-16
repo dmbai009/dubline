@@ -10,7 +10,7 @@ const { UPLOAD_DIR, MAX_VIDEO_MB, MAX_CAPTION_LENGTH, VOICE_EFFECTS, MAX_PITCH, 
 const { diskPathForUrl } = require('./files');
 
 const FORMAT = 'dubline-project';
-const VERSION = 13;
+const VERSION = 14;
 const speechModel = require('../public/speech-model');
 const presetModel = require('../public/voice-preset-model');
 const voiceModel = require('../public/voice-chain-model');
@@ -88,7 +88,8 @@ function captureProject(session, resolveAsset = diskPathForUrl, snapshotDir = nu
   if (session.noiseReduction?.engine && !noiseModel.validState(session.noiseReduction)) fail('Invalid RNNoise settings');
   const noiseState = noiseModel.migrateState(session.noiseReduction);
   if (!presetModel.validLibrary(session.voicePresets || {})) fail('Invalid voice presets');
-  const hasSingle = Object.values(session.voicePresets || {}).some(preset => preset.effects.length > voiceModel.MAX_EFFECTS) || [...Object.values(session.roleEffects || {}), ...session.lines.flatMap(line => [line, ...(line.takeHistory || [])])].some(entry => typeof entry.presetModified === 'boolean');
+  const hasPitch = voiceModel.hasPitchStage(session);
+  const hasSingle = hasPitch || Object.values(session.voicePresets || {}).some(preset => preset.effects.length > voiceModel.MAX_EFFECTS) || [...Object.values(session.roleEffects || {}), ...session.lines.flatMap(line => [line, ...(line.takeHistory || [])])].some(entry => typeof entry.presetModified === 'boolean');
   const hasPresets = Object.keys(session.voicePresets || {}).length > 0;
   const hasIcons = Object.values(session.voicePresets || {}).some(preset => preset.icon !== undefined);
   const hasLinks = Object.values(session.roleEffects || {}).some(role => role.voicePresetId) || session.lines.some(line => [line, ...(line.takeHistory || [])].some(take => take.voicePresetId));
@@ -153,7 +154,7 @@ function captureProject(session, resolveAsset = diskPathForUrl, snapshotDir = nu
   if (hasNoise) project.noiseReduction = { ...noiseModel.protocol(), actors: structuredClone(noiseState.actors) };
   if (hasPresets || hasNewAudio) project.voicePresets = structuredClone(session.voicePresets || {});
   if (hasChains) project.roleEffects = Object.fromEntries(Object.entries(session.roleEffects || {}).map(([name, entry]) => [name, { pitch: entry.pitch, effects: structuredClone(entry.effects), ...(typeof entry.presetModified === 'boolean' ? { presetModified: entry.presetModified } : {}), ...(hasLinks ? { voicePresetId: entry.voicePresetId ?? null, usePresetPitch: entry.usePresetPitch ?? false } : {}) }]));
-  const manifest = { format: FORMAT, formatVersion: hasSingle ? 13 : hasIcons ? 12 : hasNewAudio ? 11 : hasPresets ? 10 : hasNoise ? 9 : hasChains ? 8 : hasHistory ? 6 : project.lines.some(line => line.retakeComment || line.take.effect === 'telephone') ? 5 : project.lines.some(line => line.needsRetake === true) ? 4 : project.lines.some(line => Object.entries(takeMix.DEFAULTS).some(([key, value]) => line.take[key] !== value)) ? 3 : (session.originalVideoUrl ? 2 : 1), project, assets };
+  const manifest = { format: FORMAT, formatVersion: hasPitch ? 14 : hasSingle ? 13 : hasIcons ? 12 : hasNewAudio ? 11 : hasPresets ? 10 : hasNoise ? 9 : hasChains ? 8 : hasHistory ? 6 : project.lines.some(line => line.retakeComment || line.take.effect === 'telephone') ? 5 : project.lines.some(line => line.needsRetake === true) ? 4 : project.lines.some(line => Object.entries(takeMix.DEFAULTS).some(([key, value]) => line.take[key] !== value)) ? 3 : (session.originalVideoUrl ? 2 : 1), project, assets };
   if (manifest.formatVersion < 3) project.lines.forEach(line => Object.keys(takeMix.DEFAULTS).forEach(field => { delete line.take[field]; }));
   const manifestBytes = Buffer.from(JSON.stringify(manifest), 'utf8');
   if (manifestBytes.length > MAX_MANIFEST_BYTES) fail('Project manifest is too large');
@@ -179,7 +180,7 @@ function safeArchivePath(name) {
 
 function validateManifest(manifest) {
   if (!object(manifest) || manifest.format !== FORMAT) fail('Invalid project manifest');
-  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, VERSION].includes(manifest.formatVersion)) throw new HttpError(400, 'Unsupported project version', 'project.unsupportedVersion');
+  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, VERSION].includes(manifest.formatVersion)) throw new HttpError(400, 'Unsupported project version', 'project.unsupportedVersion');
   if (manifest.project?.protectTimings !== undefined && typeof manifest.project.protectTimings !== 'boolean') fail('Invalid timing protection');
   if (!Array.isArray(manifest.assets) || !manifest.assets.length || manifest.assets.length >= MAX_ENTRIES) fail('Invalid project assets');
   const assets = new Map();
@@ -193,6 +194,7 @@ function validateManifest(manifest) {
     assets.set(asset.path, asset);
   }
   const p = manifest.project;
+  if (manifest.formatVersion < 14 && voiceModel.hasPitchStage(p)) fail('Pitch stages require version 14');
   if (manifest.formatVersion >= 10 ? !presetModel.validLibrary(p?.voicePresets) : p?.voicePresets !== undefined) fail('Invalid voice presets');
   if (manifest.formatVersion < 13 && Object.values(p?.voicePresets || {}).some(preset => preset.effects.length > voiceModel.MAX_EFFECTS)) fail('Extended snapshots require version 13');
   if (manifest.formatVersion < 12 && Object.values(p?.voicePresets || {}).some(preset => preset.icon !== undefined)) fail('Preset icons require version 12');
