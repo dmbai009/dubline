@@ -51,3 +51,5 @@
 .video-export-bitrate-row > .control-help:has(> select.dub-select-source), .video-export-bitrate > .control-help:has(> #videoExportBitrateSlider[hidden]) {display:none !important;}
 .video-export-bitrate-row > .control-help {min-width:0;width:100%;}
 .video-export-bitrate-row .dub-select-button {width:100%;}
+.video-export-scope { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:12px 0; font-size:12px; }
+.video-export-scope select { width:auto; flex:1; min-width:180px; max-width:100%; }

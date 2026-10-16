@@ -62,18 +62,24 @@ app.post('/api/export-original-video', diskUpload(['soundtrack'],req => {
     const source=diskPathForUrl(sourceUrl);
     if(!source || !fs.existsSync(source)) throw new HttpError(404,'Original video is unavailable','proxy.originalMissing');
     const info = await require('./video-export-info').inspect(source);
+    let range = null;
+    if (req.body.range != null) {
+      try { range = require('../public/video-export-policy').range(JSON.parse(req.body.range), info.duration); if (!range) throw Error(); }
+      catch { throw new HttpError(400,'Invalid export range','range.invalid'); }
+    }
     let options = null;
     if (req.body.options) {
       try { options = JSON.parse(req.body.options); } catch { throw new HttpError(400,'Invalid export parameters','exportVideo.unsupported'); }
       const reason = require('../public/video-export-policy').validate(info, options || {});
       if (reason) throw new HttpError(400,'Invalid export parameters',reason);
     }
-    const size = require('../public/video-export-policy').estimate(info, options ? { ...options, mode: 'custom' } : {}) || fs.statSync(source).size;
+    if (range && !options) throw new HttpError(400,'Exact ranges require encoding','range.invalid');
+    const size = require('../public/video-export-policy').estimate(info, { ...(options ? { ...options, mode: 'custom' } : {}), range }) || fs.statSync(source).size;
     checkSpace(DATA_DIR,size + req.file.size + 1024 * 1024);
     temp=fs.mkdtempSync(path.join(DATA_DIR,'.video-export-'));
     const ext = options ? '.' + options.format : '.' + info.extension;
     const output=path.join(temp,'result'+ext);
-    const duration=info.duration, soundDuration=probeAudioDuration(req.file.path);
+    const duration=range ? range.end - range.start : info.duration, soundDuration=probeAudioDuration(req.file.path);
     let backend = null, attempt = 0;
     const progress = (current, done = false) => {
       if (!req.body.progressId || req.body.sessionId !== room.activeSessionId || !confirmedHost(roomId, req.body.clientId)) return;
@@ -83,7 +89,7 @@ app.post('/api/export-original-video', diskUpload(['soundtrack'],req => {
     };
     if (!duration || !soundDuration || Math.abs(duration-soundDuration)>0.25) throw new HttpError(400,'Soundtrack duration differs from source','proxy.timing');
     const hardware = require('./video-acceleration');
-    const videoArgs = encoder => options ? ['-vf',`scale=${options.width}:${options.height},setsar=1`,
+    const videoArgs = encoder => options ? ['-vf',`scale=${options.width}:${options.height},setsar=1${range ? ',setpts=PTS-STARTPTS' : ''}`,
       ...(options.codec === 'avc' ? encoder === 'libx264' ? ['-c:v','libx264','-preset','medium','-pix_fmt','yuv420p'] : hardware.encoderArgs(encoder) : ['-c:v','libvpx-vp9','-deadline','good','-cpu-used','2']), '-b:v',String(options.bitrate),
       ...(options.fps == null ? ['-fps_mode','passthrough'] : ['-r',String(options.fps)])] : ['-c:v','copy'];
     sceneWatch = setInterval(() => { if (req.body.sessionId !== room.activeSessionId || room.videoUrl !== workingUrl || sourceUrl !== (req.body.source === 'working' ? room.videoUrl : room.originalVideoUrl || room.videoUrl) || !confirmedHost(roomId,req.body.clientId)) req.uploadAbort.abort(); }, 250);
@@ -92,7 +98,7 @@ app.post('/api/export-original-video', diskUpload(['soundtrack'],req => {
     try { audioCodec = await (await soundtrack.getPrimaryAudioTrack())?.getCodec(); } catch { /* FFmpeg also accepts legacy inputs outside the demuxer's codec set. */ } finally { soundtrack.dispose(); }
     const targetAudio = ext === '.webm' ? 'opus' : 'aac';
     req.uploadAbort.signal.throwIfAborted();
-    const encode = encoder => runFfmpeg(['-copyts','-start_at_zero','-i',source,'-i',req.file.path,'-map','0:v:0','-map','1:a:0', ...videoArgs(encoder),
+    const encode = encoder => runFfmpeg([...(range ? ['-ss',String(range.start)] : ['-copyts','-start_at_zero']),'-i',source,'-i',req.file.path,'-map','0:v:0','-map','1:a:0', ...videoArgs(encoder),
       ...(audioCodec === targetAudio ? ['-c:a','copy'] : ['-c:a',targetAudio === 'opus' ? 'libopus' : 'aac','-b:a','192k','-af','apad']),'-t',String(duration),...(ext==='.mp4'?['-movflags','+faststart']:[]),output],
       'Could not export original video',{signal:req.uploadAbort.signal,timeoutMs:2*60*60*1000,onProgress: time => progress(time)});
     if (options?.codec === 'avc') await hardware.run({ mode: req.body.acceleration, info: { ...info, ...options }, signal: req.uploadAbort.signal,

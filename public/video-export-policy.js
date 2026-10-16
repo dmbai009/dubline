@@ -38,12 +38,17 @@
     return null;
   }
   function estimate(info, options = {}) {
-    const bitrate = options.mode === 'custom' ? options.bitrate : info.bitrate;
+    const bitrate = options.mode === 'custom' || options.range ? options.bitrate : info.bitrate;
     if (!valid(info.duration) || !valid(bitrate)) return null;
-    return Math.ceil(info.duration * (bitrate + AUDIO_BITRATE) / 8 * 1.02);
+    return Math.ceil((options.range ? options.range.end - options.range.start : info.duration) * (bitrate + AUDIO_BITRATE) / 8 * 1.02);
+  }
+  function range(value, duration) {
+    if (value == null) return null;
+    if (!valid(duration) || typeof value.start !== 'number' || typeof value.end !== 'number' || !Number.isFinite(value.start) || !Number.isFinite(value.end) || value.start < 0 || value.end > duration + .001 || value.end - value.start < .01) throw Error('range.invalid');
+    return { start: value.start, end: Math.min(duration, value.end) };
   }
   function filename(title, extension) {
     return `Dubline_${String(title || 'scene').replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').slice(0, 100)}_export.${extension}`;
   }
-  return Object.freeze({ AUDIO_BITRATE, formats, valid, axisLimits, dimensions, bitrateBounds, recommendedBitrate, validate, estimate, filename });
+  return Object.freeze({ AUDIO_BITRATE, formats, valid, axisLimits, dimensions, bitrateBounds, recommendedBitrate, validate, estimate, filename, range });
 });

@@ -19,7 +19,9 @@ Single Player uses the same local server, sessions, editor, recorder, audio, and
 
 ## Timeline and preferences
 
-Source lines stay within the actual video duration. Empty track/ruler clicks seek; double-click creates only in Edit Mode on empty role space. Mixed-track groups preserve role spacing and cancel atomically if any member would leave the role list. Vertical drag locks time until deliberate horizontal movement. Individual role heights persist locally and reset with a double-click on the resize handle. Dub shows current recording coverage rather than a source waveform.
+Source lines stay within the actual video duration. In Dub Mode, dragging empty timeline space selects a private time range; Space plays within it and stops at its end. Double-click selects the whole video; a single empty-space click or Escape clears the range. The export panel can render the selected fragment or the entire video, using the existing project mix and permission checks. Arbitrary fragment cuts re-encode video at frame precision. Edit Mode retains empty-space seeking/scrubbing and double-click line creation. See docs/timeline-range.md.
+
+Mixed-track groups preserve role spacing and cancel atomically if any member would leave the role list. Vertical drag locks time until deliberate horizontal movement. Individual role heights persist locally and reset with a double-click on the resize handle. Dub shows current recording coverage rather than a source waveform.
 
 My Settings contains microphone, monitoring, local auto-duck, ADR volume/preparation, theme, and layout. Room / Project Settings contains shared mix and host controls; controls without permission remain visible and disabled. ADR enabled means preparation 3–5 seconds; disabled allows 0–5. Workshop clients prefer a verified direct archive and fall back to the existing delivery system.
 

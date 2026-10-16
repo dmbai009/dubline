@@ -3,6 +3,7 @@
   let active = null;
   window.bindTimelineScrub = (area, emptyTarget = () => true) => {
     area.addEventListener('pointerdown', event => {
+      if (session?.mode === 'dub') return;
       if (event.button !== 0 || !emptyTarget(event) || !studioCanTransport() || active) return;
       event.preventDefault(); area.setPointerCapture(event.pointerId);
       window.transportScrubbing = true;

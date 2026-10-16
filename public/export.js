@@ -470,7 +470,10 @@ async function renderOriginalVideo(progress, snapshot, settings = { mode: 'origi
   job ||= { abort: new AbortController(), check: () => assertExportScene(snapshot) };
   const ownsOperations=!job.operations; job.operations ||= DublineExportOperations.create(job.abort.signal);
   const operations=job.operations; snapshot.exportOperations=operations;
-  const duration = settings.sourceInfo?.duration || snapshot.scene.videoDuration || video.duration;
+  const sourceDuration = settings.sourceInfo?.duration || snapshot.scene.videoDuration || video.duration;
+  const range = DublineVideoExportPolicy.range(settings.range, sourceDuration);
+  const duration = range ? range.end - range.start : sourceDuration;
+  snapshot.exportRange = range;
   const webm = settings.format === 'webm';
   let output, soundtrack, extension = webm ? 'webm' : 'm4a';
   snapshot.exportSignal = job.abort.signal; snapshot.exportReport = job.report;
@@ -485,7 +488,7 @@ async function renderOriginalVideo(progress, snapshot, settings = { mode: 'origi
       job.output = output; operations.own(()=>DublineExportOperations.abortOutput(output));
       const source = new mb.AudioBufferSource({ codec: webm ? 'opus' : 'aac', bitrate: DublineVideoExportPolicy.AUDIO_BITRATE });
       output.addAudioTrack(source); await operations.run('soundtrack-start',()=>output.start());
-      for await (const chunk of operations.iterate(DublineVideoExportAudio.chunks(mb, snapshot, duration, text => progress(5, text), job.check),'soundtrack-window',{timeoutMs:Infinity})) {
+      for await (const chunk of operations.iterate(DublineVideoExportAudio.chunks(mb, snapshot, sourceDuration, text => progress(5, text), job.check),'soundtrack-window',{timeoutMs:Infinity})) {
         job.check(); await operations.run('audio-encode',()=>source.add(chunk.buffer),{end:chunk.end}); progress(10 + 60 * chunk.end / duration, t('render.encodeSoundtrack'));
       }
       source.close(); await operations.run('soundtrack-finalize',()=>output.finalize()); soundtrack = new Blob([output.target.buffer], { type: webm ? 'audio/webm' : 'audio/mp4' });
@@ -493,9 +496,10 @@ async function renderOriginalVideo(progress, snapshot, settings = { mode: 'origi
     job.check();
     const form = new FormData();
     form.append('clientId', clientId); form.append('sessionId', snapshot.scene.activeSessionId); if (job.id) form.append('progressId', job.id); form.append('videoUrl', snapshot.videoUrl); form.append('source', settings.source); form.append('acceleration', settings.acceleration || DublineVideoAcceleration.get());
-    if (settings.mode === 'custom') form.append('options', JSON.stringify({ format: settings.format, codec: settings.codec, width: settings.width, height: settings.height, fps: settings.fps, bitrate: settings.bitrate }));
+    if (range) form.append('range', JSON.stringify(range));
+    if (settings.mode === 'custom' || range) form.append('options', JSON.stringify({ format: settings.format, codec: settings.codec, width: settings.width, height: settings.height, fps: settings.fps, bitrate: settings.bitrate }));
     form.append('soundtrack', soundtrack, 'soundtrack.' + extension);
-    progress(75, t('render.originalMux')); job.report?.('video', { current: 0, total: duration, label: settings.mode === 'custom' ? 'encoding' : 'copying' });
+    progress(75, t('render.originalMux')); job.report?.('video', { current: 0, total: duration, label: settings.mode === 'custom' || range ? 'encoding' : 'copying' });
     job.report?.('uploading', { current: 0, unit: 'bytes' });
     const send = window.DublineNetwork?.upload || fetch;
     const response = await operations.run('server-export',()=>send('/api/export-original-video?room=' + encodeURIComponent(currentRoom), { method: 'POST', body: form, signal: job.abort.signal,

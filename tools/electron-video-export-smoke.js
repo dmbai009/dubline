@@ -73,6 +73,15 @@ if (!process.versions.electron) {
       assert.equal(retried.codec, 'avc'); assert.equal(retried.height, 240); assert.ok(Math.abs(retried.duration-12)<0.1);
       assert.equal(await evaluate('hwNativeCalls'),2);
       await evaluate("(async()=>{DublineVideoAcceleration.encoderPreference=hwNativePreference;(await import('/vendor/mediabunny/mediabunny.min.mjs')).Output.prototype.finalize=hwNativeFinalize;})()");
+      filename = 'selected-range.mp4';
+      await evaluate("DublineTimelineRange.set(2.137,6.579);document.querySelector('[name=videoExportMode][value=fast]').click();void 0;");
+      await until(() => evaluate('!startRenderBtn.disabled'));
+      await evaluate('startVideoRender()');
+      assert.equal(await evaluate('renderStatusText.dataset.state'), 'success');
+      const fragment = await require('../server/video-export-info').inspect(path.join(process.env.DUBLINE_NATIVE_EXPORT_DIR, filename));
+      assert.ok(Math.abs(fragment.duration - 4.442) < .055); assert.equal(fragment.width, 640); assert.equal(fragment.height, 360);
+      assert.equal(await evaluate("Number(document.querySelector('[data-phase=audio] progress').max)"), 4.442);
+      await evaluate('DublineTimelineRange.clear();void 0;');
       // A selected ticket cannot write to a caller-supplied path.
       assert.equal(await evaluate("dublineVideoExport.write({ticket:'missing',sessionId:session.activeSessionId,position:0,bytes:new Uint8Array([1]),path:'C:\\\\arbitrary.mp4'}).then(result=>result.ok)"), false);
       const untrusted = new BrowserWindow({ show: false, webPreferences: { preload: path.join(root, 'electron-guest-preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true } });
