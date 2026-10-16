@@ -461,7 +461,7 @@ window.exportSubtitles = async function(format) {
     status.style.color = 'var(--danger)'; status.textContent = t('error.generic', { message:error.message });
   } finally {
     if (snapshot) socket.emit('snapshot_cancel', { token:snapshot.barrierToken });
-    subtitleExportBusy = false; buttons.forEach(button => { button.disabled = !amHost(); });
+    subtitleExportBusy = false; updateSubtitleExportButtons();
   }
 };
 
@@ -547,10 +547,14 @@ async function renderOriginalVideo(progress, snapshot, settings = { mode: 'origi
 // ==========================================
 const downloadVideoBtn = document.getElementById('downloadVideoBtn');
 
-function updateDownloadButtons() {
+function updateSubtitleExportButtons() {
   document.querySelectorAll('[data-subtitle-format]').forEach(button => {
     button.disabled = subtitleExportBusy || !session?.loaded || !session.lines?.length || !amHost();
   });
+  window.refreshActionHelp?.();
+}
+function updateDownloadButtons() {
+  updateSubtitleExportButtons();
   const loaded = !!(session && session.loaded);
   const notice=document.getElementById('renderOriginalNotice');
   notice.style.display='none';

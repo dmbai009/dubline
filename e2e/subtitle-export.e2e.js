@@ -11,6 +11,13 @@ const sourceCues = [
 describe('subtitle export and import into another project', { skip:skipReason, timeout:120000 }, () => {
   let server, browser, host, guest, destination;
   const exported = new Map();
+  const captureSubtitles = page => page.evaluate(() => {
+    const create = URL.createObjectURL.bind(URL);
+    URL.createObjectURL = blob => {
+      if (/subrip|ssa|vtt/.test(blob.type)) window.testSubtitleBlob = blob.text();
+      return create(blob);
+    };
+  });
   before(async () => {
     server = await startServer(); browser = await launchBrowser(server.port);
     host = await openPlayer(browser, server.url('subtitle-source'), 'Host'); await loadFixture(host);
@@ -24,13 +31,7 @@ describe('subtitle export and import into another project', { skip:skipReason, t
     assert.equal(uploaded.status, 200, uploaded.text);
     await waitFor(host, () => session?.lines?.length === 3);
     assert.deepEqual(await host.evaluate(() => session.lines.map(({ start,end,character,caption }) => ({ start,end,character,caption }))), sourceCues);
-    await host.evaluate(() => {
-      const create = URL.createObjectURL.bind(URL);
-      URL.createObjectURL = blob => {
-        if (/subrip|ssa|vtt/.test(blob.type)) window.testSubtitleBlob = blob.text();
-        return create(blob);
-      };
-    });
+    await captureSubtitles(host);
     guest = await openPlayer(browser, server.url('subtitle-source'), 'Guest'); await waitFor(guest, () => session?.loaded);
     destination = await openPlayer(browser, server.url('subtitle-destination'), 'OtherHost');
   });
@@ -45,6 +46,13 @@ describe('subtitle export and import into another project', { skip:skipReason, t
     assert.equal(info.before, true); assert.equal(info.after, true);
     assert.deepEqual(info.formats.map(f => f.format), ['srt','ass','vtt']);
     assert.ok(info.formats.every(f => f.hint.length > 50 && !f.disabled));
+  });
+  test('a returning host can export an existing scene after session state arrives before host presence', async () => {
+    await host.reload({ waitUntil:'domcontentloaded' });
+    await waitFor(host, () => session?.loaded && amHost());
+    await host.evaluate(() => { openFilesModal(); switchFilesTab('export'); });
+    assert.deepEqual(await host.$$eval('[data-subtitle-format]', buttons => buttons.map(button => button.disabled)), [false, false, false]);
+    await captureSubtitles(host);
   });
   for (const format of ['srt','ass','vtt']) {
     test(`${format} downloads through the UI without changing source cues`, async () => {

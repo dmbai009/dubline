@@ -13,6 +13,16 @@ they do not include video, recordings, claims, effects or room credentials. Expo
 host-only and uses the existing confirmed snapshot barrier, including its pending-edit,
 unsaved-draft and explicit cancellation behavior. No video rendering is needed.
 
+Subtitle button availability refreshes on host/nickname/presence updates, opening
+the Export tab, scene changes and export completion. This fixes returning hosts
+seeing disabled buttons when their saved scene arrives before host presence.
+Only these buttons refresh on host changes; video export planning is unaffected.
+Disabled subtitle buttons explain host/scene/busy state while enabled ones retain
+the format descriptions. Server authorization and snapshot validation are unchanged.
+The returning-host regression reproduces all three disabled buttons before the
+fix. Afterward the subtitle browser suite passes 11/11, including SRT/ASS/VTT
+downloads and re-import after reload; focused unit/client checks pass 12/12.
+
 The existing custom video/subtitle importer accepts the result into a new session.
 SRT/VTT entities are decoded once after markup removal; multiline text and WebVTT
 voice names are preserved. Ordinary ASS imports retain their existing cleanup.
