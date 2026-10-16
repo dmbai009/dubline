@@ -70,6 +70,6 @@ const { startServer, launchBrowser, openPlayer, waitFor, waitUntil } = require('
       fs.writeFileSync(path.join(output, 'results.json'), JSON.stringify(results, null, 2));
     }
     assert.equal(await host.$('[data-operation=export]'), null);
-    console.log('PASS long browser guest fast/repeat/custom, download and integrity', output);
+    console.log('PASS long browser guest '+results.map(result=>result.name).join('/')+', download and integrity', output);
   } finally { await browser?.close(); await server?.cleanup(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

@@ -13,3 +13,16 @@ test('range requests retain both reader cancellation and whole export cancellati
  await send('/media',{signal:second.signal});assert.equal(requests[1].signal.aborted,false);
  job.abort();assert.equal(requests[1].signal.aborted,true);assert.equal(requests[0].headers.Range,'bytes=0-');
 });
+
+test('older browsers combine abort signals through the response body and remove relay listeners',async()=>{
+ const {fetchSource}=require('./public/export-operations'),{getEventListeners}=require('node:events'),native=AbortSignal.any;
+ AbortSignal.any=undefined;
+ try{
+  const job=new AbortController(),reader=new AbortController();let signal;
+  const send=fetchSource(job.signal,async(url,options)=>{signal=options.signal;return {ok:true};});
+  await send('/media',{signal:reader.signal});assert.equal(signal.aborted,false);assert.equal(getEventListeners(job.signal,'abort').length,1);
+  reader.abort();assert.equal(signal.aborted,true);assert.equal(job.signal.aborted,false);assert.equal(getEventListeners(job.signal,'abort').length,0);
+  await send('/media',{signal:new AbortController().signal});job.abort();assert.equal(signal.aborted,true);assert.equal(getEventListeners(job.signal,'abort').length,0);
+  await send('/media',{signal:new AbortController().signal});assert.equal(signal.aborted,true);
+ }finally{AbortSignal.any=native;}
+});

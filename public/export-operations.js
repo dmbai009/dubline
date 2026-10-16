@@ -87,10 +87,24 @@
   // Mediabunny aborts individual range requests as its read window moves. Keep
   // that signal: replacing it with the export signal leaves unread responses
   // open, exhausting Chromium's per-origin connections during long exports.
+  function combineSignals(first, second) {
+    if (!first || !second) return first || second;
+    if (typeof AbortSignal.any === 'function') return AbortSignal.any([first, second]);
+    // Keep older WebCodecs-capable browsers working. Listeners must live through
+    // the response body, not just until fetch resolves its headers.
+    const controller = new AbortController(), sources = [...new Set([first, second])];
+    const listeners = sources.map(source => [source, () => controller.abort(source.reason)]);
+    controller.signal.addEventListener('abort', () => {
+      for (const [source, relay] of listeners) source.removeEventListener('abort', relay);
+    }, { once: true });
+    for (const [source, relay] of listeners) source.addEventListener('abort', relay, { once: true });
+    for (const [source, relay] of listeners) if (source.aborted) { relay(); break; }
+    return controller.signal;
+  }
   function fetchSource(signal, fetchFn = (...args) => fetch(...args)) {
     return (url, options = {}) => fetchFn(url, {
       ...options,
-      signal: options.signal && signal ? AbortSignal.any([options.signal, signal]) : options.signal || signal
+      signal: combineSignals(options.signal, signal)
     });
   }
   const api = { create, abortOutput, fetchSource };
