@@ -302,6 +302,7 @@ function syncPlayheadLoop() {
 // TAKE PLAYBACK (Web Audio, with effects and trimming)
 // ==========================================
 video.addEventListener('play', () => {
+  audio.stopPreview();
   ensurePlayCtx();
   stopAllTakes();
   applyVolumes();
@@ -822,6 +823,44 @@ function selectLine(line) {
 window.playAudio = function(url) {
   audio.playAudio(url).catch(error => console.error(error));
 };
+
+let originalPreview = null;
+const referenceBackingChoices = new Set();
+window.refreshOriginalPreview = function() {
+  for (const button of document.querySelectorAll('[data-original-preview]')) {
+    const active = originalPreview?.lineId === Number(button.dataset.originalPreview);
+    button.setAttribute('aria-pressed', String(active));
+    button.classList.toggle('is-previewing', active);
+  }
+};
+window.previewOriginal = async function(lineId) {
+  if (recordState !== 'idle' || renderInProgress || !window.hasSceneMediaAccess?.()) return;
+  if (originalPreview?.lineId === lineId) { audio.stopPreview(); originalPreview = null; refreshOriginalPreview(); return; }
+  const line = session.lines.find(item => item.id === lineId), reference = DublineProjectAudio.reference(session, line);
+  if (!reference) return showToast(t('reference.unavailable'));
+  audio.stopPreview(); window.DublineTakeHistory?.stop();
+  const current = { lineId, sessionId: session.activeSessionId, reference };
+  originalPreview = current; refreshOriginalPreview();
+  const valid = () => originalPreview === current && session.activeSessionId === current.sessionId && recordState === 'idle' && !renderInProgress && window.hasSceneMediaAccess?.() && JSON.stringify(DublineProjectAudio.reference(session, session.lines.find(item => item.id === lineId))) === JSON.stringify(reference);
+  const finish = () => { if (originalPreview === current) { originalPreview = null; refreshOriginalPreview(); } };
+  try {
+    const choice = JSON.stringify([currentRoom,current.sessionId,reference.url]);
+    if (reference.confirmBacking && !referenceBackingChoices.has(choice)) {
+      if (!await askConfirm(t('reference.useBacking')) || !valid()) return finish();
+      referenceBackingChoices.add(choice); if (referenceBackingChoices.size > 30) referenceBackingChoices.delete(referenceBackingChoices.values().next().value);
+    }
+    if (!valid()) return finish();
+    video.pause(); stopAllTakes(); backing.pause(); originalTrackAudio.pause();
+    if (!await audio.previewReference({ ...reference, url: mediaUrl(reference.url) }, { onEnded: finish, onError: () => { if (valid()) showToast(t('reference.failed')); } }) && valid()) finish();
+  } catch (error) { if (valid()) showToast(t('reference.failed')); finish(); }
+};
+window.addEventListener('DOMContentLoaded', () => {
+  const stop = () => { if (originalPreview) { audio.stopPreview(); originalPreview = null; refreshOriginalPreview(); } };
+  socket.on('session_updated', () => {
+    if (originalPreview && (!window.hasSceneMediaAccess?.() || session.activeSessionId !== originalPreview.sessionId || JSON.stringify(DublineProjectAudio.reference(session, session.lines.find(item => item.id === originalPreview.lineId))) !== JSON.stringify(originalPreview.reference))) stop();
+  });
+  socket.on('disconnect', stop); socket.on('join_denied', stop);
+});
 
 // Play a take the way it will sound in the video: with effect, pitch and trimming
 window.previewTake = async function(lineId) {

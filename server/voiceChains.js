@@ -6,6 +6,7 @@ function validateScene(scene) {
   for (const name of scene.trackOrder || []) if (!model.references(model.role(scene, name), scene) || !model.safe(model.roleVoice(scene, name))) failure('limit');
   for (const line of scene.lines) for (const variant of [line, ...(line.takeHistory || [])]) {
     const settings = model.take(variant);
+    if (model.preset(scene, settings)?.role) failure('rolePreset');
     if (!model.validTake(settings) || !model.references(settings, scene) || !model.safe(model.resolve({ ...line, ...variant }, scene))) failure('limit');
   }
 }
@@ -18,6 +19,7 @@ function plan(room, conn, data, moderator, owner) {
     if (!room.trackOrder.includes(data.character)) failure('missing');
     if (!require('../public/voice-preset-model').canEditRole(room, data.character, conn.nick, moderator)) failure('owner');
     const previous = model.role(room, data.character);
+    if (model.preset(room, previous)?.role && !data.rolePreset) failure('rolePreset');
     if (previous.voicePresetId && data.previousPresetRevision !== model.preset(room, previous)?.revision) failure('conflict');
     if (data.settings?.voicePresetId && data.presetRevision !== model.preset(room, data.settings)?.revision) failure('conflict');
     if (!Number.isSafeInteger(data.revision) || data.revision !== (previous.revision || 0)) failure('conflict');
@@ -26,11 +28,17 @@ function plan(room, conn, data, moderator, owner) {
     if (data.settings.voicePresetId != null && !model.id(data.settings.voicePresetId) || data.settings.usePresetPitch !== undefined && typeof data.settings.usePresetPitch !== 'boolean') failure('invalid');
     if (data.settings.presetModified !== undefined && !data.settings.voicePresetId && data.settings.effects.length && !data.rolePreset) failure('rolePreset');
     roles[data.character] = { voicePresetId: data.settings.voicePresetId ?? null, usePresetPitch: data.settings.usePresetPitch ?? false, pitch: data.settings.pitch, effects: structuredClone(data.settings.effects), ...(typeof data.settings.presetModified === 'boolean' ? { presetModified: data.settings.presetModified } : {}), revision: (previous.revision || 0) + 1 };
+    // Compatibility requests may copy a generic preset, but cannot establish a
+    // live connection between the separate role and take libraries.
+    if (!data.rolePreset && data.settings.voicePresetId) {
+      if (model.preset(room, data.settings)?.role) failure('rolePreset');
+      Object.assign(roles[data.character], { effects: structuredClone(model.ownEffects(data.settings, room)), pitch: model.ownPitch(data.settings, room) || 0, voicePresetId: null, usePresetPitch: false, presetModified: true });
+    }
     if (data.rolePreset !== undefined) {
       const presets = require('../public/voice-preset-model'), existing = presets.rolePreset(room, data.character), binding = data.rolePreset;
       if (!binding || !model.id(binding.id) || binding.id !== (existing?.id || binding.id) || binding.revision !== (existing?.revision || 0) || !existing && Object.hasOwn(room.voicePresets || {}, binding.id)) failure('conflict');
       const request = { action: existing ? 'update' : 'create', id: binding.id, revision: binding.revision, name: data.character, icon: data.presetIcon, settings: { effects: structuredClone(model.ownEffects(data.settings, room)), pitch: model.ownPitch(data.settings, room) || 0 }, roleTargets: [presets.roleTarget(room, data.character)] };
-      const next = require('./voicePresets').planScene(room, conn, request, moderator);
+      const next = require('./voicePresets').planScene(room, conn, request, moderator, data.character);
       roles = next.roleEffects; voicePresets = next.voicePresets;
     }
   } else {
@@ -59,6 +67,7 @@ function plan(room, conn, data, moderator, owner) {
       if (data.action === 'detach') { const detached = require('../public/voice-preset-model').detach(line, room, () => require('node:crypto').randomUUID()); Object.assign(settings, model.take(detached)); next.pitch = detached.pitch; }
       if (settings.voicePresetId && ['append', 'clear'].includes(data.action)) failure('linked');
       if (!model.validTake(settings)) failure('limit');
+      if (model.preset(room, settings)?.role) failure('rolePreset');
       Object.assign(next, settings);
       if (data.pitch !== undefined) { if (!Number.isFinite(data.pitch) || Math.abs(data.pitch) > 12) failure('invalid'); if (data.action === 'replace' && (data.takes.length === 1 || data.editPitch === true)) next.pitch = data.pitch;
         if (data.action === 'append' && data.editPitch === true) { next.pitch = data.pitch; next.pitchMode = 'override'; } }
@@ -73,7 +82,7 @@ function plan(room, conn, data, moderator, owner) {
   return { roles, lines, ...(voicePresets ? { voicePresets } : {}) };
 }
 const singleChain = room => [...Object.values(room.roleEffects || {}), ...(room.lines || []).flatMap(line => [line, ...(line.takeHistory || [])]), ...(room.deletedLines || []).flatMap(batch => [...Object.values(batch.roleEffects || {}), ...(batch.lines || []).flatMap(entry => entry.line ? [entry.line, ...(entry.line.takeHistory || [])] : [])])].some(entry => typeof entry?.presetModified === 'boolean');
-const minimumVersion = room => model.hasPitchStage(room) ? 4 : singleChain(room) || Object.values(room.voicePresets || {}).some(preset => preset.effects.length > model.MAX_EFFECTS) ? 3 : Object.values(room.voicePresets || {}).some(preset => preset.icon !== undefined) ? 2 : requiresClient(room) ? 1 : 0;
+const minimumVersion = room => model.hasPitchStage(room, 'equalizer') || Object.values(room.voicePresets || {}).some(preset => preset.role) ? 5 : model.hasPitchStage(room) ? 4 : singleChain(room) || Object.values(room.voicePresets || {}).some(preset => preset.effects.length > model.MAX_EFFECTS) ? 3 : Object.values(room.voicePresets || {}).some(preset => preset.icon !== undefined) ? 2 : requiresClient(room) ? 1 : 0;
 const requiresClient = room => room.projectAudio?.normalizeVoices === true || Object.values(room.roleEffects || {}).some(role => role.voicePresetId) || (room.lines || []).some(line => [line, ...(line.takeHistory || [])].some(take => take.voicePresetId));
 const incompatible = (roomId, version = 1) => Object.entries(require('./state').roomSockets[roomId] || {}).filter(([, member]) => (member.voiceVersion || 0) < version).map(([id]) => id);
 function enforce(roomId, room) { if (minimumVersion(room)) for (const id of incompatible(roomId, minimumVersion(room))) { const socket = require('./app').io.sockets.sockets.get(id); socket?.emit('join_denied', { reason: 'voiceVersion' }); socket?.disconnect(true); } }

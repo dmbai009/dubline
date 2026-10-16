@@ -56,7 +56,7 @@ describe('Pitch as an ordered effect stage', { skip: skipReason }, () => {
     await host.$eval('[data-action=semitones]', node => { node.value = '5'; node.dispatchEvent(new Event('input', { bubbles: true })); });
     await host.click('#fxApply'); await waitFor(guest, () => session.lines[0].presetModified && session.lines[0].effects[0].parameters.semitones === 5);
     assert.equal(await guest.evaluate(id => session.voicePresets[id].effects[0].parameters.semitones, id), -7);
-    const role = { scope: 'role', character: 'Hero', revision: 0, presetRevision: 1, settings: { pitch: 0, effects: [], voicePresetId: id, usePresetPitch: true, presetModified: false } };
+    const role = { scope: 'role', character: 'Hero', revision: 0, presetRevision: 1, rolePreset: { id:'hero-source', revision:0 }, settings: { pitch: 0, effects: [], voicePresetId: id, usePresetPitch: true, presetModified: false } };
     assert.equal((await mutation(guest, 'voice_update', role)).reason, 'fx.owner'); assert.equal((await mutation(host, 'voice_update', role)).ok, true);
     await waitFor(guest, () => !!session.roleEffects.Hero?.voicePresetId);
     assert.deepEqual(await guest.evaluate(() => DublineVoiceChain.resolve(session.lines[0], session).effects.filter(e => e.type === 'pitch').map(e => e.parameters.semitones)), [-7, 5]);

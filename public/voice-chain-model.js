@@ -1,6 +1,7 @@
 (function(root) {
   'use strict';
-  const TYPES = ['pitch', 'robot', 'radio', 'telephone', 'monster', 'thoughts', 'cave', 'behindDoor', 'megaphone', 'echo'];
+  const TYPES = ['pitch', 'robot', 'radio', 'telephone', 'monster', 'thoughts', 'cave', 'behindDoor', 'megaphone', 'echo', 'equalizer'];
+  const EQ_BANDS = [100, 300, 1000, 3000, 10000];
   const MAX_EFFECTS = 8, MAX_HEAVY = 4, MAX_TAIL = 12;
   const FIELDS = ['effects', 'pitchMode', 'inheritRoleEffects', 'excludedRoleEffectIds', 'voicePresetId', 'usePresetPitch', 'presetModified'];
   const id = value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(value);
@@ -14,6 +15,7 @@
       if (!object(item) || !id(item.id) || ids.has(item.id) || !TYPES.includes(item.type) || typeof item.enabled !== 'boolean' || !finite(item.amount, 0, 1) || !object(item.parameters) || Object.keys(item).some(key => !['id', 'type', 'enabled', 'amount', 'parameters'].includes(key))) return false;
       ids.add(item.id);
       if (item.type === 'pitch') return Object.keys(item.parameters).every(key => key === 'semitones') && finite(item.parameters.semitones, -12, 12) && item.amount === 1;
+      if (item.type === 'equalizer') return Object.keys(item.parameters).every(key => key === 'gains') && Array.isArray(item.parameters.gains) && item.parameters.gains.length === EQ_BANDS.length && item.parameters.gains.every(gain => finite(gain, -12, 12)) && item.amount === 1;
       return item.type === 'echo' ? Object.keys(item.parameters).every(key => ['delay', 'feedback'].includes(key)) && finite(echo(item.parameters).delay, .03, .8) && finite(echo(item.parameters).feedback, 0, .7) : Object.keys(item.parameters).length === 0;
     });
   }
@@ -39,10 +41,10 @@
     }
     return effects;
   }
-  function hasPitchStage(scene) {
+  function hasPitchStage(scene, type = 'pitch') {
     const lines = Array.isArray(scene?.lines) ? scene.lines : [], trash = Array.isArray(scene?.deletedLines) ? scene.deletedLines : [];
     const entries = [...Object.values(scene?.voicePresets || {}), ...Object.values(scene?.roleEffects || {}), ...lines.flatMap(line => object(line) ? [line.take || line, ...(Array.isArray(line.takeHistory) ? line.takeHistory : [])] : [])];
-    return entries.some(entry => Array.isArray(entry?.effects) && entry.effects.some(item => item?.type === 'pitch')) || trash.some(batch => hasPitchStage({ roleEffects: batch?.roleEffects, lines: (Array.isArray(batch?.lines) ? batch.lines : []).map(entry => entry?.line).filter(Boolean) }));
+    return entries.some(entry => Array.isArray(entry?.effects) && entry.effects.some(item => item?.type === type)) || trash.some(batch => hasPitchStage({ roleEffects: batch?.roleEffects, lines: (Array.isArray(batch?.lines) ? batch.lines : []).map(entry => entry?.line).filter(Boolean) }, type));
   }
   function editable(entry, scene) {
     const next = { ...structuredClone(entry), ...take(entry) }, linked = preset(scene, entry);
@@ -78,7 +80,7 @@
   }
   function roleVoice(scene, name) { const entry = role(scene, name); return { ...entry, effects: ownEffects(entry, scene), pitch: ownPitch(entry, scene) }; }
   function references(value, scene) { return !value.voicePresetId || !!preset(scene, value); }
-  const active = items => items.filter(item => item.enabled && item.amount > 0 && (item.type !== 'pitch' || item.parameters?.semitones !== 0));
+  const active = items => items.filter(item => item.enabled && item.amount > 0 && (item.type !== 'pitch' || item.parameters?.semitones !== 0) && (item.type !== 'equalizer' || item.parameters.gains.some(gain => gain !== 0)));
   function tail(item) {
     if (!item.enabled || !item.amount) return 0;
     if (item.type === 'echo') { const p = echo(item.parameters); return p.delay * (p.feedback ? Math.ceil(Math.log(.001) / Math.log(p.feedback)) : 1); }
@@ -99,6 +101,6 @@
     return object(roles) && Object.keys(roles).length <= 2000 && Object.entries(roles).every(([name, entry]) => names.includes(name) && object(entry) && Object.keys(entry).every(key => ['pitch', 'effects', 'revision', 'voicePresetId', 'usePresetPitch', 'presetModified'].includes(key)) && (entry.revision === undefined || Number.isSafeInteger(entry.revision) && entry.revision >= 0) && (entry.voicePresetId == null || id(entry.voicePresetId)) && (entry.usePresetPitch === undefined || typeof entry.usePresetPitch === 'boolean') && finite(entry.pitch, -12, 12) && validEffects(entry.effects, entry.presetModified === true ? 16 : MAX_EFFECTS) && (entry.presetModified === undefined || typeof entry.presetModified === 'boolean' && (entry.presetModified || !entry.effects.length)) && safe({ pitch: entry.pitch, effects: entry.effects }));
   }
   const key = config => JSON.stringify({ pitch: config.pitch, effects: active(config.effects).map(({ type, amount, parameters }) => ({ type, amount, parameters })) });
-  const api = { TYPES, MAX_EFFECTS, MAX_HEAVY, MAX_TAIL, FIELDS, id, echo, validEffects, take, validTake, role, roleVoice, ownEffects, ownPitch, editorEffects, hasPitchStage, editable, modify, migrateScene, preset, references, active, tail, resolve, safe, validRoles, key };
+  const api = { TYPES, EQ_BANDS, MAX_EFFECTS, MAX_HEAVY, MAX_TAIL, FIELDS, id, echo, validEffects, take, validTake, role, roleVoice, ownEffects, ownPitch, editorEffects, hasPitchStage, editable, modify, migrateScene, preset, references, active, tail, resolve, safe, validRoles, key };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.DublineVoiceChain = api;
 })(typeof window === 'undefined' ? globalThis : window);

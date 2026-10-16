@@ -57,17 +57,34 @@
     if (event.button !== 0 || !allowed()) return;
     event.preventDefault(); event.stopPropagation(); cancelEditorGesture();
     const id = session.activeSessionId, order = [...session.trackOrder], scroller = document.getElementById('timelineContainer');
-    let before = null, indicator, last, moved = false;
-    const clear = () => { indicator?.classList.remove('track-drop-before', 'track-drop-after'); indicator = null; };
+    const rows = [...document.querySelectorAll('.track-row[data-character]')], dragged = rows.find(row => row.dataset.character === character);
+    if (!dragged) return;
+    const origin = scroller.getBoundingClientRect(), zoom = origin.width / scroller.offsetWidth, scroll = scroller.scrollTop;
+    const boxes = rows.map(row => { const rect = row.getBoundingClientRect(); return { row, top: rect.top, height: rect.height }; });
+    const draggedBox = boxes.find(box => box.row === dragged), others = boxes.filter(box => box.row !== dragged);
+    let before = order[order.indexOf(character) + 1] || null, last, moved = false;
+    const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const clear = () => { for (const row of rows) { row.style.removeProperty('transform'); row.style.removeProperty('transition'); row.classList.remove('track-reordering', 'track-reorder-source'); } scroller.classList.remove('track-reorder-active'); };
     const move = next => {
       last = next; if (Math.abs(next.clientY - event.clientY) < 4 && !moved) return;
-      moved = true; clear();
-      const rows = [...document.querySelectorAll('.track-row[data-character]')].filter(row => row.dataset.character !== character);
-      const row = rows.find(item => next.clientY < item.getBoundingClientRect().top + item.getBoundingClientRect().height / 2);
-      before = row?.dataset.character || null; indicator = row || rows.at(-1); indicator?.classList.add(row ? 'track-drop-before' : 'track-drop-after');
+      moved = true; scroller.classList.add('track-reorder-active');
+      const scrollDelta = (scroller.scrollTop - scroll) * zoom;
+      const y = Math.max(origin.top, Math.min(next.clientY, scroller.getBoundingClientRect().bottom));
+      const destination = others.findIndex(box => y + scrollDelta < box.top + box.height / 2), index = destination < 0 ? others.length : destination;
+      before = others[index]?.row.dataset.character || null;
+      const virtual = [...others]; virtual.splice(index, 0, draggedBox);
+      let top = boxes[0].top;
+      for (const box of virtual) {
+        box.row.classList.add('track-reordering');
+        box.row.style.transition = box.row === dragged || reduced ? 'none' : 'transform 160ms ease-out';
+        const delta = box.row === dragged ? Math.max(boxes[0].top - draggedBox.top, Math.min(boxes.at(-1).top + boxes.at(-1).height - draggedBox.height - draggedBox.top, y - event.clientY + scrollDelta)) : top - box.top;
+        box.row.style.transform = 'translateY(' + delta / zoom + 'px)'; top += box.height;
+      }
+      dragged.classList.add('track-reorder-source');
     };
     const timer = setInterval(() => { if (!last || !moved) return; const bounds = scroller.getBoundingClientRect(), delta = last.clientY < bounds.top + 35 ? -12 : last.clientY > bounds.bottom - 35 ? 12 : 0; if (delta) { scroller.scrollTop += delta; move(last); } }, 30);
-    const cleanup = () => { clearInterval(timer); clear(); window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', end); window.removeEventListener('pointercancel', cleanup); if (window.activeEditorGesture?.cleanup === cleanup) window.activeEditorGesture = null; if (deferredEditorRender) { deferredEditorRender = false; renderTimeline(); } };
+    const key = next => { if (next.key === 'Escape') { next.preventDefault(); next.stopImmediatePropagation(); cleanup(); } };
+    const cleanup = () => { clearInterval(timer); clear(); window.removeEventListener('keydown', key, true); window.removeEventListener('blur', cleanup); window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', end); window.removeEventListener('pointercancel', cleanup); if (window.activeEditorGesture?.cleanup === cleanup) window.activeEditorGesture = null; if (deferredEditorRender) { deferredEditorRender = false; renderTimeline(); } };
     const end = () => {
       cleanup(); if (!moved) return;
       if (!allowed() || session.activeSessionId !== id) { reorderResult({ reason: 'session' }); return; }
@@ -75,7 +92,7 @@
       if (before === (order[order.indexOf(character) + 1] || null)) return;
       queueEditorRequest(() => ['editor_reorder_track', { character, before, trackOrder: order }]).then(reorderResult);
     };
-    window.activeEditorGesture = { cleanup, type: 'track', lineIds: new Set() }; window.addEventListener('pointermove', move); window.addEventListener('pointerup', end); window.addEventListener('pointercancel', cleanup);
+    window.activeEditorGesture = { cleanup, type: 'track', lineIds: new Set() }; window.addEventListener('keydown', key, true); window.addEventListener('blur', cleanup); window.addEventListener('pointermove', move); window.addEventListener('pointerup', end); window.addEventListener('pointercancel', cleanup);
   }
   socket.on('disconnect', () => close());
   document.addEventListener('dubline-session-updated', () => { if (pending && !allowed()) close(); });

@@ -14,13 +14,15 @@
   const selected = () => Object.hasOwn(session?.voicePresets || {}, $('fxPresetSelect').value) ? session.voicePresets[$('fxPresetSelect').value] : null;
   function refresh() {
     $('fxPresetSelect').setAttribute('aria-label', t('preset.title'));
-    const draft = editor.draft(), shared = draft?.scope === 'preset';
-    area.querySelector('.fx-icon-row > span').dataset.i18n = shared ? 'preset.icon' : 'preset.icon.new'; area.querySelector('.fx-icon-row > span').textContent = t(shared ? 'preset.icon' : 'preset.icon.new');
+    const draft = editor.draft(), shared = draft?.scope === 'preset', role = draft?.scope === 'role';
+    for (const node of area.children) node.hidden = role;
+    area.querySelector('h3').textContent = t(role ? 'fx.rolePreset' : 'preset.title');
+    area.querySelector('.fx-icon-row > span').dataset.i18n = shared || role ? 'preset.icon' : 'preset.icon.new'; area.querySelector('.fx-icon-row > span').textContent = t(shared || role ? 'preset.icon' : 'preset.icon.new');
     $('fxPresetIcon').value = draft?.icon || 'voice'; $('fxPresetIcon').disabled = sending || !!operation;
     for (const option of $('fxPresetIcon').options) option.textContent = model.ICONS[option.value] + ' ' + t(DublineVoiceChain.TYPES.includes(option.value) ? 'fx.name.' + option.value : 'preset.icon.' + option.value);
-    area.querySelector('.fx-preset-controls').hidden = shared; area.querySelector('[data-i18n="chain.libraryHelp"]').hidden = shared;
-    area.querySelector('h3').dataset.i18n = shared ? 'live.actions' : 'preset.title'; area.querySelector('h3').textContent = t(area.querySelector('h3').dataset.i18n); $('fxPresetSave').dataset.i18n = shared ? 'live.saveAsNew' : 'preset.saveAs'; $('fxPresetSave').textContent = t($('fxPresetSave').dataset.i18n);
-    const previous = shared ? draft.presetId : $('fxPresetSelect').value || draft?.presetId, presets = Object.values(session?.voicePresets || {});
+    area.querySelector('.fx-preset-controls').hidden = shared || role; area.querySelector('[data-i18n="chain.libraryHelp"]').hidden = shared || role;
+    area.querySelector('h3').dataset.i18n = role ? 'fx.rolePreset' : shared ? 'live.actions' : 'preset.title'; area.querySelector('h3').textContent = t(area.querySelector('h3').dataset.i18n); $('fxPresetSave').dataset.i18n = shared ? 'live.saveAsNew' : 'preset.saveAs'; $('fxPresetSave').textContent = t($('fxPresetSave').dataset.i18n);
+    const previous = shared ? draft.presetId : $('fxPresetSelect').value || draft?.presetId, presets = Object.values(session?.voicePresets || {}).filter(preset => !preset.role);
     $('fxPresetSelect').replaceChildren(new Option(t('preset.choose'), ''), ...presets.map(preset => new Option(model.icon(preset) + ' ' + preset.name, preset.id)));
     if (presets.some(preset => preset.id === previous)) $('fxPresetSelect').value = previous;
     const preset = selected(), locked = sending || !!operation;
@@ -54,16 +56,11 @@
     } catch { status('preset.syncError'); }
     finally { sending = false; $('fxDialog').querySelector('.fx-body').inert = !!operation; refresh(); }
   }
-  async function confirmRoleName(data, draft) {
+  function checkPresetName(data) {
     const name = data.name?.trim(), character = model.roleNamed(session, name);
     if (!character) return true;
-    if (!model.canEditRole(session, character, myName, canModerate())) { status('preset.owner'); return false; }
-    const target = model.roleTarget(session, character), existing = model.rolePreset(session, character);
-    if (!await askConfirm(t('preset.roleWarning', { name: character }))) return false;
-    if (editor.draft()?.draftId !== draft.draftId || session.activeSessionId !== draft.sessionId) return false;
-    data.roleTargets = [target];
-    if (data.action === 'create' && existing) { data.action = 'update'; data.id = existing.id; data.revision = existing.revision; }
-    return true;
+    status('preset.roleName'); showToast(t('preset.roleName')); return false;
+
   }
   function mutate(data, draft, linkDraft = false) {
     if (operation || sending || !draft || draft.sessionId !== session.activeSessionId || editor.draft()?.draftId !== draft.draftId) return;
@@ -71,8 +68,8 @@
     void send();
   }
   $('fxPresetSave').onclick = async () => { const draft = editor.draft(); if (!draft || operation) return;
-    const settings = { effects: structuredClone(draft.effects), pitch: draft.pitch }, name = await askText(t('preset.name'), draft.character.slice(0, model.MAX_NAME), model.MAX_NAME);
-    if (name && editor.draft()?.sessionId === draft.sessionId) { const data = { action: 'create', id: newUploadId(), revision: 0, name, icon: draft.icon, settings }; if (await confirmRoleName(data, draft)) mutate(data, draft, draft.scope !== 'preset'); }
+    const settings = { effects: structuredClone(draft.effects), pitch: draft.pitch }, name = await askText(t('preset.name'), '', model.MAX_NAME);
+    if (name && editor.draft()?.sessionId === draft.sessionId) { const data = { action: 'create', id: newUploadId(), revision: 0, name, icon: draft.icon, settings }; if (checkPresetName(data)) mutate(data, draft, draft.scope !== 'preset'); }
   };
   $('fxPresetApply').onclick = async () => {
     const draft = editor.draft(), preset = structuredClone(selected()); if (!draft || !preset) return;
@@ -85,7 +82,7 @@
     const draft = editor.draft(), preset = structuredClone(selected()); if (!draft || !preset || operation) return;
     const data = { action, id: preset.id, revision: preset.revision };
     if (action === 'update') { if (draft.presetId === preset.id) await updateSource(); else if (await editor.close()) editor.open(preset.id, 'preset'); return; }
-    if (action === 'rename') { data.name = await askText(t('preset.name'), preset.name, model.MAX_NAME); if (!data.name || !await confirmRoleName(data, draft)) return; }
+    if (action === 'rename') { data.name = await askText(t('preset.name'), preset.name, model.MAX_NAME); if (!data.name || !checkPresetName(data)) return; }
     else { data.settings = { effects: structuredClone(draft.effects), pitch: draft.pitch }; if (!await askConfirm(t(action === 'delete' && (model.usage(session, preset.id).lines.length || model.usage(session, preset.id).roles.length) ? 'live.deleteUsed' : action === 'delete' ? 'preset.deleteConfirm' : 'preset.updateConfirm', { name: preset.name, n: model.usage(session, preset.id).lines.length, r: model.usage(session, preset.id).roles.length }), { danger: action === 'delete' })) return; if (action === 'delete') { delete data.settings; data.detach = true; } }
     mutate(data, draft);
   };
@@ -94,7 +91,7 @@
   window.addEventListener('dubline-language-changed', () => { DublineI18n.apply(area); refresh(); });
   async function updateSource() {
     const draft = editor.draft(), preset = session.voicePresets?.[draft?.presetId];
-    if (!draft || !preset || operation || sending || !model.canEditPreset(session, preset, myName, canModerate())) return;
+    if (!draft || draft.scope === 'role' || !preset || preset.role || operation || sending || !model.canEditPreset(session, preset, myName, canModerate())) return;
     const usage = model.usage(session, preset.id), revision = draft.sourceRevision;
     if (!await askConfirm(t('chain.updateConfirm', { name: preset.name, n: usage.lines.length, r: usage.roles.length }))) return;
     if (editor.draft()?.sessionId !== draft.sessionId || editor.draft()?.draftId !== draft.draftId) return;

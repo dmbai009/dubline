@@ -113,6 +113,7 @@ function normalizeEditorState(session) {
   } else {
     session.trackOrder = [...new Set([...session.trackOrder.map(String).filter(Boolean), ...names])];
   }
+  if (require('../public/voice-preset-model').migrateScene(session)) repairedOnLoad = true;
   let maxId = 0;
   session.lines.forEach(line => {
     maxId = Math.max(maxId, Number(line.id) || 0);
@@ -257,6 +258,7 @@ function newSessionId() {
 }
 
 function snapshotActive(room) {
+  require('../public/voice-preset-model').reconcileNames(room);
   if (!room.activeSessionId || !room.sessions) return;
   const snapshot = { id: room.activeSessionId };
   SESSION_FIELDS.forEach(field => { snapshot[field] = room[field]; });

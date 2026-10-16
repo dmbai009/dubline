@@ -10,6 +10,11 @@
 #inspector .insp-actions { gap:5px; }
 #inspector .insp-actions button { padding:6px 8px; font-size:11px; }
 #inspector .insp-actions.secondary button { padding:4px 6px; font-size:10px; }
+#inspector .insp-actions.primary { align-items:center; }
+#inspector .insp-actions.primary button { box-sizing:border-box; height:28px; min-width:0; max-width:100%; line-height:1.25; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; align-self:center; }
+#inspector .insp-actions.primary .control-help { align-self:center; width:auto; }
+#inspector .insp-actions.primary .grow, #inspector .insp-actions.primary .control-help:has(> .grow) { flex:1 1 60px; }
+#inspector [data-original-preview].is-previewing { color:var(--accent-2); background:var(--accent-soft); border-color:var(--accent); }
 #inspector .take-panel, #inspector #editorLineForm { background:none; border:0; border-radius:0; box-shadow:none; padding:0; gap:8px; }
 #inspector .insp-mic { display:grid; grid-template-columns:auto minmax(35px,1fr) 37px; gap:7px; }
 #inspector .insp-mic .insp-label { font-size:10px; }

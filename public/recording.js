@@ -207,6 +207,7 @@ window.handleStudioRecord = async function(lineId) {
   const startTime = Number((line.start - videoPreRoll).toFixed(3));
   const recordingStartTime = Number((startTime - holdSeconds).toFixed(3));
   currentRecordingStartTime = recordingStartTime;
+  audio.stopPreview();
   video.pause();
   video.currentTime = startTime;
 

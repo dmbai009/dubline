@@ -386,6 +386,10 @@ window.DublineLocales.en = {
   "chip.other": "🔒 {owner}",
   "chip.free": "free",
   "insp.original": "🎧 Original",
+  "reference.help": "Play only the original audio at normal source volume, with 0.5 s before and after the line. Track mute and mix levels are ignored; master volume still applies. Click again to stop.",
+  "reference.useBacking": "There is no original audio source in this scene. Use Background as the reference? It may contain only music and effects. This choice affects only your listening in this scene.",
+  "reference.unavailable": "There is no original audio available for this line.",
+  "reference.failed": "Could not play the original audio. Check that the media has finished loading.",
   "take.pending": "⏳ not sent",
   "take.pendingNotice": "⏳ The take has not reached the server yet. It is saved locally in the application and will be sent automatically when the connection is back.",
   "take.sendNow": "Send now",
@@ -1334,4 +1338,10 @@ window.DublineLocales.en = {
   "subtitles.preparing": "Preparing confirmed subtitles…",
   "subtitles.done": "{format} subtitles prepared.",
   "subtitles.error": "Could not export subtitles.",
+  "effect.equalizer": "Equalizer",
+  "fx.name.equalizer": "Equalizer",
+  "fx.rolePreset": "Role preset",
+  "fx.rolePresetHelp": "Apply to role updates this role’s preset for all its lines, including future recordings. Role presets are separate from take presets.",
+  "preset.roleName": "This name belongs to a role. Choose another preset name. Role effects can be changed in the role editor.",
+  "preset.roleOnly": "Role presets can only be edited in the role editor."
 };

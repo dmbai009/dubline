@@ -9,6 +9,7 @@ Dubline is a desktop and browser studio for dubbing scenes together. The Electro
 - Edit Mode supports roles, captions, timing, selection, drag/resize, keyboard movement, and per-user Undo.
 - Dub Mode lets participants claim roles or individual lines and record in parallel. Each line has one current take, with non-destructive trim, pitch, effects, and alignment.
 - Original, Background, and Dub share one project mix. Personal monitoring and microphone preferences affect the listener; exports use the project mix.
+- The inspector can audition a video scene's original audio around a line without changing its mix, while Voxalike retains its supplied per-line reference files. See docs/original-reference.md.
 - Export a finished video, character stems, subtitle-only SRT/ASS/VTT files, or an editable Voxalike pack. Subtitle files can be imported with a video into another project; see docs/subtitle-export.md.
 
 ## Projects in 1.4
@@ -100,11 +101,16 @@ compatible without changing unedited recordings. See docs/pitch-stage.md.
 
 Selected lines offer direct bulk preset assignment, with an explicit eligible
 count, replacement confirmation and one atomic write. Claimed role owners can
-edit their role's effects. Apply creates or updates the shared preset named after
-the role; manually using a role name warns and confirms its role binding. Shared
+edit their role's effects. Apply directly updates the isolated preset belonging to
+the role. Take presets cannot use role names or refer to role presets. Shared
 updates retain current rights, revisions and live-reference behavior. Shift-click
 selects visible cues in a time/track rectangle anchored at the original cue;
 same-track selection stays on that track. See docs/role-preset-workflow.md.
+
+The eleventh effect is a five-band graphic equalizer (100/300 Hz, 1/3/10 kHz,
+±12 dB). Effects can be clicked or dragged from the palette into the chain;
+track handles reorder vertically with animated neighboring rows. See
+docs/equalizer-role-isolation.md for compatibility and checks.
 
 ## Export reliability and background operations
 

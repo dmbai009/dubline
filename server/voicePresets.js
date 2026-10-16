@@ -1,9 +1,11 @@
 const model = require('../public/voice-preset-model');
 const fail = key => { throw Error('preset.' + key); };
-function plan(room, conn, data, moderator) {
+function plan(room, conn, data, moderator, role = null) {
   if (!data || !['create', 'rename', 'update', 'delete'].includes(data.action) || !require('../public/voice-chain-model').id(data.id) || !Number.isSafeInteger(data.revision) || data.revision < 0) fail('invalid');
   if (data.icon !== undefined && !model.validIcon(data.icon)) fail('invalid');
   const next = Object.assign(Object.create(null), structuredClone(room.voicePresets || {})), previous = Object.hasOwn(next, data.id) ? next[data.id] : null;
+  if (!role && (previous?.role || data.roleTargets !== undefined)) fail('roleOnly');
+  if (!role && ['create', 'rename'].includes(data.action) && model.roleNamed(room, data.name?.trim())) fail('roleName');
   if (data.action === 'create') {
     if (previous || data.revision !== 0) fail('conflict');
     if (Object.keys(next).length >= model.MAX_PRESETS) fail('capacity');
@@ -20,19 +22,21 @@ function plan(room, conn, data, moderator) {
         { id: previous.id, name: previous.name, ...structuredClone(data.settings), createdBy: previous.createdBy, revision: previous.revision + 1 };
     }
   }
+  if (role && data.action !== 'delete') next[data.id].role = role;
   if (data.action !== 'delete' && data.icon !== undefined) { if (data.icon === 'voice') delete next[data.id].icon; else next[data.id].icon = data.icon; }
   else if (data.action === 'update' && previous.icon !== undefined) next[data.id].icon = previous.icon;
   if (!model.validLibrary(next)) fail('invalid');
   return next;
 }
-function planScene(room, conn, data, moderator) {
-  const catalog = plan(room, conn, data, moderator), usage = model.usage(room, data.id), chain = require('../public/voice-chain-model');
+function planScene(room, conn, data, moderator, role = null) {
+  const catalog = plan(room, conn, data, moderator, role), usage = model.usage(room, data.id), chain = require('../public/voice-chain-model');
   let lines = room.lines, roles = room.roleEffects, deletedLines = room.deletedLines;
   if (data.action !== 'delete') {
-    const preset = catalog[data.id], character = model.roleNamed(room, preset.name);
-    if (character && (['create', 'rename'].includes(data.action) || data.roleTargets !== undefined)) {
+    const character = role;
+    if (character) {
       if (!model.canEditRole(room, character, conn.nick, moderator)) fail('owner');
-      if (Object.values(catalog).some(entry => entry.id !== data.id && entry.name === character)) fail('roleExists');
+      const existing = model.rolePreset(room, character);
+      if (existing && existing.id !== data.id) fail('roleExists');
       const target = data.roleTargets?.[0], expected = model.roleTarget(room, character);
       if (!Array.isArray(data.roleTargets) || data.roleTargets.length !== 1 || !target || target.character !== expected.character || target.revision !== expected.revision || target.voicePresetId !== expected.voicePresetId) fail('roleConfirm');
       if (!Number.isSafeInteger(expected.revision + 1)) fail('invalid');
