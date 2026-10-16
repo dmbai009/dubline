@@ -44,12 +44,16 @@ test('the host cancels its real throttled scene upload from the floating card ou
 
 test('range reader disposal releases real HTTP responses instead of exhausting browser connections',async()=>{
  const fs=require('node:fs'),path=require('node:path'),file=path.join(server.dirs.uploads,'export-range-probe.bin'),fd=fs.openSync(file,'w');fs.ftruncateSync(fd,64*1024*1024);fs.closeSync(fd);
- const result=await guest.evaluate(async()=>{
-  const mb=await import('/vendor/mediabunny/mediabunny.min.mjs'),job=new AbortController(),timer=setTimeout(()=>job.abort(),8000),requests=[];
-  const send=DublineExportOperations.fetchSource(job.signal,(url,options)=>{requests.push(options.signal);return fetch(url,options);});
-  try{for(let i=0;i<12;i++){const source=new mb.UrlSource('/uploads/export-range-probe.bin?read='+i,{fetchFn:send}),ref=source.ref();try{if(await source.getSize()!==64*1024*1024)throw Error('Wrong range size');}finally{ref.free();}}return {count:requests.length,closed:requests.every(signal=>signal.aborted)};}finally{clearTimeout(timer);job.abort();}
+ const results=await guest.evaluate(async()=>{
+  const mb=await import('/vendor/mediabunny/mediabunny.min.mjs'),nativeAny=AbortSignal.any,results=[];
+  try{for(const fallback of [false,true]){
+   AbortSignal.any=fallback?undefined:nativeAny;
+   const job=new AbortController(),timer=setTimeout(()=>job.abort(),8000),requests=[];
+   const send=DublineExportOperations.fetchSource(job.signal,(url,options)=>{requests.push(options.signal);return fetch(url,options);});
+   try{for(let i=0;i<12;i++){const source=new mb.UrlSource('/uploads/export-range-probe.bin?read='+i+'&fallback='+fallback,{fetchFn:send}),ref=source.ref();try{if(await source.getSize()!==64*1024*1024)throw Error('Wrong range size');}finally{ref.free();}}results.push({count:requests.length,closed:requests.every(signal=>signal.aborted)});}finally{clearTimeout(timer);job.abort();}
+  }return results;}finally{AbortSignal.any=nativeAny;}
  });
- assert.equal(result.count,12);assert.equal(result.closed,true);
+ assert.deepEqual(results.map(result=>result.count),[12,12]);assert.equal(results.every(result=>result.closed),true);
 });
 
 test('scene creation failure is authoritative and stale running events cannot revive it',async()=>{
