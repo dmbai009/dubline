@@ -284,7 +284,10 @@ async function main() {
     await guest.waitForFunction(() => !!document.querySelector('dialog.text-prompt[open]'));
     await guest.$eval('#textPromptInput', node => { node.value = 'Packaged radio'; }); await guest.click('#textPromptSave');
     await host.waitForFunction(() => Object.values(session.voicePresets || {}).some(preset => preset.name === 'Packaged radio'));
-    await guest.evaluate(() => DublineVoiceEditor.close());
+    await guest.evaluate(() => { void DublineVoiceEditor.close(); });
+    await guest.waitForFunction(() => !!document.querySelector('dialog.text-prompt[data-kind="decision"][open]'));
+    await guest.click('#textPromptCancel');
+    await guest.waitForFunction(() => !document.getElementById('fxDialog').open);
     process.stdout.write('Packaged shared preset captured the take draft and reached the host.\n');
     await host.evaluate(() => socket.emit('set_blind_mode', { sessionId: session.activeSessionId,  enabled: true }));
     await host.waitForFunction(id => session.blindMode && !canHearLine(session.lines.find(line => line.id === id)), {}, created.line.id);
