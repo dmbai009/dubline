@@ -53,8 +53,21 @@ if (!process.versions.electron) {
       await evaluate('closeSettingsModal()'); await until(() => evaluate('session.noiseReduction?.actors[myName]?.enabled'));
       await evaluate("preRollSeconds=0;localStorage.setItem('dubline_adr','off');socket.emit('claim_character',{character:'Hero',sessionId:session.activeSessionId});void 0;");
       await until(() => evaluate('session.characterClaims.Hero===myName')); await evaluate('selectLine(session.lines.find(l=>l.id===1));void 0;');
-      await until(() => evaluate('!sceneMediaPreparation()?.key && !DublineNoise.busy()'));
-      await evaluate('recordSelectedLine();void 0;'); try { await until(() => evaluate("recordState==='recording'")); } catch(error) { console.error(await evaluate('JSON.stringify({recordState,selected:selectedLine?.id,mode:session.mode,owner:getLineOwner(session.lines[0]),myName,busy:DublineNoise.busy(),settings:settingsModal.style.display,preparation:sceneMediaPreparation(),toast:document.getElementById("toast").textContent})'));throw error; }
+      try {
+        // A null preparation status can precede media-source attachment. Require
+        // the admitted transfer and actual decoders, then start in the same turn.
+        // A source may still buffer during asynchronous microphone acquisition;
+        // retry only this idle start, never toggle an already active recording.
+        await until(() => evaluate(`(async () => {
+          if (recordState !== 'idle') return recordState === 'recording';
+          if (DublineMediaTransfer.stats().status !== 'ready' || video.readyState < 3 ||
+              [video, originalTrackAudio, backing].some(element => element.seeking) ||
+              DublineProjectAudio.preparationStatus(session, { original: originalTrackAudio, backing }).key ||
+              sceneMediaPreparation()?.key || DublineNoise.busy()) return false;
+          await recordSelectedLine();
+          return recordState === 'recording';
+        })()`));
+      } catch(error) { console.error(await evaluate('JSON.stringify({recordState,selected:selectedLine?.id,mode:session.mode,owner:getLineOwner(session.lines[0]),myName,busy:DublineNoise.busy(),settings:settingsModal.style.display,preparation:sceneMediaPreparation(),media:DublineMediaTransfer.stats().status,decoders:[video,originalTrackAudio,backing].map(element=>({ready:element.readyState,seeking:element.seeking})),toast:document.getElementById("toast").textContent})'));throw error; }
       await new Promise(resolve => setTimeout(resolve, 350)); window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Space' }); window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Space' });
       await until(() => evaluate("recordState==='idle' && session.lines.find(l=>l.id===1).audioUrl && !pendingTakes.size"));
       assert.equal(await evaluate('Object.hasOwn(session.lines.find(l=>l.id===1),"noiseProfileId")'), false);

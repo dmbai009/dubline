@@ -110,6 +110,19 @@ compare the old Preparing text against the new Ready key. A regression holds a
 real preview result, changes locale, then releases it between reads and verifies
 both complete states. Production preview/localization behavior is unchanged.
 
+The native workflow fixture also waits for the admitted media transfer, actual
+decoder readiness, completed seeks and the ordinary audible-source preparation
+gate before starting recording in that same browser turn. A transient refusal
+during microphone acquisition is retried only while recording remains idle.
+The original timeout and the requirement to produce a real recorded take remain;
+application buffering/permission checks are unchanged.
+
+The peer-disconnection/corruption fixture gates every HTTP Range request until
+its required peer bytes arrive, rather than only the first request. A real peer
+handshake is deliberately delayed past the fallback grace. Transfer integrity,
+durable chunks, canonical HTTP repair and the separate fallback-latency assertion
+remain checked with the original timeouts. Production P2P behavior is unchanged.
+
 ## Remaining manual acceptance
 
 Check physical microphones/output devices and hot-plugging, screen-reader announcements, touch, real remote/tunnel sessions, Firefox/Safari and subjective speech/effect quality. Automated multi-user Chrome and production Electron tests establish software behavior; they do not replace physical-device or WAN acceptance. Existing RNNoise model provenance/licensing considerations remain in [the RNNoise report](rnnoise-integration.md).
