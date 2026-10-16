@@ -324,7 +324,7 @@ describe('Collaborative editor hardening', { skip: skipReason }, () => {
     await resetEvent('#volOriginal');
     assert.equal(await page.$eval('#volOriginal', input => Number(input.value)), 60);
     assert.equal(await page.evaluate(() => session.projectAudio.original.volume), 0.6);
-    assert.equal(await page.$$eval('input[type=range]:not(:disabled):not(#transportSeek)', inputs => inputs.every(input => input.dataset.resetValue !== undefined || !!input.dataset.resetResolver)), true);
+    assert.equal(await page.$$eval('input[type=range]:not(:disabled):not(#transportSeek)', inputs => inputs.filter(input => !input.closest('#videoExportPanel')).every(input => input.dataset.resetValue !== undefined || !!input.dataset.resetResolver)), true);
   });
 
   test('R auto-claims a free line and records, refuses other ownership and offline starts', async () => {

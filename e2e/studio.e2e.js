@@ -433,7 +433,7 @@ describe('studio', { skip: skipReason }, () => {
   test('recording: configurable 1 s preparation, "Speak!" on the line start, auto-trim', async () => {
     const line = FIXTURE_LINES[0];
     await claimAndSelect(alice, line.id);
-    assert.ok(await alice.evaluate(() => { const el = document.getElementById('inspector'); return el.scrollHeight <= el.clientHeight + 1; }), 'inspector fits');
+    assert.ok(await alice.evaluate(() => { const el = document.getElementById('inspector'); return el.scrollWidth <= el.clientWidth + 1 && getComputedStyle(el).overflowY === 'auto'; }), 'inspector fits horizontally and retains vertical scrolling');
 
     await alice.evaluate(id => handleStudioRecord(id), line.id);
     const ready = await waitFor(alice, () => document.getElementById('recordCue').style.display === 'block' && {

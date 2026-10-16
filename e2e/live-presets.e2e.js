@@ -8,6 +8,7 @@ describe('live scene presets: confirmed multi-user sound, drafts, history and pr
   const call = (page, event, data) => page.evaluate((event, data) => new Promise(resolve => socket.emit(event, { sessionId: session.activeSessionId, operationId: newUploadId(), operationEpoch: session.editorProtocol.epoch, operationTime: Date.now(), ...data }, resolve)), event, data);
   const close = page => page.evaluate(() => DublineVoiceEditor.close(true));
   before(async () => {
+    fs.mkdirSync(path.resolve('audit/live-presets'), { recursive: true });
     server = await startServer(); browser = await launchBrowser(server.port);
     host = await openPlayer(browser, server.url('live'), 'Host', { autoConfirm: false }); actor = await openPlayer(browser, server.url('live'), 'Actor', { autoConfirm: false }); other = await openPlayer(browser, server.url('live'), 'Other', { autoConfirm: false });
     await loadFixture(host); await waitFor(actor, () => session.loaded); await waitFor(other, () => session.loaded);

@@ -3,7 +3,7 @@ const { skipReason, startServer, launchBrowser, openPlayer, loadFixture, waitFor
 const { mediaProxy } = require('./media-transfer-proxy');
 describe('readable media failure and recovery states', { skip: skipReason, timeout: 90000 }, () => {
   let server, browser, host;
-  before(async () => { server = await startServer(); browser = await launchBrowser(server.port, { secureOrigin: false }); host = await openPlayer(browser, server.url('media-next'), 'Host'); await loadFixture(host); });
+  before(async () => { require('node:fs').mkdirSync(path.resolve('audit/live-presets'), { recursive: true }); server = await startServer(); browser = await launchBrowser(server.port, { secureOrigin: false }); host = await openPlayer(browser, server.url('media-next'), 'Host'); await loadFixture(host); });
   after(async () => { await browser?.close(); await server?.cleanup(); });
   test('real access failure shows safe details and an explicit retry restores the same scene', async () => {
     let blocked = true, requests = 0; const proxy = await mediaProxy(server.port, { rule: request => { if (request.url.startsWith('/api/media-manifest') && new URL(request.url, 'http://host').searchParams.get('url')?.endsWith('dub_video.mp4')) { requests++; if (blocked) return { status: 403 }; } } });

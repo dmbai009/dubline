@@ -9,6 +9,7 @@ describe('scene presets, consistent controls and one-shot previews', { skip: ski
   const preset = (page, data) => call(page, 'voice_preset_update', data);
   const closeFx = page => page.evaluate(() => DublineVoiceEditor.close(true));
   before(async () => {
+    fs.mkdirSync(path.resolve('audit/ui-presets'), { recursive: true });
     server = await startServer(); browser = await launchBrowser(server.port);
     host = await openPlayer(browser, server.url('ui-presets'), 'Host', { autoConfirm: false }); actor = await openPlayer(browser, server.url('ui-presets'), 'Actor', { autoConfirm: false }); other = await openPlayer(browser, server.url('ui-presets'), 'Other', { autoConfirm: false });
     await loadFixture(host); await waitFor(actor, () => session?.loaded); await waitFor(other, () => session?.loaded);
