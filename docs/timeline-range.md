@@ -69,3 +69,5 @@ range geometry and confirmed the new toolbar does not increase the workspace's
 existing minimum width. Very narrow windows at enlarged UI scale retain the
 existing horizontally scrollable workspace. These are local source checks;
 packaging and remote CI are separate validation steps.
+
+The range clock and its export/clear actions are in the existing footer immediately before zoom controls, without an extra timeline row. Narrow layouts use labelled icon actions.

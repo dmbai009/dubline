@@ -159,7 +159,7 @@
   });
   const footer = document.createElement('div'); footer.className = 'timeline-footer';
   const nav = document.createElement('div'); nav.className = 'timeline-footer-controls';
-  nav.append(panel.querySelector('.toolbar-hint'), panel.querySelector('.zoom-controls'));
+  nav.append(panel.querySelector('.toolbar-hint'), panel.querySelector('.timeline-range-tools'), panel.querySelector('.zoom-controls'));
   const map = document.createElement('canvas'); map.id = 'timelineMinimap'; map.height = 36; map.setAttribute('aria-label', t('find.minimap')); map.title = t('find.minimap');
   footer.append(map, nav); panel.append(footer);
   const density = document.createElement('canvas');

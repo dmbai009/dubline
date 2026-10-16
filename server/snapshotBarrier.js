@@ -31,7 +31,7 @@ function frozenClient(roomId, sessionId, clientId) {
 }
 function start(socket, conn, data) {
   const room = require('./rooms').getRoom(conn.roomId);
-  if (!roomSockets[conn.roomId]?.[socket.id] || room.hostClientId !== conn.clientId || data.sessionId !== room.activeSessionId || !['project', 'voxalike', 'archive'].includes(data.purpose)) return { ok: false, reason: 'session' };
+  if (!roomSockets[conn.roomId]?.[socket.id] || room.hostClientId !== conn.clientId || data.sessionId !== room.activeSessionId || !['project', 'voxalike', 'archive', 'subtitles'].includes(data.purpose)) return { ok: false, reason: 'session' };
   for (const previous of barriers.values()) if (previous.roomId === conn.roomId) release(previous);
   const now = Date.now(), barrier = { token: randomUUID(), roomId: conn.roomId, clientId: conn.clientId, hostSocket: socket.id,
     sessionId: room.activeSessionId, purpose: data.purpose, deadline: now + 3500, expires: now + 15000,

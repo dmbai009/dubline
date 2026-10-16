@@ -434,6 +434,37 @@ window.exportVoxalikePack = async function() {
   }
 };
 
+let subtitleExportBusy = false;
+window.exportSubtitles = async function(format) {
+  if (subtitleExportBusy) return;
+  if (!session?.loaded || !session.lines?.length) return alert(t('error.noSubtitleLines'));
+  if (!amHost()) return alert(t('onlyHost'));
+  subtitleExportBusy = true;
+  const status = document.getElementById('subtitleExportStatus');
+  const buttons = document.querySelectorAll('[data-subtitle-format]');
+  buttons.forEach(button => { button.disabled = true; });
+  status.hidden = false; status.style.color = 'var(--muted)'; status.textContent = t('subtitles.preparing');
+  let snapshot;
+  try {
+    snapshot = await window.prepareSafeSnapshot('subtitles');
+    if (!snapshot) { status.hidden = true; return; }
+    const response = await fetch('/api/export-subtitles', { method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ room:currentRoom, clientId, format, ...snapshot }) });
+    if (!response.ok) throw new Error(await readError(response));
+    const blob = await response.blob(), url = URL.createObjectURL(blob), link = document.createElement('a');
+    link.href = url;
+    const filename = response.headers.get('Content-Disposition')?.match(/filename\*=UTF-8''([^;]+)/i);
+    link.download = filename ? decodeURIComponent(filename[1]) : `Dubline.${format}`;
+    document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 60000);
+    status.style.color = 'var(--success)'; status.textContent = t('subtitles.done', { format:format.toUpperCase() });
+  } catch (error) {
+    status.style.color = 'var(--danger)'; status.textContent = t('error.generic', { message:error.message });
+  } finally {
+    if (snapshot) socket.emit('snapshot_cancel', { token:snapshot.barrierToken });
+    subtitleExportBusy = false; buttons.forEach(button => { button.disabled = !amHost(); });
+  }
+};
+
 function sliceAudioBuffer(buffer, fromSample, toSample) {
   const length = Math.max(1, toSample - fromSample);
   const chunk = new AudioBuffer({ length, numberOfChannels: buffer.numberOfChannels, sampleRate: buffer.sampleRate });
@@ -517,6 +548,9 @@ async function renderOriginalVideo(progress, snapshot, settings = { mode: 'origi
 const downloadVideoBtn = document.getElementById('downloadVideoBtn');
 
 function updateDownloadButtons() {
+  document.querySelectorAll('[data-subtitle-format]').forEach(button => {
+    button.disabled = subtitleExportBusy || !session?.loaded || !session.lines?.length || !amHost();
+  });
   const loaded = !!(session && session.loaded);
   const notice=document.getElementById('renderOriginalNotice');
   notice.style.display='none';

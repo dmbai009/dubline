@@ -9,7 +9,7 @@ Dubline is a desktop and browser studio for dubbing scenes together. The Electro
 - Edit Mode supports roles, captions, timing, selection, drag/resize, keyboard movement, and per-user Undo.
 - Dub Mode lets participants claim roles or individual lines and record in parallel. Each line has one current take, with non-destructive trim, pitch, effects, and alignment.
 - Original, Background, and Dub share one project mix. Personal monitoring and microphone preferences affect the listener; exports use the project mix.
-- Export a finished video, character stems, or an editable Voxalike pack.
+- Export a finished video, character stems, subtitle-only SRT/ASS/VTT files, or an editable Voxalike pack. Subtitle files can be imported with a video into another project; see docs/subtitle-export.md.
 
 ## Projects in 1.4
 

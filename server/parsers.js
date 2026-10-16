@@ -283,6 +283,7 @@ function validCueTiming(start, end) {
 }
 
 function parseSubtitles(buffer, fileName) {
+  const { decodeText, assCueMetadata } = require('./subtitle-export');
   let text = buffer.toString('utf8');
   if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
   const ext = path.extname(fileName || '').toLowerCase();
@@ -293,12 +294,20 @@ function parseSubtitles(buffer, fileName) {
     const rawLines = text.split(/\r?\n/);
     let formatFields = [];
     let idCounter = 1;
+    let cueMetadata = null;
 
     for (const line of rawLines) {
       const trimmed = line.trim();
+      if (trimmed.startsWith('; DubLine-Cue: ')) { cueMetadata = trimmed.slice(15); continue; }
       if (/^Format:/i.test(trimmed)) {
         formatFields = trimmed.replace(/^Format:\s*/i, '').split(',').map(s => s.trim().toLowerCase());
       } else if (/^Dialogue:/i.test(trimmed)) {
+        const restored = cueMetadata && assCueMetadata(cueMetadata, trimmed); cueMetadata = null;
+        if (restored) {
+          lines.push({ id:idCounter++, character:restored.character, caption:restored.caption,
+            start:restored.start, end:restored.end, originalAudioUrl:null, claimedBy:null, ...emptyTake() });
+          continue;
+        }
         const valStr = trimmed.replace(/^Dialogue:\s*/i, '');
         const maxSplits = formatFields.length > 0 ? formatFields.length - 1 : 9;
         const parts = [];
@@ -364,19 +373,25 @@ function parseSubtitles(buffer, fileName) {
       const start = parseSrtTime(match[1], match[2], match[3], match[4]);
       const end = parseSrtTime(match[5], match[6], match[7], match[8]);
 
-      let caption = bLines.slice(timeLineIdx + 1).join(' ').trim();
+      let caption = bLines.slice(timeLineIdx + 1).join('\n').trim();
+      const voice = ext === '.vtt' && caption.match(/^<v(?:\.[^\s>]+)*\s+([^>]+)>/);
+      if (voice) caption = caption.slice(voice[0].length);
       caption = caption.replace(/<[^>]+>/g, '').trim();
 
       let character = DEFAULT_CHARACTER;
-      const bracketed = caption.match(/^(?:\[([^\]]+)\]|\(([^)]+)\)):\s*(.*)$/);
-      const prefixed = caption.match(/^([\p{L}\p{N}_ .'-]{2,30}):\s*(.*)$/u);
-      if (bracketed) {
+      const bracketed = caption.match(/^(?:\[([^\]]+)\]|\(([^)]+)\)):\s*([\s\S]*)$/);
+      const prefixed = caption.match(/^([\p{L}\p{N}_ .'-]{2,30}):\s*([\s\S]*)$/u);
+      if (voice) {
+        character = voice[1].trim();
+      } else if (bracketed) {
         character = (bracketed[1] || bracketed[2]).trim();
         caption = bracketed[3].trim();
       } else if (prefixed) {
         character = prefixed[1].trim();
         caption = prefixed[2].trim();
       }
+      character = decodeText(character);
+      caption = decodeText(caption).replace(/^\u200b$/gm, '').trim();
 
       if (caption && !validCueTiming(start, end)) skippedTimings++;
       if (caption && validCueTiming(start, end)) {
