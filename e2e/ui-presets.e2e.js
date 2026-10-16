@@ -8,6 +8,9 @@ describe('scene presets, consistent controls and one-shot previews', { skip: ski
   const call = (page, event, data) => page.evaluate((event, data) => new Promise(resolve => socket.emit(event, { sessionId: session.activeSessionId, operationId: newUploadId(), operationEpoch: session.editorProtocol.epoch, operationTime: Date.now(), ...data }, resolve)), event, data);
   const preset = (page, data) => call(page, 'voice_preset_update', data);
   const closeFx = page => page.evaluate(() => DublineVoiceEditor.close(true));
+  // Text and key must describe the same browser turn: preview completion can
+  // change both between separate protocol round trips.
+  const localizedStatus = page => page.$eval('#fxStatus', node => ({ key: node.dataset.i18n, actual: node.textContent, expected: t(node.dataset.i18n) }));
   before(async () => {
     fs.mkdirSync(path.resolve('audit/ui-presets'), { recursive: true });
     server = await startServer(); browser = await launchBrowser(server.port);
@@ -189,12 +192,49 @@ describe('scene presets, consistent controls and one-shot previews', { skip: ski
     await actor.click('#timelineFilterPicker [data-filter-action=include]'); assert.ok(await actor.evaluate(() => DublineTimelineFilters.ids().includes(4)));
     await actor.select('#timelineScopeFilter', 'all');
   });
+  test('localized preview status stays consistent when preparation completes between browser reads', async () => {
+    const language = await actor.evaluate(() => DublineI18n.getLanguage());
+    try {
+      await actor.evaluate(() => {
+        window.qaOriginalStartRendering = OfflineAudioContext.prototype.startRendering;
+        window.qaPreviewGate = new Promise(resolve => { window.qaReleasePreview = resolve; });
+        window.qaPreviewHeld = false;
+        OfflineAudioContext.prototype.startRendering = async function(...args) {
+          const result = await qaOriginalStartRendering.apply(this, args);
+          qaPreviewHeld = true; await qaPreviewGate;
+          return result;
+        };
+        DublineVoiceEditor.open(2, 'takes');
+      });
+      await actor.click('[data-fx-type=radio]');
+      await waitFor(actor, () => qaPreviewHeld && document.getElementById('fxStatus').dataset.i18n === 'fx.processing');
+      await actor.evaluate(() => DublineI18n.setLanguage('uk'));
+      const preparing = await localizedStatus(actor);
+      assert.equal(preparing.key, 'fx.processing'); assert.equal(preparing.actual, preparing.expected);
+      // Finish real processing exactly between the two reads the old assertion
+      // made. No status DOM or translated text is replaced by the fixture.
+      await actor.evaluate(() => qaReleasePreview());
+      await waitFor(actor, () => document.getElementById('fxStatus').dataset.i18n === 'fx.ready');
+      const ready = await localizedStatus(actor);
+      assert.equal(ready.key, 'fx.ready'); assert.equal(ready.actual, ready.expected);
+      assert.notEqual(preparing.actual, ready.expected, 'mixing the two reads reproduces the previous false failure');
+    } finally {
+      await actor.evaluate(async language => {
+        window.qaReleasePreview?.();
+        if (window.qaOriginalStartRendering) OfflineAudioContext.prototype.startRendering = qaOriginalStartRendering;
+        await DublineI18n.setLanguage(language);
+        for (const name of ['qaReleasePreview', 'qaOriginalStartRendering', 'qaPreviewGate', 'qaPreviewHeld']) delete window[name];
+      }, language);
+      await closeFx(actor);
+    }
+  });
   test('six themes, three locales, long names and 150% narrow dialogs keep popup, focus and footer usable', async () => {
     await actor.setViewport({ width: 640, height: 850 }); await actor.evaluate(() => DublineVoiceEditor.open(2, 'takes')); await waitFor(actor, () => document.getElementById('fxDialog').open); await waitFor(actor, () => !!document.getElementById('fxStatus').dataset.i18n);
     for (const theme of ['midnight', 'graphite', 'light', 'ocean', 'forest', 'sunset']) for (const language of ['en', 'ru', 'uk']) {
       await actor.evaluate(async (theme, language) => { document.documentElement.dataset.theme = theme; await DublineI18n.setLanguage(language); document.body.style.zoom = '150%'; await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); DublineDropdown.button(document.getElementById('fxPresetSelect')).click(); }, theme, language);
       await waitFor(actor, () => { const button = getComputedStyle(DublineDropdown.button(document.getElementById('fxPresetSelect'))), dialog = getComputedStyle(document.getElementById('fxDialog')); return button.backgroundColor === dialog.backgroundColor && button.color === dialog.color; });
-      assert.equal(await actor.$eval('#fxStatus', node => node.textContent), await actor.evaluate(() => t(document.getElementById('fxStatus').dataset.i18n)));
+      const status = await localizedStatus(actor);
+      assert.ok(status.key); assert.equal(status.actual, status.expected);
       const contrast = await actor.evaluate(() => { const css = getComputedStyle(document.getElementById('dubSelectPopup')); const luminance = color => color.match(/[\d.]+/g).slice(0, 3).map(Number).map(value => { value /= 255; return value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4; }).reduce((sum, value, i) => sum + value * [.2126, .7152, .0722][i], 0); const a = luminance(css.color), b = luminance(css.backgroundColor); return (Math.max(a, b) + .05) / (Math.min(a, b) + .05); }); assert.ok(contrast >= 4.5, JSON.stringify({ theme, language, contrast }));
       const geometry = await actor.evaluate(() => { const popup = document.getElementById('dubSelectPopup').getBoundingClientRect(), dialog = document.getElementById('fxDialog').getBoundingClientRect(), apply = document.getElementById('fxApply').getBoundingClientRect(); return { fits: popup.width > 0 && popup.left >= 0 && popup.right <= innerWidth + 1 && popup.top >= 0 && popup.bottom <= innerHeight + 1, footer: apply.height > 0 && apply.top >= dialog.top && apply.bottom <= dialog.bottom, overflow: fxDialog.scrollWidth > fxDialog.clientWidth + 1 }; });
       assert.ok(geometry.fits && geometry.footer && !geometry.overflow, JSON.stringify({ theme, language, geometry })); await actor.keyboard.press('Escape');

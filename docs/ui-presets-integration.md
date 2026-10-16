@@ -102,6 +102,14 @@ Regression work included preserving distinct bulk chains and copied IDs, keeping
 
 All test servers/profiles use temporary data. Real rooms, uploads and user recordings were not used as mutable fixtures. Local screenshots/logs remain ignored under `audit/ui-presets` and existing native QA directories.
 
+## Preview-status CI follow-up
+
+The CI follow-up on 2026-10-16 reads the dynamic preview status text and locale
+key in one browser evaluation. Reading them in separate protocol requests could
+compare the old Preparing text against the new Ready key. A regression holds a
+real preview result, changes locale, then releases it between reads and verifies
+both complete states. Production preview/localization behavior is unchanged.
+
 ## Remaining manual acceptance
 
 Check physical microphones/output devices and hot-plugging, screen-reader announcements, touch, real remote/tunnel sessions, Firefox/Safari and subjective speech/effect quality. Automated multi-user Chrome and production Electron tests establish software behavior; they do not replace physical-device or WAN acceptance. Existing RNNoise model provenance/licensing considerations remain in [the RNNoise report](rnnoise-integration.md).
