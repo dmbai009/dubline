@@ -98,4 +98,17 @@ describe('personal timeline role column', { skip: skipReason, timeout: 120000 },
     assert.deepEqual(await snapshot(), before);
     assert.deepEqual(page.errors, []);
   });
+  test('shrinking after Whole scene keeps its scale when the next room redraw arrives', async () => {
+    await page.evaluate(() => { document.body.style.zoom = ''; layout.top = 300; applyLayout(); });
+    await page.setViewport({ width: 1920, height: 1080 });
+    await page.focus('.ruler-corner .role-column-handle'); await page.keyboard.press('End');
+    await page.evaluate(() => fitTimeline());
+    await waitFor(page, () => timelineFitActive && Math.abs(pxPerSec - timelineFitZoom()) < .001);
+    // Wait for the existing viewport/zoom debounce before beginning a new gesture.
+    await new Promise(resolve => setTimeout(resolve, 200));
+    const before = await snapshot();
+    await page.focus('.ruler-corner .role-column-handle'); await page.keyboard.press('Home');
+    await page.evaluate(() => renderTimeline());
+    assert.deepEqual(await snapshot(), before);
+  });
 });

@@ -25,3 +25,7 @@ cancel, reload, participant isolation, 100/125/150% zoom, narrow-to-wide restora
 ordinary ruler seeking and reset. Playwright visual QA captured 18 states across
 Dub/Edit, 1920/1280/960px, those zoom levels and Graphite/Light/Ocean themes under
 `audit/role-column-visual/` (local artifacts, not distributed).
+
+A separate regression starts with Whole scene at a wide column, narrows the
+column and then redraws the timeline as a room update would. Its unchanged scale
+remains a valid zoom floor until an explicit zoom, viewport change or scene switch.
