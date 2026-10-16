@@ -301,7 +301,7 @@ describe('Studio Workflow 1.3', { skip: skipReason }, () => {
       const visible = el => !!el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden';
       return { initials: element.querySelector('.avatar').firstChild.textContent, avatarVisible: visible(element.querySelector('.avatar')),
         nameVisible: visible(element.querySelector('.player-name')), offline: element.classList.contains('offline'),
-        badges: [...element.querySelectorAll('.player-status-icons span')].map(el => ({ text: el.textContent, title: el.title, visible: visible(el) })),
+        badges: [...element.querySelectorAll('.player-status-icons span,.player-status-complete')].map(el => ({ text: el.textContent, title: el.title, visible: visible(el) })),
         progress: [...element.querySelectorAll('.progress > div')].map(el => ({ width: el.style.width, visible: visible(el) })),
         labels: { host: t('lobby.host'), you: t('lobby.you'), recording: t('lobby.recording', { id: 2 }), seeding: t('lobby.seeding'), downloading: t('lobby.downloading', { pct: 42 }), offline: t('studio.offline'), done: t('studio.done') } };
     }, nick);

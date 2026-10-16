@@ -448,6 +448,8 @@ describe('UI cleanup and local audio devices', { skip: skipReason, timeout: 1200
         await page.setViewport({ width, height });
         for (const scale of [1, 1.5]) {
           await page.evaluate(scale => { document.documentElement.style.zoom = String(scale); }, scale);
+          // Header wrapping and anchored overlays settle on the next layout frame.
+          await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
           const collisions = await page.evaluate(() => {
             const controls = [...document.querySelectorAll('header button, header input')].map(element => ({ element, r: element.getBoundingClientRect() })).filter(({ r }) => r.width && r.height);
             const failures = [];
