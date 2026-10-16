@@ -20,6 +20,8 @@ const { exportProjectDisk, stageProjectDisk } = require('./project-archive');
 const { diskUpload } = require('./project-uploads');
 const { pipeline } = require('node:stream/promises');
 
+const sceneOperations=require('./background-operations');
+function sceneUploadAuth(message,key,section,cancellable=false){return (req,file)=>{requireHost(message,key)(req,file);sceneOperations.startRequest(req,req.res,{section,cancellable});};}
 const workshopDownloads = new Map();
 // Pack exports in progress, by room. One per room; at most two on the whole server because
 // every export builds its ZIP in memory (the browser server can host several rooms).
@@ -202,7 +204,7 @@ function sendError(res, err) {
 }
 
 // Upload a ZIP mod (kept in the mod library). Host only.
-app.post('/api/upload-pack', acceptFile('pack', MAX_PACK_MB, requireHost('Only the room host can change the pack', 'error.hostOnlyPack')), (req, res) => {
+app.post('/api/upload-pack', acceptFile('pack', MAX_PACK_MB, sceneUploadAuth('Only the room host can change the pack', 'error.hostOnlyPack','packs')), (req, res) => {
   try {
     const roomId = resolveRoomId(req.query.room);
     const room = getRoom(roomId);
@@ -264,6 +266,7 @@ app.post('/api/import-workshop-pack', async (req, res) => {
     const importSessionId = room.activeSessionId;
 
     const source = parseWorkshopUrl(req.body.url);
+    sceneOperations.startRequest(req,res,{section:'packs'}).update('download');
     const filePath = path.join(PACKS_DIR, source.filename);
     let cached = fs.existsSync(filePath);
     let buffer;
@@ -283,6 +286,7 @@ app.post('/api/import-workshop-pack', async (req, res) => {
     }
 
     if (res.destroyed || room.activeSessionId !== importSessionId || !isHost(room, req.body.clientId)) throw new HttpError(409, 'The scene changed during import', 'error.importSceneChanged');
+    req.sceneOperation.update('preparing');
     const pack = readPack(buffer, source.filename);
     if (!cached) {
       try {
@@ -362,10 +366,11 @@ app.get('/api/download-project',async(req,res)=>{
   finally{await job.release();}
 });
 
-async function importProjectIntoRoom(roomId, archivePath, authorize = () => true, signal) {
+async function importProjectIntoRoom(roomId, archivePath, authorize = () => true, signal, operation) {
   const room = getRoom(roomId), sessionId = room.activeSessionId;
   if (projectImports.has(roomId) || projectImports.size >= 2) throw new HttpError(409, 'A project open is in progress', 'project.busy');
-  projectImports.add(roomId);
+  const nativeOperation=operation?null:sceneOperations.begin(roomId,{section:'projects'});
+  (operation||nativeOperation).update('preparing'); projectImports.add(roomId);
   let staged, committed = false;
   try {
     if (!authorize()) throw new HttpError(409, 'The scene changed', 'error.importSceneChanged');
@@ -397,17 +402,17 @@ async function importProjectIntoRoom(roomId, archivePath, authorize = () => true
     return room;
   } finally {
     if (!committed) staged?.rollback();
-    projectImports.delete(roomId);
+    projectImports.delete(roomId); nativeOperation?.finish(committed?'success':signal?.aborted?'cancelled':'error');
   }
 }
 module.exports.importProjectIntoRoom = importProjectIntoRoom;
-app.post('/api/import-project', diskUpload(['project'], requireHost('Only the host can open a project', 'onlyHost')), async (req, res) => {
+app.post('/api/import-project', diskUpload(['project'], sceneUploadAuth('Only the host can open a project', 'onlyHost','projects')), async (req, res) => {
   try {
     const roomId = resolveRoomId(req.query.room), room = getRoom(roomId);
     if (!isHost(room, req.body.clientId)) throw new HttpError(403, 'Only the host can open a project', 'onlyHost');
     if (req.body.sessionId !== (room.activeSessionId || '')) throw new HttpError(409, 'The scene changed', 'error.importSceneChanged');
     if (!req.file) throw new HttpError(400, 'No project file', 'error.noFile');
-    const updated = await importProjectIntoRoom(roomId, req.file.path, () => !res.destroyed && isHost(room, req.body.clientId), req.uploadAbort.signal);
+    const updated = await importProjectIntoRoom(roomId, req.file.path, () => !res.destroyed && isHost(room, req.body.clientId), req.uploadAbort.signal,req.sceneOperation);
     res.json({ success: true, session: publicRoom(updated) });
   } catch (error) { if (!res.destroyed) sendError(res, error); }
 });
@@ -551,6 +556,7 @@ app.post('/api/load-server-pack', (req, res) => {
     const filePath = path.join(PACKS_DIR, packName);
     if (!fs.existsSync(filePath)) throw new HttpError(404, 'Mod not found on the server', 'error.packNotFound');
 
+    sceneOperations.startRequest(req,res,{section:'packs'}).update('preparing');
     const updatedRoom = loadPackIntoRoom(roomId, packName, fs.readFileSync(filePath));
     res.json({ success: true, session: publicRoom(updatedRoom) });
   } catch (err) {
@@ -567,6 +573,7 @@ app.post('/api/upload-custom', (req,res,next) => {
   next();
 }, diskUpload(['video','subtitles','original','intershum'], req => {
   requireHost('Only the room host can create a scene','error.hostOnlyScene')(req);
+  sceneOperations.startRequest(req,req.res,{section:'video',cancellable:true});
   if(req.customImportSlot)return;
   const roomId=resolveRoomId(req.query.room);
   if(customImports.has(roomId) || customImports.size >= 2) throw new HttpError(409,'An import is already in progress','project.busy');
@@ -578,6 +585,7 @@ app.post('/api/upload-custom', (req,res,next) => {
     const room = getRoom(roomId);
     if (!isHost(room, req.body.clientId)) throw new HttpError(403, 'Only the room host can create a scene', 'error.hostOnlyScene');
 
+    req.sceneOperation?.update('preparing');
     const videoFile = req.files && req.files['video'] ? req.files['video'][0] : null;
     const subFile = req.files && req.files['subtitles'] ? req.files['subtitles'][0] : null;
     const originalFile = req.files && req.files.original ? req.files.original[0] : null;
@@ -587,6 +595,7 @@ app.post('/api/upload-custom', (req,res,next) => {
     const recipients = Object.entries(roomSockets[roomId] || {}).filter(([,member]) => member.clientId === req.body.clientId).map(([id]) => id);
     let progressAt = 0;
     const progress = (stage, percent, backend = null) => {
+      req.sceneOperation?.update(stage,percent,backend);
       if (Date.now() - progressAt < 300 && percent !== 0 && percent !== 100) return;
       progressAt = Date.now();
       if (requestId && recipients.length) io.to(recipients).emit('video_import_progress',{requestId,stage,percent,...(backend ? {backend} : {})});

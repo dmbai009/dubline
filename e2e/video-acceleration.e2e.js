@@ -15,7 +15,7 @@ describe('personal video acceleration', { skip: skipReason, timeout: 180000 }, (
   async function openCustom() {
     await host.evaluate(() => { closeSettingsModal(); openFilesModal(); switchFilesTab('export'); });
     await waitFor(host, () => videoExportPanel.dataset.ready === 'true');
-    await host.click('[name=videoExportMode][value=custom]'); await waitFor(host, () => !startRenderBtn.disabled);
+    await host.click('[name=videoExportMode][value=custom]'); await host.select('#videoExportSource','working'); await waitFor(host, () => !startRenderBtn.disabled);
   }
   test('the compact personal control persists across reloads and rooms without changing a guest or the scene', async () => {
     await host.evaluate(async () => { openSettingsModal(); await switchSettingsTab('user'); await openSettingsCategory('user', 'interface'); });

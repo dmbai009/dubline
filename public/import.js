@@ -165,6 +165,7 @@ window.renderCustomImportStatus = () => {
   document.getElementById('customCancelBtn').style.display = state?.active && state.canCancel ? 'block' : 'none';
   document.getElementById('customUploadBtn').disabled = !!state?.active || !amHost();
   if (!state) return;
+  window.DublineBackgroundOperations?.refresh();
   const key = { upload: state.optimizing ? 'proxy.uploading' : 'uploading', compress: 'proxy.compressing', audio: 'proxy.audio', done: 'upload.done', cancel: 'proxy.cancelled', network: 'upload.networkFailed', error: 'error.generic' }[state.phase];
   status.textContent = t(key, { percent: state.percent, message: state.error }) +
     (state.phase === 'compress' && state.backend ? ' · ' + t(state.backend === 'cpu-fallback' ? 'acceleration.fallback' : state.backend === 'gpu' ? 'acceleration.gpu' : 'acceleration.cpu') : '') +
@@ -194,7 +195,7 @@ window.uploadCustomScene = async function() {
   form.append('clientId', clientId);
   form.append('acceleration', DublineVideoAcceleration.get());
   const abort=new AbortController(),id=Date.now().toString(36)+'-'+Math.random().toString(36).slice(2);customImportRequest={abort,id};
-  customImportStatus = { requestId: id, active: true, phase: 'upload', percent: 0, error: '', optimizing: optimize, canCancel: true, completed: false };
+  customImportStatus = { requestId: id, active: true, phase: 'upload', percent: 0, error: '', optimizing: optimize, canCancel: true, completed: false, lastAdvance:performance.now(),uploadedBytes:0 };
   form.append('requestId',id);
   form.append('title', document.getElementById('customSceneTitle').value.trim());
   form.append('video', videoFile);
@@ -203,7 +204,7 @@ window.uploadCustomScene = async function() {
   if (intershumFile) form.append('intershum', intershumFile);
   renderCustomImportStatus();
   try {
-    const res = await window.DublineNetwork.upload(`/api/upload-custom?room=${encodeURIComponent(currentRoom)}${optimize?'&optimize=1':''}`, { method: 'POST', body: form, signal:abort.signal });
+    const res = await window.DublineNetwork.upload(`/api/upload-custom?room=${encodeURIComponent(currentRoom)}${optimize?'&optimize=1':''}`, { method: 'POST', body: form, signal:abort.signal,onUploadProgress:data=>{if(customImportStatus.uploadedBytes!==data.loaded){customImportStatus.uploadedBytes=data.loaded;customImportStatus.lastAdvance=performance.now();}Object.assign(customImportStatus,{phase:'upload',percent:data.total?Math.round(data.loaded/data.total*100):0});renderCustomImportStatus();} });
     if (!res.ok) throw new Error(await readError(res));
     const result = await res.json().catch(() => ({}));
     const skipped = Number(result.skippedTimings) || 0;

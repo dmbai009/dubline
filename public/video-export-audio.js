@@ -29,7 +29,7 @@
       const batch = await Promise.allSettled(eligible.slice(offset, offset + width).map(async line => {
         check(); progress(t('render.takes', { current: completed + 1, total: eligible.length }));
         report('takes', { current: completed, total: eligible.length, unit: 'count', detail: '#' + lineNumber(line) });
-        const buffer = await requireExportTake(line, snapshot.exportSignal); check();
+        const buffer = await (snapshot.exportOperations ? snapshot.exportOperations.run('take-process',()=>requireExportTake(line,snapshot.exportSignal)) : requireExportTake(line,snapshot.exportSignal)); check();
         const bounds = takeBounds(line, buffer.duration); completed++;
         report('takes', { current: completed, total: eligible.length, unit: 'count' });
         return { line, ...bounds, start: exportTakeStart(line, snapshot.scene) };
@@ -65,6 +65,8 @@
     for (const [at, level] of events) if (at > begin && at <= end) param.linearRampToValueAtTime(level, at - begin);
   }
   async function* chunks(mb, snapshot, duration, progress, check) {
+    const operations=snapshot.exportOperations;
+    const wait=(name,fn,data)=>operations ? operations.run(name,fn,data) : fn();
     const prepared = await prepare(snapshot, duration, progress, check), sources = [];
     const report = snapshot.exportReport || (() => {}); report('audio', { current: 0, total: duration });
     try {
@@ -72,10 +74,10 @@
         const url = snapshot[name + 'Url'];
         if (!url || snapshot.gains[name] <= 0) continue;
         const local = url === snapshot.videoUrl || url === mediaUrl(snapshot.videoUrl) ? snapshot.videoBlob : snapshot.assets?.[url]?.blob;
-        const source = local ? new mb.BlobSource(local) : new mb.UrlSource(url, { fetchFn: (resource, init) => fetch(resource, { ...init, signal: snapshot.exportSignal }) });
-        const input = new mb.Input({ source, formats: mb.ALL_FORMATS }); sources.push({ name, input });
-        const track = await input.getPrimaryAudioTrack();
-        if (!track || !await track.canDecode()) throw exportAudioError(t(name === 'backing' ? 'studio.backing' : 'studio.original'));
+        const source = local ? new mb.BlobSource(local) : new mb.UrlSource(url, { fetchFn: DublineExportOperations.fetchSource(snapshot.exportSignal) });
+        const input = new mb.Input({ source, formats: mb.ALL_FORMATS }); sources.push({ name, input, release:operations?.own(()=>input.dispose()) });
+        const track = await wait('audio-metadata',()=>input.getPrimaryAudioTrack());
+        if (!track || !await wait('audio-decoder-check',()=>track.canDecode())) throw exportAudioError(t(name === 'backing' ? 'studio.backing' : 'studio.original'));
         sources.at(-1).sink = new mb.AudioBufferSink(track);
       }
       for (let position = 0; position < duration; position += WINDOW) {
@@ -98,8 +100,8 @@
           const packets = [];
           // Include codec pre-roll before zero (e.g. AAC's negative priming packet),
           // then crop its samples when placing the audible timeline region.
-          try { for await (const packet of source.sink.buffers(Math.max(-0.1, begin - offset - 0.1), end - offset + 0.1)) { check(); packets.push(packet); } }
-          catch (error) { if (error.name === 'AbortError') throw error; throw exportAudioError(t(source.name === 'backing' ? 'studio.backing' : 'studio.original')); }
+          try { for await (const packet of (operations ? operations.iterate(source.sink.buffers(Math.max(-0.1, begin - offset - 0.1), end - offset + 0.1),'audio-decode') : source.sink.buffers(Math.max(-0.1, begin - offset - 0.1), end - offset + 0.1))) { check(); packets.push(packet); } }
+          catch (error) { if (error.name === 'AbortError'||error.code==='export-timeout') throw error; throw exportAudioError(t(source.name === 'backing' ? 'studio.backing' : 'studio.original')); }
           if (packets.length) {
             const rate = packets[0].buffer.sampleRate, channels = packets[0].buffer.numberOfChannels;
             // Align the chunk to both sample grids, keeping resampler phase continuous.
@@ -113,20 +115,20 @@
               for (let channel = 0; channel < channels; channel++) joined.copyToChannel(packet.buffer.getChannelData(channel).subarray(Math.max(0, -at), joined.length - at), channel, Math.max(0, at));
             }
             // A single continuous source preserves resampler state across decoded packets.
-            const converted = await resample(joined); check();
+            const converted = await wait('audio-resample',()=>resample(joined),{timestamp:position}); check();
             place(converted, 1, first + offset, 0, converted.duration, bus);
           }
         }
         for (const take of prepared.takes) if (take.start + take.to > begin && take.start + take.from < end) {
-          check(); const buffer = await requireExportTake(take.line, snapshot.exportSignal);
+          check(); const buffer = await wait('take-process',()=>requireExportTake(take.line,snapshot.exportSignal));
           place(buffer, snapshot.gains.dub, take.start, take.from, take.to, limiter, take.line);
         }
         check(); progress(t('render.mix')); report('audio', { current: position, total: duration });
-        const buffer = await context.startRendering(); check();
+        const buffer = await wait('audio-mix',()=>context.startRendering(),{timestamp:position,end}); check();
         report('audio', { current: end, total: duration, state: end >= duration ? 'done' : 'running' });
         yield { buffer: sliceAudioBuffer(buffer, Math.round((position - begin) * RATE), buffer.length), end };
       }
-    } finally { for (const source of sources) source.input.dispose(); }
+    } finally { for (const source of sources) {source.input.dispose();source.release?.();} }
   }
   window.DublineVideoExportAudio = Object.freeze({ chunks, prepare, automate, RATE, WINDOW, WARMUP });
 })();
