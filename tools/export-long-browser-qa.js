@@ -36,8 +36,11 @@ const { startServer, launchBrowser, openPlayer, waitFor, waitUntil } = require('
     };
     const hash = file => ff(['-i', file, '-map', '0:v:0', '-c:v', 'copy', '-f', 'hash', '-hash', 'sha256', '-']);
     const sourceHash = hash(path.join(sourceRoot, 'uploads', scene.videoUrl.slice(9)));
-    for (const name of ['fast', 'repeat', 'custom']) {
-      const previous = new Set(fs.readdirSync(output)), started = Date.now();
+    for (const name of (process.env.DUBLINE_LONG_BROWSER_CASES || 'fast,repeat,custom').split(',')) {
+      assert.ok(['fast','repeat','custom'].includes(name));
+      const download = path.join(output,name); fs.mkdirSync(download,{recursive:true});
+      await (await guest.createCDPSession()).send('Page.setDownloadBehavior', { behavior: 'allow', downloadPath: download });
+      const previous = new Set(fs.readdirSync(download)), started = Date.now();
       await guest.evaluate(async name => {
         openFilesModal(); switchFilesTab('export'); await DublineVideoExportPanel.open();
         document.querySelector('[name=videoExportMode][value=' + (name === 'custom' ? 'custom' : 'fast') + ']').click();
@@ -57,8 +60,8 @@ const { startServer, launchBrowser, openPlayer, waitFor, waitUntil } = require('
         if (state.done) { assert.equal(state.state, 'success', state.text); break; }
       }
       assert.equal(await guest.evaluate(() => longDone), true, 'Long browser export deadline');
-      await waitUntil(() => fs.readdirSync(output).some(file => !previous.has(file) && file.endsWith('.mp4')) && !fs.readdirSync(output).some(file => file.endsWith('.crdownload')), 30000);
-      const file = path.join(output, fs.readdirSync(output).find(file => !previous.has(file) && file.endsWith('.mp4')));
+      await waitUntil(() => fs.readdirSync(download).some(file => !previous.has(file) && file.endsWith('.mp4')) && !fs.readdirSync(download).some(file => file.endsWith('.crdownload')), 30000);
+      const file = path.join(download, fs.readdirSync(download).find(file => !previous.has(file) && file.endsWith('.mp4')));
       const info = await require('../server/video-export-info').inspect(file);
       assert.ok(Math.abs(info.duration - scene.videoDuration) < .15);
       if (name !== 'custom') assert.equal(hash(file), sourceHash);

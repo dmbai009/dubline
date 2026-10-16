@@ -91,3 +91,16 @@ Existing project/RNNoise/proxy browser checks pass; one direct-call acceleration
 regression exposed an optional job.check guard, fixed without changing the test.
 The cancellation/background + acceleration rerun passes 19/19; a separate actual
 AudioContext.resume stall cancels/closes and then exports via MediaRecorder.
+
+Final short profiles: syntax PASS, unit/server 451/451 PASS and combined browser
+regression 57/57 PASS. The background profile remains 14/14 after checking that
+waiting for the native picker does not produce a quiet-progress warning. Native
+guest save/cancel/MP4/WebM and native project save/open/restart both PASS. Playwright
+48/48 includes stacked cards at 375 px / 150% zoom; desktop/mobile captures reviewed.
+An actual browser HTTP A/B probe reproduces the old connection exhaustion after
+6 readers (8-second deadline), versus all 12 released readers in 67 ms with the fix.
+The long guest repeated download overwrote its previous same-named file, so the
+QA filename-newness assertion failed after export success. That file validates
+(video packet hash, complete audio decode, both starts 0 and end difference 7.34 ms).
+The tool now isolates each download directory; long guest custom is running. Native
+long custom-working completed and custom-original is running.
