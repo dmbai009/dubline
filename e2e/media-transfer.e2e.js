@@ -15,6 +15,35 @@ describe('Authorized media delivery with optional P2P', { skip: skipReason }, ()
     host = await openPlayer(browser, server.url('media-transfer'), 'Host'); await loadFixture(host);
   });
   after(async () => { await browser?.close(); await insecure?.close(); await server?.cleanup(); });
+  test('Porthole loopback guests show real download progress in both participant lists', async () => {
+    const proxy = await mediaProxy(server.port, { rule: req => req.url.includes('dub_video.mp4') ? { rate: 384 * 1024 } : {} });
+    try {
+      for (const hostname of ['localhost', '127.0.0.1']) {
+        const nick = hostname === 'localhost' ? 'Port local' : 'Port IPv4';
+        const guest = await openPlayer(browser, proxy.url('media-transfer').replace('dubline.test', hostname), nick);
+        try {
+          await waitFor(guest, () => !!mediaDownload && playerActivities.get(myName)?.state === 'downloading' && playerActivities.get(myName).pct > 0 && playerActivities.get(myName).pct < 100);
+          await waitFor(host, name => playerActivities.get(name)?.state === 'downloading' && playerActivities.get(name).pct > 0 && playerActivities.get(name).pct < 100, 10000, nick);
+          for (const page of [host, guest]) {
+            await waitFor(page, name => [...document.querySelectorAll('.player-card')].find(node => node.dataset.lobbyKey === `player:${name}`)?.innerText.includes(t('media.downloading', { pct: Math.round(playerActivities.get(name)?.pct) })), 5000, nick);
+            const status = await page.evaluate(name => {
+              const card = [...document.querySelectorAll('.player-card')].find(node => node.dataset.lobbyKey === `player:${name}`);
+              return { text: card?.innerText, expected: t('media.downloading', { pct: Math.round(playerActivities.get(name).pct) }), progress: card?.querySelectorAll('.progress').length };
+            }, nick);
+            assert.ok(status.text.includes(status.expected), 'the participant card must explain the active transfer');
+            assert.equal(status.progress, 2, 'recording coverage and download progress remain separate');
+            await page.evaluate(() => document.body.classList.add('lobby-compact'));
+            await waitFor(page, name => [...document.querySelectorAll('.player-card')].find(node => node.dataset.lobbyKey === `player:${name}`)?.querySelector('.player-status-icons')?.innerText.includes('↓'), 5000, nick);
+            await page.evaluate(() => document.body.classList.remove('lobby-compact'));
+          }
+          await waitFor(guest, () => !mediaDownload && localMedia?.videoBlob && video.readyState >= 3, 20000);
+          await waitFor(host, name => playerActivities.get(name)?.state === 'ready', 10000, nick);
+          assert.deepEqual(guest.errors, []);
+        } finally { await guest.browserContext().close(); }
+      }
+      assert.equal(await host.evaluate(() => amHost() && isOnServerMachine() && !mediaDownload && !localMedia?.videoBlob), true, 'the actual local host still streams its own file without downloading a copy');
+    } finally { await proxy.close(); }
+  });
   test('a fresh HTTP user starts no protected download before nickname confirmation and loads after admission', async () => {
     let premature = 0;
     const guest = await openPlayer(insecure, server.url('media-transfer', 'dubline.test'), '', {
