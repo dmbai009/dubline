@@ -74,6 +74,7 @@
 #fxDialog .fx-flow-step:first-child, #fxDialog .fx-flow-step:last-child { color:var(--accent-2); background:var(--accent-soft); }
 #fxDialog .fx-flow-arrow { color:var(--muted); }
 #fxRows { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; align-items:stretch; }
+#fxRows:focus { outline:none; }
 #fxDialog .fx-item { position:relative; display:flex; flex-direction:column; min-width:0; margin:0; padding:8px; border:1px solid var(--border); border-radius:9px; background:var(--panel); transition:border-color .15s, box-shadow .15s; }
 #fxDialog .fx-item::after { content:'→'; position:absolute; right:-10px; top:50%; color:var(--muted); font-size:13px; }
 #fxDialog .fx-item:nth-child(4n)::after { content:'↵'; top:auto; right:calc(50% - 4px); bottom:-12px; }
@@ -177,5 +178,22 @@
 #fxDialog .fx-icon-row .dub-select-button { min-width:0; width:100%; }
 #fxDialog .fx-presets h3 { margin-bottom:8px; }
 
+/* Role effects have one source, so they need only the chain workspace. */
+#fxDialog[data-scope=role] { width:min(860px, calc(100vw / var(--fx-ui-zoom, 1) - 32px)); }
+#fxDialog[data-scope=role] .fx-body { grid-template-columns:minmax(0,1fr); }
+@container (min-width:741px) {
+  #fxDialog[data-scope=role] #fxRows { grid-template-columns:repeat(4,minmax(0,1fr)); }
+  #fxDialog[data-scope=role] .fx-item::after { content:'→'; top:50%; right:-10px; bottom:auto; }
+  #fxDialog[data-scope=role] .fx-item:nth-child(4n)::after { content:'↵'; top:auto; right:calc(50% - 4px); bottom:-12px; }
+  #fxDialog[data-scope=role] .fx-palette { grid-template-columns:repeat(5,minmax(0,1fr)); }
+}
+
 #fxDialog #fxPresetDelete { color:var(--danger); border-color:var(--danger); }
 #fxDialog #fxPresetDelete:hover:not(:disabled) { background:color-mix(in srgb,var(--danger) 12%,var(--panel)); }
+
+#fxDialog .fx-equalizer { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:3px; margin:8px 0; }
+#fxDialog .fx-equalizer label { display:flex; flex-direction:column; align-items:center; gap:4px; min-width:0; font-size:9px; color:var(--muted); }
+#fxDialog .fx-equalizer output { font-variant-numeric:tabular-nums; color:var(--text); font-size:10px; }
+#fxDialog .fx-equalizer input { writing-mode:vertical-lr; direction:rtl; width:18px; height:78px; min-width:0; margin:0; touch-action:none; }
+#fxDialog .fx-palette button { cursor:grab; touch-action:none; }
+#fxDialog .fx-grip { touch-action:none; }

@@ -22,24 +22,19 @@ claim can open its effect editor. Holding only an individual line does not grant
 role editing. Rights are checked in the shared client permission helper and on
 every server mutation; the editor closes after ownership is lost.
 
-Apply to role confirms publishing and automatically creates a shared library
-entry with the exact role name, or updates that entry in place. The role becomes
-a live reference. A generic preset used as a starting point is copied into this
-named entry, leaving the generic source unchanged. Existing/future inheriting
-lines and all other live references to the named entry hear its updates; private
-modified variants retain their own sound. Repeated Apply does not add duplicates.
+Apply to role directly creates or updates its isolated preset, carrying an
+explicit `role` name binding. Existing and future inheriting lines hear updates.
+The role editor has no private-variant warning or general take-preset library;
+its icon remains editable. Repeated Apply updates the same source. Role presets
+are excluded from take selectors and rejected by server take mutations and the
+general preset mutation endpoint. A new role owner can update the previous
+owner's source through the role editor without acquiring other roles' rights.
 
-Manually creating or renaming a preset to an existing role name shows a warning
-explaining the role binding and affected live references. Confirming captures the
-role's current revision/reference and requires permission to edit that role.
-Creating under an already-used role name explicitly updates its existing named
-entry after this warning. Cancelling changes nothing. The server rejects missing
-confirmation metadata, stale role bindings, duplicates and unauthorized writes.
-
-A new role owner can update the named preset created by a previous owner. Rename
-and delete still require creator/moderator authority, together with role editing
-rights for role-named entries. Other roles and general preset management retain
-their existing permission rules.
+Creating or renaming a take preset to an existing role name is refused with a
+rename warning. Forged confirmation metadata cannot create a role binding. If a
+role is created/renamed after a same-named ordinary preset, that ordinary preset
+receives a unique ` (preset)` suffix. Its ID, effects, take links and authorship
+remain unchanged. Role rename and Undo move the explicit role binding with it.
 
 Role binding and catalogue updates use one strict disk transaction and the same
 immutable operation receipt. Failure restores both catalogue and role state;
@@ -60,26 +55,22 @@ Both Dub and Edit modes use the same selection rule.
 
 ## Compatibility and verification
 
-No new serialized fields, project version, audio engine or mutation protocol are
-introduced by this workflow. Existing independent and linked role chains retain
-their sound until explicitly applied. The previous pitch-stage work's format 14
-and voice capability 4 requirements remain unchanged.
+The isolated role binding and equalizer use project format 15 and voice capability
+5; earlier project formats remain readable. Legacy direct take references to a
+role preset become independent exact snapshots, including archived takes and
+trash. Borrowing another role's source is also detached without changing sound.
+Pure old role chains retain their audio path until explicitly applied. See
+`equalizer-role-isolation.md` for current verification.
 
-`role-workflow.test.js` covers spatial bounds, ownership, role-name confirmation,
+`role-workflow.test.js` covers spatial bounds, ownership, reserved role names,
 conflicts, automatic preset creation and preservation of a borrowed source.
 `e2e/role-workflow.e2e.js` covers real Shift clicks and filters, three participants,
 automatic publication, owner transfer, bulk future/current takes, warnings,
 rollback, immutable retries, stale bulk rejection, project export and restart.
-The suite is included in both CI browser commands. The full unit/server suite
-passes 465 cases; the nine affected browser suites pass 112 cases, followed by
-the final ten-case workflow check including hidden-anchor recovery.
-The final inspector/preset/workflow rerun passes 38/38 cases, including editor
-closure when a claimed role is released. Syntax, locale parity and whitespace
-checks also pass.
+The suite is included in both CI browser commands. Current verification results
+are recorded in `equalizer-role-isolation.md`.
 
-`node tools/role-workflow-qa.js` uses Playwright against an isolated studio. It
-checks bulk controls at 280/540/900 px in six themes and three languages, both
-modes, 100/150% zoom, one/eight-stage owner editors and localized publishing
-confirmation. Its 27 screenshots and logs are ignored artifacts under
-`audit/role-workflow`. Browser checks do not replace a physical microphone or
-subjective listening check. No build, push or release is implied.
+`node tools/role-workflow-qa.js` uses Playwright against an isolated studio to
+check bulk controls at 280/540/900 px in six themes and three languages, both
+modes, 100/150% zoom and localized isolated-role editors. Screenshots remain
+in ignored `audit/role-workflow`. No build, push or release is implied.

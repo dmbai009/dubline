@@ -88,6 +88,9 @@ select option { background:var(--panel-2); color:var(--text); }
 .role-progress-bar i { display:block; height:100%; background:var(--accent); }
 .track-row[data-character] .track-label-inner { padding-top:6px; }
 .track-drag-handle { cursor:grab; touch-action:none; flex-shrink:0; }
+.track-reordering { will-change:transform; }
+.track-row.track-reorder-source { z-index:5; position:relative; box-shadow:0 3px 12px #0005; outline:1px solid var(--accent); }
+.track-reorder-active, .track-reorder-active * { cursor:grabbing !important; user-select:none; }
 .char-name-row .track-drag-handle, .char-name-row .track-delete-button { padding:2px 4px; font-size:12px; width:22px; height:24px; }
 .char-name-row .char-name { flex:1; min-width:0; }
 .track-delete-button { flex-shrink:0; color:var(--muted); }

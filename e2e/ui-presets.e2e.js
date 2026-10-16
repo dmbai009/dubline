@@ -87,8 +87,8 @@ describe('scene presets, consistent controls and one-shot previews', { skip: ski
     await host.evaluate(() => DublineVoiceEditor.open('Empty', 'role')); await waitFor(host, () => document.getElementById('fxPlay').disabled && document.getElementById('fxPlay').parentElement.dataset.tooltip === t('fx.noSampleHelp'));
     assert.equal(await host.$eval('#fxAdd', node => node.disabled), false); await closeFx(host);
   });
-  test('Save as preset captures a private role draft, broadcasts it, and survives discarding the role draft', async () => {
-    await host.evaluate(() => DublineVoiceEditor.open('Hero', 'role')); await host.$eval('#fxPresets', node => { node.open = true; });
+  test('Save as preset captures a private take draft, broadcasts it, and survives discarding the take draft', async () => {
+    await host.evaluate(() => DublineVoiceEditor.open(1, 'takes')); await host.$eval('#fxPresets', node => { node.open = true; });
     for (const type of ['radio', 'robot', 'echo']) { await host.click('[data-fx-type="' + type + '"]'); }
     await setEffectPitch(host, -2);
     await host.click('#fxPresetSave'); await answerTextPrompt(host, 'Old radio'); await waitFor(actor, () => Object.values(session.voicePresets || {}).some(preset => preset.name === 'Old radio'));
@@ -138,7 +138,7 @@ describe('scene presets, consistent controls and one-shot previews', { skip: ski
     } finally { await actor.evaluate(() => restoreFxAck()); }
   });
   test('lost preset ACKs confirm one saved snapshot through the receipt and never create duplicate presets', async () => {
-    await host.evaluate(() => { DublineVoiceEditor.open('Hero', 'role'); const emit = socket.emit, onack = socket.onack, dropped = new Set(); window.presetRequests = [];
+    await host.evaluate(() => { DublineVoiceEditor.open(1, 'takes'); const emit = socket.emit, onack = socket.onack, dropped = new Set(); window.presetRequests = [];
       window.restorePresetAck = () => { socket.emit = emit; socket.onack = onack; };
       socket.emit = function(event, ...args) { if (event === 'voice_preset_update' && presetRequests.length < 2) { dropped.add(this.ids); presetRequests.push(args[0].operationId); } return emit.call(this, event, ...args); };
       socket.onack = function(packet) { if (dropped.delete(packet.id)) return; return onack.call(this, packet); };

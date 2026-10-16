@@ -642,7 +642,9 @@ function showInspector(line) {
       : `<span class="insp-chip free">${t('chip.free')}</span>`;
 
   const originalBtn = line.originalAudioUrl
-    ? `<button class="btn-outline" onclick="playAudio(${jsArg(line.originalAudioUrl)})" title="${esc(t('listenOriginal'))}">${t('insp.original')}</button>`
+    ? `<button class="btn-outline" data-original-file onclick="playAudio(${jsArg(line.originalAudioUrl)})" title="${esc(t('listenOriginal'))}">${t('insp.original')}</button>`
+    : DublineProjectAudio.reference(session, line)
+    ? `<button class="btn-outline" data-original-preview="${line.id}" aria-pressed="false" onclick="previewOriginal(${line.id})" title="${esc(t('reference.help'))}">${t('insp.original')}</button>`
     : '';
 
   // Main actions in one row right under the line text
@@ -657,7 +659,7 @@ function showInspector(line) {
   } else {
     // A finished take can always be played, even if the line was released or roles were reset
     const listen = line.audioUrl && canHearLine(line)
-      ? `<button class="btn-play grow" onclick="previewTake(${line.id})">${author ? t('listenTake', { owner: esc(author) }) : t('listenTakeAnon')}</button>`
+      ? `<button class="btn-play grow" onclick="previewTake(${line.id})" title="${esc(author ? t('listenTake', { owner: author }) : t('listenTakeAnon'))}">${t('playTake')}</button>`
       : '';
     const claim = isFree ? `<button class="btn-claim grow" onclick="claimSingleLine(${line.id})">${t('claim.line')}</button>` : '';
     primary = claim + listen + originalBtn;
@@ -716,7 +718,7 @@ function showInspector(line) {
     ${retakeControlHtml(line)}
     ${characterRow}
     ${pendingNotice}
-    <div class="insp-actions">${primary}${window.DublineTakeHistory?.mainHtml(line) || ''}</div>
+    <div class="insp-actions primary">${primary}${window.DublineTakeHistory?.mainHtml(line) || ''}</div>
     ${secondary.length || deleteLineBtn ? `<div class="insp-actions secondary">${secondary.join('')}${deleteLineBtn}</div>` : ''}
     ${hint}
     ${window.DublineTakeAnalysis?.html(line) || ''}${window.DublineTakeHistory?.html(line) || ''}
@@ -726,6 +728,7 @@ function showInspector(line) {
     ${takePanelHtml(line, canEditTake(line))}
   `;
   window.DublineInspector?.arrange(line);
+  window.refreshOriginalPreview?.();
   window.DublineRetakes?.restoreFocus(retakeFocus);
   window.DublineTakeHistory?.restoreFocus(historyFocus);
 }

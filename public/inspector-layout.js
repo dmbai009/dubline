@@ -14,7 +14,7 @@
     choices.set(key, choice); if (choices.size > 200) choices.delete(choices.keys().next().value);
     const waiting = pending.has(key) || targets.some(line => operations(line).length);
     const disabled = !targets.length || !bulk && !line.audioUrl || targets.some(line => !canEditTake(line)) || !socket.connected || recordState !== 'idle' || renderInProgress || window.snapshotFrozen || waiting;
-    const options = Object.values(session.voicePresets || {}).sort((a, b) => a.name.localeCompare(b.name));
+    const options = Object.values(session.voicePresets || {}).filter(preset => !preset.role).sort((a, b) => a.name.localeCompare(b.name));
     const modified = targets.some(line => line.presetModified && line.voicePresetId);
     const title = bulk ? t('preset.bulk.title', { n: targets.length, total: bulk.length }) : t('preset.quick.title');
     const help = bulk ? t('preset.bulk.help') : modified && current ? t('chain.modified') + ' · ' + t('chain.localHelp') : t('chain.quickHelp');

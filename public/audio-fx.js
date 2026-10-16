@@ -13,7 +13,8 @@ const VOICE_EFFECTS = {
   cave: '🪨 Cave',
   behindDoor: '🚪 Behind a door',
   megaphone: '📣 Megaphone',
-  echo: 'Echo / Delay'
+  echo: 'Echo / Delay',
+  equalizer: 'Equalizer'
 };
 
 const EFFECT_TAIL_SECONDS = {
@@ -202,6 +203,10 @@ function reverbImpulse(ctx, seconds, decay, seed = 1) {
 
 // Builds the effect graph from input and returns the output node
 function buildEffect(ctx, input, effect, parameters = {}) {
+  if (effect === 'equalizer') {
+    return window.DublineVoiceChain.EQ_BANDS.reduce((node, frequency, index, bands) => chain(node,
+      biquad(ctx, index === 0 ? 'lowshelf' : index === bands.length - 1 ? 'highshelf' : 'peaking', Math.min(frequency, ctx.sampleRate * .45), { Q: .8, gain: parameters.gains[index] })), input);
+  }
   if (effect === 'echo') {
     const settings = window.DublineVoiceChain.echo(parameters);
     const out = ctx.createGain(); input.connect(out);

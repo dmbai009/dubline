@@ -161,8 +161,8 @@ describe('voice chains: real DSP, inspector, author rights and scoped collaborat
     const added = await host.evaluate(() => new Promise(resolve => socket.emit('editor_add_track', { sessionId: session.activeSessionId, character: 'Empty role' }, resolve))); assert.equal(added.ok, true);
     await waitFor(host, () => document.querySelector('[data-character="Empty role"] .track-fx'));
     await host.locator('[data-character="Empty role"] .track-fx').click(); assert.equal(await host.$eval('#fxRows', node => node.children.length), 0);
-    await host.click('[data-fx-type="' + 'echo' + '"]'); await host.click('#fxPresetSave'); await waitFor(host,()=>textPrompt.open); await host.$eval('#textPromptInput',n=>{n.value='Empty echo';}); await host.click('#textPromptSave'); await waitFor(host,()=>!DublinePresetUI.pending()&&DublineVoiceEditor.draft()?.presetId); await host.click('#fxApply');
-    await waitFor(host, () => document.querySelector('dialog.text-prompt[open]')); await host.click('#textPromptSave');
+    await host.click('[data-fx-type="' + 'echo' + '"]'); assert.equal(await host.$eval('#fxPresetSave',node=>!!node.closest('[hidden]')),true); await host.click('#fxApply');
+    await waitFor(host,()=>!fxDialog.open);
     await waitFor(guest, () => DublineVoiceChain.roleVoice(session, 'Empty role').effects?.[0]?.type === 'echo'); assert.equal(await guest.evaluate(() => session.lines.filter(line => line.character === 'Empty role').length), 0);
   });
   test('host/moderator concurrent role edits reject the stale revision instead of losing a change', async () => {

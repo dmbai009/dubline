@@ -15,7 +15,7 @@ test('Shift selection uses one track or an inclusive track/time rectangle and is
 });
 
 test('role owners can edit only claimed roles, including host-created role presets', () => {
-  const room = scene(), preset = { id: 'hero', name: 'Hero', createdBy: 'Host' };
+  const room = scene(), preset = { id: 'hero', name: 'Hero', role: 'Hero', createdBy: 'Host' };
   assert.ok(presets.canEditRole(room, 'Hero', 'Actor', false));
   assert.ok(presets.canEditPreset(room, preset, 'Actor', false));
   assert.equal(presets.canEditPreset(room, preset, 'Actor', false, 'delete'), false);
@@ -27,19 +27,19 @@ test('role owners can edit only claimed roles, including host-created role prese
   assert.ok(presets.canEditRole(room, 'Hero', 'Host', true));
 });
 
-test('role-name creation requires confirmed current binding and role permission before atomic publication', () => {
+test('take preset names cannot bind roles, even with forged confirmation or moderator rights', () => {
   const room = scene(), request = create(room), before = structuredClone(room);
-  assert.throws(() => catalog.planScene(room, { nick: 'Actor' }, { ...request, roleTargets: undefined }, false), /preset.roleConfirm/);
-  assert.throws(() => catalog.planScene(room, { nick: 'Other' }, request, false), /preset.owner/);
+  assert.throws(() => catalog.planScene(room, { nick: 'Actor' }, { ...request, roleTargets: undefined }, false), /preset.roleName/);
+  assert.throws(() => catalog.planScene(room, { nick: 'Other' }, request, false), /preset.roleOnly/);
   const stale = structuredClone(request); stale.roleTargets[0].revision = 2;
-  assert.throws(() => catalog.planScene(room, { nick: 'Actor' }, stale, false), /preset.roleConfirm/);
+  assert.throws(() => catalog.planScene(room, { nick: 'Actor' }, stale, true), /preset.roleOnly/);
   assert.deepEqual(room, before);
-  const next = catalog.planScene(room, { nick: 'Actor' }, request, false);
+  const next = catalog.planScene(room, { nick: 'Actor' }, request, false, 'Hero');
   assert.equal(next.roleEffects.Hero.voicePresetId, 'hero-preset');
   assert.equal(next.voicePresets['hero-preset'].name, 'Hero');
   assert.deepEqual(chain.resolve(next.lines[0], next).effects, [effect()]);
   assert.deepEqual(room, before);
-  assert.throws(() => catalog.planScene(next, { nick: 'Actor' }, { ...create(next), id: 'duplicate' }, false), /preset.roleExists/);
+  assert.throws(() => catalog.planScene(next, { nick: 'Actor' }, { ...create(next), id: 'duplicate' }, false, 'Hero'), /preset.roleExists/);
 });
 
 test('role Apply creates and updates one named preset without changing a borrowed source preset', () => {

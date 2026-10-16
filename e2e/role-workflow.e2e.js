@@ -48,7 +48,7 @@ describe('Role presets, bulk assignment and spatial Shift selection', { skip: sk
     const original = await actor.evaluate(async () => [...new Uint8Array(await (await fetch(session.lines[0].audioUrl)).arrayBuffer())]);
     assert.equal(await actor.$$eval('.track-fx', nodes => nodes.length), 1); assert.equal(await other.$$eval('.track-fx', nodes => nodes.length), 0);
     await actor.evaluate(() => DublineVoiceEditor.open('Hero', 'role')); await actor.click('[data-fx-type=radio]'); await actor.click('#fxApply');
-    await waitFor(actor, () => textPrompt.open); assert.ok(await actor.$eval('#textPromptTitle', node => node.textContent.includes('Hero'))); await actor.click('#textPromptSave');
+    assert.equal(await actor.evaluate(() => textPrompt.open), false);
     await waitFor(host, () => Object.values(session.voicePresets).some(preset => preset.name === 'Hero') && session.roleEffects.Hero?.voicePresetId);
     await waitFor(actor, () => !fxDialog.open);
     heroId = await host.evaluate(() => session.roleEffects.Hero.voicePresetId);
@@ -57,10 +57,10 @@ describe('Role presets, bulk assignment and spatial Shift selection', { skip: sk
   });
   test('reapplying a role edits its existing named preset; another participant cannot write it', async () => {
     await actor.evaluate(() => DublineVoiceEditor.open('Hero', 'role')); await actor.$eval('[data-action=amount]', node => { node.value = 25; node.dispatchEvent(new Event('input', { bubbles: true })); });
-    await actor.click('#fxApply'); await waitFor(actor, () => textPrompt.open); await actor.click('#textPromptSave'); await waitFor(actor, () => !fxDialog.open);
+    await actor.click('#fxApply'); await waitFor(actor, () => !fxDialog.open);
     await waitFor(host, id => session.voicePresets[id]?.revision === 2, 10000, heroId);
     assert.equal(await host.evaluate(() => Object.values(session.voicePresets).filter(p => p.name === 'Hero').length), 1);
-    assert.equal((await call(other, 'voice_preset_update', { action: 'update', id: heroId, revision: 2, settings: { effects: [] } })).reason, 'preset.owner');
+    assert.equal((await call(other, 'voice_preset_update', { action: 'update', id: heroId, revision: 2, settings: { effects: [] } })).reason, 'preset.roleOnly');
     const denied = await other.evaluate(() => ({ scope: 'role', character: 'Hero', revision: session.roleEffects.Hero.revision, previousPresetRevision: session.voicePresets[session.roleEffects.Hero.voicePresetId].revision, settings: { pitch: 0, effects: [] } }));
     assert.equal((await call(other, 'voice_update', denied)).reason, 'fx.owner');
   });
@@ -75,19 +75,19 @@ describe('Role presets, bulk assignment and spatial Shift selection', { skip: sk
     await select(host, [2, 4]); await host.select('#inspectorPreset', 'phone'); await host.click('[data-preset-apply]'); await waitFor(host, () => textPrompt.open); await host.click('#textPromptSave');
     await waitFor(other, () => session.lines.every(line => line.voicePresetId === 'phone'));
   });
-  test('a role-name collision warns before creation; cancellation is harmless and confirmation binds the role', async () => {
+  test('a take preset using a role name is refused without binding or changing the role', async () => {
     await host.evaluate(() => { clearMultiSelection(); DublineVoiceEditor.open(2, 'takes'); }); await host.click('[data-fx-type=echo]');
     const before = await host.evaluate(() => JSON.stringify([session.voicePresets, session.roleEffects]));
-    await host.click('#fxPresetSave'); await roleName(host, 'Friend');
-    assert.ok(await host.$eval('#textPromptTitle', node => node.textContent.includes('Friend') && node.textContent.includes('role'))); await host.click('#textPromptCancel');
+    await host.click('#fxPresetSave'); await waitFor(host, () => textPrompt.open && textPrompt.dataset.kind === 'text');
+    await host.$eval('#textPromptInput', node => { node.value = 'Friend'; }); await host.click('#textPromptSave');
+    await waitFor(host, () => document.getElementById('fxPresetStatus').textContent === t('preset.roleName'));
+    assert.equal(await host.evaluate(() => textPrompt.open), false);
     assert.equal(await host.evaluate(() => JSON.stringify([session.voicePresets, session.roleEffects])), before);
-    await host.click('#fxPresetSave'); await roleName(host, 'Friend'); await host.click('#textPromptSave');
-    await waitFor(other, () => Object.values(session.voicePresets).some(preset => preset.name === 'Friend') && session.roleEffects.Friend?.voicePresetId);
     await close(host);
   });
   test('server refuses forged role-name confirmation and lost ownership, and rolls back both role and catalogue on disk failure', async () => {
     const bad = { action: 'create', id: 'forged', name: 'Hero', revision: 0, settings: { effects: [] } };
-    assert.equal((await call(other, 'voice_preset_update', bad)).reason, 'preset.owner');
+    assert.equal((await call(other, 'voice_preset_update', bad)).reason, 'preset.roleName');
     const before = await host.evaluate(() => JSON.stringify([session.voicePresets, session.roleEffects]));
     const request = await actor.evaluate(() => ({ scope: 'role', character: 'Hero', revision: session.roleEffects.Hero.revision, previousPresetRevision: session.voicePresets[session.roleEffects.Hero.voicePresetId].revision, settings: { pitch: 0, effects: [] }, rolePreset: { id: session.roleEffects.Hero.voicePresetId, revision: session.voicePresets[session.roleEffects.Hero.voicePresetId].revision } }));
     const blocker = path.join(server.dirs.data, 'rooms.json.tmp'); fs.mkdirSync(blocker);
@@ -103,7 +103,7 @@ describe('Role presets, bulk assignment and spatial Shift selection', { skip: sk
     await other.evaluate(() => claimCharacter('Hero')); await waitFor(host, () => session.characterClaims.Hero === 'Other');
     await other.evaluate(() => DublineVoiceEditor.open('Hero', 'role')); assert.equal(await other.$eval('#fxDialog', node => node.open), true);
     await other.$eval('[data-action=amount]', node => { node.value = 35; node.dispatchEvent(new Event('input', { bubbles: true })); });
-    await other.click('#fxApply'); await waitFor(other, () => textPrompt.open); await other.click('#textPromptSave'); await waitFor(other, () => !fxDialog.open);
+    await other.click('#fxApply'); await waitFor(other, () => !fxDialog.open);
     await waitFor(host, id => session.voicePresets[id]?.effects[0]?.amount === .35, 10000, heroId);
     assert.equal(await host.evaluate(id => session.voicePresets[id].createdBy, heroId), 'Actor');
     await other.evaluate(() => DublineVoiceEditor.open('Friend', 'role')); assert.equal(await other.$eval('#fxDialog', node => node.open), false);

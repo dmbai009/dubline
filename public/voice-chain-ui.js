@@ -6,12 +6,12 @@
   let playing = false, generation = 0, timer = null, abort = null, rendering = false, drag = null, begin = 0, end = 0;
   let expandedKey = null;
   let lastRoleScene = session?.activeSessionId, lastRoles = structuredClone(session?.roleEffects || {});
-  const icons = { pitch: '<path d="M5 17V7m7 14V3m7 14V7M2 10h6m1 5h6m1-5h6"/>', robot: '<rect x="5" y="7" width="14" height="13" rx="3"/><path d="M12 3v4M8 12h1m6 0h1M9 16h6"/>', radio: '<rect x="3" y="7" width="18" height="14" rx="3"/><path d="m5 7 13-4M7 12h10M7 16h3m4 0h3"/>', telephone: '<path d="M7 3 3 6c0 8 7 15 15 15l3-4-5-3-2 3c-3-1-6-4-7-7l3-2z"/>', monster: '<path d="m5 8-2-5 6 3h6l6-3-2 5v10l-7 4-7-4zM8 12h1m6 0h1M8 17l2-2 2 2 2-2 2 2"/>', thoughts: '<path d="M6 17c-7-7 3-16 8-10 7-3 11 9 3 10H6z"/><circle cx="6" cy="21" r="1"/>', cave: '<path d="M2 21 7 5l5-3 5 4 5 15H2zM8 21v-7l4-5 4 5v7"/>', behindDoor: '<path d="M5 21V4l13-2v19M3 21h18M14 12h1"/>', megaphone: '<path d="m4 9 15-5v16L4 15V9zM7 16l2 5h3l-2-4M2 10v4"/>', echo: '<path d="M4 9v6m4-9v12m4-15v18m4-15v12m4-9v6"/>' };
+  const icons = { equalizer: '<path d="M4 5v14m4-14v14m4-14v14m4-14v14m4-14v14M2 9h4m0 6h4m0-8h4m0 5h4m0-3h4"/>', pitch: '<path d="M5 17V7m7 14V3m7 14V7M2 10h6m1 5h6m1-5h6"/>', robot: '<rect x="5" y="7" width="14" height="13" rx="3"/><path d="M12 3v4M8 12h1m6 0h1M9 16h6"/>', radio: '<rect x="3" y="7" width="18" height="14" rx="3"/><path d="m5 7 13-4M7 12h10M7 16h3m4 0h3"/>', telephone: '<path d="M7 3 3 6c0 8 7 15 15 15l3-4-5-3-2 3c-3-1-6-4-7-7l3-2z"/>', monster: '<path d="m5 8-2-5 6 3h6l6-3-2 5v10l-7 4-7-4zM8 12h1m6 0h1M8 17l2-2 2 2 2-2 2 2"/>', thoughts: '<path d="M6 17c-7-7 3-16 8-10 7-3 11 9 3 10H6z"/><circle cx="6" cy="21" r="1"/>', cave: '<path d="M2 21 7 5l5-3 5 4 5 15H2zM8 21v-7l4-5 4 5v7"/>', behindDoor: '<path d="M5 21V4l13-2v19M3 21h18M14 12h1"/>', megaphone: '<path d="m4 9 15-5v16L4 15V9zM7 16l2 5h3l-2-4M2 10v4"/>', echo: '<path d="M4 9v6m4-9v12m4-15v18m4-15v12m4-9v6"/>' };
   const icon = type => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + icons[type] + '</svg>';
   const signed = value => (value > 0 ? '+' : '') + value;
   const label = items => items.length ? items.map(item => `${t('effect.' + item.type)} ${item.type === 'pitch' ? signed(item.parameters.semitones) : Math.round(item.amount * 100) + '%'}${item.enabled ? '' : ' (' + t('fx.disabled') + ')'}`).join(' → ') : t('effect.none');
   const button = (text, action, disabled = false) => `<button type="button" class="btn-outline" ${disabled ? 'disabled' : ''} onclick="${action}">${esc(text)}</button>`;
-  const fingerprint = () => state && JSON.stringify({ settings: { ...state.settings, revision: undefined }, pitch: state.pitch, presetHasPitch: state.presetHasPitch, presetIcon: state.scope === 'preset' ? state.presetIcon : undefined, action: state.action,
+  const fingerprint = () => state && JSON.stringify({ settings: { ...state.settings, revision: undefined }, pitch: state.pitch, presetHasPitch: state.presetHasPitch, presetIcon: state.scope !== 'takes' ? state.presetIcon : undefined, action: state.action,
     edits: state.takes.length > 1 ? [state.editPitch, state.editInheritance, state.editExceptions] : [] });
   const dirty = () => !!state && fingerprint() !== state.baseline;
   function summary(line) { const effects = model.active(model.resolve(line, session).effects); return label(effects.slice(0, 3)) + (effects.length > 3 ? ` (+${effects.length - 3})` : ''); }
@@ -20,7 +20,9 @@
     if (state.scope === 'preset') { const preset = session.voicePresets[state.presetId]; $('fxTitle').textContent = t('live.edit') + ': ' + (preset?.name || t('preset.missing')); $('fxScope').textContent = t('live.impact', { n: DublineVoicePresets.usage(session, state.presetId).lines.length }); $('fxApply').textContent = t('live.save'); }
     else { $('fxApply').textContent = t(state.scope === 'role' ? 'chain.applyRole' : state.takes.length > 1 ? 'chain.applyLines' : 'chain.applyTake'); $('fxTitle').textContent = t(state.scope === 'role' ? 'fx.role' : 'fx.take') + (state.scope === 'role' ? ': ' + state.character : ' · ' + state.takes.length);
     $('fxScope').textContent = t(state.scope === 'role' ? 'fx.roleScope' : 'fx.takeScope', { n: state.scope === 'role' ? session.lines.filter(line => line.character === state.character).length : state.takes.length }); }
-    dialog.dataset.scope = state.scope; window.DublinePresetUI?.refresh(); $('fxDirty').hidden = !dirty(); paintLinked(); paintFlow();
+    dialog.dataset.scope = state.scope; dialog.querySelector('.fx-sidebar').hidden = state.scope === 'role';
+    if (state.scope === 'role') $('fxApply').title = t('fx.rolePresetHelp'); else $('fxApply').removeAttribute('title');
+    window.DublinePresetUI?.refresh(); $('fxDirty').hidden = !dirty(); paintLinked(); paintFlow();
   }
   function html(line) {
     const role = model.roleVoice(session, line.character), own = model.take(line);
@@ -38,6 +40,7 @@
   function open(id, scope, ids) {
     if (recordState !== 'idle' || window.DublineNoise?.busy?.() || document.querySelector('dialog[open]')) return showToast(t('fx.busy'));
     const sharedPreset = scope === 'preset' ? session.voicePresets?.[id] : null;
+    if (sharedPreset?.role) return open(sharedPreset.role, 'role');
     if (scope === 'preset' && (!sharedPreset || !DublineVoicePresets.canEditPreset(session, sharedPreset, myName, canModerate()))) return showToast(t('preset.owner'));
     const line = scope === 'preset' ? session.lines.find(canPreview) || { id: null, character: '', pitch: 0 } : scope === 'role' && typeof id === 'string' && session.trackOrder.includes(id) ? session.lines.find(item => item.character === id) || { id: null, character: id, pitch: 0 } : session.lines.find(item => item.id === id); if (!line) return;
     if (scope !== 'preset' && (scope === 'role' ? !DublineVoicePresets.canEditRole(session, line.character, myName, canModerate()) : !canEditTake(line))) return showToast(t('fx.owner'));
@@ -118,7 +121,7 @@
   function paintFlow() {
     if (!state) return;
     const sample = state.samples.find(item => item.id === state.sampleId) || { character: state.character, pitch: 0 };
-    const { test, scene } = previewDraft(sample), voice = model.resolve(test, scene), own = model.take(test);
+    const { test, scene } = previewDraft(sample), voice = state.scope === 'role' ? model.roleVoice(scene, state.character) : model.resolve(test, scene), own = model.take(test);
     const role = model.role(scene, test.character), inherited = model.roleVoice(scene, test.character).effects;
     const collapseRole = inherited.length > 0 && state.scope !== 'role' && !(state.scope === 'preset' && role.voicePresetId === state.presetId);
     const steps = [{ label: t('fx.layout.input') }];
@@ -153,23 +156,25 @@
     } catch (error) { if (token === generation && state && error.name !== 'AbortError') { stop(false); buffer = null; $('fxPlay').disabled = true; window.setControlHelp?.($('fxPlay'), t('fx.processingError')); status(error.message.startsWith('fx.') ? error.message : 'fx.processingError'); } }
     finally { rendering = false; if (state && token !== generation) schedule(); }
   }
+  function effectCard(item, index, items = displayEffects()) { return `<div class="fx-item" role="listitem" data-fx-id="${esc(item.id)}" data-index="${index}" data-enabled="${item.enabled}">
+      <div class="fx-item-head"><button type="button" class="btn-icon fx-grip" aria-label="${esc(t('fx.drag'))}" ${''}>⠿</button><span class="fx-step" title="${esc(t('fx.layout.step', { n: index + 1 }))}">${index + 1}</span><span class="fx-effect-icon">${icon(item.type)}</span><b>${esc(t('fx.name.' + item.type))}</b>
+      <label class="switch-ui"><input type="checkbox" data-action="enabled" aria-label="${esc(t('fx.enabled'))} · ${esc(t('fx.name.' + item.type))}" ${item.enabled ? 'checked' : ''}><span class="switch-slider"></span></label></div>
+      ${item.type === 'equalizer' ? `<div class="fx-equalizer" role="group" aria-label="${esc(t('fx.name.equalizer'))}">${model.EQ_BANDS.map((hz, band) => `<label><output>${signed(item.parameters.gains[band])}</output><input type="range" data-action="eqGain" data-band="${band}" data-reset-value="0" data-reset-event="input" min="-12" max="12" step="0.5" value="${item.parameters.gains[band]}" aria-label="${hz} Hz · dB"><span>${hz >= 1000 ? hz / 1000 + 'k' : hz}</span></label>`).join('')}</div>` : item.type === 'pitch' ? `<label class="fx-slider fx-pitch-stage"><span>${esc(t('pitch'))}</span><output>${signed(item.parameters.semitones)}</output><input type="range" data-action="semitones" data-reset-value="0" data-reset-event="input" min="-12" max="12" step="1" value="${item.parameters.semitones}" aria-label="${esc(t('fx.name.pitch'))}"></label>` : `<label class="fx-slider"><span>${esc(t('fx.amount'))}</span><output>${Math.round(item.amount * 100)}%</output><input type="range" data-action="amount" data-reset-value="100" data-reset-event="input" min="0" max="100" value="${Math.round(item.amount * 100)}" aria-label="${esc(t('fx.amount'))} · ${esc(t('fx.name.' + item.type))}"></label>`}
+      ${item.type === 'echo' ? `<div class="fx-echo" role="group" aria-label="${esc(t('fx.layout.echo'))}"><label>${esc(t('fx.layout.delay'))}<input type="number" data-action="delay" min="0.03" max="0.8" step="0.01" value="${model.echo(item.parameters).delay}"></label><label>${esc(t('fx.layout.feedback'))}<input type="number" data-action="feedback" min="0" max="0.7" step="0.05" value="${model.echo(item.parameters).feedback}"></label></div>` : ''}
+      <div class="fx-item-actions"><button type="button" class="btn-icon" data-action="up" aria-label="${esc(t('fx.up'))}" ${index ? '' : 'disabled'}>←</button><button type="button" class="btn-icon" data-action="down" aria-label="${esc(t('fx.down'))}" ${index < items.length - 1 ? '' : 'disabled'}>→</button><button type="button" class="btn-icon fx-remove" data-action="delete" aria-label="${esc(t('fx.remove'))}">×</button></div></div>`; }
+  function makeEffect(type) { return { id: newUploadId(), type, enabled: true, amount: 1, parameters: type === 'pitch' ? { semitones: 0 } : type === 'equalizer' ? { gains: model.EQ_BANDS.map(() => 0) } : {} }; }
   function rows(focusId) {
     cleanupDrag();
     const linked = linkedDraft(), preset = model.preset(session, state.settings);
     const items = displayEffects();
-    $('fxRows').innerHTML = items.map((item, index) => `<div class="fx-item" role="listitem" data-fx-id="${esc(item.id)}" data-index="${index}" data-enabled="${item.enabled}">
-      <div class="fx-item-head"><button type="button" class="btn-icon fx-grip" aria-label="${esc(t('fx.drag'))}" ${''}>⠿</button><span class="fx-step" title="${esc(t('fx.layout.step', { n: index + 1 }))}">${index + 1}</span><span class="fx-effect-icon">${icon(item.type)}</span><b>${esc(t('fx.name.' + item.type))}</b>
-      <label class="switch-ui"><input type="checkbox" data-action="enabled" aria-label="${esc(t('fx.enabled'))} · ${esc(t('fx.name.' + item.type))}" ${item.enabled ? 'checked' : ''}><span class="switch-slider"></span></label></div>
-      ${item.type === 'pitch' ? `<label class="fx-slider fx-pitch-stage"><span>${esc(t('pitch'))}</span><output>${signed(item.parameters.semitones)}</output><input type="range" data-action="semitones" data-reset-value="0" data-reset-event="input" min="-12" max="12" step="1" value="${item.parameters.semitones}" aria-label="${esc(t('fx.name.pitch'))}"></label>` : `<label class="fx-slider"><span>${esc(t('fx.amount'))}</span><output>${Math.round(item.amount * 100)}%</output><input type="range" data-action="amount" data-reset-value="100" data-reset-event="input" min="0" max="100" value="${Math.round(item.amount * 100)}" aria-label="${esc(t('fx.amount'))} · ${esc(t('fx.name.' + item.type))}"></label>`}
-      ${item.type === 'echo' ? `<div class="fx-echo" role="group" aria-label="${esc(t('fx.layout.echo'))}"><label>${esc(t('fx.layout.delay'))}<input type="number" data-action="delay" min="0.03" max="0.8" step="0.01" value="${model.echo(item.parameters).delay}"></label><label>${esc(t('fx.layout.feedback'))}<input type="number" data-action="feedback" min="0" max="0.7" step="0.05" value="${model.echo(item.parameters).feedback}"></label></div>` : ''}
-      <div class="fx-item-actions"><button type="button" class="btn-icon" data-action="up" aria-label="${esc(t('fx.up'))}" ${index ? '' : 'disabled'}>←</button><button type="button" class="btn-icon" data-action="down" aria-label="${esc(t('fx.down'))}" ${index < items.length - 1 ? '' : 'disabled'}>→</button><button type="button" class="btn-icon fx-remove" data-action="delete" aria-label="${esc(t('fx.remove'))}">×</button></div></div>`).join('');
+    $('fxRows').innerHTML = items.map(effectCard).join('');
     const inactive = ['clear', 'inherit', 'detach'].includes(state.action);
     $('fxRows').inert = false; $('fxRows').hidden = inactive; $('fxClearChain').disabled = inactive || !items.length;
     $('fxEmpty').hidden = !!items.length || inactive;
     $('fxType').disabled = inactive; $('fxClear').disabled = inactive || !items.length; $('fxAdd').disabled = inactive || items.length >= model.MAX_EFFECTS;
     for (const button of $('fxPalette').children) button.disabled = $('fxAdd').disabled;
     $('fxCount').textContent = items.length + ' / ' + model.MAX_EFFECTS;
-    if (focusId) [...$('fxRows').children].find(item => item.dataset.fxId === focusId)?.querySelector('.fx-grip').focus();
+    if (focusId) ([...$('fxRows').children].find(item => item.dataset.fxId === focusId)?.querySelector('.fx-grip') || $('fxRows')).focus({ preventScroll: true });
   }
   function exclusions() {
     const inherited = state.scope !== 'takes' || new Set(state.takes.map(item => item.character)).size > 1 ? [] : model.roleVoice(session, state.character).effects;
@@ -189,7 +194,7 @@
     if (state.scope === 'role' && !state.pendingRequest) { request.settings.pitch = state.pitch; request.rolePreset = structuredClone(state.rolePresetBinding); request.presetIcon = state.presetIcon; }
     if (!model.validEffects(request.settings.effects, presetEdit || request.settings.presetModified === true ? 16 : model.MAX_EFFECTS) || state.scope === 'takes' && !model.validTake(request.settings)) return showToast(t('fx.invalid'));
     if (!state.pendingRequest && presetEdit && !await askConfirm(t('live.updateUsed', { name: session.voicePresets[state.presetId]?.name, n: DublineVoicePresets.usage(session, state.presetId).lines.length }))) return false;
-    if (!state.pendingRequest && !presetEdit && (state.scope === 'role' || state.takes.length > 1)) { if (!await askConfirm(t(state.scope === 'role' ? 'preset.roleApply' : 'fx.confirm', { name: state.character, n: state.scope === 'role' ? session.lines.filter(line => line.character === state.character).length : state.takes.length }))) return false; }
+    if (!state.pendingRequest && !presetEdit && (state.scope === 'takes' && state.takes.length > 1)) { if (!await askConfirm(t(state.scope === 'role' ? 'preset.roleApply' : 'fx.confirm', { name: state.character, n: state.scope === 'role' ? session.lines.filter(line => line.character === state.character).length : state.takes.length }))) return false; }
     if (captured !== state || state.sessionId !== session.activeSessionId) return;
     state.applyError = null; state.pending = true; $('fxApply').disabled = true;
     state.pendingRequest = request; dialog.querySelector('.fx-body').inert = true;
@@ -264,7 +269,7 @@
   }
   function linkedDraft() { return !!state && state.scope !== 'preset' && state.action !== 'detach' && (state.settings.voicePresetId || !state.editPreset && state.scope === 'takes' && state.takes.some(target => session.lines.find(line => line.id === target.lineId)?.voicePresetId)); }
   function paintLinked() {
-    if (!state) return; const linked = linkedDraft(); linkedCard.hidden = !linked;
+    if (!state) return; const linked = state.scope !== 'role' && linkedDraft(); linkedCard.hidden = !linked;
     if (!linked) return;
     const ids = state.editPreset || state.scope === 'role' ? [state.settings.voicePresetId] : state.takes.map(target => session.lines.find(line => line.id === target.lineId)?.voicePresetId), unique = [...new Set(ids)].filter(Boolean), preset = unique.length === 1 ? session.voicePresets[unique[0]] : null;
     $('fxLinkedLabel').textContent = preset ? preset.name + (state.settings.presetModified ? ' ' + t('chain.modified') : '') + ' · ' + t(state.settings.presetModified ? 'chain.localHelp' : 'chain.linkHelp') : t('live.mixed');
@@ -282,9 +287,9 @@
   function catalogChanged() { if (!state) return; const preset = session.voicePresets[state.presetId]; if (state.scope === 'preset' && preset && state.presetOriginal === JSON.stringify([preset.effects, preset.pitch, preset.icon])) state.presetRevision = preset.revision; if (state.scope === 'preset' && state.presetRevision !== session.voicePresets[state.presetId]?.revision && !state.pending) { status('preset.conflict'); $('fxRefresh').hidden = false; } paintScope(); rows(); schedule(); }
   window.addEventListener('dubline-presets-changed', () => { if (state && state.scope !== 'preset') schedule(); });
   const sizeObserver = observeDialogZoom(dialog);
-  $('fxClose').onclick = $('fxCancel').onclick = () => close(); dialog.oncancel = event => { event.preventDefault(); void close(); };
+  $('fxClose').onclick = $('fxCancel').onclick = () => close(); dialog.oncancel = event => { event.preventDefault(); if (drag) finishDrag({ type: 'cancel' }); else void close(); };
   $('fxApply').onclick = () => apply(); $('fxRefresh').onclick = async () => { if (state?.pendingRequest) return apply(); const old = state; if (await close()) open(old.scope === 'preset' ? old.presetId : old.scope === 'role' ? old.character : old.takes[0].lineId, old.scope, old.takes.map(item => item.lineId)); };
-  $('fxAdd').onclick = () => { ensureOwn(); if (state.settings.effects.length >= model.MAX_EFFECTS) return showToast(t('fx.limit')); state.settings.effects.push({ id: newUploadId(), type: $('fxType').value, enabled: true, amount: 1, parameters: $('fxType').value === 'pitch' ? { semitones: 0 } : {} }); rows(); schedule(); };
+  $('fxAdd').onclick = () => { ensureOwn(); if (state.settings.effects.length >= model.MAX_EFFECTS) return showToast(t('fx.limit')); state.settings.effects.push(makeEffect($('fxType').value)); rows(); schedule(); };
   $('fxClear').onclick = () => { ensureOwn(); state.pitch = 0; state.presetHasPitch = false; state.editPitch = true; if (state.scope === 'role') state.settings.pitch = 0; else state.settings.pitchMode = 'override'; state.settings.effects = []; state.settings.voicePresetId = null; state.settings.usePresetPitch = false; rows(); schedule(); };
   $('fxInherit').onchange = () => { state.applyError = null; state.editInheritance = true; $('fxInherit').indeterminate = false; state.settings.inheritRoleEffects = $('fxInherit').checked; exclusions(); schedule(); };
   $('fxAction').onchange = () => {
@@ -297,6 +302,7 @@
   $('fxAB').onchange = schedule; $('fxLoop').onchange = () => { if (source) source.loop = $('fxLoop').checked; }; $('fxPlay').onclick = () => { if (playing) stop(false); else void play().catch(() => { if (state) status('fx.processingError'); }); };
   $('fxRows').addEventListener('input', event => {
     const row = event.target.closest('[data-fx-id]'); if (!row) return; const shown = displayEffects()[Number(row.dataset.index)], action = event.target.dataset.action; ensureOwn(shown.type === 'pitch'); const item = state.settings.effects.find(item => item.id === row.dataset.fxId);
+    if (action === 'eqGain') { const band = Number(event.target.dataset.band); item.parameters.gains[band] = Number(event.target.value); event.target.parentElement.querySelector('output').textContent = signed(item.parameters.gains[band]); }
     if (action === 'amount') { item.amount = Number(event.target.value) / 100; row.querySelector('output').textContent = event.target.value + '%'; }
     if (action === 'enabled') { item.enabled = event.target.checked; row.dataset.enabled = String(item.enabled); }
     if (action === 'semitones') { item.parameters.semitones = Number(event.target.value); row.querySelector('output').textContent = signed(item.parameters.semitones); }
@@ -309,17 +315,22 @@
     if (action !== 'delete') state.settings.effects.splice(index + (action === 'up' ? -1 : 1), 0, item); rows(item.id); schedule();
   });
   function cleanupDrag() {
-    if (!drag) return null; const old = drag; drag = null; old.ghost?.remove(); old.row.classList.remove('is-dragging'); dialog.classList.remove('fx-dragging');
+    if (!drag) return null; const old = drag; drag = null; clearInterval(old.scrollTimer); old.ghost?.remove(); old.row.classList.remove('is-dragging'); dialog.classList.remove('fx-dragging');
     if ($('fxRows').hasPointerCapture(old.pointerId)) $('fxRows').releasePointerCapture(old.pointerId);
     return old;
   }
   function finishDrag(event) {
     if (!drag || event.pointerId !== undefined && event.pointerId !== drag.pointerId) return;
     const old = cleanupDrag();
-    const bounds = $('fxRows').getBoundingClientRect();
+    if (old.palette && !old.moved && event.type === 'pointerup' && state === old.scope) {
+      paletteClickUntil = performance.now() + 350; $('fxType').value = old.effect.type; $('fxAdd').click(); return;
+    }
+    const rowsBox = $('fxRows').getBoundingClientRect(), emptyBox = $('fxEmpty').getBoundingClientRect();
+    const bounds = { left: rowsBox.left, right: rowsBox.right, top: rowsBox.top, bottom: Math.max(rowsBox.bottom, emptyBox.bottom) };
+    if (old.palette && old.moved) paletteClickUntil = performance.now() + 350;
     const inside = event.clientX >= bounds.left && event.clientX <= bounds.right && event.clientY >= bounds.top && event.clientY <= bounds.bottom;
     if (event.type === 'pointerup' && inside && old.moved && state === old.scope) {
-      ensureOwn(true); const ids = [...$('fxRows').children].map(row => row.dataset.fxId), effects = new Map(state.settings.effects.map(item => [item.id, item]));
+      ensureOwn(true); if (old.palette) state.settings.effects.push(old.effect); const ids = [...$('fxRows').children].map(row => row.dataset.fxId), effects = new Map(state.settings.effects.map(item => [item.id, item]));
       state.settings.effects = ids.map(id => effects.get(id)); rows(old.id); schedule();
       $('fxMoveStatus').textContent = t('fx.layout.moved', { n: ids.indexOf(old.id) + 1 });
     } else if (state) rows(old.id);
@@ -331,26 +342,53 @@
     // Keep keyboard focus on the stable container while its cards are reinserted.
     $('fxRows').focus({ preventScroll: true }); $('fxRows').setPointerCapture(event.pointerId); event.preventDefault();
   });
-  $('fxRows').addEventListener('pointermove', event => {
+  let paletteClickUntil = 0;
+  palette.addEventListener('click', event => { if (performance.now() < paletteClickUntil) { event.preventDefault(); event.stopImmediatePropagation(); } }, true);
+  $('fxPalette').addEventListener('pointerdown', event => {
+    const button = event.target.closest('[data-fx-type]');
+    if (!button || button.disabled || event.button !== 0 || !state || state.pending || state.pendingRequest) return;
+    cleanupDrag(); const effect = makeEffect(button.dataset.fxType), temp = document.createElement('div'); temp.innerHTML = effectCard(effect, displayEffects().length); const row = temp.firstElementChild;
+    drag = { id: effect.id, effect, palette: true, scope: state, row, pointerId: event.pointerId, x: event.clientX, y: event.clientY, dx: 40, dy: 18, moved: false };
+    $('fxRows').focus({ preventScroll: true }); $('fxRows').setPointerCapture(event.pointerId); event.preventDefault();
+  });
+  function moveEffectDrag(event) {
     if (!drag || event.pointerId !== drag.pointerId) return;
+    drag.point = { clientX: event.clientX, clientY: event.clientY, pointerId: event.pointerId };
     if (!drag.moved && Math.hypot(event.clientX - drag.x, event.clientY - drag.y) < 5) return;
     const zoom = dialog.getBoundingClientRect().width / dialog.offsetWidth;
     if (!drag.moved) {
       drag.moved = true; const ghost = drag.row.cloneNode(true), rect = drag.row.getBoundingClientRect();
       ghost.classList.add('fx-drag-ghost'); ghost.removeAttribute('data-fx-id'); ghost.setAttribute('aria-hidden', 'true');
       for (const node of ghost.querySelectorAll('input, button')) { node.tabIndex = -1; node.removeAttribute('id'); }
-      ghost.style.width = rect.width / zoom + 'px'; dialog.append(ghost); drag.ghost = ghost; drag.row.classList.add('is-dragging'); dialog.classList.add('fx-dragging');
+      ghost.style.width = (drag.palette ? Math.max(155, ($('fxRows').clientWidth - 36) / 4) : rect.width / zoom) + 'px'; dialog.append(ghost); drag.ghost = ghost; drag.row.classList.add('is-dragging'); dialog.classList.add('fx-dragging');
+      drag.scrollTimer = setInterval(() => {
+        if (!drag?.point) return;
+        const body = dialog.querySelector('.fx-body'), box = body.getBoundingClientRect(), point = drag.point;
+        if (point.clientX < box.left || point.clientX > box.right || point.clientY < box.top - 32 || point.clientY > box.bottom + 32) return;
+        const delta = point.clientY < box.top + 28 ? -10 : point.clientY > box.bottom - 28 ? 10 : 0, before = body.scrollTop;
+        if (delta) body.scrollTop += delta;
+        if (body.scrollTop !== before) moveEffectDrag(point);
+      }, 30);
     }
     drag.ghost.style.left = (event.clientX - drag.dx) / zoom + 'px'; drag.ghost.style.top = (event.clientY - drag.dy) / zoom + 'px';
     const target = document.elementFromPoint(event.clientX, event.clientY)?.closest('#fxRows [data-fx-id]');
+    if (drag.palette) {
+      const box = $('fxRows').getBoundingClientRect(), empty = $('fxEmpty').getBoundingClientRect();
+      const inside = event.clientX >= box.left && event.clientX <= box.right && event.clientY >= box.top && event.clientY <= Math.max(box.bottom, empty.bottom);
+      if (!inside) { drag.row.remove(); $('fxEmpty').hidden = !!displayEffects().length; $('fxCount').textContent = displayEffects().length + ' / ' + model.MAX_EFFECTS; return; }
+      if (!drag.row.isConnected) { $('fxRows').append(drag.row); $('fxEmpty').hidden = true; }
+      $('fxCount').textContent = $('fxRows').childElementCount + ' / ' + model.MAX_EFFECTS;
+    }
     if (!target || target === drag.row) return;
     const rect = target.getBoundingClientRect(), columns = getComputedStyle($('fxRows')).gridTemplateColumns.split(' ').length;
     const after = columns === 1 ? event.clientY >= rect.y + rect.height / 2 : event.clientY > rect.bottom - 12 || event.clientY >= rect.y + 12 && event.clientX >= rect.x + rect.width / 2;
     const before = new Map([...$('fxRows').children].map(row => [row, row.getBoundingClientRect()]));
     $('fxRows').insertBefore(drag.row, after ? target.nextSibling : target);
     [...$('fxRows').children].forEach((row, index) => { row.querySelector('.fx-step').textContent = index + 1; });
+    drag.ghost.querySelector('.fx-step').textContent = drag.row.querySelector('.fx-step').textContent;
     if (!matchMedia('(prefers-reduced-motion: reduce)').matches) for (const [row, box] of before) { if (row === drag.row) continue; const next = row.getBoundingClientRect(); if (next.x !== box.x || next.y !== box.y) row.animate([{ transform: 'translate(' + (box.x - next.x) / zoom + 'px,' + (box.y - next.y) / zoom + 'px)' }, { transform: 'none' }], { duration: 160, easing: 'ease-out' }); }
-  });
+  }
+  $('fxRows').addEventListener('pointermove', moveEffectDrag);
   for (const name of ['pointerup', 'pointercancel', 'lostpointercapture']) $('fxRows').addEventListener(name, finishDrag);
   dialog.addEventListener('keydown', event => { if (drag && event.key === 'Escape') { event.preventDefault(); event.stopImmediatePropagation(); finishDrag({ type: 'cancel' }); } }, true);
   window.addEventListener('blur', () => finishDrag({ type: 'cancel' }));
@@ -388,7 +426,7 @@
   }
   window.addEventListener('dubline-language-changed', () => { DublineI18n.apply(dialog); if (state) { rows(); exclusions(); paintScope(); $('fxPlay').textContent = t(playing ? 'fx.pause' : 'fx.play'); $('fxSample').options[0].textContent = t('fx.noSample'); } });
   function usePreset(preset) {
-    if (!state || state.scope === 'preset' || state.pending || state.pendingRequest || state.sessionId !== session.activeSessionId) throw Error('preset.conflict');
+    if (!state || state.scope !== 'takes' || preset.role || state.pending || state.pendingRequest || state.sessionId !== session.activeSessionId) throw Error('preset.conflict');
     const targets = state.scope === 'role' ? [{ character: state.character, pitch: state.pitch, inheritRoleEffects: false }] : state.takes.map(target => {
       const line = session.lines.find(item => item.id === target.lineId); if (!line || !canEditTake(line)) throw Error('fx.owner');
       const settings = { ...state.settings };

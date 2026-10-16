@@ -582,8 +582,8 @@ describe('studio', { skip: skipReason }, () => {
     const line = FIXTURE_LINES[0];
     await alice.evaluate(() => { window.confirm = () => true; hostResetClaims(); });
     await waitFor(bob, id => !getLineOwner(session.lines.find(l => l.id === id)), 5000, line.id);
-    const buttons = await bob.evaluate(id => { selectLine(session.lines.find(l => l.id === id)); return [...document.querySelectorAll('#inspector button')].map(b => b.innerText); }, line.id);
-    assert.ok(buttons.some(text => text.includes('Alice')), buttons.join(' | '));
+    const play = await bob.evaluate(id => { selectLine(session.lines.find(l => l.id === id)); const button=[...document.querySelectorAll('#inspector button')].find(b=>b.getAttribute('onclick')===`previewTake(${id})`);return button&&{title:button.title,text:button.textContent,disabled:button.disabled}; }, line.id);
+    assert.ok(play&&!play.disabled&&play.title.includes('Alice'),JSON.stringify(play));
   });
 
   test('lobby shows players and per-player / scene progress', async () => {
@@ -739,10 +739,13 @@ describe('studio', { skip: skipReason }, () => {
     await bob.evaluate(() => { document.getElementById('multiCharInput').value = 'Keiichi'; document.querySelector('.insp-char-form').dispatchEvent(new Event('submit', { cancelable: true })); });
     await waitFor(alice, ids => ids.every(id => session.lines.find(l => l.id === id).character === 'Keiichi'), 5000, freeIds.slice(0, 2));
 
-    // Shift+click: the whole range; Edit Mode ignores dubbing ownership for source edits.
+    // Shift selects the same-track range. Ctrl extends it to the other tracks;
+    // Edit Mode ignores dubbing ownership for source edits.
     await bob.keyboard.press('Escape');
-    await click(bob, byStart[0]);
-    await click(bob, byStart[byStart.length - 1], 'Shift');
+    await click(bob, freeIds[0]);
+    await click(bob, freeIds[1], 'Shift');
+    await waitFor(bob, ids=>multiSelection.size===2&&ids.every(id=>multiSelection.has(id)),3000,freeIds.slice(0,2));
+    for(const id of byStart.filter(id=>!freeIds.slice(0,2).includes(id)))await click(bob,id,'Control');
     await waitFor(bob, n => document.getElementById('inspector').innerText.includes(t('multi.title', { n })), 3000, byStart.length);
     await bob.evaluate(() => { document.getElementById('multiCharInput').value = 'Rena'; document.querySelector('.insp-char-form').dispatchEvent(new Event('submit', { cancelable: true })); });
     await waitFor(alice, ids => ids.every(id => session.lines.find(line => line.id === id).character === 'Rena'), 5000, byStart);

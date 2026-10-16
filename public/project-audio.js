@@ -35,6 +35,19 @@
     return Object.fromEntries(CHANNELS.map(channel => [channel,
       !available(channel) || mix[channel].muted || (solo && !mix[channel].solo) ? 0 : mix[channel].volume]));
   }
+  // Per-line Voxalike references are already cut. Scene sources use timeline
+  // bounds and their shared offset, independently of mute/solo/mix volume.
+  function reference(session, line) {
+    if (!line) return null;
+    if (line.originalAudioUrl) return { url: line.originalAudioUrl, from: 0, to: null, channel: 'line', confirmBacking: false };
+    if (session.kind === 'pack') return null;
+    const source = sources(session), channel = source.original ? 'original' : source.backing ? 'backing' : null;
+    if (!channel || !Number.isFinite(line.start) || !Number.isFinite(line.end) || line.end <= line.start) return null;
+    const offset = normalize(session)[channel].offset;
+    const end = Math.min(line.end + .5, session.videoDuration > 0 ? session.videoDuration : Infinity);
+    const from = Math.max(0, line.start - .5 - offset), to = end - offset;
+    return to > from ? { url: source[channel], from, to, channel, confirmBacking: channel === 'backing' } : null;
+  }
   function preparationStatus(session, elements) {
     const source = sources(session), gain = gains(normalize(session), source);
     const audible = ['original', 'backing'].filter(channel => source[channel] && gain[channel] > 0);
@@ -89,7 +102,7 @@
     param.setValueAtTime(base,0);
     for(const [at,value] of events)param.linearRampToValueAtTime(value,at);
   }
-  const api = Object.freeze({ DUCK, smoothRamp, automateDucking, CHANNELS, MAX_VOLUME, normalize, sources, gains, preparationStatus, sourceTime, placement, takeLatency });
+  const api = Object.freeze({ DUCK, smoothRamp, automateDucking, CHANNELS, MAX_VOLUME, normalize, sources, gains, reference, preparationStatus, sourceTime, placement, takeLatency });
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else global.DublineProjectAudio = api;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -60,9 +60,9 @@ async function main() {
       await shot(page.locator('#fxDialog'), `role-owner-${count}`);
     }
     for (const language of ['en', 'ru', 'uk']) {
-      await page.evaluate(language => DublineI18n.setLanguage(language), language); await page.locator('#fxApply').click();
-      await page.waitForFunction(() => textPrompt.open && textPrompt.dataset.kind === 'confirm');
-      await shot(page.locator('.text-prompt[open]'), 'role-confirm-' + language); await page.locator('#textPromptCancel').click();
+      await page.evaluate(language => DublineI18n.setLanguage(language), language);
+      assert.ok(await page.locator('#fxLinked').isHidden()); assert.ok(await page.locator('#fxPresetSave').isHidden());
+      await shot(page.locator('#fxDialog'), 'role-isolated-' + language);
     }
     assert.equal(await page.evaluate(() => Object.values(session.voicePresets).some(preset => preset.name === 'Hero')), false);
     assert.deepEqual(actor.errors, []); assert.deepEqual(host.errors, []);

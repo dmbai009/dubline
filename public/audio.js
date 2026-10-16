@@ -83,6 +83,7 @@
     let previewStarted = 0, previewOffset = 0, previewRate = 1;
     let previewGeneration = 0, previewGraph = null, previewPendingLine = null, previewEnded = null;
     let previewAudio = null;
+    let referencePreview = false, referenceCleanup = null;
     let previewSource = null;
 
     function effectiveOriginalVolume() {
@@ -166,7 +167,7 @@
     function applyVolumes() {
       updateLevels();
       const volumes = getVolumes();
-      if (previewAudio) previewAudio.volume = volumes.isMuted ? 0 : Math.min(1, volumes.recorded);
+      if (previewAudio) previewAudio.volume = referencePreview ? referenceVolume() : volumes.isMuted ? 0 : Math.min(1, volumes.recorded);
       if (videoGain && backingGain && playCtx) {
         setDucking(duckingTakes.size > 0 || !!duckReleaseTimer, volumes.isMuted || isRenderInProgress());
         takesBus.gain.setValueAtTime(volumes.isMuted ? 0 : volumes.recorded, playCtx.currentTime);
@@ -452,11 +453,53 @@
 
     function stopPreview(smooth = false) {
       previewGeneration++; const ended = previewEnded; previewEnded = null; previewPendingLine = null;
+      referenceCleanup?.(); referenceCleanup = null; referencePreview = false;
       const graph = previewGraph, source = previewSource; previewGraph = null; previewSource = null;
       const release = () => { source?.disconnect(); if (graph) { graph.gain.disconnect(); graph.panner.disconnect(); } };
       if (source) { source.onended = null; if (smooth && graph && playCtx) { rampGain(graph.gain.gain, 0, .03, false); source.onended = release; try { source.stop(playCtx.currentTime + .035); } catch { release(); } } else { try { source.stop(); } catch {} release(); } } else release();
       if (previewAudio) { previewAudio.pause(); global.DublineAudioDevices?.unregisterElement(previewAudio); previewAudio = null; }
       ended?.();
+    }
+
+    function referenceVolume() { return getVolumes().isMuted ? 0 : Math.max(0, Math.min(1, global.localMasterVolume?.() ?? 1)); }
+    async function previewReference(reference, options = {}) {
+      stopPreview();
+      if (!reference?.url) return false;
+      const generation = previewGeneration, current = new Audio();
+      previewAudio = current; referencePreview = true; previewEnded = options.onEnded || null;
+      global.DublineAudioDevices?.registerElement(current);
+      current.preload = 'metadata'; current.volume = referenceVolume(); current.playbackRate = 1;
+      let interval, deadline, rejectWait, until = Infinity;
+      const checkEnd = () => { if (Number.isFinite(until) && current.currentTime >= until) stopPreview(); };
+      const failed = () => { if (previewAudio === current) { options.onError?.(); rejectWait?.(new Error('reference.failed')); stopPreview(); } };
+      const ended = () => { if (previewAudio === current) stopPreview(); };
+      current.addEventListener('error', failed); current.addEventListener('ended', ended); current.addEventListener('timeupdate', checkEnd);
+      referenceCleanup = () => {
+        clearInterval(interval); clearTimeout(deadline); rejectWait?.(cancelled()); rejectWait = null;
+        current.removeEventListener('error', failed); current.removeEventListener('ended', ended); current.removeEventListener('timeupdate', checkEnd);
+        current.pause(); current.removeAttribute('src'); current.load();
+      };
+      try {
+        const metadata = new Promise((resolve, reject) => {
+          const ready = () => { rejectWait = null; clearTimeout(deadline); current.removeEventListener('loadedmetadata', ready); resolve(); };
+          rejectWait = error => { current.removeEventListener('loadedmetadata', ready); reject(error); };
+          deadline = setTimeout(failed, 15000); current.addEventListener('loadedmetadata', ready, { once: true });
+        });
+        current.src = reference.url;
+        await metadata; await global.DublineAudioDevices?.ready();
+        if (generation !== previewGeneration) return false;
+        const from = Math.max(0, reference.from || 0);
+        until = Math.min(Number.isFinite(current.duration) ? current.duration : Infinity, reference.to ?? Infinity);
+        if (from >= until) { options.onError?.(); stopPreview(); return false; }
+        current.currentTime = from;
+        await current.play();
+        if (generation !== previewGeneration) { current.pause(); return false; }
+        interval = setInterval(checkEnd, 20);
+        return true;
+      } catch (error) {
+        if (generation !== previewGeneration || error.name === 'AbortError') return false;
+        options.onError?.(); stopPreview(); throw error;
+      }
     }
 
     function playAudio(url) {
@@ -590,6 +633,7 @@
       getProcessedTake,
       getRawTake,
       playAudio,
+      previewReference,
       precacheTakes,
       previewTake,
       rawTakeStart,
