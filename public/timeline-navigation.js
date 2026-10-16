@@ -255,6 +255,7 @@
     map.addEventListener('pointermove', move); map.addEventListener('pointerup', finish); map.addEventListener('pointercancel', finish); map.addEventListener('lostpointercapture', finish); window.addEventListener('blur', finish);
   });
   timelineContainer.addEventListener('scroll', scheduleMap, { passive: true }); video.addEventListener('timeupdate', scheduleMap);
+  window.addEventListener('dubline-role-width-changed', scheduleMap);
   new ResizeObserver(invalidateMinimap).observe(footer);
   for (const event of ['session_updated', 'line_updated', 'takes_updated', 'editor_lines_updated', 'nick_state']) socket.on(event, () => {
     if (gesture && gesture.sessionId !== session?.activeSessionId) gesture.finish({ type: 'scene' });

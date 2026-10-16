@@ -118,6 +118,9 @@ html[data-theme=light] header { background:#fffe; }
 html[data-theme=light] .recording-cue { color:#20232b; }
 
 .track-label { position:sticky; }
+.role-column-handle { position:absolute; top:0; bottom:0; right:0; width:6px; z-index:40; cursor:col-resize; touch-action:none; user-select:none; }
+.role-column-handle:hover, .role-column-handle:focus-visible { background:var(--accent-soft); box-shadow:inset -2px 0 var(--accent); outline:none; }
+body.resizing-role-column, body.resizing-role-column * { cursor:col-resize !important; user-select:none !important; }
 .role-badge .role-btn { margin-top:0; }
 .role-height-handle { position:absolute; left:4px; right:4px; bottom:0; height:6px; padding:0; background:var(--border); cursor:ns-resize; opacity:.45; }
 .role-height-handle:hover { opacity:1; }
