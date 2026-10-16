@@ -844,7 +844,7 @@ function timelineFitZoom() {
   const duration = timelineSeconds() + TIMELINE_TAIL;
   return Math.min(ZOOM_MAX, available / (Number.isFinite(duration) && duration > 0 ? duration : 35));
 }
-function timelineZoomMinimum() { return Math.min(ZOOM_DEFAULT, timelineFitZoom()); }
+function timelineZoomMinimum() { return Math.min(ZOOM_DEFAULT, timelineFitZoom(), window.DublineRoleColumn?.zoomFloor() ?? Infinity); }
 function normalizeTimelineZoom() {
   pxPerSec = timelineFitActive ? timelineFitZoom() : Math.max(timelineZoomMinimum(), Math.min(ZOOM_MAX, Number.isFinite(pxPerSec) && pxPerSec > 0 ? pxPerSec : ZOOM_DEFAULT));
   if (localStorage.getItem('dubline_zoom') !== String(pxPerSec)) localStorage.setItem('dubline_zoom', String(pxPerSec));
@@ -853,6 +853,7 @@ function normalizeTimelineZoom() {
 
 // anchorX is the screen point whose time stays in place (the mouse cursor or the center)
 function setTimelineZoom(next, anchorX = timelineContainer.clientWidth / 2, anchorTime = Math.max(0, (timelineContainer.scrollLeft + anchorX - labelWidth) / pxPerSec)) {
+  window.DublineRoleColumn?.releaseZoom();
   timelineFitActive = false;
   const clamped = Math.min(ZOOM_MAX, Math.max(timelineZoomMinimum(), Number.isFinite(next) ? next : pxPerSec));
   if (Math.abs(clamped - pxPerSec) < Number.EPSILON * Math.max(1, pxPerSec)) return;
@@ -891,6 +892,7 @@ let observedTimelineWidth = timelineContainer.clientWidth;
 new ResizeObserver(() => {
   if (timelineContainer.clientWidth === observedTimelineWidth) return;
   observedTimelineWidth = timelineContainer.clientWidth;
+  window.DublineRoleColumn?.releaseZoom();
   if (session?.loaded) scheduleTimelineRender();
 }).observe(timelineContainer);
 

@@ -2,6 +2,7 @@
 (() => {
   const KEY = 'dubline_role_column_width', MIN = 180, MAX = 400;
   let preferred = MIN, active = null, frame = null, edgeClick = false, limit = MIN;
+  let preservedZoom = null;
   try {
     const saved = Number(localStorage.getItem(KEY));
     if (Number.isFinite(saved) && saved >= MIN) preferred = Math.min(MAX, saved);
@@ -33,7 +34,10 @@
   function resize(value) {
     preferred = Math.round(Math.max(MIN, Math.min(maximum(), value)));
     // Resizing this column must not implicitly invoke "Whole scene" scaling.
-    if (preferred !== labelWidth) timelineFitActive = false;
+    if (preferred !== labelWidth) {
+      preservedZoom = { scene: session?.activeSessionId, scale: pxPerSec };
+      timelineFitActive = false;
+    }
     apply();
   }
   function attach(root) {
@@ -59,7 +63,7 @@
     if (!handle) return;
     event.preventDefault(); event.stopImmediatePropagation();
     if (event.button !== 0 || active || window.activeEditorGesture || window.transportScrubbing) return;
-    active = { pointer: event.pointerId, x: event.clientX, width: labelWidth, preferred, fit: timelineFitActive };
+    active = { pointer: event.pointerId, x: event.clientX, width: labelWidth, preferred, fit: timelineFitActive, preservedZoom };
     // The stable scroller retains capture when a room update redraws role labels.
     timelineContainer.setPointerCapture(event.pointerId);
     document.body.classList.add('resizing-role-column');
@@ -81,7 +85,7 @@
       edgeClick = Math.abs(event.clientX - old.x) < 3;
       active.pending = event.clientX; paint(); save();
     } else {
-      preferred = old.preferred; timelineFitActive = old.fit; apply();
+      preferred = old.preferred; timelineFitActive = old.fit; preservedZoom = old.preservedZoom; apply();
     }
     active = null;
     document.body.classList.remove('resizing-role-column');
@@ -110,6 +114,9 @@
   window.addEventListener('resize', apply);
   const zoomObserver = new MutationObserver(apply);
   for (const node of [document.documentElement, document.body]) zoomObserver.observe(node, { attributes: true, attributeFilter: ['style'] });
-  window.DublineRoleColumn = Object.freeze({ attach });
+  window.DublineRoleColumn = Object.freeze({ attach,
+    zoomFloor: () => preservedZoom && preservedZoom.scene === session?.activeSessionId ? preservedZoom.scale : Infinity,
+    releaseZoom: () => { preservedZoom = null; }
+  });
   attach(timeline);
 })();
