@@ -17,7 +17,7 @@ const timelineBounds = require('../public/timeline-model');
 // Scene fields that belong to a session (see "Sessions" below)
 const SESSION_FIELDS = ['loaded', 'title', 'kind', 'zipUrl', 'videoUrl', 'backingUrl', 'lines', 'characterClaims', 'createdAt', 'updatedAt',
   'audioTracks', 'originalTrack', 'backingTrack', 'baseBackingUrl', 'deletedLines', 'mode', 'trackOrder', 'nextLineId', 'blindMode',
-  'externalOriginalUrl', 'audioMetadata', 'projectAudio', 'videoHasAudio', 'takeLatency', 'videoDuration', 'workshopSource', 'originalVideoUrl', 'originalVideoName', 'protectTimings', 'noiseReduction', 'roleEffects', 'voicePresets', 'takeChecks'];
+  'externalOriginalUrl', 'audioMetadata', 'projectAudio', 'videoHasAudio', 'takeLatency', 'videoDuration', 'workshopSource', 'originalVideoUrl', 'originalVideoName', 'protectTimings', 'noiseReduction', 'roleEffects', 'voicePresets', 'takeChecks', 'captionsCleaned'];
 let repairedOnLoad = false;
 
 function loadRooms() {
@@ -277,7 +277,7 @@ function startNewSession(room, fields) {
   snapshotActive(room);
   const now = Date.now();
   room.activeSessionId = newSessionId();
-  Object.assign(room, emptySession(), fields, { loaded: true, createdAt: now, updatedAt: now });
+  Object.assign(room, emptySession(), fields, { loaded: true, createdAt: now, updatedAt: now, captionsCleaned: true });
   normalizeEditorState(room);
   snapshotActive(room);
 }

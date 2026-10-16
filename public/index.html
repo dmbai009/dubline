@@ -491,6 +491,15 @@
           <button id="downloadStemsBtn" class="btn-header-action" onclick="downloadReaperStems()" style="justify-content: center;">
             <span data-i18n="downloadStems">🎛️ Build and download WAV stems</span>
           </button>
+        </div><div class="setting-card" id="subtitleExportCard">
+          <div class="setting-label" data-i18n="subtitles.export">Subtitle file</div>
+          <p class="setting-sub" data-i18n="subtitles.help">Text, timing and roles from the whole scene. No video or recordings.</p>
+          <div class="subtitle-export-actions">
+            <button type="button" class="btn-header-action" data-subtitle-format="srt" data-i18n-title="subtitles.srtHint" onclick="exportSubtitles('srt')"><span data-i18n="subtitles.srtLabel">SRT</span></button>
+            <button type="button" class="btn-header-action" data-subtitle-format="ass" data-i18n-title="subtitles.assHint" onclick="exportSubtitles('ass')"><span data-i18n="subtitles.assLabel">ASS</span></button>
+            <button type="button" class="btn-header-action" data-subtitle-format="vtt" data-i18n-title="subtitles.vttHint" onclick="exportSubtitles('vtt')"><span data-i18n="subtitles.vttLabel">VTT</span></button>
+          </div>
+          <p id="subtitleExportStatus" class="setting-sub" role="status" hidden></p>
         </div><div class="setting-card">
           <div class="setting-label" data-i18n="packExport">3. Export editable Voxalike pack (.zip)</div>
           <div class="setting-sub" data-i18n="packExport.help">Builds a compatible pack from the video and edited lines on the host.</div>

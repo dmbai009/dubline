@@ -417,6 +417,25 @@ app.post('/api/import-project', diskUpload(['project'], sceneUploadAuth('Only th
   } catch (error) { if (!res.destroyed) sendError(res, error); }
 });
 
+// Subtitle-only export reuses the same confirmed scene snapshot as other exports.
+app.post('/api/export-subtitles', (req, res) => {
+  try {
+    const roomId = resolveRoomId(req.body.room), room = rooms[roomId];
+    if (!room || clientIdFromCookie(req.headers.cookie) !== req.body.clientId || !isHost(room, req.body.clientId)) throw new HttpError(403, 'Only the host can export subtitles', 'onlyHost');
+    const { formats, serialize } = require('./subtitle-export');
+    if (!Object.hasOwn(formats, req.body.format)) throw new HttpError(400, 'Unknown subtitle format', 'error.subtitleFormat');
+    if (!room.loaded || !room.lines?.length) throw new HttpError(400, 'No subtitle lines', 'error.noSubtitleLines');
+    const snapshot = require('./snapshotBarrier').capture(roomId, req.body.clientId, req.body.barrierToken, 'subtitles', req.body.forceSnapshot === true);
+    const text = serialize(snapshot.lines, req.body.format);
+    if (Buffer.byteLength(text) > MAX_SUBTITLE_MB * 1048576) throw new HttpError(413, 'Subtitle file is too large', 'error.subtitlesTooBig', { max:MAX_SUBTITLE_MB });
+    const name = String(snapshot.title || 'Dubline').replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').slice(0, 120) + '.' + req.body.format;
+    res.setHeader('Content-Disposition', `attachment; filename="Dubline.${req.body.format}"; filename*=UTF-8''${encodeURIComponent(name)}`);
+    res.setHeader('Content-Type', formats[req.body.format] + '; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(text);
+  } catch (error) { sendError(res, error); }
+});
+
 // Build a standard Voxalike pack from the edited timeline. Host only because FFmpeg work
 // happens on the host machine and can be expensive for a long scene.
 app.post('/api/export-voxalike-pack', async (req, res) => {

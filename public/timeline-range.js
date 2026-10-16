@@ -5,8 +5,13 @@
   const band = document.createElement('div'); band.className = 'timeline-time-range timeline-range-band'; band.hidden = true;
   const bar = document.createElement('div'); bar.className = 'timeline-range-tools'; bar.hidden = true;
   const label = document.createElement('span'), clear = document.createElement('button'), exportButton = document.createElement('button');
+  const clearText = document.createElement('span'), exportText = document.createElement('span');
+  const clearIcon = document.createElement('span'), exportIcon = document.createElement('span');
+  clearText.className = exportText.className = 'range-action-text'; clearIcon.className = exportIcon.className = 'range-action-icon';
+  clearIcon.textContent = '×'; exportIcon.textContent = '↗'; clearIcon.setAttribute('aria-hidden', 'true'); exportIcon.setAttribute('aria-hidden', 'true');
+  clear.append(clearIcon, clearText); exportButton.append(exportIcon, exportText);
   clear.className = exportButton.className = 'btn-outline'; clear.type = exportButton.type = 'button';
-  bar.append(label, exportButton, clear); document.querySelector('.timeline-toolbar').after(bar);
+  bar.append(label, exportButton, clear); document.querySelector('.zoom-controls').before(bar);
   const clock = seconds => { const ms = Math.round(seconds * 1000); return `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}.${String(ms % 1000).padStart(3, '0')}`; };
   function get() { return session?.mode === 'dub' && session.activeSessionId === sceneId && session.videoUrl === sourceUrl && value ? { ...value } : null; }
   function disarm() { armed = false; clearTimeout(timer); cancelAnimationFrame(frame); timer = frame = null; }
@@ -18,7 +23,9 @@
     const ruler = timeline.querySelector('.ruler-ticks'); if (ruler && band.parentNode !== ruler) ruler.append(band);
     band.style.left = `${range.start * pxPerSec}px`; band.style.width = overlay.style.width;
     label.textContent = t('range.selection', { start: clock(range.start), end: clock(range.end), duration: clock(range.end - range.start) });
-    clear.textContent = t('range.clear'); exportButton.textContent = t('range.export');
+    clearText.textContent = t('range.clear'); exportText.textContent = t('range.export');
+    clear.title = clear.ariaLabel = t('range.clear'); exportButton.title = exportButton.ariaLabel = t('range.export');
+    label.title = label.textContent;
     exportButton.disabled = recordState !== 'idle' || renderInProgress;
   }
   function set(start, end) {
