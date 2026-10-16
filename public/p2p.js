@@ -181,7 +181,9 @@ function leaveP2pRoom() { p2pJoined = false; p2pConsentRequested = false; stopP2
 socket.on('disconnect', leaveP2pRoom); socket.on('join_denied', leaveP2pRoom);
 
 function isOnServerMachine() {
-  return ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
+  // Porthole also exposes the remote host on the guest's loopback address.
+  // Only the room host can skip downloading an already local server file.
+  return amHost() && ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
 }
 
 // ---------- What we have in full ----------
@@ -765,7 +767,7 @@ async function loadSceneMedia(force = false) {
   const hasLocal = localMedia && localMedia.forVideoUrl === current.videoUrl && localMedia.source === 'disk';
   sceneMediaState = { status: 'loading', videoKey, audioKey, videoReady: !!retainedVideo, error: null, diagnostic: null, files: [] };
 
-  // Already have it from disk, or we are on the server itself, or P2P is off: play as usual
+  // Disk media and the local room host need no extra download; guests use HTTP/P2P below.
   if (hasLocal || isOnServerMachine() || !current.videoSize || !current.videoUrl) {
     sceneMediaState.status = 'ready'; sceneMediaState.videoReady = true;
     setHostSources();
