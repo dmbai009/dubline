@@ -173,3 +173,11 @@ html[data-theme=light] .line-block.selected { outline-color:var(--accent); }
 body.lobby-compact .player-status-icons { display:flex; justify-content:center; gap:2px; flex-wrap:wrap; font-size:10px; }
 .player-status-compact.moderator { color:#7dd3fc; }
 html[data-theme=light] .player-status-compact.moderator { color:#075985; }
+/* Private time selection stays above clips without intercepting their controls. */
+.timeline-time-range { position:absolute; top:0; bottom:0; z-index:8; pointer-events:none; background:var(--accent-soft); border-inline:2px solid var(--accent); box-sizing:border-box; }
+.timeline-time-range[hidden],.timeline-range-tools[hidden] { display:none!important; }
+.timeline-range-band { z-index:2; border-block:2px solid var(--accent); }
+body:not(.edit-mode) .track-timeline,body:not(.edit-mode) .ruler-ticks { cursor:crosshair; }
+.timeline-range-tools { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:5px 10px; flex-shrink:0; font-size:11px; color:var(--text); border-bottom:1px solid var(--border); }
+.timeline-range-tools span { margin-right:auto; font-variant-numeric:tabular-nums; }
+.timeline-range-tools button { padding:4px 8px; font-size:11px; }

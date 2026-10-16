@@ -67,8 +67,10 @@
   async function* chunks(mb, snapshot, duration, progress, check) {
     const operations=snapshot.exportOperations;
     const wait=(name,fn,data)=>operations ? operations.run(name,fn,data) : fn();
+    const range = DublineVideoExportPolicy.range(snapshot.exportRange, duration) || { start: 0, end: duration };
+    const outputDuration = range.end - range.start;
     const prepared = await prepare(snapshot, duration, progress, check), sources = [];
-    const report = snapshot.exportReport || (() => {}); report('audio', { current: 0, total: duration });
+    const report = snapshot.exportReport || (() => {}); report('audio', { current: 0, total: outputDuration });
     try {
       for (const name of ['original', 'backing']) {
         const url = snapshot[name + 'Url'];
@@ -80,7 +82,8 @@
         if (!track || !await wait('audio-decoder-check',()=>track.canDecode())) throw exportAudioError(t(name === 'backing' ? 'studio.backing' : 'studio.original'));
         sources.at(-1).sink = new mb.AudioBufferSink(track);
       }
-      for (let position = 0; position < duration; position += WINDOW) {
+      // Keep the same window/resampler/limiter phase as a full export, then crop.
+      for (let position = Math.floor(range.start / WINDOW) * WINDOW; position < range.end; position += WINDOW) {
         check();
         const begin = Math.max(0, position - WARMUP), end = Math.min(duration, position + WINDOW);
         const context = new OfflineAudioContext(2, Math.max(1, Math.round((end - begin) * RATE)), RATE);
@@ -123,10 +126,11 @@
           check(); const buffer = await wait('take-process',()=>requireExportTake(take.line,snapshot.exportSignal));
           place(buffer, snapshot.gains.dub, take.start, take.from, take.to, limiter, take.line);
         }
-        check(); progress(t('render.mix')); report('audio', { current: position, total: duration });
+        check(); progress(t('render.mix')); report('audio', { current: Math.max(0, position - range.start), total: outputDuration });
         const buffer = await wait('audio-mix',()=>context.startRendering(),{timestamp:position,end}); check();
-        report('audio', { current: end, total: duration, state: end >= duration ? 'done' : 'running' });
-        yield { buffer: sliceAudioBuffer(buffer, Math.round((position - begin) * RATE), buffer.length), end };
+        const stop = Math.min(end, range.end), start = Math.max(position, range.start);
+        report('audio', { current: stop - range.start, total: outputDuration, state: stop >= range.end ? 'done' : 'running' });
+        yield { buffer: sliceAudioBuffer(buffer, Math.round(start * RATE) - Math.round(begin * RATE), Math.round(stop * RATE) - Math.round(begin * RATE)), end: stop - range.start };
       }
     } finally { for (const source of sources) {source.input.dispose();source.release?.();} }
   }

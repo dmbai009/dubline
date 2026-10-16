@@ -1,6 +1,17 @@
 (() => {
   const policy = DublineVideoExportPolicy, panel = document.getElementById('videoExportPanel');
   const el = suffix => document.getElementById('videoExport' + suffix);
+  const scopeLabel = document.createElement('label'), scopeTitle = document.createElement('span'), scope = document.createElement('select');
+  scope.id = 'videoExportScope'; scope.className = 'text-input'; scopeLabel.className = 'video-export-scope';
+  for (const value of ['all', 'selection']) { const option = document.createElement('option'); option.value = value; scope.append(option); }
+  scopeLabel.append(scopeTitle, scope); panel.querySelector('fieldset').before(scopeLabel);
+  function paintScope() {
+    const range = window.DublineTimelineRange?.get();
+    scopeTitle.textContent = t('range.scope'); scope.setAttribute('aria-label', t('range.scope'));
+    scope.options[0].textContent = t('range.all'); scope.options[1].disabled = !range;
+    scope.options[1].textContent = range ? t('range.selected', { start: range.start.toFixed(3), end: range.end.toFixed(3) }) : t('range.none');
+    if (!range) scope.value = 'all'; scope.disabled = planning || renderInProgress;
+  }
   let metadataAbort=null;
   let metadata = null, metadataKey = '', metadataJob = null, metadataError = '', generation = 0, capabilities = null, active = null, planning = false, lastSaved = null, lastResult = null;
   const resultCard = document.createElement('section'); resultCard.id = 'videoExportResult'; resultCard.className = 'setting-card'; resultCard.hidden = true; resultCard.setAttribute('role', 'status'); document.getElementById('renderProgressBox').after(resultCard);
@@ -46,14 +57,17 @@
   }
   function settings() {
     const sourceInfo = info(), custom = mode() === 'custom';
-    const format = custom ? el('Format').value : mode() === 'original' ? sourceInfo?.extension || 'mp4' : capabilities?.copyFormat || capabilities?.realtimeFormat || 'mp4';
-    const dimensions = custom ? policy.dimensions(sourceInfo || {}, el('Resolution').value !== 'source' ? Number(el('Resolution').value) : Math.min(sourceInfo?.width || 0, sourceInfo?.height || 0)) : { width: sourceInfo?.width, height: sourceInfo?.height };
+    const selected = scope.value === 'selection' ? window.DublineTimelineRange?.get() : null;
+    let range = null, invalidRange = false;
+    try { range = selected && sourceInfo && (selected.start > .001 || selected.end < sourceInfo.duration - .001) ? policy.range(selected, sourceInfo.duration) : null; } catch { invalidRange = true; }
+    const format = custom ? el('Format').value : range ? sourceInfo?.extension === 'webm' ? 'webm' : 'mp4' : mode() === 'original' ? sourceInfo?.extension || 'mp4' : capabilities?.copyFormat || capabilities?.realtimeFormat || 'mp4';
+    const dimensions = custom || range ? policy.dimensions(sourceInfo || {}, custom && el('Resolution').value !== 'source' ? Number(el('Resolution').value) : Math.min(sourceInfo?.width || 0, sourceInfo?.height || 0)) : { width: sourceInfo?.width, height: sourceInfo?.height };
     return { mode: mode(), acceleration: DublineVideoAcceleration.get(), source: mode() === 'original' ? 'original' : custom ? el('Source').value : 'working', format,
-      codec: policy.formats[format]?.codec, sourceInfo, ...dimensions,
+      codec: policy.formats[format]?.codec, sourceInfo, ...dimensions, range, invalidRange,
       audioRealtime: (mode() === 'original' || custom && el('Source').value === 'original') && !capabilities?.audio[format === 'webm' ? 'webm' : 'mp4'],
       audioMime: capabilities?.audioMimes[format === 'webm' ? 'webm' : 'mp4'],
       fps: custom && el('Fps').value !== 'source' ? Number(el('Fps').value) : null,
-      bitrate: Math.floor(Number(el('Bitrate').value) * 1000000) };
+      bitrate: range && !custom ? policy.recommendedBitrate(sourceInfo, { ...dimensions, codec: policy.formats[format]?.codec }) : Math.floor(Number(el('Bitrate').value) * 1000000) };
   }
   function showMetadata() {
     const source = info(); if (!source) { el('Metadata').textContent = metadataError || t('exportVideo.loading'); return; }
@@ -93,6 +107,7 @@
     return { mb, audio, audioMimes, webcodecs, copyFormat, realtime, realtimeTypes, realtimeFormat: realtime.mp4 ? 'mp4' : realtime.webm ? 'webm' : null };
   }
   async function paint() {
+    paintScope();
     syncBitrate();
     const attempt = ++generation, chosen = settings(), source = chosen.sourceInfo;
     if (source) { for (const option of el('Fps').options) option.hidden = option.disabled = option.value !== 'source' && (!policy.valid(source.fps) || Number(option.value) > source.fps); }
@@ -134,10 +149,22 @@
       }
     }
     if (realtime && !capabilities?.realtime[chosen.format]) reason = 'exportVideo.unsupported';
+    if (chosen.range && source && capabilities) {
+      reason ||= policy.validate(source, chosen);
+      if (chosen.audioRealtime) reason = 'range.unsupported';
+      if (chosen.source === 'working' && !reason) {
+        try {
+          if (!capabilities.webcodecs || !capabilities.audio[chosen.format]) throw Error();
+          await DublineVideoAcceleration.encoderPreference(capabilities.mb, chosen.codec, { width: chosen.width, height: chosen.height, frameRate: chosen.fps || source.fps, bitrate: chosen.bitrate }, chosen.acceleration, source);
+          realtime = false;
+        } catch { reason = 'range.unsupported'; }
+      }
+    }
     if (attempt !== generation) return;
     if (chosen.source === 'original' && !amHost()) reason = 'onlyHost';
     if (source && !policy.valid(source.duration)) reason = 'exportVideo.sourceMissing';
-    el('Method').textContent = !source && metadataError ? metadataError : reason ? t(reason) : chosen.audioRealtime ? t('exportVideo.originalRealtime') : realtime ? t('exportVideo.realtime') : chosen.mode === 'custom' ? t('exportVideo.reencode') : chosen.mode === 'original' ? t(metadata.originalSame ? 'exportVideo.sameSource' : 'exportVideo.originalMethod') : t(metadata.originalSame ? 'exportVideo.copySame' : 'exportVideo.copyMethod');
+    if (chosen.invalidRange) reason = 'range.invalid';
+    el('Method').textContent = !source && metadataError ? metadataError : reason ? t(reason) : chosen.range ? t('range.encoding') : chosen.audioRealtime ? t('exportVideo.originalRealtime') : realtime ? t('exportVideo.realtime') : chosen.mode === 'custom' ? t('exportVideo.reencode') : chosen.mode === 'original' ? t(metadata.originalSame ? 'exportVideo.sameSource' : 'exportVideo.originalMethod') : t(metadata.originalSame ? 'exportVideo.copySame' : 'exportVideo.copyMethod');
     el('Limits').textContent = chosen.mode === 'custom' && source ? t('exportVideo.limits', { width: unknown(source.width), height: unknown(source.height), fps:policy.valid(source.fps)?number(source.fps,3):unknown(source.fps), bitrate:policy.valid(source.bitrate)?number(policy.bitrateBounds(source).max/1000000) : t('exportVideo.unknown') }) : !native() ? t('exportVideo.browserMemory') : '';
     document.getElementById('startRenderBtn').disabled = !!reason || planning || renderInProgress || recordState !== 'idle';
     panel.dataset.ready = String(!reason); panel.dataset.realtime = String(realtime);
@@ -178,6 +205,8 @@
   try { el('Sound').checked = localStorage.getItem('dubline_export_sound') !== '0'; } catch { /* Default sound remains available. */ }
   document.getElementById('revealVideoExportBtn').onclick = () => { if (lastSaved) void dublineVideoExport.reveal({ ticket: lastSaved.ticket }).catch(() => showToast(t('exportVideo.destinationExpired'))); };
   let planningAbort = null;
+  scope.onchange = () => { void paint(); };
+  window.addEventListener('dubline-range-changed', () => { if (!planning && !renderInProgress) { scope.value = window.DublineTimelineRange?.get() ? 'selection' : 'all'; paintScope(); if (document.getElementById('filesModal').style.display === 'flex' && document.getElementById('tabContentExport').classList.contains('active')) void paint(); } });
   window.cancelVideoRender = () => {
     if(document.getElementById('cancelVideoExportBtn').disabled)return;
     if(planningAbort || active) {document.getElementById('renderStatusText').dataset.state='cancelling';document.getElementById('renderStatusText').textContent=t('exportVideo.cancelling');document.getElementById('cancelVideoExportBtn').disabled=true;DublineBackgroundOperations.refresh();}
@@ -211,7 +240,8 @@
       const report = window.DublineSceneReview?.snapshot(), dubGain = readRenderGains().dub; const inactiveTakeIssue = issue => issue.lineId != null && (dubGain <= 0 || DublineTakeMix.normalize(session.lines.find(line => line.id === issue.lineId)).volume <= 0); const fatal = report?.errors.find(issue => issue.key !== 'review.processing' && !inactiveTakeIssue(issue)); if (fatal) throw Error(t(fatal.key, fatal.params));
       // A known DSP failure is retried by strict preparation; it cannot fall back
       // to dry audio, and a successful retry clears that configuration's warning.
-      const chosen = settings(); let snapshot = createExportSnapshot();
+      const chosen = settings(); let snapshot = createExportSnapshot(); snapshot.exportRange = chosen.range;
+      if (chosen.range && (panel.dataset.realtime === 'true' || chosen.audioRealtime)) throw Error(t('range.unsupported'));
       // Hidden takes stay outside the exported guest mix. The existing reveal rules remain authoritative.
       snapshot.takes = snapshot.scene.lines.filter(line => line.audioUrl && canHearLine(line));
       const room = currentRoom, scene = session.activeSessionId;
@@ -230,7 +260,7 @@
       const abort = controller; abort.signal.throwIfAborted();
       job = { id: newUploadId(), tracker, operations, report: reportProgress, destination, abort, sessionId: scene, bytes: 0, percent: 0, check: () => { operations.check(); abort.signal.throwIfAborted(); assertExportScene(snapshot); if (!socket.connected || room !== currentRoom) throw Error(t('exportVideo.authorization')); if (chosen.source === 'original' && !amHost()) throw Error(t('onlyHost')); } };
       active = job; renderInProgress = true; video.pause(); refreshStudioTransport(); applyVolumes();
-      job.resetProgress = () => { tracker.restart(); lastDetailedPaint = 0; document.getElementById('renderProgressDetails').replaceChildren(); reportProgress('video', { current: 0, total: chosen.sourceInfo.duration, detail: t('acceleration.fallback') }); };
+      job.resetProgress = () => { tracker.restart(); lastDetailedPaint = 0; document.getElementById('renderProgressDetails').replaceChildren(); reportProgress('video', { current: 0, total: chosen.range ? chosen.range.end - chosen.range.start : chosen.sourceInfo.duration, detail: t('acceleration.fallback') }); };
       const startedAt = performance.now(), progressBox = document.getElementById('renderProgressBox'); progressBox.style.display = 'block';
       let stage = t('render.readVideo'), lastPaint = 0;
       const showStage = () => { document.getElementById('renderStatusText').textContent = `${stage} · ${Math.floor((performance.now() - startedAt) / 1000)} ${t('takeHistory.seconds')}`; };
@@ -289,7 +319,7 @@
       }
       document.getElementById('renderProgressBar').style.width = '100%';
       document.getElementById('renderStatusText').style.color = 'var(--success)'; document.getElementById('renderStatusText').dataset.state = 'success';
-      lastResult = { saved: !!destination, file: destination?.name || result.filename || policy.filename(snapshot.scene.title, result.ext || chosen.format), duration: chosen.sourceInfo.duration, format: String(result.ext || chosen.format).toUpperCase(), width: chosen.width, height: chosen.height, bytes: destination ? job.bytes : result.bytes || result.blob?.size, takes: snapshot.gains.dub > 0 ? snapshot.takes.filter(line => DublineTakeMix.normalize(line).volume > 0).length : 0, warnings: (report?.warnings.length || 0) + (report?.errors.filter(issue => issue.key !== 'review.processing' && inactiveTakeIssue(issue)).length || 0) }; paintResult();
+      lastResult = { saved: !!destination, file: destination?.name || result.filename || policy.filename(snapshot.scene.title, result.ext || chosen.format), duration: chosen.range ? chosen.range.end - chosen.range.start : chosen.sourceInfo.duration, format: String(result.ext || chosen.format).toUpperCase(), width: chosen.width, height: chosen.height, bytes: destination ? job.bytes : result.bytes || result.blob?.size, takes: snapshot.gains.dub > 0 ? snapshot.takes.filter(line => DublineTakeMix.normalize(line).volume > 0).length : 0, warnings: (report?.warnings.length || 0) + (report?.errors.filter(issue => issue.key !== 'review.processing' && inactiveTakeIssue(issue)).length || 0) }; paintResult();
     } catch (error) { const cancelled = error.name === 'AbortError' || job?.abort.signal.aborted; document.getElementById('renderStatusText').style.color = cancelled ? 'var(--text-secondary)' : 'var(--danger)'; document.getElementById('renderStatusText').dataset.state = cancelled ? 'cancelled' : 'error'; document.getElementById('renderProgressBox').style.display = 'block'; document.getElementById('renderStatusText').textContent = error.name === 'AbortError' || job?.abort.signal.aborted ? t('exportVideo.cancelled') : error.code === 'export-timeout' ? t('exportVideo.operationTimeout') : error.message; }
     finally {
       clearInterval(elapsedTimer); paintProgress(tracker, true); planningAbort = null; controller.abort(); operations.close();
@@ -333,5 +363,5 @@
   socket.on('room_users_updated', checkPermissions);
   socket.on('disconnect', () => { window.cancelVideoRender(); });
   window.addEventListener('dubline-language-changed', () => { if (active?.tracker) paintProgress(active.tracker); void paint(); });
-  window.DublineVideoExportPanel = Object.freeze({ open, refresh: paint, settings, completionSound, diagnostics:()=>active?.operations.snapshot()||null });
+  window.DublineVideoExportPanel = Object.freeze({ open, refresh: paint, settings, completionSound, selectRange: () => { scope.value = 'selection'; void open(); }, diagnostics:()=>active?.operations.snapshot()||null });
 })();

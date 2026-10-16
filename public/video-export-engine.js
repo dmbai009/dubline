@@ -1,6 +1,9 @@
 (() => {
   const policy = window.DublineVideoExportPolicy;
   async function render(settings, snapshot, progress, job) {
+    snapshot.exportRange = settings.range || null;
+    // Arbitrary frame boundaries cannot safely copy inter-frame video packets.
+    if (settings.range) settings = { ...settings, mode: 'custom' };
     const owned=!job.operations;
     if(owned) {job.operations=DublineExportOperations.create(job.abort.signal);const check=job.check;job.check=()=>{job.operations.check();check();};}
     snapshot.exportOperations=job.operations;
@@ -38,8 +41,9 @@
       job.check(); progress(1, t('render.readVideo'));
       const track = await operations.run('video-metadata',()=>input.getPrimaryVideoTrack());
       if (!track) throw Error(t('render.noVideo'));
-      const codec = await operations.run('video-codec',()=>track.getCodec()), decoderConfig = await operations.run('video-decoder-config',()=>track.getDecoderConfig()), duration = await operations.run('video-duration',()=>track.computeDuration());
-      if (!policy.valid(duration)) throw Error(t('render.noVideo'));
+      const codec = await operations.run('video-codec',()=>track.getCodec()), decoderConfig = await operations.run('video-decoder-config',()=>track.getDecoderConfig()), sourceDuration = await operations.run('video-duration',()=>track.computeDuration());
+      if (!policy.valid(sourceDuration)) throw Error(t('render.noVideo'));
+      const range = policy.range(settings.range, sourceDuration) || { start: 0, end: sourceDuration }, duration = range.end - range.start;
       if (!codec || !decoderConfig) throw Error(t('render.unknownCodec'));
       job.report?.('video', { current: 0, total: duration, label: settings.mode === 'custom' ? 'encoding' : 'copying', ...(settings.accelerationFallback ? { detail: t('acceleration.fallback') } : {}) });
       const format = settings.format === 'webm' ? new mb.WebMOutputFormat() : new mb.Mp4OutputFormat({ fastStart: false });
@@ -71,7 +75,7 @@
       output.addVideoTrack(videoSource, settings.mode === 'custom' ? {} : { transformationMatrix: await operations.run('video-transform',()=>track.getTransformationMatrix()) }); output.addAudioTrack(audioSource);
       await operations.run('container-start',()=>output.start());
       snapshot.exportSignal = job.abort.signal;
-      audioIterator = DublineVideoExportAudio.chunks(mb, snapshot, duration, text => progress(job.percent || 5, text), job.check)[Symbol.asyncIterator]();
+      audioIterator = DublineVideoExportAudio.chunks(mb, snapshot, sourceDuration, text => progress(job.percent || 5, text), job.check)[Symbol.asyncIterator]();
       let audioEnd = 0, audioDone = false;
       const audioUntil = async timestamp => {
         while (!audioDone && audioEnd < Math.min(timestamp, duration)) {
@@ -86,16 +90,17 @@
         const decoderHint = await operations.run('video-decoder-check',()=>DublineVideoAcceleration.decoderPreference(track, settings.hardwareAcceleration)).catch(error => { throw Error(t(error.message)); });
         const context = canvas.getContext('2d'), sink = new mb.VideoSampleSink(track, { hardwareAcceleration: decoderHint });
         let frameIndex = 0;
-        const timestamps = function* () { for (let i = 0; i / settings.fps < duration; i++) yield i / settings.fps; };
-        const frames = settings.fps ? sink.samplesAtTimestamps(timestamps()) : sink.samples();
+        const timestamps = function* () { for (let i = 0; i / settings.fps < duration; i++) yield range.start + i / settings.fps; };
+        // Include the frame containing the left boundary, even between timestamps.
+        const frames = settings.fps ? sink.samplesAtTimestamps(timestamps()) : sink.samples(range.start, range.end);
         const decode = async function* () { try { yield* frames; } catch (error) { error.videoAcceleration = true; throw error; } };
         for await (const sample of operations.iterate(decode(),'video-decode')) {
-          const timestamp = settings.fps ? frameIndex++ / settings.fps : sample?.timestamp;
+          const timestamp = settings.fps ? frameIndex++ / settings.fps : Math.max(0, sample?.timestamp - range.start);
           if (!sample) throw Error(t('render.playbackFailed'));
           try {
             job.check();
             sample.draw(context, 0, 0, canvas.width, canvas.height);
-            const frame = new mb.VideoSample(canvas, { timestamp, duration: settings.fps ? Math.min(1 / settings.fps, duration - timestamp) : sample.duration });
+            const frame = new mb.VideoSample(canvas, { timestamp, duration: Math.min(duration - timestamp, settings.fps ? 1 / settings.fps : sample.timestamp + sample.duration - Math.max(range.start, sample.timestamp)) });
             try { await operations.run('video-encode',()=>videoSource.add(frame),{timestamp}); } catch (error) { error.videoAcceleration = true; throw error; } finally { frame.close(); } operations.video(timestamp);
             await audioUntil(timestamp + 1); job.report?.('video', { current: Math.min(duration, timestamp + (sample.duration || 0)), total: duration, label: 'encoding' }); progress(Math.min(95, 10 + 85 * timestamp / duration), t('exportVideo.processing'));
           } finally { sample.close(); }
@@ -119,6 +124,7 @@
     try{return await realtimeOnce(settings,snapshot,progress,job);}finally{if(owned)job.operations.close();}
   }
   async function realtimeOnce(settings, snapshot, progress, job) {
+    if (settings.range || snapshot.exportRange) throw Error(t('range.unsupported'));
     snapshot.exportSignal = job.abort.signal; snapshot.exportReport = job.report;
     job.check?.(); job.abort.signal.throwIfAborted();
     const audioOnly = !!settings.audioOnly;

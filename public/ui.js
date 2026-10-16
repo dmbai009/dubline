@@ -562,6 +562,7 @@ window.addEventListener('keydown', (e) => {
     if (document.querySelector('dialog[open]')) return;
     if (!modalOpen && window.closeEditorConflicts?.()) { e.preventDefault(); return; }
     if (!modalOpen && window.closeTimelineSearch?.()) return;
+    if (!modalOpen && window.DublineTimelineRange?.get()) { window.DublineTimelineRange.clear(); return; }
     if (document.body.classList.contains('video-expanded')) toggleExpandedVideo();
     closeHostingModal(); closeSettingsModal(); closeFilesModal(); closeSessionsModal();
     closeHelpModal(); closeTrashModal(); clearMultiSelection();
