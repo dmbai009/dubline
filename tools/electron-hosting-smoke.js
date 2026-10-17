@@ -39,12 +39,15 @@ async function main() {
     await waitUntil(async () => { try { browser = await puppeteer.connect({ browserURL: `http://127.0.0.1:${runtime.browserPort}`, defaultViewport: null }); return true; } catch { return false; } });
     let launcher, page;
     await waitUntil(async () => { launcher = (await browser.pages()).find(item => item.url().includes('electron-launcher.html')); return !!launcher; });
-    await launcher.$eval('[data-mode=porthole]', button => button.click()); await launcher.$eval('#startHost', button => button.click());
+    await launcher.$eval('[data-mode=custom]', button => button.click()); await launcher.$eval('#startHost', button => button.click());
     await waitUntil(async () => { page = (await browser.pages()).find(item => /^http:\/\/127\.0\.0\.1:/.test(item.url())); return !!page; });
     const errors = []; page.on('pageerror', error => errors.push(error.message));
-    await waitFor(page, () => desktopInviteState?.mode === 'porthole');
+    await waitFor(page, () => desktopInviteState?.mode === 'custom');
     assert.equal(await page.evaluate(() => desktopConnection('vpn').publicUrl), `http://26.10.20.30:${new URL(page.url()).port}`, 'diagnostic boundaries must be mocked before running the UI matrix');
-    assert.equal(await runtime.inspector.evaluate('__hostingChildren.length'), 0, 'Porthole launch never automatically enables Cloudflare');
+    assert.equal(await runtime.inspector.evaluate('__hostingChildren.length'), 0, 'Custom launch never automatically enables Cloudflare');
+    assert.equal(await page.evaluate(() => desktopInviteState.state),'manual');
+    await page.evaluate(()=>dublineDesktop.retryHosting());
+    assert.equal(await runtime.inspector.evaluate('__hostingChildren.length'),0,'Custom retry remains manual');
     await waitFor(page, () => socket.connected && session && nickModal.style.display === 'flex');
     await page.type('#modalNickInput', 'Native host'); await page.click('#nickForm button[type=submit]'); await waitFor(page, () => amHost());
     await page.click('#helpModal [data-i18n="help.ok"]');
@@ -53,13 +56,17 @@ async function main() {
     await (await page.$('#zipInput')).uploadFile(buildFixturePack());
     await waitFor(page, () => session?.loaded && session.lines.length === 4, 30000);
     const initial = await page.evaluate(() => ({ port: desktopInviteState.port, pin: desktopInviteState.pin, scene: session.activeSessionId }));
+    await page.evaluate(()=>openHostingModal());await page.click('#desktopCopyPortBtn');
+    assert.equal(await runtime.inspector.evaluate("require('electron').clipboard.readText()"),String(initial.port));
+    assert.match(await page.$eval('#desktopHostingInstructions',node=>node.textContent),new RegExp('127\\.0\\.0\\.1:'+initial.port));
+    await page.evaluate(()=>closeHostingModal());
     assert.equal((await fetch(`http://127.0.0.1:${initial.port}/api/server-packs`)).status, 403, 'alternate addresses cannot bypass PIN');
     guests = await launchBrowser(initial.port);
     const guest = await openPlayer(guests, `http://localhost:${initial.port}/?room=main`, 'Native guest');
     await waitFor(guest, () => passwordModal.style.display === 'flex'); await guest.type('#passwordInput', initial.pin); await guest.click('#passwordModal button[type=submit]'); await waitFor(guest, () => session?.loaded);
     await page.evaluate(async () => { await dublineDesktop.setCloudflareEnabled(true); await dublineDesktop.setCloudflareEnabled(true); });
     await waitFor(page, () => desktopConnection('cloudflare').state === 'ready');
-    for (const mode of ['vpn', 'porthole', 'vpn']) {
+    for (const mode of ['vpn', 'custom', 'porthole', 'vpn']) {
       const status = await page.evaluate(mode => dublineDesktop.setHostingMode(mode), mode);
       assert.equal(status.cloudflare.state, 'ready'); assert.equal(status.cloudflare.publicUrl, 'https://native-1.trycloudflare.com');
       assert.equal(status.port, initial.port); assert.equal(status.pin, initial.pin); assert.equal(status.room, 'main');

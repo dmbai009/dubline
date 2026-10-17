@@ -39,7 +39,9 @@ let desktopFailureNotice = '';
 let appUpdateState = null;
 let appUpdateDismissed = false;
 
-const DESKTOP_MODES = ['cloudflare', 'porthole', 'vpn'];
+const DESKTOP_MODES = ['cloudflare', 'porthole', 'vpn', 'custom'];
+const desktopPort = () => Number.isInteger(desktopInviteState?.port) && desktopInviteState.port > 0 && desktopInviteState.port <= 65535 ? desktopInviteState.port : null;
+const desktopCustomInstructions = () => t('desktop.instructions.custom', { target: `127.0.0.1:${desktopPort() || '—'}` });
 
 function desktopMode() {
   return desktopInviteState?.singlePlayer ? 'single' : desktopInviteMode || desktopInviteState?.mode || 'cloudflare';
@@ -63,7 +65,7 @@ function desktopStatusText(mode = desktopMode()) {
 
 function desktopPublicInviteUrl() {
   const connection = desktopConnection();
-  if (!desktopInviteState || desktopInviteState.singlePlayer || !connection.publicUrl || desktopMode() === 'cloudflare' && connection.state !== 'ready') return '';
+  if (!desktopInviteState || desktopInviteState.singlePlayer || desktopMode() === 'custom' || !connection.publicUrl || desktopMode() === 'cloudflare' && connection.state !== 'ready') return '';
   return `${connection.publicUrl.replace(/\/$/, '')}/?room=${encodeURIComponent(desktopInviteState.room || currentRoom)}`;
 }
 
@@ -77,6 +79,7 @@ function renderDesktopInvite() {
   const copy = document.getElementById('desktopCopyBtn');
   const copyAll = document.getElementById('desktopCopyAllBtn');
   const connection = desktopConnection();
+  const custom = desktopMode() === 'custom';
   panel.style.display = 'flex';
   panel.classList.toggle('collapsed', desktopInviteCollapsed);
   status.className = `desktop-invite-status ${connection.state || ''}`;
@@ -86,7 +89,13 @@ function renderDesktopInvite() {
   input.value = inviteUrl;
   input.placeholder = t('desktop.linkPending');
   copy.disabled = !inviteUrl;
-  copyAll.disabled = !inviteUrl || !desktopInviteState.pin;
+  copyAll.disabled = !desktopInviteState.pin || !custom && !inviteUrl;
+  copyAll.dataset.i18n = custom ? 'desktop.copyPin' : 'desktop.copyAll'; copyAll.textContent = t(copyAll.dataset.i18n);
+  document.getElementById('desktopInviteLinkRow').hidden = custom;
+  document.getElementById('desktopCustomTunnelGuide').hidden = !custom;
+  document.getElementById('desktopCustomTarget').textContent = `127.0.0.1:${desktopPort() || '—'}`;
+  document.getElementById('desktopCustomInstructions').replaceChildren(...desktopCustomInstructions().split('|').map(value => { const item = document.createElement('li'); item.textContent = value; return item; }));
+  document.querySelectorAll('[data-custom-copy-port]').forEach(button => { button.disabled = !desktopPort(); });
   window.setControlHelp?.(copy, inviteUrl ? '' : t('desktop.noAddress'));
   window.setControlHelp?.(copyAll, copyAll.disabled ? t('desktop.noAddress') : '');
   document.getElementById('desktopPinCode').textContent = desktopPinRevealed && !desktopInviteCollapsed ? desktopInviteState.pin : '••••';
@@ -115,14 +124,17 @@ function renderDesktopHostingModal() {
   const connection = desktopConnection(mode);
   status.className = `hosting-mode-status ${connection.state === 'ready' ? 'ready' : ['error', 'missing', 'stopped'].includes(connection.state) ? 'error' : ''}`;
   status.textContent = desktopInviteState.singlePlayer ? t('desktop.status.local') : desktopStatusText(mode);
-  document.getElementById('desktopHostingPort').textContent = desktopInviteState.port || '—';
+  document.getElementById('desktopHostingPort').textContent = desktopPort() || '—';
+  document.getElementById('desktopCopyPortBtn').hidden = mode !== 'custom';
+  document.getElementById('desktopCopyPortBtn').disabled = !desktopPort();
+  document.getElementById('desktopCustomPortWarning').hidden = mode !== 'custom';
   document.getElementById('desktopHostingDescription').textContent = t(`desktop.description.${mode}`);
   const instructions = document.getElementById('desktopHostingInstructions');
-  instructions.replaceChildren(...t(`desktop.instructions.${mode}`).split('|').map(value => {
+  instructions.replaceChildren(...(mode === 'custom' ? desktopCustomInstructions() : t(`desktop.instructions.${mode}`)).split('|').map(value => {
     const item = document.createElement('li'); item.textContent = value; return item;
   }));
   const openTool = document.getElementById('desktopOpenToolBtn');
-  openTool.style.display = mode === 'cloudflare' ? 'none' : '';
+  openTool.style.display = mode === 'cloudflare' || mode === 'custom' ? 'none' : '';
   openTool.textContent = mode === 'vpn' ? t('desktop.openRadmin') : t('desktop.openTool');
   document.getElementById('desktopOpenHamachiBtn').style.display = mode === 'vpn' ? '' : 'none';
   const cloudflare = document.getElementById('desktopRetryHostingBtn');
@@ -222,6 +234,11 @@ window.copyDesktopInvite = async function() {
 };
 
 window.copyDesktopInviteWithPin = async function() {
+  if (desktopMode() === 'custom') {
+    if (!desktopInviteState?.pin || desktopInviteState.singlePlayer) return;
+    await window.dublineDesktop.copyText(desktopInviteState.pin);
+    return showToast(t('desktop.pinCopied'));
+  }
   const url = desktopPublicInviteUrl();
   if (!url || !desktopInviteState?.pin) return;
   await window.dublineDesktop.copyText(t('desktop.shareText', {
@@ -229,6 +246,12 @@ window.copyDesktopInviteWithPin = async function() {
     pin: desktopInviteState.pin
   }));
   showToast(t('desktop.copiedAll'));
+};
+
+window.copyDesktopPort = async function() {
+  const port = desktopPort(); if (!port) return;
+  await window.dublineDesktop.copyText(String(port));
+  showToast(t('desktop.portCopied'));
 };
 
 window.openHostingModal = function() {

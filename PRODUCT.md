@@ -1,6 +1,6 @@
 # Dubline
 
-Dubline is a desktop and browser studio for dubbing scenes together. The Electron host runs a local Node server; guests use a browser or Electron. The existing launcher supports hosting and joining with Cloudflare, VPN, or LAN connectivity.
+Dubline is a desktop and browser studio for dubbing scenes together. The Electron host runs a local Node server; guests use a browser or Electron. The launcher supports Cloudflare, Porthole, VPN, and a manual Custom tunnel guide for advanced users.
 
 ## Current workflows
 

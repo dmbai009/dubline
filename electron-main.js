@@ -16,7 +16,7 @@ const { UpdateLog } = require('./electron-update-log');
 const { associationOperation } = require('./electron-project-association');
 
 const PIN_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-const HOSTING_MODES = new Set(['cloudflare', 'porthole', 'vpn']);
+const HOSTING_MODES = new Set(['cloudflare', 'porthole', 'vpn', 'custom']);
 const JOIN_ARG = '--dubline-join=';
 
 app.setName('Dubline');
@@ -290,7 +290,8 @@ async function getHostingStatus() {
   const connections = {
     cloudflare: { ...tunnelStatus, enabled: cloudflareEnabled },
     porthole: localConnection('porthole', tools.porthole || {}),
-    vpn: localConnection('vpn', vpnTool)
+    vpn: localConnection('vpn', vpnTool),
+    custom: { state: 'manual', publicUrl: '', provider: '', error: '' }
   };
   if (serverFailure) for (const value of Object.values(connections)) Object.assign(value, { state: 'error', publicUrl: '', error: serverFailure });
   return { ...base, ...connections[hostingMode], connections, cloudflare: connections.cloudflare };
@@ -776,7 +777,7 @@ ipcMain.handle('desktop:set-hosting-mode', (event, mode) => {
 });
 ipcMain.handle('desktop:retry-hosting', event => {
   if (!isHostSender(event)) throw new Error('Untrusted host request.');
-  if (hostingMode === 'single') return getHostingStatus();
+  if (hostingMode === 'single' || hostingMode === 'custom') return getHostingStatus();
   stopTunnel(false);
   return setCloudflareEnabled(true);
 });

@@ -26,7 +26,8 @@ describe('desktop invitation', { skip: skipReason }, () => {
         connections: {
           cloudflare: { enabled: true, state: 'ready', publicUrl: 'https://quiet.trycloudflare.com' },
           porthole: { state: 'waitingGuest', publicUrl: 'http://localhost:38500' },
-          vpn: { state: 'waitingGuest', publicUrl: 'http://26.10.20.30:38500', provider: 'radmin' }
+          vpn: { state: 'waitingGuest', publicUrl: 'http://26.10.20.30:38500', provider: 'radmin' },
+          custom: { state: 'manual', publicUrl: '' }
         },
         tools: {}
       };
@@ -177,6 +178,35 @@ describe('desktop invitation', { skip: skipReason }, () => {
       assert.equal(await page.$eval('#hostingModal', node => getComputedStyle(node).display), 'flex'); await page.evaluate(() => closeHostingModal());
       await page.click('#desktopInviteToggle'); await page.click('.brand'); assert.equal(await page.$eval('#desktopInvitePopover', node => node.hidden), true);
     }
+  });
+
+  test('custom instructions use the actual port, copy it and PIN separately, and never expose a local URL as an invitation',async()=>{
+    for(const language of ['en','ru','uk']){
+      await page.evaluate(async language=>{await i18n.setLanguage(language);openHostingModal();},language);
+      await page.click('[data-hosting-mode=custom]');
+      assert.equal(await page.$eval('#desktopHostingInstructions',node=>node.children.length),3);
+      assert.match(await page.$eval('#desktopHostingInstructions',node=>node.textContent),/127\.0\.0\.1:38500/);
+      assert.equal(await page.$eval('#desktopCustomPortWarning',node=>node.hidden),false);
+      assert.equal(await page.$eval('#desktopOpenToolBtn',node=>getComputedStyle(node).display),'none');
+      assert.equal(await page.$eval('#desktopRetryHostingBtn',node=>getComputedStyle(node).display),'none');
+      await page.click('#desktopCopyPortBtn');assert.equal(await page.evaluate(()=>__desktopClipboard),'38500');
+      await page.evaluate(()=>closeHostingModal());await page.click('#desktopInviteToggle');
+      assert.equal(await page.$eval('#desktopInviteLinkRow',node=>node.hidden),true);
+      assert.equal(await page.$eval('#desktopCustomTunnelGuide',node=>node.hidden),false);
+      assert.equal(await page.evaluate(()=>desktopPublicInviteUrl()),'');
+      await page.click('#desktopCopyAllBtn');assert.equal(await page.evaluate(()=>__desktopClipboard),'7K9A');
+      assert.equal(await page.$eval('#desktopPinCode',node=>node.textContent),'••••');
+      await page.evaluate(()=>{__desktopStatus.port=38573;handleDesktopStatus(__desktopStatus);});
+      await page.click('#desktopCustomTunnelGuide [data-custom-copy-port]');assert.equal(await page.evaluate(()=>__desktopClipboard),'38573');
+      assert.match(await page.$eval('#desktopCustomInstructions',node=>node.textContent),/127\.0\.0\.1:38573/);
+      await page.evaluate(()=>{__desktopStatus.port=0;__desktopClipboard='';handleDesktopStatus(__desktopStatus);});
+      assert.equal(await page.$eval('#desktopCustomTunnelGuide [data-custom-copy-port]',node=>node.disabled),true);
+      await page.evaluate(()=>copyDesktopPort());assert.equal(await page.evaluate(()=>__desktopClipboard),'');
+      await page.evaluate(()=>{__desktopStatus.port=38500;handleDesktopStatus(__desktopStatus);closeDesktopInvite(false);});
+    }
+    await page.evaluate(()=>{selectDesktopInviteMode('cloudflare');i18n.setLanguage('en');});
+    assert.match(await page.evaluate(()=>desktopPublicInviteUrl()),/^https:/);
+    assert.equal(await page.$eval('#desktopInviteLinkRow',node=>node.hidden),false);
   });
   test('Cloudflare can be disabled while VPN remains copyable; status errors never open the menu or reveal PIN', async () => {
     await page.evaluate(() => { closeDesktopInvite(false); selectDesktopInviteMode('cloudflare'); });
