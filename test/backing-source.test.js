@@ -65,6 +65,9 @@ test('background replacement is host-authorized, atomic, independent of embedded
   const boundary = 'dubline-' + crypto.randomUUID();
   const prefix = Buffer.from(Object.entries({ clientId: host.clientId, ...fields(scene) }).map(([key, value]) => `--${boundary}\r\nContent-Disposition: form-data; name="${key}"\r\n\r\n${value}\r\n`).join('') + `--${boundary}\r\nContent-Disposition: form-data; name="intershum"; filename="Delayed.wav"\r\nContent-Type: audio/wav\r\n\r\n`);
   const suffix = Buffer.from(`\r\n--${boundary}--\r\n`);
+  // Responses can finish before their temporary directories are removed. Wait
+  // for this request's directory, never a leftover from the rejected upload.
+  const previousIncoming = new Set(fs.readdirSync(server.dirs.data));
   let request;
   const delayed = new Promise((resolve, reject) => {
     request = http.request(`${origin}/api/backing-source?room=${room}`, { method: 'POST', headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}`, 'Content-Length': prefix.length + sound.length + suffix.length } }, response => {
@@ -72,7 +75,7 @@ test('background replacement is host-authorized, atomic, independent of embedded
     });
     request.on('error', reject); request.write(prefix); request.write(sound.subarray(0, 32));
   });
-  await waitUntil(() => fs.readdirSync(server.dirs.data).some(name => name.startsWith('.incoming-')));
+  await waitUntil(() => fs.readdirSync(server.dirs.data).some(name => name.startsWith('.incoming-') && !previousIncoming.has(name)));
   assert.equal((await upload(host, scene)).status, 409, 'a concurrent job cannot replace the current preparation');
   assert.equal((await post(host, 'backing-source/remove', fields(scene))).status, 409);
   host.socket.emit('host_set_audio_tracks', { sessionId: scene.activeSessionId, original: 0, backing: 0 });

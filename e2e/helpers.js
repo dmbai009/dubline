@@ -248,13 +248,24 @@ async function claimAndSelect(page, lineId) {
   await waitFor(page, (id, ) => { const l = session.lines.find(x => x.id === id); return getLineOwner(l) === myName && document.getElementById('recBtn'); }, 5000, lineId);
 }
 
-// Record a take for a line with Chrome's fake microphone and wait until it reaches the server
+// Session metadata/claims can arrive before the downloaded media is decodable.
+async function waitForRecordingReady(page) {
+  await waitFor(page, () => video.readyState >= 2 && !video.seeking && !window.sceneMediaPreparation?.()?.key, 15000);
+}
+
+// Record once with Chrome's fake microphone and wait until it reaches the server.
 async function recordTake(page, lineId, timeout = 20000) {
   const previous = await page.evaluate(id => session.lines.find(line => line.id === id)?.audioUrl, lineId);
   await page.evaluate(id => { selectLine(session.lines.find(l => l.id === id)); }, lineId);
   await waitFor(page, () => document.getElementById('recBtn'), 5000);
+  await waitForRecordingReady(page);
   await page.evaluate(id => handleStudioRecord(id), lineId);
-  return waitFor(page, (id, previous) => { const l = session.lines.find(x => x.id === id); return recordState === 'idle' && !pendingTakeLines.has(id) && l.audioUrl && l.audioUrl !== previous ? l.audioUrl : null; }, timeout, lineId, previous);
+  try {
+    return await waitFor(page, (id, previous) => { const l = session.lines.find(x => x.id === id); return recordState === 'idle' && !pendingTakeLines.has(id) && l.audioUrl && l.audioUrl !== previous ? l.audioUrl : null; }, timeout, lineId, previous);
+  } catch (error) {
+    const diagnostic = await page.evaluate(() => ({ recording: recordState, preparation: window.sceneMediaPreparation?.(), videoReady: video.readyState, toast: document.getElementById('toast')?.textContent, pending: pendingTakeLines.size, processing: processingRecordings.size }));
+    throw new Error(`${error.message}; recording diagnostic: ${JSON.stringify(diagnostic)}`, { cause: error });
+  }
 }
 
 // A video with two audio tracks (Japanese 440 Hz and Russian 880 Hz), like a dubbed anime episode
@@ -283,7 +294,7 @@ module.exports = {
   answerTextPrompt, setEffectPitch,
   FIXTURE_LINES, FIXTURE_PACK, SCENE_SECONDS,
   skipReason, chromePath: CHROME, NO_BROWSER, wait, launchBrowser, startServer, openPlayer, waitFor, waitUntil,
-  loadFixture, claimAndSelect, recordTake, uploadFileCount, buildFixturePack, buildVoiceFile, fixtureVideoPath, buildMultiTrackVideo
+  loadFixture, claimAndSelect, recordTake, waitForRecordingReady, uploadFileCount, buildFixturePack, buildVoiceFile, fixtureVideoPath, buildMultiTrackVideo
 };
 
 async function setEffectPitch(page, value) {

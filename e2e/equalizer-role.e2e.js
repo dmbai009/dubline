@@ -12,13 +12,14 @@ describe('Equalizer, palette dragging and isolated role presets', { skip: skipRe
       const eq = { id:'eq', type:'equalizer', enabled:true, amount:1, parameters:{ gains:[12,0,0,0,-12] } };
       const render = effects => DublineAudioFx.renderChain(buffer,{pitch:0,effects});
       const flat = await render([{...eq,parameters:{gains:[0,0,0,0,0]}}]), off = await render([{...eq,enabled:false}]), wet = await render([eq]);
+      const defaultEq = await DublineAudioFx.renderVoice(buffer, 'equalizer');
       const amplitude = (buf,hz) => { let sin=0,cos=0; const values=buf.getChannelData(0); for(let i=4800;i<43200;i++){sin+=values[i]*Math.sin(2*Math.PI*hz*i/rate);cos+=values[i]*Math.cos(2*Math.PI*hz*i/rate);} return Math.hypot(sin,cos); };
       const diff = other => data.reduce((sum,value,index)=>sum+Math.abs(value-other.getChannelData(0)[index]),0);
       const radio = {id:'radio',type:'radio',enabled:true,amount:.5,parameters:{}};
       const first=await render([eq,radio]), second=await render([radio,eq]);
-      return {flat:diff(flat),off:diff(off), ratio:amplitude(wet,100)/amplitude(wet,10000), length:wet.length, peak:wet.getChannelData(0).reduce((n,v)=>Math.max(n,Math.abs(v)),0), order:first.getChannelData(0).reduce((n,v,i)=>n+Math.abs(v-second.getChannelData(0)[i]),0)};
+      return {flat:diff(flat),off:diff(off),defaultEq:diff(defaultEq), ratio:amplitude(wet,100)/amplitude(wet,10000), length:wet.length, peak:wet.getChannelData(0).reduce((n,v)=>Math.max(n,Math.abs(v)),0), order:first.getChannelData(0).reduce((n,v,i)=>n+Math.abs(v-second.getChannelData(0)[i]),0)};
     });
-    assert.equal(result.flat,0); assert.equal(result.off,0); assert.equal(result.length,48000); assert.ok(result.ratio>3.5 && result.ratio<5 && result.peak<=1 && result.order>1,JSON.stringify(result));
+    assert.equal(result.flat,0); assert.equal(result.off,0); assert.equal(result.defaultEq,0); assert.equal(result.length,48000); assert.ok(result.ratio>3.5 && result.ratio<5 && result.peak<=1 && result.order>1,JSON.stringify(result));
   });
   test('a refused role-name preset stays local to the take and never appears in the role flow', async () => {
     for (const id of [1,3]) {
