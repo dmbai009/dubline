@@ -977,11 +977,20 @@ window.toggleVideoFullscreen = async function() {
 // PANEL SIZES (dividers like in Vegas / Photoshop)
 // ==========================================
 const LAYOUT_KEY = 'dubline_layout';
+function topLayoutMaximum() {
+  const studio = document.querySelector('.studio'), panel = document.querySelector('.timeline-panel');
+  if (!studio?.clientHeight || !panel) return Math.max(100, window.innerHeight - 220);
+  const controls = [...panel.children].filter(node => node.id !== 'timelineContainer')
+    .reduce((height, node) => height + node.offsetHeight, 0);
+  const gap = document.querySelector('.studio > .splitter-y')?.offsetHeight || 6;
+  // Reserve the actual toolbar/footer heights plus usable scrolling track space.
+  return Math.max(100, studio.clientHeight - controls - gap - 122);
+}
 const layoutLimits = {
   lobby: [190, 460],
   inspector: [280, 960],
   chat: [220, 540],
-  top: [200, () => window.innerHeight - 220]
+  top: [() => Math.min(200, topLayoutMaximum()), topLayoutMaximum]
 };
 const layoutVars = { lobby: '--lobby-w', inspector: '--inspector-w', chat: '--chat-w', top: '--top-h' };
 
@@ -1007,7 +1016,8 @@ function loadLayout() {
 let layout = loadLayout();
 
 function clampLayout(key, value) {
-  const [min, maxRaw] = layoutLimits[key];
+  const [minRaw, maxRaw] = layoutLimits[key];
+  const min = typeof minRaw === 'function' ? minRaw() : minRaw;
   const max = Math.max(min, typeof maxRaw === 'function' ? maxRaw() : maxRaw);
   return Math.round(Math.min(max, Math.max(min, value)));
 }
@@ -1060,6 +1070,12 @@ document.querySelectorAll('.splitter[data-resize]').forEach(splitter => {
 });
 
 window.addEventListener('resize', applyLayout);
+let layoutFrame;
+const layoutObserver = new ResizeObserver(() => {
+  cancelAnimationFrame(layoutFrame); layoutFrame = requestAnimationFrame(applyLayout);
+});
+layoutObserver.observe(document.querySelector('.studio'));
+for (const node of document.querySelector('.timeline-panel').children) if (node.id !== 'timelineContainer') layoutObserver.observe(node);
 
 window.resetLayout = function() {
   layout = layoutDefaults();
