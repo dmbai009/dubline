@@ -267,8 +267,11 @@ describe('Authorized media delivery with optional P2P', { skip: skipReason }, ()
           } else {
             let sent = 0;
             window.mediaUploadLimiter = { take: bytes => {
+              // The scheduler can pick the short final chunk first. Let the
+              // frame crossing the threshold through so the receiver really
+              // has >= 256 KiB before this fixture blocks the next frame.
+              if (sent >= 262144) return new Promise(resolve => { window.releasePartialUpload = resolve; });
               sent += bytes;
-              if (sent > 262144) return new Promise(resolve => { window.releasePartialUpload = resolve; });
             } };
           }
         }, corrupt);

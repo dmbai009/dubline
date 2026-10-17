@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const {
   skipReason, wait, launchBrowser, startServer, openPlayer, waitFor, waitUntil,
-  loadFixture, claimAndSelect, recordTake, uploadFileCount, FIXTURE_LINES, FIXTURE_PACK, answerTextPrompt
+  loadFixture, claimAndSelect, recordTake, waitForRecordingReady, uploadFileCount, FIXTURE_LINES, FIXTURE_PACK, answerTextPrompt
 } = require('./helpers');
 
 describe('room', { skip: skipReason }, () => {
@@ -35,6 +35,7 @@ describe('room', { skip: skipReason }, () => {
   test('live recording status; pause-all confirms and discards the take', async () => {
     const line = FIXTURE_LINES[1];
     await claimAndSelect(bob, line.id);
+    await waitForRecordingReady(bob);
     await bob.evaluate(id => handleStudioRecord(id), line.id);
     await waitFor(host, id => document.getElementById(`line-block-${id}`).classList.contains('live-recording'), 5000, line.id);
     assert.ok(await host.evaluate(() => [...document.querySelectorAll('.player-card.recording')].some(c => c.innerText.includes('Bob'))));

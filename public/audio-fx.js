@@ -205,7 +205,7 @@ function reverbImpulse(ctx, seconds, decay, seed = 1) {
 function buildEffect(ctx, input, effect, parameters = {}) {
   if (effect === 'equalizer') {
     return window.DublineVoiceChain.EQ_BANDS.reduce((node, frequency, index, bands) => chain(node,
-      biquad(ctx, index === 0 ? 'lowshelf' : index === bands.length - 1 ? 'highshelf' : 'peaking', Math.min(frequency, ctx.sampleRate * .45), { Q: .8, gain: parameters.gains[index] })), input);
+      biquad(ctx, index === 0 ? 'lowshelf' : index === bands.length - 1 ? 'highshelf' : 'peaking', Math.min(frequency, ctx.sampleRate * .45), { Q: .8, gain: parameters.gains?.[index] ?? 0 })), input);
   }
   if (effect === 'echo') {
     const settings = window.DublineVoiceChain.echo(parameters);
@@ -354,6 +354,7 @@ async function renderVoice(buffer, effect = 'none', pitch = 0, bounds = null, ef
   const amount = window.DublineTakeMix.normalize({ effectAmount }).effectAmount;
   const dry = pitch ? await pitchShiftBuffer(buffer, pitch) : buffer;
   if (!amount || !effect || effect === 'none' || !VOICE_EFFECTS[effect]) return dry;
+  if (effect === 'equalizer' && !(options.parameters?.gains || []).some(gain => gain !== 0)) return dry;
   const totalPitch = (pitch || 0) + (effect === 'pitch' ? options.parameters?.semitones || 0 : EFFECT_PITCH[effect] || 0);
   const wet = totalPitch === pitch ? dry : await pitchShiftBuffer(buffer, totalPitch);
   const tail = effect === 'echo' ? window.DublineVoiceChain.tail({ type: effect, enabled: true, amount, parameters: options.parameters }) : effectTailSeconds(effect, amount);

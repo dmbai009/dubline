@@ -1,6 +1,6 @@
 const { describe, test, before, after, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
-const { skipReason, startServer, launchBrowser, openPlayer, loadFixture, waitFor, claimAndSelect } = require('./helpers');
+const { skipReason, startServer, launchBrowser, openPlayer, loadFixture, waitFor, claimAndSelect, waitForRecordingReady } = require('./helpers');
 
 // Run in the page against the actual rendered text and composited surfaces.
 function textContrast(node) {
@@ -188,13 +188,13 @@ describe('UI cleanup and local audio devices', { skip: skipReason, timeout: 1200
       await check();
       assert.equal(await page.$$eval('[data-character="A very long character name beyond the label"] .line-block', nodes => new Set(nodes.map(node => node.style.top)).size), 2);
       await page.reload(); await waitFor(page, () => session?.loaded && !!document.querySelector('[data-character="Hero"] .role-badge.me'));
-      assert.equal(await page.$eval('[data-character="Hero"]', node => node.getBoundingClientRect().height), 80);
+      assert.equal(await page.$eval('.track-row[data-character="Hero"]', node => node.getBoundingClientRect().height), 80);
       const handle = await page.$('[data-character="Hero"] .role-height-handle'); await handle.scrollIntoView(); const box = await handle.boundingBox();
       await page.mouse.move(box.x + 12, box.y + 2); await page.mouse.down(); await page.mouse.move(box.x + 12, box.y + 36, { steps: 5 }); await page.mouse.up();
-      const resized = await page.$eval('[data-character="Hero"]', node => node.getBoundingClientRect().height);
+      const resized = await page.$eval('.track-row[data-character="Hero"]', node => node.getBoundingClientRect().height);
       assert.ok(resized > 80);
       await page.reload(); await waitFor(page, () => session?.loaded && !!document.querySelector('[data-character="Hero"]'));
-      assert.equal(await page.$eval('[data-character="Hero"]', node => node.getBoundingClientRect().height), resized);
+      assert.equal(await page.$eval('.track-row[data-character="Hero"]', node => node.getBoundingClientRect().height), resized);
       assert.deepEqual(peer.errors, []);
     } finally { await peer.browserContext().close(); }
   });
@@ -488,7 +488,7 @@ describe('UI cleanup and local audio devices', { skip: skipReason, timeout: 1200
     await page.evaluate(() => openSettingsModal()); await page.select('#audioInputDevice', 'mic-a'); await page.evaluate(() => closeSettingsModal());
     await page.reload(); await waitFor(page, () => session?.loaded && document.getElementById('audioInputDevice'));
     assert.equal(await page.$eval('#audioInputDevice', node => node.value), 'mic-a');
-    await claimAndSelect(page, 1); await page.evaluate(() => handleStudioRecord(1));
+    await claimAndSelect(page, 1); await waitForRecordingReady(page); await page.evaluate(() => handleStudioRecord(1));
     await waitFor(page, () => recordState !== 'idle' && !!micStream);
     await page.evaluate(() => { window.recordedStream = micStream; openSettingsModal(); }); await page.select('#audioInputDevice', 'mic-b');
     assert.equal(await page.evaluate(() => micStream === recordedStream && micStream.getAudioTracks()[0].readyState === 'live'), true);

@@ -291,7 +291,7 @@ describe('audio tracks', { skip: skipReason }, () => {
     const durations = await host.evaluate(async () => Promise.all(session.audioTracks.map(async t => (await fetchAndDecode(t.url)).duration)));
     durations.forEach(d => assert.ok(Math.abs(d - 8) < 0.3, `track length ${d}`));
     // Initially the original is the first track, played by a separate player with the video muted
-    await waitFor(player, () => session.audioTracks && video.muted && document.getElementById('originalTrackAudio').getAttribute('src').endsWith('track_0.m4a'), 10000);
+    await waitFor(player, () => session.audioTracks?.length === 2 && video.muted && document.getElementById('originalTrackAudio').getAttribute('src') === mediaUrl(session.audioTracks[0].url), 10000);
   });
 
   test('only the host can choose tracks', async () => {
@@ -308,8 +308,8 @@ describe('audio tracks', { skip: skipReason }, () => {
       document.getElementById('backingTrackSelect').dispatchEvent(new Event('change'));
     });
     await waitFor(player, () => session.originalTrack === 1 && session.backingTrack === 0
-      && document.getElementById('originalTrackAudio').getAttribute('src').endsWith('track_1.m4a')
-      && backing.getAttribute('src').endsWith('track_0.m4a') && video.muted, 8000);
+      && document.getElementById('originalTrackAudio').getAttribute('src') === mediaUrl(session.audioTracks[1].url)
+      && backing.getAttribute('src') === mediaUrl(session.audioTracks[0].url) && video.muted, 8000);
     // Export uses the chosen track too
     assert.ok((await host.evaluate(() => DublineProjectAudio.sources(session).original)).endsWith('track_1.m4a'));
     assert.match(await player.$eval('[data-audio-channel=original] .studio-wave-source', el => el.textContent), /Audio from video.*Russian/);

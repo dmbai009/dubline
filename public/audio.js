@@ -509,7 +509,9 @@
       const volumes = getVolumes();
       previewAudio.volume = volumes.isMuted ? 0 : Math.min(1, volumes.recorded);
       const current = previewAudio;
-      return Promise.resolve(global.DublineAudioDevices?.ready()).then(() => { if (previewAudio === current) return current.play(); });
+      return Promise.resolve(global.DublineAudioDevices?.ready())
+        .then(() => { if (previewAudio === current) return current.play(); })
+        .catch(error => { if (previewAudio === current) throw error; });
     }
 
     async function previewTake(line, options = {}) {
