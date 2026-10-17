@@ -105,27 +105,32 @@ describe('UI cleanup and local audio devices', { skip: skipReason, timeout: 1200
       await waitFor(page, () => session.moderators.some(entry => entry.nick === 'Peer'));
       await page.click('[data-lobby-key="player:Peer"] .participant-menu summary');
       await page.focus('[data-lobby-key="player:Peer"] .participant-menu .btn-outline');
-      await page.evaluate(() => {
+      // The real room continues publishing media presence. Render the synthetic
+      // states and inspect them in one browser task so a valid Ready update cannot
+      // replace the requested 42% state between separate protocol round trips.
+      const visible = await page.evaluate(() => {
         window.polishMenu = document.querySelector('[data-lobby-key="player:Peer"] details'); window.polishFocus = document.activeElement;
         liveRecordings.set(2, 'Peer'); seedingNicks.add('Alice');
         playerActivities.set('Alice', { state: 'ready', pct: 100 });
         playerActivities.set('Peer', { state: 'downloading', pct: 42 }); renderLobby();
-      });
-      assert.equal(await page.evaluate(() => polishMenu === document.querySelector('[data-lobby-key="player:Peer"] details') && polishMenu.open && polishFocus === document.activeElement), true);
-      const visible = await page.evaluate(() => {
         const shown = node => getComputedStyle(node).display !== 'none' && node.getBoundingClientRect().height > 0;
         const host = document.querySelector('[data-lobby-key="player:Alice"]'), peer = document.querySelector('[data-lobby-key="player:Peer"]');
-        return { duplicateIcons: [...document.querySelectorAll('.player-status-compact')].filter(shown).length,
+        return { preservedMenu: polishMenu === peer.querySelector('details') && polishMenu.open && polishFocus === document.activeElement,
+          duplicateIcons: [...document.querySelectorAll('.player-status-compact')].filter(shown).length,
           seedTags: host.querySelectorAll('.tag.seed').length, seeding: host.innerText.includes(t('lobby.seeding')),
           recording: !!peer.querySelector('.tag.rec'), downloading: peer.innerText.includes(t('media.downloading', { pct: 42 })),
           network: shown(host.querySelector('.player-network')), menu: shown(peer.querySelector('summary')),
           jump: !!peer.querySelector('[data-jump-collaborator]'), gap: getComputedStyle(host).gap };
       });
+      assert.equal(visible.preservedMenu, true, JSON.stringify(visible));
       assert.equal(visible.duplicateIcons, 0); assert.equal(visible.seedTags, 1);
-      assert.equal(visible.seeding && visible.recording && visible.downloading && visible.network && visible.menu, true);
+      assert.equal(visible.seeding && visible.recording && visible.downloading && visible.network && visible.menu, true, JSON.stringify(visible));
       assert.equal(visible.gap, '4px');
-      await page.evaluate(() => { playerActivities.set('Peer', { state: 'ready', pct: 100 }); renderLobby(); });
-      assert.equal(await page.$eval('[data-lobby-key="player:Peer"] .tag.seed', node => node.textContent), 'Ready');
+      const readyText = await page.evaluate(() => {
+        playerActivities.set('Peer', { state: 'ready', pct: 100 }); renderLobby();
+        return document.querySelector('[data-lobby-key="player:Peer"] .tag.seed').textContent;
+      });
+      assert.equal(readyText, 'Ready');
       for (const theme of ['midnight', 'graphite', 'light', 'ocean', 'forest', 'sunset']) {
         await page.evaluate(theme => { document.documentElement.dataset.theme = theme; }, theme);
         const color = await page.$eval('.tag.seed', node => getComputedStyle(node).color);
@@ -134,11 +139,9 @@ describe('UI cleanup and local audio devices', { skip: skipReason, timeout: 1200
           for (const tag of await page.$$('.tag.seed')) assert.ok(await tag.evaluate(textContrast) >= 4.5);
         }
       }
-      await page.evaluate(() => {
+      const compact = await page.evaluate(() => {
         document.body.classList.add('lobby-compact'); liveRecordings.set(2, 'Peer');
         playerActivities.set('Peer', { state: 'downloading', pct: 42 }); renderLobby();
-      });
-      const compact = await page.evaluate(() => {
         const card = document.querySelector('[data-lobby-key="player:Peer"]');
         return { width: document.getElementById('lobbyPanel').getBoundingClientRect().width,
           overflow: lobbyList.scrollWidth > lobbyList.clientWidth,
