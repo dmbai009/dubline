@@ -14,6 +14,7 @@ const { InstalledUpdater } = require('./electron-installed-update');
 const { PortableUpdater } = require('./electron-portable-update');
 const { UpdateLog } = require('./electron-update-log');
 const { associationOperation } = require('./electron-project-association');
+const { UpdatePreferences } = require('./electron-update-preferences');
 
 const PIN_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const HOSTING_MODES = new Set(['cloudflare', 'porthole', 'vpn', 'custom']);
@@ -23,6 +24,8 @@ app.setName('Dubline');
 
 // Used by automated smoke tests; normal builds always use Electron's per-user %APPDATA% folder.
 if (process.env.DUBLINE_USER_DATA_DIR) app.setPath('userData', path.resolve(process.env.DUBLINE_USER_DATA_DIR));
+const updatePreferences = new UpdatePreferences(app.getPath('userData'), app.getVersion());
+let updatePreferencesChanging = false;
 
 function guestUrlFromArgs() {
   const argument = process.argv.find(item => item.startsWith(JOIN_ARG));
@@ -142,11 +145,12 @@ function resourcePath(...parts) {
 
 function publishAppUpdateStatus() {
   for (const window of [launcherWindow, mainWindow]) {
-    if (window && !window.isDestroyed()) window.webContents.send('app:update-status', { ...appUpdateStatus, dismissed: appUpdateDismissed });
+    if (window && !window.isDestroyed()) window.webContents.send('app:update-status', { ...appUpdateStatus, experimental: updatePreferences.experimental, dismissed: appUpdateDismissed });
   }
 }
 
 async function checkForAppUpdate() {
+  if (updatePreferencesChanging) return;
   if (updateAdapter) return updateAdapter.check();
   if (distribution.channel === 'steam' || distribution.channel === 'development') return;
   try {
@@ -628,7 +632,34 @@ ipcMain.handle('app:set-language', (event, language) => {
 });
 ipcMain.handle('app:get-update-status', event => {
   if (!isHostSender(event) && !isLauncherSender(event)) throw new Error('Untrusted update request.');
-  return { ...appUpdateStatus, dismissed: appUpdateDismissed };
+  return { ...appUpdateStatus, experimental: updatePreferences.experimental, dismissed: appUpdateDismissed };
+});
+ipcMain.handle('app:get-update-preferences', event => {
+  if ((!isHostSender(event) && !isLauncherSender(event)) || event.senderFrame !== event.sender.mainFrame) throw Error('Untrusted update preference request.');
+  return { experimental: updatePreferences.experimental, supported: distribution.channel !== 'steam' };
+});
+ipcMain.handle('app:set-experimental-updates', async (event, enabled) => {
+  if ((!isHostSender(event) && !isLauncherSender(event)) || event.senderFrame !== event.sender.mainFrame) throw Error('Untrusted update preference request.');
+  if (typeof enabled !== 'boolean' || distribution.channel === 'steam') return { ok: false, code: 'unsupported' };
+  if (updatePreferencesChanging || updateAdapter?.job || updateAdapter?.installing) return { ok: false, code: 'busy' };
+  updatePreferencesChanging = true;
+  const previous = updatePreferences.experimental;
+  try {
+    const result = await updateAdapter?.setExperimental(enabled);
+    if (result && !result.ok) return result;
+    updatePreferences.set(enabled); appUpdateDismissed = false;
+    if (updateAdapter) appUpdateStatus = updateAdapter.getStatus();
+    publishAppUpdateStatus();
+    return { ok: true, experimental: enabled };
+  } catch {
+    await updateAdapter?.setExperimental(previous).catch(() => {});
+    if (updateAdapter) appUpdateStatus = updateAdapter.getStatus();
+    publishAppUpdateStatus();
+    return { ok: false, code: 'save-failed' };
+  } finally {
+    updatePreferencesChanging = false;
+    if (updatePreferences.experimental !== previous) void checkForAppUpdate();
+  }
 });
 ipcMain.handle('app:dismiss-update', event => {
   if (!isHostSender(event) && !isLauncherSender(event)) throw new Error('Untrusted update request.');
@@ -901,12 +932,12 @@ else {
     catch (_) { appUpdateStatus = { ...appUpdateStatus, state: 'error', error: 'Distribution metadata is invalid. Update manually.' }; }
     const updateLog = new UpdateLog(app.getPath('userData'), { ...distribution, version: app.getVersion() });
     if (distribution.channel === 'github-setup') {
-      updateAdapter = new InstalledUpdater({ currentVersion: app.getVersion(), updater: require('electron-updater').autoUpdater, busy: desktopOperationBusy, shutdown });
+      updateAdapter = new InstalledUpdater({ currentVersion: app.getVersion(), updater: require('electron-updater').autoUpdater, busy: desktopOperationBusy, shutdown, experimental: updatePreferences.experimental });
       updateAdapter.on('status', status => { appUpdateStatus = status; updateLog.record(status); publishAppUpdateStatus(); });
       updateAdapter.on('apply-result', result => updateLog.record(result));
     }
     if (distribution.channel === 'github-portable') {
-      updateAdapter = new PortableUpdater({ current: distribution, root: path.dirname(process.execPath), stagingRoot: path.join(app.getPath('userData'), 'update-staging'), helper: resourcePath('updater', 'apply-update.ps1'), busy: desktopOperationBusy, shutdown, exit: () => app.exit(0), getProcesses: () => app.getAppMetrics().map(item => ({ id: item.pid, createdAt: Math.floor(item.creationTime) })) });
+      updateAdapter = new PortableUpdater({ current: distribution, root: path.dirname(process.execPath), stagingRoot: path.join(app.getPath('userData'), 'update-staging'), helper: resourcePath('updater', 'apply-update.ps1'), busy: desktopOperationBusy, shutdown, exit: () => app.exit(0), getProcesses: () => app.getAppMetrics().map(item => ({ id: item.pid, createdAt: Math.floor(item.creationTime) })), experimental: updatePreferences.experimental });
       updateAdapter.on('status', status => { appUpdateStatus = status; updateLog.record(status); publishAppUpdateStatus(); });
       updateAdapter.on('apply-result', result => updateLog.record(result));
     }

@@ -5,7 +5,8 @@ const { pipeline } = require('node:stream/promises');
 const { EventEmitter } = require('node:events');
 const { spawn } = require('node:child_process');
 const yauzl = require('yauzl');
-const { isNewerVersion } = require('./electron-update');
+const { isNewerVersion, selectRelease, evaluateRelease } = require('./electron-update');
+const { isAppVersion, isBeta } = require('./update-version');
 const { MANIFEST_PATH, safeRelative, validateManifest, manifestBytes, bytesHash, verifyTree, safeFile, changesBetween } = require('./electron-managed-files');
 const { jsonFrom, download } = require('./electron-update-http');
 const RELEASE_API = 'https://api.github.com/repos/dmbai009/dubline/releases/latest';
@@ -16,7 +17,7 @@ function validateAsset(value) {
 }
 function validateMetadata(value, current) {
   if (!value || value.schemaVersion !== 1 || value.channel !== 'github-portable' || value.platform !== current.platform ||
-      value.arch !== current.arch || !/^\d+\.\d+\.\d+$/.test(value.version) || !isNewerVersion(value.version, current.version) ||
+      value.arch !== current.arch || !isAppVersion(value.version) || !isNewerVersion(value.version, current.version) ||
       !Array.isArray(value.patches) || value.patches.length > 8) throw Error('Invalid Portable update metadata.');
   validateManifest(value.targetManifest); validateAsset(value.full);
   for (const key of ['version', 'channel', 'arch', 'platform', 'commit', 'electronVersion']) {
@@ -26,7 +27,7 @@ function validateMetadata(value, current) {
   const seen = new Set();
   for (const patch of value.patches) {
     validateAsset(patch);
-    if (!/^\d+\.\d+\.\d+$/.test(patch.fromVersion) || !isNewerVersion(value.version, patch.fromVersion) ||
+    if (!isAppVersion(patch.fromVersion) || !isNewerVersion(value.version, patch.fromVersion) ||
         !/^[a-f0-9]{64}$/.test(patch.requiredBaseManifestHash) || seen.has(patch.fromVersion)) throw Error('Invalid Portable patch base.');
     seen.add(patch.fromVersion);
   }
@@ -74,13 +75,25 @@ async function extractUpdate(archive, folder, target, changed, patch) {
   await verifyTree(folder, target, changed);
 }
 class PortableUpdater extends EventEmitter {
-  constructor({ current, root, stagingRoot, helper, busy, shutdown, exit, getProcesses = () => [{ id: process.pid }], json = jsonFrom, fetchFile = download }) {
+  constructor({ current, root, stagingRoot, helper, busy, shutdown, exit, experimental = false, getProcesses = () => [{ id: process.pid }], json = jsonFrom, fetchFile = download }) {
     super(); Object.assign(this, { current, root: path.resolve(root), stagingRoot, helper, busy, shutdown, exit, getProcesses, json, fetchFile });
     this.status = { state: 'idle', currentVersion: current.version, version: '', url: '', progress: null };
     this.job = null; this.staged = null; this.installing = false;
+    this.experimental = experimental === true;
   }
   set(value) { this.status = { ...this.status, ...value }; this.emit('status', this.getStatus()); }
   getStatus() { return { ...this.status }; }
+  async setExperimental(value) {
+    if (this.job || this.installing) return { ok: false, code: 'busy' };
+    if (this.staged) {
+      const folder = path.resolve(this.staged.folder);
+      if (!folder.startsWith(path.resolve(this.stagingRoot) + path.sep)) throw Error('Unsafe staged update.');
+      await fsp.rm(folder, { recursive: true, force: true }); this.staged = null;
+    }
+    this.experimental = value === true;
+    this.set({ state: 'idle', version: '', url: '', progress: null, error: '', downloadKind: '' });
+    return { ok: true };
+  }
   async startHelper(job, helper) {
     const ready = path.join(path.dirname(job), 'helper-ready.json');
     await fsp.rm(ready, { force: true });
@@ -164,9 +177,10 @@ class PortableUpdater extends EventEmitter {
   }
   async checkAndStage() {
     this.set({ state: 'checking', error: '' });
-    const release = await this.json(RELEASE_API, 1024 * 1024);
-    if (release.draft || release.prerelease || !isNewerVersion(release.tag_name, this.current.version)) { this.set({ state: 'current' }); return; }
-    if (!/^v?\d+\.\d+\.\d+$/.test(release.tag_name) || !Array.isArray(release.assets)) throw Error('Invalid stable release.');
+    const response = await this.json(this.experimental ? RELEASE_API.replace('/latest', '?per_page=100') : RELEASE_API, 4 * 1024 * 1024);
+    const release = this.experimental ? selectRelease(response, this.current.version, true) : response;
+    if (!release || !evaluateRelease(release, this.current.version, this.experimental)) { this.set({ state: 'current' }); return; }
+    if (!Array.isArray(release.assets)) throw Error('Invalid release assets.');
     const metadataAsset = release.assets.find(asset => asset.name === 'portable-update.json');
     if (!metadataAsset) throw Error('This release has no Portable update metadata.');
     const assetUrl = name => {
@@ -217,6 +231,7 @@ class PortableUpdater extends EventEmitter {
   }
   async installOrRestart() {
     if (this.installing || this.status.state !== 'downloaded' || !this.staged) return { ok: false, code: 'not-ready' };
+    if (!this.experimental && isBeta(this.status.version)) return { ok: false, code: 'not-ready' };
     this.installing = true;
     try {
       if (await this.busy()) return { ok: false, code: 'busy' };

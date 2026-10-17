@@ -17,6 +17,41 @@
     const bridge = window.dublineDesktop || window.dublineLauncher;
     if (!bridge) return;
     const language = () => window.DublineI18n?.getLanguage() || document.documentElement.lang || bridge.language || 'en';
+    if (bridge.getUpdatePreferences && bridge.setExperimentalUpdates) {
+      const copy = {
+        en: ['Receive experimental updates', 'Experimental versions may be unstable and update more frequently. Turning this off keeps the installed version until a newer stable release is available.', 'Wait for the current update download or installation to finish.', 'Could not save the update preference.'],
+        ru: ['Получать экспериментальные обновления', 'Экспериментальные версии могут работать нестабильно и обновляться чаще обычного. После отключения установленная версия останется до выхода более новой стабильной.', 'Дождитесь завершения загрузки или установки обновления.', 'Не удалось сохранить настройку обновлений.'],
+        uk: ['Отримувати експериментальні оновлення', 'Експериментальні версії можуть працювати нестабільно й оновлюватися частіше. Після вимкнення встановлена версія залишиться до виходу новішої стабільної.', 'Дочекайтеся завершення завантаження або встановлення оновлення.', 'Не вдалося зберегти налаштування оновлень.']
+      };
+      try {
+        const preferences = await bridge.getUpdatePreferences();
+        if (preferences.supported) {
+          const box = document.createElement('div'), label = document.createElement('label'), title = document.createElement('span'), input = document.createElement('input'), help = document.createElement('p');
+          box.className = 'update-channel'; input.type = 'checkbox'; input.id = 'experimentalUpdates'; input.setAttribute('role', 'switch');
+          help.id = 'experimentalUpdatesHelp'; help.setAttribute('role', 'status'); input.setAttribute('aria-describedby', help.id);
+          label.append(title, input); box.append(label, help);
+          const about = document.getElementById('desktopAboutVersion')?.closest('.setting-card'), footer = document.querySelector('.app-meta');
+          if (about) about.append(box); else footer?.before(box);
+          let enabled = preferences.experimental === true, pending = false, error = 0;
+          const render = () => {
+            const text = copy[language()] || copy.en;
+            title.textContent = text[0]; help.textContent = text[error || 1]; input.checked = enabled; input.disabled = pending;
+            input.setAttribute('aria-checked', String(enabled)); box.dataset.experimental = String(enabled);
+          };
+          input.addEventListener('change', async () => {
+            const requested = input.checked; pending = true; error = 0; render();
+            try {
+              const result = await bridge.setExperimentalUpdates(requested);
+              if (result?.ok) enabled = result.experimental === true; else error = result?.code === 'busy' ? 2 : 3;
+            } catch { error = 3; }
+            finally { pending = false; render(); }
+          });
+          bridge.onUpdateStatus?.(status => { if (!pending && typeof status.experimental === 'boolean') { enabled = status.experimental; render(); } });
+          window.addEventListener('dubline-language-changed', render); document.getElementById('language')?.addEventListener('change', render);
+          render();
+        }
+      } catch { /* A missing desktop preference must not block ordinary startup. */ }
+    }
     if (bridge.getBuildInfo) {
       const details = document.createElement('details'), title = document.createElement('summary'), output = document.createElement('pre');
       details.className = 'setting-card'; output.style.cssText = 'white-space:pre-wrap;font-size:11px'; details.append(title, output);

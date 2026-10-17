@@ -10,6 +10,8 @@ const registerFeatureHandlers = require('./features');
 const registerProjectAudio = require('./project-audio');
 
 io.on('connection', socket => {
+  // Public application version only; it is not room/project state or a credential.
+  socket.emit('host_version', { version: require('../../../package.json').version });
   // Changed on joining a room and on renaming; handlers read them at call time
   const conn = { roomId: null, nick: '', clientId: '' };
   require('../sessionScope').register(socket, conn);

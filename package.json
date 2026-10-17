@@ -1,6 +1,6 @@
 {
   "name": "dubline",
-  "version": "1.4.0",
+  "version": "1.4.0-beta.1",
   "description": "Collaborative voice dubbing on a timeline",
   "main": "src/electron-main.js",
   "author": "dmbai009",
@@ -34,6 +34,7 @@
     "test:electron:take-mix": "node tools/electron-take-mix-smoke.js",
     "test:ui": "node --test --test-concurrency=1 e2e/ui-cleanup.e2e.js e2e/editor-improvements.e2e.js e2e/group-reliability.e2e.js e2e/collaborative-dubbing.e2e.js e2e/take-history.e2e.js e2e/noise-reduction.e2e.js e2e/voice-chain.e2e.js e2e/pitch-stage.e2e.js e2e/equalizer-role.e2e.js e2e/role-workflow.e2e.js e2e/ui-presets.e2e.js e2e/live-presets.e2e.js e2e/workflow-next.e2e.js e2e/speech-levels.e2e.js e2e/inspector-presets.e2e.js e2e/original-reference.e2e.js e2e/ux-fixes.e2e.js e2e/export-progress.e2e.js e2e/video-acceleration.e2e.js e2e/export-reliability.e2e.js e2e/timeline-role-column.e2e.js e2e/timeline-range.e2e.js e2e/subtitle-export.e2e.js",
     "test:electron:ui": "node tools/electron-ui-cleanup-smoke.js",
+    "test:electron:updates": "node tools/electron-update-preferences-smoke.js",
     "test:electron:hosting": "node tools/electron-hosting-smoke.js",
     "qa:ui": "node tools/visual-ui-cleanup.js",
     "test:electron:storage": "node tools/electron-storage-smoke.js",

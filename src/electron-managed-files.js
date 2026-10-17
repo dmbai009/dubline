@@ -4,6 +4,7 @@
 const fs = require(process.versions.electron ? 'original-fs' : 'node:fs');
 const fsp = fs.promises;
 const path = require('node:path');
+const { isAppVersion } = require('./update-version');
 const crypto = require('node:crypto');
 const MANIFEST_PATH = 'resources/dubline-managed.json';
 const ROOT_FILES = new Set(['Dubline.exe', 'chrome_100_percent.pak', 'chrome_200_percent.pak',
@@ -29,7 +30,7 @@ function managedPath(value) {
 }
 function validateManifest(value) {
   if (!value || value.schemaVersion !== 1 || value.channel !== 'github-portable' || value.platform !== 'win32' ||
-      value.arch !== 'x64' || !/^\d+\.\d+\.\d+$/.test(value.version) ||
+      value.arch !== 'x64' || !isAppVersion(value.version) ||
       !/^[a-f0-9]{40}$/.test(value.commit) || !/^\d+\.\d+\.\d+$/.test(value.electronVersion) ||
       !Array.isArray(value.files) || !value.files.length || value.files.length > 8192) throw new Error('Invalid managed manifest.');
   const seen = new Set(); let total = 0;

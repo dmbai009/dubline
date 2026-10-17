@@ -31,6 +31,17 @@ function SafePath([string]$base, [string]$relative, [bool]$manifest = $false) {
   return $result
 }
 function Hash([string]$file) { return (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant() }
+function IsNewerVersion([string]$candidate, [string]$previous) {
+  # Manifests have already been validated: stable or numbered beta only.
+  $next = @($candidate -split '-beta\.')
+  $old = @($previous -split '-beta\.')
+  $nextCore = $next[0].Split('.'); $oldCore = $old[0].Split('.')
+  for ($i = 0; $i -lt 3; $i++) {
+    if ([long]$nextCore[$i] -ne [long]$oldCore[$i]) { return [long]$nextCore[$i] -gt [long]$oldCore[$i] }
+  }
+  if ($next.Count -ne $old.Count) { return $next.Count -eq 1 }
+  return $next.Count -eq 2 -and [long]$next[1] -gt [long]$old[1]
+}
 function WriteAtomic([string]$file, [string]$text) {
   $temp = $file + '.new'
   $bytes = $utf8.GetBytes($text)
@@ -39,7 +50,7 @@ function WriteAtomic([string]$file, [string]$text) {
   if ([IO.File]::Exists($file)) { [IO.File]::Replace($temp, $file, [System.Management.Automation.Language.NullString]::Value) } else { [IO.File]::Move($temp, $file) }
 }
 function ValidateManifest($value) {
-  if ($value.schemaVersion -ne 1 -or $value.channel -ne 'github-portable' -or $value.platform -ne 'win32' -or $value.arch -ne 'x64' -or $value.version -notmatch '^\d+\.\d+\.\d+$' -or $value.commit -notmatch '^[a-f0-9]{40}$' -or $value.electronVersion -notmatch '^\d+\.\d+\.\d+$' -or $value.files.Count -lt 3 -or $value.files.Count -gt 8192) { throw 'Invalid managed manifest.' }
+  if ($value.schemaVersion -ne 1 -or $value.channel -ne 'github-portable' -or $value.platform -ne 'win32' -or $value.arch -ne 'x64' -or $value.version -notmatch '^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(-beta\.(0|[1-9]\d*))?$' -or $value.commit -notmatch '^[a-f0-9]{40}$' -or $value.electronVersion -notmatch '^\d+\.\d+\.\d+$' -or $value.files.Count -lt 3 -or $value.files.Count -gt 8192) { throw 'Invalid managed manifest.' }
   $map = @{}; [long]$total = 0
   foreach ($file in $value.files) {
     $null = SafePath $root ([string]$file.path)
@@ -137,7 +148,7 @@ try {
   if ($plan.schemaVersion -ne 1 -or !$plan.processes -or $root -eq $stage -or $stage.StartsWith($root + '\', [StringComparison]::OrdinalIgnoreCase)) { throw 'Invalid update job.' }
   WriteAtomic (Join-Path ([IO.Path]::GetDirectoryName($JobFile)) 'helper-ready.json') '{"ready":true}'
   $baseMap = ValidateManifest $plan.base; $targetMap = ValidateManifest $plan.target
-  if ([version]$plan.target.version -le [version]$plan.base.version) { throw 'Portable update must not downgrade.' }
+  if (!(IsNewerVersion $plan.target.version $plan.base.version)) { throw 'Portable update must not downgrade.' }
   WaitForProcesses
   $lock = [IO.File]::Open($lockPath, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
   if (Test-Path -LiteralPath $journalPath) {

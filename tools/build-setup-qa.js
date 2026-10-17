@@ -2,8 +2,8 @@
 // This lets installer UI/update QA coexist with a real Dubline installation.
 const fs = require('node:fs'), path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const root = path.resolve(__dirname, '..'), parts = require('../package.json').version.split('.').map(Number);
-const a = parts.join('.'); parts[2]++; const b = parts.join('.');
+const { nextTestVersion, isBeta } = require('../src/update-version');
+const root = path.resolve(__dirname, '..'), a = require('../package.json').version, b = nextTestVersion(a);
 const qaRoot = path.join(root, 'build', 'update-qa', 'setup-isolated');
 fs.mkdirSync(qaRoot, { recursive:true });
 const include = path.join(qaRoot, 'installer-qa.nsh');
@@ -15,6 +15,7 @@ for (const [version, unpacked] of [[a,path.join(root,'dist','win-unpacked')],[b,
   const args = [require.resolve('electron-builder/cli'),'--win','nsis','--x64','--prepackaged',unpacked,'--publish','never',
     '--config.appId=io.github.dmbai009.dubline.setupqa',
     '--config.extraMetadata.version=' + version,
+    '--config.publish.channel=' + (isBeta(version) ? 'beta' : 'latest'),
     '--config.directories.output=' + path.join(qaRoot,version),
     '--config.nsis.include=' + include,
     '--config.nsis.shortcutName=Dubline Setup QA',

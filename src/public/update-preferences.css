@@ -1,0 +1,16 @@
+.update-channel { margin-top:12px; padding-top:12px; border-top:1px solid var(--border); min-width:0; }
+.update-channel label { display:flex; align-items:center; justify-content:space-between; gap:12px; font-weight:600; cursor:pointer; }
+.update-channel input[type="checkbox"] { appearance:none; box-sizing:border-box; flex:0 0 40px; width:40px; min-width:40px; height:22px; padding:0; margin:0; position:relative; border:1px solid var(--border); border-radius:22px; background:var(--panel2,var(--panel-3)); cursor:pointer; }
+.update-channel input[type="checkbox"]::before { content:""; position:absolute; left:2px; top:2px; width:16px; height:16px; border-radius:50%; background:#fff; transition:transform .15s; }
+.update-channel input[type="checkbox"]:checked { background:var(--accent); border-color:var(--accent); }
+.update-channel input[type="checkbox"]:checked::before { transform:translateX(18px); }
+.update-channel input[type="checkbox"]:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+.update-channel input:disabled { opacity:.5; cursor:wait; }
+.update-channel p { font-size:12px; line-height:1.45; margin:7px 0 0; opacity:.75; overflow-wrap:anywhere; }
+.update-channel[data-experimental="true"] p { opacity:1; }
+.app > .update-channel { border:1px solid var(--border); border-radius:9px; padding:12px 14px; background:var(--panel); }
+.app-update-banner { background:var(--panel); color:var(--text); border-color:var(--accent); }
+.app-update-actions { flex-wrap:wrap; }
+.guest-version-warning { border-color:var(--warn,#d99a24); }
+.guest-version-warning .app-update-copy { overflow-wrap:anywhere; }
+@media(prefers-reduced-motion:reduce) { .update-channel input[type="checkbox"]::before { transition:none; } }

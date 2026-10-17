@@ -7,8 +7,8 @@ const { launch, wait } = require('./packaged-test-driver');
 const { until, browserFor, workspace, stop, importFixture } = require('./electron-portable-update-smoke');
 const { associationOperation, portableProgId } = require('../src/electron-project-association');
 const { fileHash } = require('../src/electron-managed-files');
-const aVersion = require('../package.json').version, bParts = aVersion.split('.').map(Number); bParts[2]++;
-const bVersion = bParts.join('.');
+const { nextTestVersion, isBeta } = require('../src/update-version');
+const aVersion = require('../package.json').version, bVersion = nextTestVersion(aVersion);
 const root = path.resolve(__dirname, '..'), aOutput = path.join(root, 'dist'), bOutput = path.join(root, 'build', 'update-qa', bVersion);
 const isolatedSetup = process.argv.includes('--isolated-setup');
 const aSetupOutput = isolatedSetup ? path.join(root,'build','update-qa','setup-isolated',aVersion) : aOutput;
@@ -65,7 +65,7 @@ async function main() {
     fixture = http.createServer((request, response) => {
       const name = path.basename(new URL(request.url, 'http://fixture').pathname);
       const file = path.join(name === aName || name === aName + '.blockmap' ? aSetupOutput : bSetupOutput, name);
-      if (!['latest.yml', aName, bName, aName + '.blockmap', bName + '.blockmap'].includes(name) || !fs.existsSync(file)) { response.writeHead(404); response.end(); return; }
+      if (!['latest.yml', 'beta.yml', aName, bName, aName + '.blockmap', bName + '.blockmap'].includes(name) || !fs.existsSync(file)) { response.writeHead(404); response.end(); return; }
       const size = fs.statSync(file).size; let start = 0, end = size - 1;
       if (request.headers.range) {
         const match = /^bytes=(\d+)-(\d+)$/.exec(request.headers.range);
@@ -98,6 +98,7 @@ async function main() {
     assert.equal(await page.evaluate(()=>session.activeSessionId),identity.id,'canceled handed-off request preserves the Setup workspace');
     console.log('Exact Setup + Portable share one profile: real secondary Portable exits and primary Setup receives the project request; no second server.');
     await running.inspector.evaluate(`(async()=>{ const updater = globalThis.__dublineTestUpdater().updater; Object.defineProperty(updater.app, 'baseCachePath', { value: ${JSON.stringify(path.join(profile, 'update-cache'))} }); updater.setFeedURL({ provider:'generic', url:${JSON.stringify(origin)}, useMultipleRangeRequest:false }); const helper = await updater.getOrCreateDownloadHelper(); const fs=require('node:fs'); fs.mkdirSync(helper.cacheDir,{recursive:true}); fs.copyFileSync(${JSON.stringify(path.join(aSetupOutput, aName))},require('node:path').join(helper.cacheDir,'installer.exe')); fs.copyFileSync(${JSON.stringify(path.join(aSetupOutput, aName + '.blockmap'))},require('node:path').join(helper.cacheDir,'current.blockmap')); })()`);
+    if (isBeta(bVersion)) assert.equal((await page.evaluate(() => window.dublineDesktop.setExperimentalUpdates(true))).ok, true);
     await running.inspector.evaluate('globalThis.__dublineTestUpdater().check()');
     const status = await page.evaluate(() => window.dublineDesktop.getUpdateStatus());
     assert.equal(status.state, 'downloaded', JSON.stringify(status)); assert.ok(rangeRequests > 0); assert.equal(fullRequests, 0);

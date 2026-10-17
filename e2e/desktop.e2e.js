@@ -3,6 +3,66 @@ const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const { skipReason, launchBrowser, startServer, waitFor, openPlayer, loadFixture } = require('./helpers');
 
+describe('guest application version warning', { skip: skipReason }, () => {
+  let server, browser;
+  const version = require('../package.json').version;
+  before(async () => { server = await startServer(); browser = await launchBrowser(server.port); });
+  after(async () => { await browser?.close(); await server?.cleanup(); });
+  async function guest(appVersion, name) {
+    return openPlayer(browser, server.url('guest-version'), name, { beforeLoad: async page => {
+      if (appVersion) await page.setUserAgent(await browser.userAgent() + ' Dubline/' + appVersion + ' Electron/44.5.0');
+    } });
+  }
+  test('host reports its real version; a guest with a different installed app can connect and sees both versions', async () => {
+    const page = await guest('1.3.0', 'Old guest');
+    try {
+      await waitFor(page, () => document.getElementById('guestVersionWarning')?.classList.contains('show'));
+      assert.match(await page.$eval('#guestVersionWarning', node => node.textContent), /1\.3\.0/);
+      assert.ok((await page.$eval('#guestVersionWarning', node => node.textContent)).includes(version));
+      await waitFor(page, () => socket.connected && !!session);
+      for (const width of [360, 1280]) {
+        await page.setViewport({ width, height: 800 });
+        for (const theme of ['midnight', 'graphite', 'light', 'ocean', 'forest', 'sunset']) for (const language of ['en', 'ru', 'uk']) {
+          await page.evaluate(async (theme, language) => { document.documentElement.dataset.theme = theme; await DublineI18n.setLanguage(language); }, theme, language);
+          const layout = await page.$eval('#guestVersionWarning', node => {
+            const box = node.getBoundingClientRect();
+            return { left: box.left, right: box.right, bottom: box.bottom, width: innerWidth, height: innerHeight, overflow: node.scrollWidth - node.clientWidth, title: node.querySelector('strong').textContent };
+          });
+          assert.ok(layout.left >= 0 && layout.right <= layout.width && layout.bottom <= layout.height && layout.overflow <= 1, JSON.stringify(layout));
+          assert.match(layout.title, /versions differ|версии|Версии|Версії/);
+          if (process.env.DUBLINE_QA_SCREENSHOTS && width === 360 && language === 'ru' && ['light', 'midnight'].includes(theme)) {
+            const fs = require('node:fs'), path = require('node:path'); fs.mkdirSync(process.env.DUBLINE_QA_SCREENSHOTS, { recursive: true });
+            await page.screenshot({ path: path.join(process.env.DUBLINE_QA_SCREENSHOTS, 'guest-version-' + theme + '.png') });
+          }
+        }
+      }
+      await page.click('#guestVersionWarning button');
+      assert.equal(await page.$eval('#guestVersionWarning', node => node.classList.contains('show')), false);
+      await page.evaluate(() => socket.disconnect()); await page.evaluate(() => socket.connect());
+      await waitFor(page, () => socket.connected && !editorNeedsResync);
+      await page.evaluate(() => new Promise(resolve => socket.emit('time_sync', Date.now(), resolve)));
+      assert.equal(await page.$eval('#guestVersionWarning', node => node.classList.contains('show')), false);
+      await page.evaluate(() => socket.listeners('host_version').forEach(listener => listener({ version: '1.4.0-beta.9' })));
+      assert.equal(await page.$eval('#guestVersionWarning', node => node.classList.contains('show')), true);
+      assert.match(await page.$eval('#guestVersionWarning', node => node.textContent), /1\.4\.0-beta\.9/);
+      await page.evaluate(() => socket.listeners('host_version').forEach(listener => listener({ version: '<img src=x onerror=alert(1)>' })));
+      assert.equal(await page.$('#guestVersionWarning img'), null);
+      assert.deepEqual(page.errors, []);
+    } finally { await page.browserContext().close(); }
+  });
+  test('matching app versions and ordinary browser guests do not see a warning', async () => {
+    for (const appVersion of [version, null]) {
+      const page = await guest(appVersion, appVersion ? 'Same version' : 'Browser guest');
+      try {
+        await waitFor(page, () => socket.connected && !!session);
+        await page.evaluate(() => new Promise(resolve => socket.emit('time_sync', Date.now(), resolve)));
+        assert.equal(await page.evaluate(() => !!document.querySelector('#guestVersionWarning.show')), false);
+        assert.deepEqual(page.errors, []);
+      } finally { await page.browserContext().close(); }
+    }
+  });
+});
+
 describe('desktop invitation', { skip: skipReason }, () => {
   let server;
   let browser;
@@ -56,6 +116,11 @@ describe('desktop invitation', { skip: skipReason }, () => {
         clearAllData: async () => true,
         onTunnelStatus: () => () => {},
         getUpdateStatus: async () => ({ state: 'available', currentVersion: '1.1.0', version: '1.2.0', url: 'https://github.com/dmbai009/dubline/releases/tag/v1.2.0', dismissed: false }),
+        getUpdatePreferences: async () => ({ supported: true, experimental: localStorage.getItem('qa-experimental') === 'true' }),
+        setExperimentalUpdates: async value => {
+          if (window.__preferenceError) return { ok: false, code: window.__preferenceError };
+          localStorage.setItem('qa-experimental', String(value)); return { ok: true, experimental: value };
+        },
         openUpdate: async () => { window.__updateOpened = true; return true; },
         openProject: async () => { window.__projectOpened = true; return true; },
         dismissUpdate: async () => true,
@@ -80,6 +145,48 @@ describe('desktop invitation', { skip: skipReason }, () => {
   after(async () => {
     if (browser) await browser.close();
     if (server) await server.cleanup();
+  });
+
+  test('experimental update setting wraps in every theme/language and restores the switch on busy/save errors', async () => {
+    await page.evaluate(() => { openSettingsModal(); switchSettingsTab('user'); openSettingsCategory('user', 'interface'); });
+    await waitFor(page, () => !!document.getElementById('experimentalUpdates'));
+    assert.equal(await page.$eval('#experimentalUpdates', node => node.checked), false);
+    for (const width of [900, 1280]) {
+      await page.setViewport({ width, height: 900 });
+      for (const theme of ['midnight', 'graphite', 'light', 'ocean', 'forest', 'sunset']) for (const language of ['en', 'ru', 'uk']) {
+        await page.evaluate(async (theme, language) => { document.documentElement.dataset.theme = theme; await DublineI18n.setLanguage(language); }, theme, language);
+        await page.$eval('.update-channel', node => node.scrollIntoView({ block: 'center' }));
+        const layout = await page.$eval('.update-channel', node => {
+          const box = node.getBoundingClientRect(), label = node.querySelector('span').getBoundingClientRect(), input = node.querySelector('input').getBoundingClientRect();
+          return { overflow: node.scrollWidth - node.clientWidth, right: box.right, viewport: innerWidth, gap: input.left - label.right, text: node.textContent };
+        });
+        assert.ok(layout.overflow <= 1 && layout.right <= layout.viewport && layout.gap >= 8, JSON.stringify({ width, theme, language, ...layout }));
+        assert.match(layout.text, /unstable|нестабильно|нестабільно/);
+        if (process.env.DUBLINE_QA_SCREENSHOTS && width === 900 && language === 'ru') {
+          const fs = require('node:fs'), path = require('node:path');
+          fs.mkdirSync(process.env.DUBLINE_QA_SCREENSHOTS, { recursive: true });
+          await page.screenshot({ path: path.join(process.env.DUBLINE_QA_SCREENSHOTS, theme + '.png') });
+        }
+      }
+    }
+    await page.focus('#experimentalUpdates'); await page.keyboard.press('Space');
+    await waitFor(page, () => experimentalUpdates.checked && !experimentalUpdates.disabled);
+    for (const code of ['busy', 'save-failed']) {
+      await page.evaluate(code => window.__preferenceError = code, code);
+      await page.click('#experimentalUpdates');
+      await waitFor(page, () => !experimentalUpdates.disabled && experimentalUpdates.checked);
+      assert.match(await page.$eval('#experimentalUpdatesHelp', node => node.textContent), code === 'busy' ? /Дочекайтеся/ : /Не вдалося/);
+    }
+    await page.evaluate(() => { window.__preferenceError = ''; });
+    await page.click('#experimentalUpdates'); await waitFor(page, () => !experimentalUpdates.disabled && !experimentalUpdates.checked);
+    await page.evaluate(async () => { await DublineI18n.setLanguage('en'); document.documentElement.dataset.theme = 'midnight'; closeSettingsModal(); });
+    await page.setViewport({ width: 1280, height: 900 });
+    const guest = await browser.newPage();
+    try {
+      // New pages have no desktop bridge; browser participants cannot configure the host updater.
+      await guest.goto(server.url('browser-guest'), { waitUntil: 'networkidle0' });
+      assert.equal(await guest.$('.update-channel'), null);
+    } finally { await guest.close(); }
   });
 
   test('starts collapsed and copies the hidden PIN together with the link', async () => {
