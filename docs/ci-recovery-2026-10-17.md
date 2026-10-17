@@ -87,3 +87,14 @@ media readiness, and a height read taken while the reloaded workspace was still
 hidden. The rename scenario uses the shared readiness wait; height assertions
 wait for a rendered row before checking its exact expected size. No recording
 attempt is retried and no size assertion is relaxed.
+
+## Handoff at the requested usage limit
+
+Run 38994486071 passed source tests but still exposed pointer-target failures in
+the column-width and empty-role scenarios. Their fixtures now scroll and resolve
+an unobscured real pointer target; the width fixture also verifies that pointerdown
+actually began resizing. The complete column/voice-chain profile passed 22/22
+locally. These last fixture corrections are pushed for another complete Actions
+run. Full CI success is not yet confirmed. Continue by reading the latest run's
+logs rather than assuming the remaining jobs passed. The user requested shutdown
+when the five-hour allowance reached 2% remaining; that threshold was reached.

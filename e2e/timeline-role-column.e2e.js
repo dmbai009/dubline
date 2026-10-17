@@ -12,9 +12,16 @@ describe('personal timeline role column', { skip: skipReason, timeout: 120000 },
   });
   after(async () => { await browser?.close(); await server?.cleanup(); });
   async function drag(delta, selector = '.track-row[data-character] .role-column-handle', cancel = false) {
-    await page.$eval(selector, node => node.scrollIntoView({ block: 'nearest', inline: 'nearest' }));
-    const box = await page.$eval(selector, node => { const b = node.getBoundingClientRect(); return { x: b.x + b.width / 2, y: b.y + Math.min(20, b.height / 2) }; });
+    const box = await waitFor(page, async selector => {
+      const node = document.querySelector(selector);
+      node.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
+      const before = node.getBoundingClientRect();
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      const rect = node.getBoundingClientRect(), x = rect.x + rect.width / 2, y = rect.y + Math.min(20, rect.height / 2);
+      return node.isConnected && before.x === rect.x && before.y === rect.y && node.contains(document.elementFromPoint(x, y)) ? { x, y } : false;
+    }, 10000, selector);
     await page.mouse.move(box.x, box.y); await page.mouse.down();
+    await waitFor(page, () => document.body.classList.contains('resizing-role-column'));
     await page.mouse.move(box.x + delta, box.y + 9, { steps: 8 });
     if (cancel) await page.evaluate(() => window.dispatchEvent(new Event('blur')));
     await page.mouse.up();
