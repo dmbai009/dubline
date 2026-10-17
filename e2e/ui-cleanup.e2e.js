@@ -187,7 +187,7 @@ describe('UI cleanup and local audio devices', { skip: skipReason, timeout: 1200
       });
       await check();
       assert.equal(await page.$$eval('[data-character="A very long character name beyond the label"] .line-block', nodes => new Set(nodes.map(node => node.style.top)).size), 2);
-      await page.reload(); await waitFor(page, () => session?.loaded && !!document.querySelector('[data-character="Hero"] .role-badge.me'));
+      await page.reload(); await waitFor(page, () => session?.loaded && !!document.querySelector('[data-character="Hero"] .role-badge.me') && document.querySelector('.track-row[data-character="Hero"]').getBoundingClientRect().height > 0);
       assert.equal(await page.$eval('.track-row[data-character="Hero"]', node => node.getBoundingClientRect().height), 80);
       // Reload can deliver another snapshot between CDP calls. Resolve a live,
       // stable hit target after scrolling, rather than retaining an ElementHandle
@@ -204,7 +204,7 @@ describe('UI cleanup and local audio devices', { skip: skipReason, timeout: 1200
       await page.mouse.move(point.x, point.y); await page.mouse.down(); await page.mouse.move(point.x, point.y + 34, { steps: 5 }); await page.mouse.up();
       const resized = await page.$eval('.track-row[data-character="Hero"]', node => node.getBoundingClientRect().height);
       assert.ok(resized > 80);
-      await page.reload(); await waitFor(page, () => session?.loaded && !!document.querySelector('[data-character="Hero"]'));
+      await page.reload(); await waitFor(page, () => session?.loaded && document.querySelector('.track-row[data-character="Hero"]')?.getBoundingClientRect().height > 0);
       assert.equal(await page.$eval('.track-row[data-character="Hero"]', node => node.getBoundingClientRect().height), resized);
       assert.deepEqual(peer.errors, []);
     } finally { await peer.browserContext().close(); }
