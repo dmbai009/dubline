@@ -158,12 +158,16 @@ describe('voice chains: real DSP, inspector, author rights and scoped collaborat
     assert.ok(await guest.evaluate(async () => (await getProcessedTake(session.lines.find(line => line.id === 2))).duration > 1));
   });
   test('empty roles can be configured from their track label before recording any take', async () => {
+    await host.setViewport({ width: 1280, height: 720 });
     const added = await host.evaluate(() => new Promise(resolve => socket.emit('editor_add_track', { sessionId: session.activeSessionId, character: 'Empty role' }, resolve))); assert.equal(added.ok, true);
     await waitFor(host, () => document.querySelector('[data-character="Empty role"] .track-fx'));
-    await host.locator('[data-character="Empty role"] .track-fx').click(); assert.equal(await host.$eval('#fxRows', node => node.children.length), 0);
+    await waitFor(host, () => timelineContainer.clientHeight >= 120);
+    await host.locator('.track-row[data-character="Empty role"] .track-fx').click();
+    assert.equal(await host.$eval('#fxRows', node => node.children.length), 0);
     await host.click('[data-fx-type="' + 'echo' + '"]'); assert.equal(await host.$eval('#fxPresetSave',node=>!!node.closest('[hidden]')),true); await host.click('#fxApply');
     await waitFor(host,()=>!fxDialog.open);
     await waitFor(guest, () => DublineVoiceChain.roleVoice(session, 'Empty role').effects?.[0]?.type === 'echo'); assert.equal(await guest.evaluate(() => session.lines.filter(line => line.character === 'Empty role').length), 0);
+    await host.setViewport({ width: 1600, height: 900 });
   });
   test('host/moderator concurrent role edits reject the stale revision instead of losing a change', async () => {
     assert.equal((await host.evaluate(() => new Promise(resolve => socket.emit('host_grant_moderator', { nick: 'Actor' }, resolve)))).ok, true); await waitFor(guest, () => canModerate());

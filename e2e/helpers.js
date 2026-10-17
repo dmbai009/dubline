@@ -250,7 +250,8 @@ async function claimAndSelect(page, lineId) {
 
 // Session metadata/claims can arrive before the downloaded media is decodable.
 async function waitForRecordingReady(page) {
-  await waitFor(page, () => video.readyState >= 2 && !video.seeking && !window.sceneMediaPreparation?.()?.key, 15000);
+  await waitFor(page, () => video.readyState >= 2 && !video.seeking && !mediaDownload && DublineMediaTransfer.stats().status === 'ready'
+    && !DublineProjectAudio.preparationStatus(session, { original: originalTrackAudio, backing }).key, 15000);
 }
 
 // Record once with Chrome's fake microphone and wait until it reaches the server.

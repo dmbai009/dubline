@@ -62,3 +62,22 @@ its retained resize handle before Puppeteer's `scrollIntoView` call. Querying,
 scrolling and measuring the current handle in one browser task preserves the real
 pointer gesture, resize assertion and reload-persistence assertion. No production
 timeline behavior or test coverage was removed.
+
+The same run's third shard exposed a real layout problem while opening an empty
+role's effects. Reducing a previously larger window to 1280x720 reproduced it:
+the remembered upper-panel height left only 2.6px for the timeline scroller.
+The upper splitter now uses the actual studio height and measured timeline
+controls, reserving 120px of track space where the window permits it. A resize
+observer also handles translated/wrapped controls. Existing panel limits are
+retained when space allows; very short windows can reduce the upper minimum.
+The role-effects test now resizes a larger window down to 1280x720 and uses the
+real button. Additional EN/RU/UK geometry checks cover 1600x900, 1280x720 and
+1024x768. Screenshots confirmed the corrected layout and actual editor opening.
+
+Resize gestures wait for a stable, unobscured handle after reload/reflow. Normal
+recording fixtures wait for the completed media job and decoded audible sources;
+the deliberate incomplete-audio rejection scenarios still use direct actions.
+Final targeted UI/column suite: 32/32; voice-chain suite: 16/16; unit suite: 477/477.
+The full local run during diagnosis completed 628/632 before these follow-ups;
+all four failures were in resize gestures and their dependent preference checks.
+They pass in the final targeted suite. Full Actions is rerun on the final commit.

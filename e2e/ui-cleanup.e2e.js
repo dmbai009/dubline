@@ -189,20 +189,41 @@ describe('UI cleanup and local audio devices', { skip: skipReason, timeout: 1200
       assert.equal(await page.$$eval('[data-character="A very long character name beyond the label"] .line-block', nodes => new Set(nodes.map(node => node.style.top)).size), 2);
       await page.reload(); await waitFor(page, () => session?.loaded && !!document.querySelector('[data-character="Hero"] .role-badge.me'));
       assert.equal(await page.$eval('.track-row[data-character="Hero"]', node => node.getBoundingClientRect().height), 80);
-      // Reload can deliver another snapshot between CDP calls. Query, scroll
-      // and measure the current handle in one browser task, without retaining
-      // an ElementHandle belonging to the previous timeline render.
-      const box = await page.$eval('.track-row[data-character="Hero"] .role-height-handle', node => {
-        node.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
-        const { x, y } = node.getBoundingClientRect(); return { x, y };
+      // Reload can deliver another snapshot between CDP calls. Resolve a live,
+      // stable hit target after scrolling, rather than retaining an ElementHandle
+      // belonging to the previous timeline render.
+      const point = await waitFor(page, async () => {
+        const node = document.querySelector('.track-row[data-character="Hero"] .role-height-handle');
+        node.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
+        const box = node.getBoundingClientRect();
+        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        const current = node.getBoundingClientRect(), x = current.x + 12, y = current.y + current.height / 2;
+        if (!node.isConnected || box.x !== current.x || box.y !== current.y || !node.contains(document.elementFromPoint(x, y))) return false;
+        return { x, y };
       });
-      await page.mouse.move(box.x + 12, box.y + 2); await page.mouse.down(); await page.mouse.move(box.x + 12, box.y + 36, { steps: 5 }); await page.mouse.up();
+      await page.mouse.move(point.x, point.y); await page.mouse.down(); await page.mouse.move(point.x, point.y + 34, { steps: 5 }); await page.mouse.up();
       const resized = await page.$eval('.track-row[data-character="Hero"]', node => node.getBoundingClientRect().height);
       assert.ok(resized > 80);
       await page.reload(); await waitFor(page, () => session?.loaded && !!document.querySelector('[data-character="Hero"]'));
       assert.equal(await page.$eval('.track-row[data-character="Hero"]', node => node.getBoundingClientRect().height), resized);
       assert.deepEqual(peer.errors, []);
     } finally { await peer.browserContext().close(); }
+  });
+
+  test('saved upper-panel sizes leave usable track space after window and toolbar reflow', async () => {
+    for (const viewport of [{ width: 1600, height: 900 }, { width: 1280, height: 720 }, { width: 1024, height: 768 }]) {
+      await page.setViewport(viewport);
+      for (const language of ['en', 'ru', 'uk']) {
+        await page.evaluate(async language => {
+          await i18n.setLanguage(language);
+          layout.top = 10000; applyLayout();
+        }, language);
+        await waitFor(page, () => timelineContainer.clientHeight >= 120);
+        const geometry = await page.evaluate(() => ({ top: document.querySelector('.studio > .main-area').getBoundingClientRect().height,
+          tracks: timelineContainer.clientHeight, studio: document.querySelector('.studio').clientHeight }));
+        assert.ok(geometry.top >= 100 && geometry.tracks >= 120 && geometry.top < geometry.studio, JSON.stringify({ viewport, language, ...geometry }));
+      }
+    }
   });
 
   test('long-export warnings contrast with their actual backgrounds in every theme and language', async () => {
@@ -495,7 +516,11 @@ describe('UI cleanup and local audio devices', { skip: skipReason, timeout: 1200
     await page.reload(); await waitFor(page, () => session?.loaded && document.getElementById('audioInputDevice'));
     assert.equal(await page.$eval('#audioInputDevice', node => node.value), 'mic-a');
     await claimAndSelect(page, 1); await waitForRecordingReady(page); await page.evaluate(() => handleStudioRecord(1));
-    await waitFor(page, () => recordState !== 'idle' && !!micStream);
+    await waitFor(page, () => recordState !== 'idle' && !!micStream).catch(async error => {
+      const state = await page.evaluate(() => ({ recording: recordState, captureDevices, toast: document.getElementById('toast').textContent,
+        preparation: window.sceneMediaPreparation?.(), connected: socket.connected, media: DublineMediaTransfer.stats() }));
+      throw new Error(`${error.message}; capture diagnostic: ${JSON.stringify(state)}`, { cause: error });
+    });
     await page.evaluate(() => { window.recordedStream = micStream; openSettingsModal(); }); await page.select('#audioInputDevice', 'mic-b');
     assert.equal(await page.evaluate(() => micStream === recordedStream && micStream.getAudioTracks()[0].readyState === 'live'), true);
     assert.match(await page.$eval('#audioDeviceStatus', node => node.textContent), /next take/);
