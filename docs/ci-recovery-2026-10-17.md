@@ -98,3 +98,18 @@ locally. These last fixture corrections are pushed for another complete Actions
 run. Full CI success is not yet confirmed. Continue by reading the latest run's
 logs rather than assuming the remaining jobs passed. The user requested shutdown
 when the five-hour allowance reached 2% remaining; that threshold was reached.
+
+## Remaining presence-fixture race in run 38995202783
+
+Source tests, Electron and browser shards 1 and 3 passed. Shard 2 passed
+194/195 cases; only the participant-card visual fixture failed. Its synthetic
+Downloading 42% state was inspected in a later browser task while the real room
+continued publishing media presence. Allowing a real presence update between
+those tasks reproduced the failure locally: recording, seeding, network and
+menu checks stayed true, but downloading became false after the valid Ready
+update. Rendering and inspecting each synthetic state in a single browser task
+removes that race without disabling network updates or relaxing assertions.
+Menu identity/focus, expanded/compact statuses, Ready text, theme contrast and
+moderator actions remain checked. The temporary reproduction delay is removed.
+Local validation: syntax checks passed; complete UI cleanup and media-presence
+browser suites passed 44/44, zero skips. Full Actions is checked after push.
