@@ -1,6 +1,7 @@
 # Working on Dubline
 
 - Read README.md and the relevant code/tests before changing behavior. Application code lives in src/, tests in test/ and e2e/, and build/QA tools in tools/.
+- Write all new or updated documentation, changelogs, and GitHub release notes in English only. Keep application UI localization separate from this documentation rule.
 - Current `main` is authoritative. Preserve post-release commits; never reset to a release tag as a development baseline.
 - Reuse the existing room/session, editor, recording, audio, and export architecture. Single Player is a mode of that architecture.
 - Keep portable project serialization explicit and versioned; never export raw `rooms.json` or room credentials.

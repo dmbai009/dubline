@@ -1,167 +1,148 @@
 # Dubline 1.4.0-beta.1
 
-Первая публичная бета Dubline 1.4. Ниже собраны изменения относительно **1.3.1**, включая новые возможности, переработки и удалённые элементы. Это **Pre-release**: возможны ошибки и более частые обновления. Перед переходом сохраните резервную копию важных проектов.
+The first public beta of Dubline 1.4. This changelog covers the changes since **1.3.1**, including new features, reworked workflows, fixes, and removals. This is a **pre-release**: bugs and more frequent updates are possible. Back up important projects before upgrading.
 
-## Скачать для Windows x64
+## Download for Windows x64
 
-- **[Setup](https://github.com/dmbai009/dubline/releases/download/v1.4.0-beta.1/Dubline-1.4.0-beta.1-win-x64-Setup.exe)** — обычная установка Windows с выбором папки, ярлыками и обновлением установленной программы.
-- **[Portable ZIP](https://github.com/dmbai009/dubline/releases/download/v1.4.0-beta.1/Dubline-1.4.0-beta.1-win-x64-Portable.zip)** — распакуйте архив и запускайте `Dubline.exe` из полученной папки. Сохраняйте папку целиком.
+- **[Setup](https://github.com/dmbai009/dubline/releases/download/v1.4.0-beta.1/Dubline-1.4.0-beta.1-win-x64-Setup.exe)** — a standard Windows installer with a choice of installation folder, shortcuts, and updates for the installed application.
+- **[Portable ZIP](https://github.com/dmbai009/dubline/releases/download/v1.4.0-beta.1/Dubline-1.4.0-beta.1-win-x64-Portable.zip)** — extract the archive and run `Dubline.exe` from the extracted folder. Keep the entire folder together.
 
-Отдельный самораспаковывающийся Portable EXE больше не выпускается. `Setup.exe` — установщик, а не прежний самостоятельный EXE. Остальные файлы в Assets нужны для проверки целостности и автоматического обновления; вручную скачивать их не требуется.
+The separate self-extracting Portable EXE is no longer distributed. `Setup.exe` is an installer, not the former standalone EXE. The other release assets support integrity checks and automatic updates; you do not need to download them manually.
 
-## Проекты, одиночная работа и хранение
+## Projects, Single Player, and storage
 
-- Добавлен **Single Player**: можно самостоятельно озвучить все роли, не создавая многопользовательскую комнату. Открытый рабочий проект можно затем перевести в мультиплеер через существующие способы подключения.
-- В лаунчере появились создание одиночного проекта и открытие проекта в выбранном режиме.
-- Добавлены переносимые проекты **`.dubline`**: сцена, текст и тайминги, дорожки и их порядок, исходные/рабочие медиа, текущие записи и история дублей, обработка, пресеты и общий микс сохраняются вместе.
-- Сохранение использует согласованный снимок сцены; импорт сначала проверяет и подготавливает данные, затем создаёт новую сцену. Ошибка импорта не должна заменять открытый проект или библиотечный пак.
-- Проекты можно открывать через Windows, в том числе при уже запущенной программе. Второй запуск передаёт запрос существующему экземпляру. Локальный проект не отправляется в чужую комнату из гостевого окна.
-- Убран общий лимит размера архива `.dubline`: большие архивы обрабатываются через диск/ZIP64. Сохраняются отдельные ограничения для медиа, проверки архива и необходимость свободного места.
-- Большое локальное видео автоматически получает оптимизированную рабочую копию H.264 до 720p. Оригинал остаётся у хоста и доступен для экспорта исходного качества; участники получают рабочее видео. Подготовка показывает прогресс и допускает отмену.
-- Папку хранения можно выбрать в лаунчере и личных настройках. Переносятся сцены, записи, исходные и рабочие видео, аудио и библиотека паков; при сбое исходные данные сохраняются. Изменение из студии применяется при следующем запуске.
-- Формат проектов расширен до версии **15**; чтение предыдущих поддерживаемых форматов сохранено. Новые поля и медиа проверяются при импорте.
-- PIN, права текущего соединения, личные устройства/раскладка и несохранённые очереди устройства не включаются в переносимый проект.
+- Added **Single Player**: dub every role on your own without creating a multiplayer room. An open project can later switch to Multiplayer using the existing connection methods.
+- Added launcher actions for creating a Single Player project and opening a project in the selected mode.
+- Added portable **`.dubline` projects**. A project stores the scene, captions and timings, tracks and their order, original and working media, current recordings and take history, audio processing, presets, and shared mix together.
+- Saving uses a consistent scene snapshot. Import validates and prepares the data before creating a new scene; a failed import must not replace the open project or a library pack.
+- Projects can be opened from Windows, including when Dubline is already running. A second launch forwards the request to the existing instance. A guest window does not upload a local project to someone else's room.
+- Removed the overall `.dubline` archive size limit. Large archives use disk-backed processing and ZIP64. Individual media limits, archive validation, and free disk space requirements still apply.
+- Large local videos automatically receive an optimized H.264 working copy at up to 720p. The host retains the original for original-quality export; participants receive the working video. Preparation shows progress and can be canceled.
+- The storage folder can be selected in the launcher and personal settings. Migration includes scenes, recordings, original and working videos, audio, and the pack library; source data is retained if migration fails. Changes made from the studio take effect on the next launch.
+- Extended the project format to version **15**, while retaining support for reading previously supported formats. New fields and media are validated during import.
+- Room PINs, current connection permissions, personal devices and layout, and unsaved device queues are not included in portable projects.
 
-## Запись и работа с дублями
+## Recording and take management
 
-- Добавлены сохраняемые на устройстве выбор микрофона и устройства воспроизведения. Выход применяется к видео, дублям, предпрослушиванию и ADR-сигналам; предусмотрены обновление списка и обработка отключения устройств.
-- Текущая запись сохраняет выбранный микрофон до завершения; новый выбор применяется к следующему дублю. При потере устройства приложение сохраняет уже захваченную часть, когда это возможно.
-- Улучшены индикация подготовки, буферизации и ошибок воспроизведения перед записью. Подготовка старой сцены не блокирует новое видео.
-- История дублей перенесена в инспектор: до **трёх предыдущих вариантов**, их прослушивание, восстановление, удаление и закрепление. Закреплённые варианты защищены от обычного вытеснения; добавлено сравнение A/B.
-- Добавлены устойчивые пометки **«Нужен новый дубль»** с комментарием, уведомлением участника и переходом к нужной реплике. Черновик замечания защищён от незаметной перезаписи чужим изменением.
-- Добавлены необязательные технические подсказки для новых записей: перегруз, почти тишина, слишком тихий сигнал, длинная пауза, возможное обрезанное начало/окончание. Они не запрещают сохранить дубль.
-- Добавлены сводка готовности сцены и переход к следующей своей незаписанной реплике. Навигация учитывает незавершённую загрузку и не начинает новую запись автоматически.
-- Улучшен режим последовательной озвучки: прослушивание/подтверждение сохранённого дубля, переход дальше и пропуск реплики остаются явными действиями.
-- Назначения и групповые действия учитывают выбранные реплики и права владельца. Автор записи может менять её микс и после освобождения роли; операции хоста/модератора проверяются сервером.
-- У кнопок дубля и оригинала появилось повторное нажатие для остановки. Кнопка закрепления расположена между прослушиванием и перезаписью; компактные кнопки меньше переносятся на новую строку.
-- Для паков «видео + субтитры» добавлено прослушивание **только оригинала** с запасом до 0,5 с по краям реплики, независимо от mute/уровня дорожки в миксе. Фон используется как оригинал только при подходящем назначении источника. В Voxalike сохраняется отдельная логика оригинальных файлов реплик. Это прослушивание не изменяет экспортный микс.
-- Громкость ADR-сигналов стала личной настройкой; сигналы и время подготовки поясняются в интерфейсе.
-- Добавлены громкость, стереопанорама и доля обработки отдельного дубля, а также атомарные групповые изменения микса выбранных записей. Эти параметры учитываются в прослушивании, видео и WAV-дорожках персонажей.
-- **Общий микс проекта** отделён от **личного мониторинга**: личные уровни не меняют экспорт. Для оригинала, фона и дубля доступны соответствующие уровни, mute/solo и временное смещение источников; личный микс можно сбросить к общему.
-- Автодакинг стал плавнее: заранее приглушает фон перед репликой, соединяет близкие фразы и постепенно возвращает уровень после них. Обновления комнаты не должны резко сбрасывать эти переходы.
+- Added persistent, per-device microphone and playback-device selection. Playback output applies to video, takes, previews, and ADR cues. Device lists can be refreshed, and disconnected devices are handled.
+- An active recording keeps its selected microphone until it finishes; a new selection applies to the next take. If the device is lost, Dubline preserves the captured portion when possible.
+- Improved preparation, buffering, and playback-error indicators before recording. Preparation for an old scene no longer blocks a new video.
+- Moved take history into the inspector: preview, restore, delete, and pin up to **three previous takes**. Pinned takes are protected from normal eviction. Added A/B comparison.
+- Added persistent **retake requests** with comments, participant notifications, and navigation to the affected line. Comment drafts are protected from being silently overwritten by another participant's changes.
+- Added optional technical hints for new recordings: clipping, near-silence, low signal level, long pauses, and possibly cut-off beginnings or endings. These hints do not prevent saving a take.
+- Added a scene-readiness summary and navigation to the next owned, unrecorded line. Navigation respects pending uploads and never starts a new recording automatically.
+- Improved sequential dubbing: previewing and confirming a saved take, advancing, and skipping a line remain explicit actions.
+- Assignment and bulk actions respect the selected lines and ownership permissions. Recording authors can adjust their take mix after releasing a role; host and moderator operations are validated by the server.
+- Clicking the take or original-preview button again now stops playback. The pin button sits between playback and re-recording, and compact buttons are less likely to wrap onto another row.
+- Added **original-only preview** for video-and-subtitle packs, with up to 0.5 seconds of context before and after a line, regardless of the source track's mute state or mix level. Background audio is used as the original only when the source assignment allows it. Voxalike packs retain their separate per-line original-file workflow. Previewing does not change the export mix.
+- ADR cue volume is now a personal setting. The interface explains the cues and preparation time.
+- Added per-take volume, stereo pan, and effect mix, along with atomic bulk mix changes for selected recordings. These settings apply to playback, video export, and character WAV stems.
+- Separated the **shared project mix** from **personal monitoring**: personal levels do not change exports. Original audio, background audio, and dub tracks have the applicable levels, mute/solo controls, and source offsets. Personal monitoring can be reset to the project mix.
+- Smoothed automatic ducking: it lowers the background before a line, bridges nearby phrases, and gradually restores the level afterward. Room updates should not abruptly reset these transitions.
 
-## Эффекты, пресеты и шумоподавление
+## Effects, presets, and noise reduction
 
-- Вместо одиночного эффекта введены **последовательные цепочки** для роли и реплики. Порядок слышен при воспроизведении, предпрослушивании и экспорте; исходные записи не перезаписываются обработанным звуком.
-- В каталоге теперь **11 эффектов**: питч, робот, рация, телефон, монстр, мысли, пещера, за дверью, мегафон, эхо/Delay и графический эквалайзер.
-- Добавлен эффект **«Телефон»**, выровнены уровни ряда голосовых эффектов.
-- Питч перенесён из отдельного верхнего регулятора в цепочку: диапазон **−12…+12 полутонов**, позиция среди других эффектов выбирается пользователем.
-- Добавлен **графический эквалайзер** с настраиваемыми полосами.
-- Редактор эффектов стал компактнее и общим по стилю для ролей и реплик: тоглы, нумерация/направление цепочки, перетаскивание карточек с видимым переносимым элементом и раздвиганием соседей, добавление эффектов перетаскиванием из каталога, доступное управление порядком с клавиатуры/кнопок.
-- Добавлены личное предпрослушивание, выбор записи для проверки, повтор и сравнение звучания. Изменения черновика слышны только автору до применения; закрытие редактора предлагает сохранить или отбросить правки.
-- Добавлена **общая библиотека пресетов текущей сессии**. Участники могут создавать, выбирать и применять доступные им пресеты; пользовательский пресет содержит всю цепочку и может иметь свою иконку.
-- Быстрый выбор пресета доступен прямо в инспекторе, включая групповое назначение выбранным репликам.
-- У реплики одна собственная цепочка: связанный пресет, его локально изменённый вариант **«(изменено)»** или уникальные эффекты. Убрано отдельное наложение индивидуальной цепочки поверх пресета этой же реплики.
-- Правка связанного пресета сначала остаётся локальной. Можно оставить её только у реплики, создать новый пресет или подтвердить обновление исходного общего пресета при наличии прав. Подтверждённое обновление применяется к связанным репликам, включая уже записанные.
-- Эффекты роли обрабатываются **перед** собственной цепочкой реплики; наследование можно отключить для конкретной реплики. На краткой схеме цепочки эффекты роли обозначены отдельным цветом и названием.
-- Ролевые пресеты отделены от пресетов реплик. «Применить к роли» сразу обновляет её общий пресет; лишняя боковая панель, иконка роли и постоянное предупреждение убраны, пояснение оставлено у кнопки применения.
-- Участник может редактировать эффекты выбранной им роли. Ролевые пресеты нельзя назначать отдельным репликам; имена ролей защищены от создания одноимённых пресетов реплик, а конфликты имён при изменении ролей обрабатываются отдельно.
-- Удаление/открепление общего пресета учитывает его использование и сохраняет нужное звучание в локальных цепочках, включая историю дублей.
-- Добавлено необязательное ограниченное **выравнивание громкости реплик** с прослушиванием до/после; ручные уровни сохраняются, почти тихие записи не усиливаются без ограничения.
-- Шумоподавление заменено на встроенный **RNNoise**: настройка автора в текущей сцене, сила обработки, личная проверка до применения, повторное использование обработанного звука и сохранение параметров в проекте. Обработка работает локально, без загрузки голоса во внешний сервис.
-- Убраны промежуточная схема шумоподавления по профилю/калибровке и её лишние действия. При миграции старой настройки RNNoise не включается автоматически; сухие записи сохраняются.
-- Полностью удалены настройка браузерного WebRTC-шумоподавления/эхоподавления и её логика; при захвате микрофона явно выключены `noiseSuppression`, `echoCancellation` и `autoGainControl`.
+- Replaced single effects with **ordered effect chains** for roles and individual lines. Processing order applies to playback, previews, and exports; original recordings are never overwritten with processed audio.
+- The catalog now contains **11 effects**: Pitch, Robot, Radio, Telephone, Monster, Thoughts, Cave, Behind the Door, Megaphone, Echo/Delay, and a graphic Equalizer.
+- Added the **Telephone** effect and balanced the levels of several voice effects.
+- Moved Pitch from its separate top-level control into the chain. It supports **−12 to +12 semitones**, and users can choose its position among the other effects.
+- Added a **graphic equalizer** with adjustable frequency bands.
+- Made the effects editor more compact and consistent for roles and individual lines: toggles, numbered processing order and direction, draggable cards with a visible dragged item and shifting neighbors, drag-to-add from the catalog, and accessible ordering through the keyboard and buttons.
+- Added personal previews, a recording selector, looping, and sound comparison. Draft changes are audible only to their author until applied; closing the editor offers to save or discard them.
+- Added a **shared preset library for the current session**. Participants can create, select, and apply presets allowed by their permissions. Custom presets contain the full chain and can have a custom icon.
+- Added quick preset selection directly in the inspector, including bulk assignment to selected lines.
+- Each line has one chain of its own: a linked preset, a locally modified version marked **“(modified)”**, or unique effects. Removed the separate layer of individual effects on top of the same line's preset.
+- Edits to a linked preset remain local initially. Users can keep them on that line, save a new preset, or confirm an update to the original shared preset if they have permission. Confirmed updates affect linked lines, including lines that are already recorded.
+- Role effects are processed **before** a line's own chain. Inheritance can be disabled for an individual line. The compact chain diagram identifies role effects with a separate color and preset name.
+- Role presets are separate from line presets. **Apply to role** updates the role's shared preset directly. Removed the unnecessary sidebar, role preset icon, and persistent warning; the explanation is available on the apply button.
+- Participants can edit effects for roles they own. Role presets cannot be assigned to individual lines. Line presets cannot use a role's name, and name conflicts introduced by role changes are handled separately.
+- Deleting or unlinking a shared preset accounts for its usage and preserves the required sound in local chains, including take history.
+- Added optional, bounded **dialogue loudness leveling** with before/after preview. Manual levels are preserved, and near-silent recordings are not amplified without a limit.
+- Replaced noise reduction with bundled **RNNoise**: an author-specific setting in the current scene, adjustable strength, personal preview before applying, reuse of processed audio, and project persistence. Processing runs locally without uploading voices to an external service.
+- Removed the intermediate noise-profile/calibration workflow and its extra steps. Migrating an old setting does not automatically enable RNNoise; dry recordings are preserved.
+- Completely removed the browser WebRTC noise/echo-processing setting and its logic. Microphone capture explicitly disables `noiseSuppression`, `echoCancellation`, and `autoGainControl`.
 
-## Таймлайн, инспектор и интерфейс
+## Timeline, inspector, and interface
 
-- Инспектор стал компактнее и адаптивнее: вертикальная компоновка при небольшой ширине и несколько колонок при расширении. Сохранены усиление микрофона, история, эффекты, громкость и панорама.
-- Панель **«Роли и персонажи»** меняет ширину перетаскиванием правой границы. Исходная ширина сохранена как минимальная; выбор сохраняется локально, а дорожки и линейка смещаются вместе без изменения таймингов и выделения.
-- Улучшены индивидуальная высота дорожек, порядок ролей и его перетаскивание: движение роли ограничено вертикалью, соседние дорожки плавно раздвигаются. Изменение высоты сохраняется, даже если во время перетаскивания таймлайн обновился после загрузки медиа или действий другого участника. Длинные имена, счётчики и кнопки лучше размещаются на узкой панели.
-- Кнопка эффектов дорожки перенесена к названию роли, чтобы не перекрывать счётчики.
-- Добавлен личный фильтр нескольких ролей; список вариантов вертикальный. Старый выпадающий выбор одной роли над таймлайном удалён, остальные фильтры сохранены.
-- **Shift-выделение** учитывает дорожки и геометрию: диапазон на одной дорожке или прямоугольную область между разными дорожками, а не просто последовательность номеров.
-- В Dub Mode можно протянуть по пустому месту **личный временной фрагмент**. Пробел воспроизводит его до конца и останавливает; двойной щелчок выделяет весь ролик.
-- Временной фрагмент не меняет привычные жесты Edit Mode. Его время и действия перенесены в нижнюю строку рядом с масштабом, без дополнительной полосы над дорожками.
-- Переработаны минимэп, рамка видимой области и масштабирование по её краям. «Вся сцена» учитывает реальный размер окна/панели; исправлены пределы масштаба и сохранение привязки при изменении ширины/панелей.
-- Создание, перемещение, растягивание, клавиатурные сдвиги и групповые операции ограничены длительностью видео. Выходящая за него область обозначается, некорректные операции объясняются.
-- Видимые номера реплик следуют хронологическому порядку таймлайна; внутренние идентификаторы и привязка существующих записей сохраняются.
-- Исправлены групповые переносы между ролями, привязка указателя при прокрутке/масштабе, отмена жестов и блокировка времени; ошибка в группе не должна частично перемещать её элементы.
-- Обычные галочки заменены на тоглы с отступами, включая обрезку тишины и сигнал после экспорта. Убраны лишние отступы и парные разделители, сохранены нужные границы разделов.
-- Исправлено дрожание текста в выпадающих списках; улучшены выборки, фокус, клавиатурное управление и длинные подписи.
-- Иконки модераторов получили различимый в темах цвет, статус готовности участников стал компактнее и понятнее.
-- Улучшены контраст во всех темах, CC и полноэкранные кнопки, положение субтитров относительно транспорта, настройка их размера, возврат из fullscreen и восстановление управления.
-- Личные настройки отделены от комнаты/проекта и разбиты по категориям. Появились понятные подсказки недоступных действий, обновлена помощь первого запуска, диалоги и переводы EN/RU/UA.
+- Made the inspector more compact and responsive: a vertical layout at narrow widths and multiple columns when widened. Microphone gain, history, effects, volume, and pan remain available.
+- The **Roles and characters** panel can be resized by dragging its right edge. The original width remains the minimum. The choice is saved locally, while tracks and the ruler move together without changing timing or selection.
+- Improved individual track heights, role ordering, and drag reordering. Roles move vertically while neighboring tracks shift smoothly. Height changes survive timeline redraws caused by media readiness or another participant's actions during a drag. Long names, counters, and buttons fit narrow panels more reliably.
+- Moved the track-effects button next to the role name so it no longer overlaps counters.
+- Added a personal multi-role filter with vertically arranged options. Removed the obsolete single-role dropdown above the timeline while preserving the other filters.
+- **Shift selection** now follows tracks and geometry: a range within one track, or a rectangle spanning different tracks, rather than a simple sequence of line numbers.
+- In Dub Mode, dragging across empty timeline space selects a **personal time range**. Space plays to its end and stops; double-clicking selects the entire video.
+- Time-range selection leaves existing Edit Mode gestures intact. Range times and actions are displayed in the bottom row beside zoom controls, without adding another bar above the tracks.
+- Reworked the minimap, viewport frame, and zooming through its edges. **Whole scene** accounts for the actual window and panel size. Fixed zoom limits and alignment when resizing windows or panels.
+- Creating, moving, resizing, keyboard nudging, and bulk operations are bounded by the video duration. The area beyond the video is marked, and invalid operations are explained.
+- Visible line numbers follow chronological timeline order while internal identifiers and existing recording associations remain intact.
+- Fixed group moves between roles, pointer alignment during scrolling and zooming, gesture cancellation, and time locking. A failed group operation must not move only part of the selection.
+- Replaced ordinary checkboxes with spaced toggles, including silence trimming and the export-completion sound. Removed excess spacing and paired dividers while preserving useful section boundaries.
+- Fixed jittering text in dropdowns. Improved selectors, focus, keyboard navigation, and long labels.
+- Gave moderator icons a distinct color across themes and made participant readiness indicators more compact and understandable.
+- Improved contrast across themes, CC and fullscreen controls, subtitle placement relative to playback controls, subtitle sizing, exiting fullscreen, and restoration of controls.
+- Separated personal settings from room and project settings and organized them into categories. Added clearer explanations for unavailable actions and updated first-run help, dialogs, and EN/RU/UK translations.
 
-## Совместное редактирование и права
+## Collaborative editing and permissions
 
-- Укреплены очереди совместных изменений, подтверждения сервера и привязка операций к сцене/ревизии. Потерянное подтверждение, запрет по правам и настоящий конфликт больше не смешиваются в один исход.
-- Добавлены надёжное восстановление неподтверждённых действий после перезагрузки/переподключения и обзор конфликтов. Повтор старого запроса не должен дублировать уже выполненную операцию.
-- Блокировки и ожидание занятых элементов стали понятнее; ожидание можно отменить. Изменение прав, защиты таймингов и уход участника пересматривают доступность операций.
-- Защита таймингов запрещает не только изменение времени и создание реплик, но и одиночное/групповое удаление, удаление реплик вместе с дорожкой и отмену создания. Проверка выполняется на сервере, в том числе для отложенных запросов; кнопка группового удаления выделена красным.
-- Укреплены отмена, удаление и корзина, восстановление групп/ролей, работа модераторов, одновременные перестановки дорожек и большие сцены. Обычный отказ не должен выдавать опасные варианты восстановления.
-- Улучшены общие выделения и курсоры участников: просроченные данные очищаются, переход к участнику использует свежую позицию, отображение не зависит от одинаковой прокрутки.
-- Сохранены и расширены проверки прав для импорта, кастинга, очистки/восстановления корзины, микса, эффектов и загрузок. Недоступные действия объясняются в интерфейсе; сервер остаётся источником прав.
-- Исправлены гонки между удалением/перезаписью/загрузкой дубля, сменой сцены и никнейма; устаревшие ответы не должны возвращать удалённый звук или менять чужую запись.
+- Strengthened shared edit queues, server acknowledgements, and scene/revision binding. A lost acknowledgement, a permission denial, and a genuine conflict are now treated as different outcomes.
+- Added reliable recovery of unacknowledged actions after reloads and reconnects, plus conflict review. Retrying an old request must not duplicate an operation that already succeeded.
+- Made locks and waits for busy elements clearer; waiting can be canceled. Permission changes, timing protection, and participant departures update which operations are available.
+- Timing protection blocks timing changes and line creation as well as single/bulk deletion, deleting lines with their track, and undoing line creation. The server also checks delayed requests. The bulk-delete button is styled red.
+- Strengthened Undo, deletion and Trash, group and role restoration, moderator actions, concurrent track reordering, and large scenes. An ordinary rejection must not expose unsafe recovery options.
+- Improved shared selections and participant cursors: stale data is cleared, jumping to a participant uses their current position, and display does not depend on matching scroll positions.
+- Retained and expanded permission checks for import, casting, clearing/restoring Trash, mixing, effects, and uploads. The interface explains unavailable actions; the server remains authoritative for permissions.
+- Fixed races between take deletion, replacement, and upload, as well as scene and nickname changes. Stale responses must not restore deleted audio or alter another participant's recording.
 
-## Подключение, медиа и диагностика
+## Connections, media, and diagnostics
 
-- Добавлен четвёртый способ подключения **«Свой туннель»** с пометкой для опытных пользователей. Dubline запускает обычный сервер, показывает фактический порт и инструкцию для любого отдельно запущенного HTTPS-туннеля; сторонние программы не скачиваются и не запускаются.
-- Cloudflare можно включать/выключать независимо от просмотра способов подключения. Переключение вкладки инструкции не перезапускает комнату, не меняет PIN и не останавливает работающий туннель.
-- Приглашение стало компактным раскрываемым блоком: скрытие PIN, копирование ссылки/PIN вместе или отдельно, копирование порта, закрытие по Escape/вне блока.
-- P2P-раздача медиа теперь требует **явного согласия участника**. Отказ сохраняется; при ошибке сохранения раздача остаётся выключенной. HTTP/Socket.IO сохраняют роль резервных способов доставки.
-- Добавлены индикаторы загрузки/раздачи видео и подготовки источников у участников, включая гостей Porthole/localhost, состояния готовности и отключённых игроков.
-- Добавлена диагностика соединения: задержка до хоста, наблюдаемый входящий/исходящий трафик и пояснения состояния. Это показатели трафика приложения, а не тест скорости интернета.
-- Улучшены проверка размеров/хешей, загрузка по частям, повторное использование проверенного кеша и переход с неудачной P2P/прямой доставки на сервер. Данные сцены не доступны до необходимого допуска по PIN/нику.
-- Воспроизведение хоста больше не зависит от завершения его собственной загрузки; исправлены смена источников, повторные подключения, отмена и поздние ответы старой сцены.
-- Управление отдельным оригиналом/фоном перенесено в Audio; добавлены безопасные загрузка, замена и удаление фона с проверкой одновременных изменений. Подходящие источники переиспользуют существующую подготовку совместимого видео.
-- Улучшены построение/кеширование волн, повторное использование canvas при прокрутке и масштабе, предварительная подготовка с ограниченной параллельностью, освобождение завершённых задач и устаревших источников.
-- Текстовые ответы сервера сжимаются; сокращены лишние загрузки и удержание медиа в памяти. Укреплены очистка потерянных файлов и закрытие локальных баз/ресурсов.
-- Исправлено открытие ссылок Workshop из хоста и гостя; защищены переходы, права микрофона/полноэкранного режима и недоверенные загруженные файлы.
-- Гость из приложения получает **предупреждение о несовпадении версий** с обоими номерами. Оно закрывается и не блокирует вход. Работает также у прежних гостевых сборок при подключении к обновлённому хосту; обычным браузерным гостям не показывается.
+- Added a fourth connection method, **Custom tunnel**, marked for experienced users. Dubline starts its normal local server, shows the actual port, and provides instructions for a separately launched HTTPS tunnel. It does not download or start third-party software.
+- Cloudflare can be enabled or disabled independently of browsing connection instructions. Switching instruction tabs does not restart the room, change its PIN, or stop a running tunnel.
+- Made invitations a compact expandable panel: hide the PIN, copy the link and PIN together or separately, copy the port, and close with Escape or an outside click.
+- P2P media sharing now requires **explicit participant consent**. Declining is remembered; if saving consent fails, sharing stays disabled. HTTP and Socket.IO remain fallback delivery paths.
+- Added participant indicators for video download/sharing and source preparation, including Porthole/localhost guests, readiness states, and disconnected players.
+- Added connection diagnostics: host latency, observed incoming/outgoing traffic, and status explanations. These measure application traffic, not internet connection speed.
+- Improved size/hash validation, chunked downloads, reuse of verified cached data, and fallback to the server after failed P2P or direct delivery. Scene data remains unavailable until the required PIN/nickname admission is complete.
+- Host playback no longer depends on completion of the host's own download. Fixed source switching, reconnects, cancellation, and late responses from an old scene.
+- Moved separate original/background source controls into Audio. Added safe background upload, replacement, and removal with concurrent-change checks. Suitable sources reuse the existing compatible-video preparation path.
+- Improved waveform generation and caching, canvas reuse during scrolling and zooming, preparation with bounded concurrency, and cleanup of completed jobs and obsolete sources.
+- Compressed text responses from the server and reduced redundant downloads and retained media memory. Strengthened orphan-file cleanup and closure of local databases and resources.
+- Fixed Workshop link opening from host and guest windows. Hardened navigation, microphone/fullscreen permissions, and handling of untrusted uploaded files.
+- App guests receive a **version-mismatch warning** showing both guest and host versions. It can be dismissed and does not block entry. It also works for older guest builds connecting to an updated host; ordinary browser guests do not receive this warning.
 
-## Экспорт видео, звука и субтитров
+## Video, audio, and subtitle export
 
-- Переработан экспорт видео для хоста и участников: **рабочая версия**, **исходное качество** и **настраиваемый** режим с понятными различиями и ограничениями источника.
-- Полный экспорт рабочей/исходной версии по возможности копирует видеопоток без перекодирования, кодируя новый звук отдельно. Исходное видео доступно только хосту.
-- Добавлен экспорт **выделенного временного фрагмента** с синхронным звуком и точной обрезкой; при необходимости видео перекодируется между ключевыми кадрами.
-- Настройки формата/кодека, разрешения, FPS и битрейта учитывают реальный источник и возможности устройства. Исправлены недоступные варианты и сообщения для браузеров вне Chromium.
-- Добавлена личная настройка **аппаратного ускорения: автоматически / включено / выключено** для подготовки сцены и подходящих экспортных операций. Проверяется фактическая поддержка; при проблеме GPU предусмотрен возврат к CPU. Копирование готового видеопотока не требует GPU-кодирования.
-- Добавлены подробные этапы прогресса: подготовка записей, сведение/кодирование звука, копирование/кодирование видео, объём записи файла, прошедшее время и предупреждение об отсутствии нового прогресса. Отмена освобождает ресурсы.
-- Звук длинных экспортов обрабатывается окнами с ограниченной подготовкой дублей. Переиспользуются декодированные/обработанные источники и исправлены задержки декодера, границы окон и синхронизация.
-- Windows-приложение пишет итоговый файл частями на диск, с проверкой назначения, места, отмены и финального сохранения. Незавершённый экспорт не должен повреждать ранее существовавший файл. Браузерные сохранения по-прежнему могут требовать значительную память.
-- Предусмотрен резервный экспорт звука в реальном времени там, где нет нужного AudioEncoder. Длинные сцены и неподдерживаемая конфигурация объясняются пользователю.
-- Перед экспортом можно проверить готовность сцены, отсутствующие файлы и технические проблемы и перейти к реплике. Незаконченная озвучка не блокируется безусловно; скрытые дубли остаются защищены.
-- Добавлены компактный отчёт о готовом файле и необязательный звуковой сигнал после сохранения.
-- Экспорт использует **общий микс проекта**, включая эффекты, RNNoise, панораму, громкость и включённое выравнивание; личное прослушивание не меняет результат. Обновлён экспорт стереодорожек персонажей в WAV ZIP.
-- Добавлен отдельный экспорт субтитров **SRT / ASS / WebVTT** между экспортом аудиодорожек и паком Voxalike. Подсказки объясняют форматы; импорт в другую сцену проверен с сохранением поддерживаемых ролей/таймингов.
-- Сохраняется экспорт редактируемого пака Voxalike с видео и субтитрами: записанные в Dubline дубли в него не включаются.
+- Reworked host and participant video export with **Working version**, **Original quality**, and **Custom** modes, clearer differences, and source-specific limits.
+- Full-length working/original exports copy the video stream without re-encoding when supported, encoding the new audio separately. Original video is available only to the host.
+- Added export of a **selected time range** with synchronized audio and precise trimming. Video is re-encoded between keyframes when necessary.
+- Format/codec, resolution, FPS, and bitrate options account for the actual source and device capabilities. Fixed unavailable choices and messages for non-Chromium browsers.
+- Added a personal **hardware acceleration policy: Auto / On / Off** for scene preparation and suitable export operations. Actual support is checked, with CPU fallback if GPU processing fails. Copying an existing video stream does not require GPU encoding.
+- Added detailed progress stages: recording preparation, audio mixing/encoding, video copying/encoding, output bytes written, elapsed time, and a warning when no new progress has been reported. Cancellation releases resources.
+- Long exports process audio in windows with bounded take preparation. Decoded and processed sources are reused. Fixed decoder delays, window boundaries, and synchronization.
+- The Windows app streams the output file to disk in chunks, checking the destination, free space, cancellation, and final save. An incomplete export must not damage a previously existing file. Browser downloads may still require substantial memory.
+- Added a real-time audio-export fallback where the required AudioEncoder is unavailable. The interface explains long-scene constraints and unsupported configurations.
+- Before exporting, users can review scene readiness, missing files, and technical issues and jump to an affected line. Incomplete dubbing is not unconditionally blocked; hidden takes remain protected.
+- Added a compact completed-file report and an optional sound after saving.
+- Export uses the **shared project mix**, including effects, RNNoise, pan, volume, and enabled loudness leveling. Personal monitoring does not change the result. Updated stereo character-stem export to WAV ZIP.
+- Added separate **SRT / ASS / WebVTT** subtitle export between audio-stem export and the Voxalike pack section. Tooltips explain the formats. Import into another scene has been checked for supported role and timing preservation.
+- Retained editable Voxalike pack export with video and subtitles. Takes recorded in Dubline are not included in these packs.
 
-## Установка, обновления и совместимость
+## Installation, updates, and compatibility
 
-- Setup получил обычный мастер установки с выбором каталога, ярлыками и регистрацией `.dubline`. Portable можно отдельно зарегистрировать/отменить регистрацию для этой копии, не перехватывая чужие ассоциации.
-- Setup и Portable используют одну сборку приложения. В обновлениях добавлены проверка хешей/метаданных, прогресс, безопасный запрос перезапуска и журнал результата; запись, импорт и другие активные операции защищены от внезапной установки.
-- Установленная версия поддерживает дифференциальное обновление; Portable использует проверенный патч управляемых файлов либо полный ZIP, с внешним помощником, восстановлением/откатом после сбоя и сохранением пользовательских файлов.
-- В лаунчере и личных настройках добавлен тогл **«Получать экспериментальные обновления»**. В бета-сборках он **включён по умолчанию**, в стабильных — выключен. Явно сохранённый выбор пользователя имеет приоритет и не привязан к комнате.
-- Выключение экспериментальных обновлений не откатывает приложение: установленная бета остаётся до более новой стабильной версии. Поддержан порядок `beta.1 → beta.2 → 1.4.0`; Steam-сборки продолжают использовать обновления Steam.
-- Из старого самостоятельного EXE на Setup/Portable ZIP нужно перейти вручную. Разработческие сборки, уже помеченные `1.4.0`, также требуют ручной установки первой беты, поскольку `1.4.0-beta.1` считается более ранней версией.
-- Источники и тесты репозитория упорядочены: приложение находится в `src/`, тесты — в `test/` и `e2e/`; лишняя внутренняя документация удалена, формат проекта и публичная история релизов сохранены.
-- Значительно расширены модульные, серверные, браузерные и нативные проверки. CI разделён на независимые группы, показывает имена упавших сценариев; выпуск проверяет комплект файлов и готовит черновик до публикации.
-- Изменена лицензия текущей ветки на **[DubLine Source License 1.0](https://github.com/dmbai009/dubline/blob/v1.4.0-beta.1/LICENSE)**. Ранее опубликованные MIT-версии, включая `1.3.1`, сохраняют свою MIT-лицензию. Добавлены уведомления и тексты лицензий сторонних компонентов в поставку. Эта бета не объявляется MIT-релизом.
+- Setup now has a standard installation wizard with folder selection, shortcuts, and `.dubline` registration. A Portable copy can separately register or unregister its own file association without taking over associations owned by other applications.
+- Setup and Portable use the same application build. Updates validate hashes and metadata, show progress, request restart safely, and log results. Recording, import, and other active operations are protected from unexpected installation.
+- Installed copies support differential updates. Portable uses a verified patch of managed files or a full ZIP, with an external helper, recovery/rollback after failure, and preservation of user files.
+- Added an **experimental updates** toggle in the launcher and personal settings. It is **enabled by default in beta builds** and disabled by default in stable builds. An explicitly saved preference takes priority and is independent of the room.
+- Disabling experimental updates does not downgrade the application: an installed beta stays until a newer stable version is available. Version ordering supports `beta.1 → beta.2 → 1.4.0`. Steam builds continue to use Steam updates.
+- Users of the old standalone EXE must migrate to Setup or Portable ZIP manually. Development builds already labeled `1.4.0` also require manual installation of this first beta because `1.4.0-beta.1` is considered an earlier version.
+- Reorganized repository source and tests: application code is in `src/`, with tests in `test/` and `e2e/`. Removed unnecessary internal documentation while retaining the project-format documentation and public release history.
+- Expanded unit, server, browser, and native checks substantially. CI uses independent groups and identifies failed scenarios; the release process validates the complete artifact set and prepares a draft before publication.
+- Changed the current branch's license to **[DubLine Source License 1.0](https://github.com/dmbai009/dubline/blob/v1.4.0-beta.1/LICENSE)**. Previously published MIT releases, including `1.3.1`, retain their MIT license. Third-party notices and license texts are included in distributions. This beta is not an MIT release.
 
-## Ограничения беты
+## Beta limitations
 
-- Это тестовая версия: сохраняйте резервные копии. Поддержка новых форматов при чтении старым приложением не гарантируется.
-- Для браузерных участников поддерживаемый путь — Chrome/Edge. Возможности экспорта и аудиоустройств зависят от браузера, ОС и доступных кодеков.
-- Аппаратное ускорение не ускоряет все операции: обработка звука, проверка файлов, копирование видеопотока и диск имеют свои ограничения.
-- Автоматические проверки не заменяют проверку реальных микрофонов, гарнитур, сетей и субъективного звучания участниками.
-
----
-
-## English overview
-
-**Dubline 1.4.0-beta.1 is a pre-release containing the complete 1.4 development work since 1.3.1.** The detailed changelog above covers the additions, removals, fixes and migration notes.
-
-- Windows distribution is now **Setup + Portable ZIP**; the old self-extracting standalone Portable EXE is retired. Extract and keep the complete Portable folder.
-- New Single Player workflow, portable `.dubline` projects, large disk-backed archives, original/working-video preservation and movable project storage.
-- Responsive inspector, resizable role column, improved role reordering, multi-role filters, spatial Shift selection, private playback/export ranges and theme/accessibility improvements.
-- Take history/pins/A-B comparison, persistent retake notes, optional recording-quality hints, next-line navigation, source-only original preview and persistent audio-device selection.
-- Eleven chainable effects, including Telephone, ±12-semitone Pitch and graphic EQ; shared live session presets, bulk application, local modified variants and isolated role presets.
-- Bundled local RNNoise replaces the profile/calibration prototype. Browser WebRTC noise/echo processing and AGC are explicitly disabled. Optional dialogue-level correction preserves manual levels.
-- Stronger collaborative edit queues, conflict recovery, leases, Undo, moderation and stale-upload/scene protection; improved media caches, waveforms and HTTP/P2P fallback.
-- Custom HTTPS tunnel instructions, independent Cloudflare controls, compact PIN invitations, explicit P2P consent, participant media progress, network diagnostics and guest/host version warnings.
-- Reworked video export with source-aware modes, exact selected-range rendering, detailed progress, windowed audio, safe native disk streaming and per-device GPU/CPU policy with fallback. Separate SRT/ASS/VTT export and existing WAV/Voxalike export are included.
-- Verified Setup/Portable update paths and numbered beta channels. **Experimental updates default to enabled in beta builds**, while an explicitly saved preference is preserved. Disabling them does not downgrade the app.
-- Legacy standalone EXE users, and development builds already labeled `1.4.0`, must install this first beta manually. Back up projects before migration.
-- Current code uses **DubLine Source License 1.0**; historical MIT releases retain their original license. Third-party notices are included.
+- This is a test release: keep backups. Older application versions are not guaranteed to read newer project formats.
+- Chrome and Edge are the supported path for browser participants. Export and audio-device capabilities depend on the browser, operating system, and available codecs.
+- Hardware acceleration does not speed up every operation. Audio processing, file verification, video-stream copying, and disk I/O have their own limits.
+- Automated checks do not replace testing with real microphones, headsets, networks, and participants' listening feedback.
 
 **Full commit comparison:** https://github.com/dmbai009/dubline/compare/v1.3.1...v1.4.0-beta.1
