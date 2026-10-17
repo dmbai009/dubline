@@ -777,7 +777,7 @@ function showMultiInspector() {
     ${window.DublineVoiceEditor?.bulkHtml(lines) || ''}
     <div class="insp-actions secondary">
       ${canModerate() && !session.singlePlayer ? `<button class="btn-host" onclick="releaseSelectedLines()">${t('multi.release')}</button>` : ''}
-      ${session.mode === 'edit' ? `<button class="btn-outline" onclick="deleteEditorLines([...multiSelection])">${t('multi.delete')}</button>` : ''}
+      ${session.mode === 'edit' ? `<button class="btn-delete" data-editor-delete ${session.protectTimings ? 'disabled' : ''} onclick="deleteEditorLines([...multiSelection])">${t('multi.delete')}</button>` : ''}
       <button class="btn-outline" onclick="clearMultiSelection()">${t('multi.clear')}</button>
     </div>
     <p class="take-hint">${t('multi.hint')}</p>

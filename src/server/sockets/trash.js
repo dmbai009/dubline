@@ -10,7 +10,7 @@ module.exports = function registerTrashHandlers(socket, conn) {
   socket.on('host_delete_lines', ({ lineIds } = {}) => {
     if (!conn.roomId || !Array.isArray(lineIds)) return;
     const room = getRoom(conn.roomId);
-    if (!isHost(room, conn.clientId) || room.mode !== 'edit') return;
+    if (!isHost(room, conn.clientId) || room.mode !== 'edit' || room.protectTimings) return;
     const doomed = new Set(lineIds);
     // Remember where the lines were so undo puts them back
     const removed = room.lines.map((line, index) => ({ line, index })).filter(entry => doomed.has(entry.line.id));

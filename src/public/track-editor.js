@@ -10,7 +10,7 @@
     dialog.innerHTML = `<h3 id="trackDeleteTitle">${esc(t('track.deleteTitle', { name: character }))}</h3><p>${esc(t('track.deleteCounts', { n: lines.length, m: lines.filter(line => line.audioUrl).length }))}</p>
       <label>${esc(t('track.destination'))}<select class="text-input">${others.map(name => `<option value="${esc(name)}">${esc(name)}</option>`).join('')}<option value="">${esc(t('track.new'))}</option></select></label>
       <input class="text-input" maxlength="40" aria-label="${esc(t('editor.trackPrompt'))}" placeholder="${esc(t('editor.trackPrompt'))}">
-      <div class="insp-actions"><button type="button" class="btn-play" data-track-decision="transfer">${esc(t('track.transfer'))}</button><button type="button" class="btn-delete" data-track-decision="trash">${esc(t('track.trash'))}</button><button type="button" class="btn-outline" data-track-decision="cancel">${esc(t('dialog.cancel'))}</button></div>`;
+      <div class="insp-actions"><button type="button" class="btn-play" data-track-decision="transfer">${esc(t('track.transfer'))}</button><button type="button" class="btn-delete" data-track-decision="trash" ${session.protectTimings && lines.length ? 'disabled' : ''}>${esc(t('track.trash'))}</button><button type="button" class="btn-outline" data-track-decision="cancel">${esc(t('dialog.cancel'))}</button></div>`;
     const select = dialog.querySelector('select'), input = dialog.querySelector('input');
     const update = () => { input.hidden = !!select.value; }; select.onchange = update; update();
     return new Promise(resolve => { pending = { resolve, focus: document.activeElement }; dialog.showModal(); select.focus(); });

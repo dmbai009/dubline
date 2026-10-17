@@ -825,7 +825,7 @@ window.reloadEditorDraft = function(lineId) {
 window.showEditorInspector = function(line, capture = true) {
   const oldForm = inspector.querySelector('#editorLineForm');
   if (oldForm && capture) rememberEditorDraft(oldForm);
-  if (oldForm) oldForm.querySelectorAll('[data-editor-field="start"], [data-editor-field="end"]').forEach(input => { input.disabled = session.protectTimings === true; });
+  if (oldForm) oldForm.querySelectorAll('[data-editor-field="start"], [data-editor-field="end"], [data-editor-delete]').forEach(input => { input.disabled = session.protectTimings === true; });
   const key = editorDraftKey(line.id);
   let draft = editorDrafts.get(key);
   const tracks = sessionCharacters();
@@ -868,7 +868,7 @@ window.showEditorInspector = function(line, capture = true) {
       <div class="insp-actions">
         <button class="btn-play grow" type="submit" ${conflict || (draft && draft.pending) ? 'disabled' : ''}>${t('save')}</button>
         <button class="btn-outline" type="button" onclick="video.currentTime=${line.start}">${t('editor.seek')}</button>
-        <button class="btn-delete" type="button" onclick="deleteEditorLines([${line.id}])">${t('editor.delete')}</button>
+        <button class="btn-delete" data-editor-delete type="button" ${session.protectTimings ? 'disabled' : ''} onclick="deleteEditorLines([${line.id}])">${t('editor.delete')}</button>
       </div>
     </form>
     ${retakeControlHtml(line)}
@@ -935,9 +935,11 @@ window.saveEditorLine = async function(event, lineId) {
 };
 
 window.deleteEditorLines = async function(lineIds) {
+  if (session?.protectTimings) return warnProtectedTimings();
   const binding = captureEditorTargets(lineIds);
   if (!lineIds.length || !await askConfirm(t('line.deleteConfirm', { n: lineIds.length }))) return;
   if (!editorTargetsMatch(binding)) return showToast(t('editor.dialogChanged'));
+  if (session.protectTimings) return warnProtectedTimings();
   return queueEditorRequest(() => ['editor_delete_lines', {
     lines: binding.lines
   }]).then(result => {
