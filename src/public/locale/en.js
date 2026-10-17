@@ -1355,5 +1355,7 @@ window.DublineLocales.en = {
   "fx.rolePreset": "Role preset",
   "fx.rolePresetHelp": "Apply to role updates this role’s preset for all its lines, including future recordings. Role presets are separate from take presets.",
   "preset.roleName": "This name belongs to a role. Choose another preset name. Role effects can be changed in the role editor.",
-  "preset.roleOnly": "Role presets can only be edited in the role editor."
+  "preset.roleOnly": "Role presets can only be edited in the role editor.",
+  "guestVersion.title": "Dubline versions differ",
+  "guestVersion.message": "Your version: {guest}. Host version: {host}. Some features may not work correctly. Use the same app version as the host."
 };

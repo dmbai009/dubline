@@ -1,18 +1,20 @@
 const { EventEmitter } = require('node:events');
 const { isNewerVersion } = require('./electron-update');
+const { isAppVersion, isBeta } = require('./update-version');
 
 class InstalledUpdater extends EventEmitter {
-  constructor({ currentVersion, updater, busy, shutdown }) {
+  constructor({ currentVersion, updater, busy, shutdown, experimental = false }) {
     super(); this.currentVersion = currentVersion; this.updater = updater;
     this.busy = busy; this.shutdown = shutdown; this.job = null; this.installing = false;
     this.status = { state: 'idle', currentVersion, version: '', url: '', progress: null };
     updater.autoDownload = false; updater.autoInstallOnAppQuit = false;
-    updater.allowPrerelease = false; updater.allowDowngrade = false;
+    this.experimental = experimental === true;
+    this.configureChannel();
     updater.on('checking-for-update', () => this.set({ state: 'checking', error: '' }));
     updater.on('update-not-available', () => this.set({ state: 'current', version: '', progress: null }));
     updater.on('update-available', info => {
-      if (!/^\d+\.\d+\.\d+$/.test(info.version) || !isNewerVersion(info.version, currentVersion)) {
-        this.set({ state: 'error', error: 'Update metadata does not describe a newer stable release.' }); return;
+      if (!isAppVersion(info.version) || (!this.experimental && isBeta(info.version)) || !isNewerVersion(info.version, currentVersion)) {
+        this.set({ state: 'error', error: 'Update metadata does not describe a newer release in the selected channel.' }); return;
       }
       this.set({ state: 'available', version: info.version,
         url: `https://github.com/dmbai009/dubline/releases/tag/v${info.version}`, progress: null });
@@ -30,6 +32,18 @@ class InstalledUpdater extends EventEmitter {
     updater.on('error', () => this.set({ state: 'error', error: 'Update failed. Retry or download the official release manually.', progress: null }));
   }
   set(value) { this.status = { ...this.status, ...value }; this.emit('status', this.getStatus()); }
+  configureChannel() {
+    this.updater.channel = this.experimental ? 'beta' : 'latest';
+    this.updater.allowPrerelease = this.experimental;
+    // electron-updater's channel setter enables downgrades; preserve our policy.
+    this.updater.allowDowngrade = false;
+  }
+  async setExperimental(value) {
+    if (this.job || this.installing) return { ok: false, code: 'busy' };
+    this.experimental = value === true; this.configureChannel();
+    this.set({ state: 'idle', version: '', url: '', progress: null, error: '' });
+    return { ok: true };
+  }
   getStatus() { return { ...this.status }; }
   check() {
     if (this.job) return this.job;
@@ -50,6 +64,7 @@ class InstalledUpdater extends EventEmitter {
   }
   async installOrRestart() {
     if (this.installing || this.status.state !== 'downloaded') return { ok: false, code: 'not-ready' };
+    if (!this.experimental && isBeta(this.status.version)) return { ok: false, code: 'not-ready' };
     this.installing = true;
     try {
       if (await this.busy()) return { ok: false, code: 'busy' };

@@ -25,7 +25,7 @@ Dubline is a dubbing studio for recording scenes together. The Windows host runs
 - Save complete scenes as portable `.dubline` projects.
 - Export finished video, a selected fragment, character WAV stems, SRT/ASS/VTT subtitles or an editable Voxalike pack.
 
-The `main` branch contains development work for **1.4**. Download a published release for the released version. [Release history](docs/releases/).
+The `main` branch contains **1.4.0-beta.1**. This is an experimental pre-release; the stable download remains 1.3.1. See the [complete beta changelog](docs/releases/RELEASE_NOTES_1.4.0-beta.1.md) or [release history](docs/releases/).
 
 ## Getting started
 
@@ -70,6 +70,14 @@ The Windows app includes its server, FFmpeg and Cloudflare helper. Browser guest
 Long scenes, extracted audio, exports and project archives need free disk space. Browser exports and full-length WAV stems can also use substantial RAM. Working video and Voxalike imports have separate limits shown in the interface; `.dubline` archives have no aggregate size ceiling. Keep backups before deleting scenes or clearing application data.
 
 My Settings lets the desktop host choose another storage drive. Updates preserve the chosen workspace and profile. Setup installs for the current Windows user; Portable runs from its extracted folder. Steam builds use Steam updates.
+
+## Experimental updates
+
+Windows Setup and Portable users can change **Receive experimental updates** in the launcher or My Settings, beside About Dubline. It defaults to on in beta builds and off in stable builds; an explicitly saved choice is preserved. This device-local option is never stored in a room or project. Beta versions may be unstable and update frequently. Turning the option off keeps the installed version until a newer stable release is available; it does not downgrade or restart the app. Steam continues to manage its own updates.
+
+Release versions use `1.4.0-beta.1`, `1.4.0-beta.2`, then `1.4.0`. To prepare a beta, set the package and lockfile version together, commit and create the matching `v1.4.0-beta.1` tag. Release CI verifies Setup/Portable and creates an unpublished draft marked **Pre-release**, including `beta.yml` and Portable update metadata. Publish only the complete verified draft. Stable releases use `latest.yml` and remain the default download.
+
+An existing development build labeled `1.4.0` treats `1.4.0-beta.1` as older. Install the first beta manually in that case; subsequent numbered betas and the final `1.4.0` follow normal update ordering.
 
 ## Run from source
 

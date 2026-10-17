@@ -5,9 +5,10 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const yazl = require('yazl');
 const { MANIFEST_PATH, createManifest, manifestBytes, bytesHash, fileHash, changesBetween, verifyTree } = require('../src/electron-managed-files');
+const { isAppVersion, isBeta } = require('../src/update-version');
 const root = path.resolve(__dirname, '..');
 const qaVersion = process.env.DUBLINE_QA_VERSION;
-if (qaVersion && !/^\d+\.\d+\.\d+$/.test(qaVersion)) throw new Error('Invalid QA build version.');
+if (qaVersion && !isAppVersion(qaVersion)) throw new Error('Invalid QA build version.');
 const output = qaVersion ? path.join(root, 'build', 'update-qa', qaVersion) : path.join(root, 'dist');
 const unpacked = path.join(output, 'win-unpacked');
 function command(file, args) {
@@ -16,13 +17,14 @@ function command(file, args) {
   if (result.status !== 0) throw new Error(`${file} failed (${result.status}).`);
 }
 function builder(args) { command(process.execPath, [require.resolve('electron-builder/cli'), ...args, '--config.directories.output=' + output,
+  '--config.publish.channel=' + (isBeta(qaVersion || require('../package.json').version) ? 'beta' : 'latest'),
   ...(qaVersion ? ['--config.extraMetadata.version=' + qaVersion] : []), '--publish', 'never']); }
 function distribution(channel) {
   const metadata = require('../package.json');
   const commit = spawnSync('git', ['-c', `safe.directory=${root.replace(/\\/g, '/')}`, 'rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8', windowsHide: true });
   if (commit.status !== 0 || !/^[a-f0-9]{40}$/.test(commit.stdout.trim())) throw new Error('A Git commit is required for distribution metadata.');
   const version = qaVersion || metadata.version;
-  if (!/^\d+\.\d+\.\d+$/.test(version)) throw new Error('Only stable versions can be built by this release pipeline.');
+  if (!isAppVersion(version)) throw new Error('Use a stable version or a numbered beta (for example 1.4.0-beta.1).');
   return { schemaVersion: 1, channel, version, commit: commit.stdout.trim(),
     electronVersion: require('electron/package.json').version, platform: 'win32', arch: 'x64' };
 }
@@ -53,7 +55,7 @@ async function buildUnpacked() {
 async function buildSetup() {
   await writeMarker(unpacked, 'github-setup');
   // --prepackaged does not run the normal packaging hook that creates this file.
-  await fsp.writeFile(path.join(unpacked, 'resources', 'app-update.yml'), 'provider: github\nowner: dmbai009\nrepo: dubline\nupdaterCacheDirName: dubline-updater\n');
+  await fsp.writeFile(path.join(unpacked, 'resources', 'app-update.yml'), 'provider: github\nowner: dmbai009\nrepo: dubline\nupdaterCacheDirName: dubline-updater\nchannel: ' + (isBeta(distribution('github-setup').version) ? 'beta' : 'latest') + '\n');
   builder(['--win', 'nsis', '--x64', '--prepackaged', unpacked]);
 }
 async function buildPortable(baseFolder) {
@@ -93,7 +95,7 @@ async function inventory() {
   const artifacts = [];
   const version = distribution('github-setup').version;
   const setup = `Dubline-${version}-win-x64-Setup.exe`;
-  const names = new Set([setup, setup + '.blockmap', 'latest.yml', 'portable-update.json']);
+  const names = new Set([setup, setup + '.blockmap', isBeta(version) ? 'beta.yml' : 'latest.yml', 'portable-update.json']);
   try {
     const portable = JSON.parse(await fsp.readFile(path.join(output, 'portable-update.json'), 'utf8'));
     if (portable.version === version) for (const asset of [portable.full, ...portable.patches]) names.add(asset.asset);

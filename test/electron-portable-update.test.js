@@ -24,10 +24,10 @@ async function tree(folder, version, code) {
   await fsp.writeFile(path.join(folder, ...MANIFEST_PATH.split('/')), manifestBytes(manifest));
   return manifest;
 }
-async function fixture() {
+async function fixture({ from = '1.4.0', to = '1.4.1', experimental = false } = {}) {
   const folder = await fsp.mkdtemp(path.join(os.tmpdir(), 'dubline-portable-safety-'));
   const a = path.join(folder, 'A'), b = path.join(folder, 'B');
-  const base = await tree(a, '1.4.0', 'code-A'), target = await tree(b, '1.4.1', 'code-B');
+  const base = await tree(a, from, 'code-A'), target = await tree(b, to, 'code-B');
   const changes = changesBetween(base, target), hash = bytesHash(manifestBytes(target)), baseHash = bytesHash(manifestBytes(base));
   const patchInfo = { schemaVersion: 1, fromVersion: base.version, toVersion: target.version, requiredBaseManifestHash: baseHash,
     targetManifestHash: hash, changed: changes.changed.map(file => file.path), removed: changes.removed };
@@ -37,20 +37,63 @@ async function fixture() {
   const asset = async file => ({ asset: path.basename(file), size: (await fsp.stat(file)).size, sha256: await fileHash(file) });
   const metadata = { ...target, files: undefined, targetManifest: target, targetManifestHash: hash,
     full: await asset(fullFile), patches: [{ ...await asset(patchFile), fromVersion: base.version, requiredBaseManifestHash: baseHash }] };
-  const release = { tag_name: 'v1.4.1', draft: false, prerelease: false, assets: ['portable-update.json', metadata.full.asset, metadata.patches[0].asset].map(name => ({ name,
-    browser_download_url: `https://github.com/dmbai009/dubline/releases/download/v1.4.1/${name}` })) };
+  const release = { tag_name: 'v' + to, draft: false, prerelease: to.includes('-beta.'), assets: ['portable-update.json', metadata.full.asset, metadata.patches[0].asset].map(name => ({ name,
+    browser_download_url: 'https://github.com/dmbai009/dubline/releases/download/v' + to + '/' + name })) };
   const requested = [];
   const adapter = new PortableUpdater({ current: base, root: a, stagingRoot: path.join(folder, 'staging'), helper,
-    busy: async () => false, shutdown: async () => {}, exit: () => {},
-    json: async url => url.includes('/releases/latest') ? release : metadata,
+    busy: async () => false, shutdown: async () => {}, exit: () => {}, experimental,
+    json: async url => url.includes('/releases/latest') ? release : url.includes('/releases?') ? [release] : metadata,
     fetchFile: async (_url, destination, expected, progress) => {
       requested.push(expected.asset); const source = expected.asset === path.basename(patchFile) ? patchFile : fullFile;
       await fsp.copyFile(source, destination);
       assert.equal(await fileHash(destination), expected.sha256);
       progress({ percent: 100, transferred: expected.size, total: expected.size });
     } });
-  return { folder, a, b, base, target, adapter, requested, metadata, patchFile, patchInfo, changes };
+  return { folder, a, b, base, target, adapter, requested, metadata, patchFile, patchInfo, changes, release };
 }
+
+test('Portable beta opt-in and opt-out preserve installed files and discard only the staged update', async () => {
+  const f = await fixture({ from: '1.4.0-beta.1', to: '1.4.0-beta.2' });
+  try {
+    await f.adapter.check(); assert.equal(f.requested.length, 0); assert.equal(f.adapter.getStatus().state, 'current');
+    f.release.prerelease = false;
+    await f.adapter.check(); assert.equal(f.requested.length, 0);
+    await f.adapter.setExperimental(true); await f.adapter.check();
+    assert.equal(f.adapter.getStatus().state, 'downloaded'); assert.equal(f.adapter.getStatus().version, '1.4.0-beta.2');
+    const stage = f.adapter.staged.folder, unrelated = path.join(f.adapter.stagingRoot, 'other-file.txt');
+    await fsp.writeFile(unrelated, 'keep');
+    await f.adapter.setExperimental(false);
+    assert.equal(fs.existsSync(stage), false); assert.equal(await fsp.readFile(unrelated, 'utf8'), 'keep');
+    assert.equal((await f.adapter.installOrRestart()).ok, false); await verifyTree(f.a, f.base);
+  } finally { await fsp.rm(f.folder, { recursive: true, force: true }); }
+});
+
+test('Portable refuses a channel switch during a pending release check', async () => {
+  const f = await fixture(); let finish;
+  try {
+    f.adapter.json = () => new Promise(resolve => { finish = resolve; });
+    const job = f.adapter.check();
+    assert.equal((await f.adapter.setExperimental(true)).code, 'busy');
+    finish(null); await job; assert.equal(f.adapter.experimental, false);
+  } finally { await fsp.rm(f.folder, { recursive: true, force: true }); }
+});
+
+test('real Portable helper applies beta-to-beta and beta-to-stable verified patches', { skip: REQUIRE_WINDOWS_POWERSHELL }, async () => {
+  for (const [to, experimental] of [['1.4.0-beta.10', true], ['1.4.0', false]]) {
+    const f = await fixture({ from: '1.4.0-beta.2', to, experimental });
+    try {
+      await fsp.writeFile(path.join(f.a, 'My project.dubline'), 'keep-project');
+      await f.adapter.check(); assert.equal(f.adapter.getStatus().state, 'downloaded');
+      const plan = f.adapter.staged.plan; plan.restart = false; plan.processes = [{ id: 2147483647 }];
+      await fsp.writeFile(f.adapter.staged.job, JSON.stringify(plan));
+      const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', helper, '-JobFile', f.adapter.staged.job], { encoding: 'utf8', windowsHide: true });
+      assert.equal(result.status, 0, result.stderr);
+      const outcome = JSON.parse(await fsp.readFile(path.join(f.adapter.staged.folder, 'update-result.json'), 'utf8'));
+      assert.equal(outcome.ok, true, JSON.stringify(outcome)); await verifyTree(f.a, f.target);
+      assert.equal(await fsp.readFile(path.join(f.a, 'My project.dubline'), 'utf8'), 'keep-project');
+    } finally { await fsp.rm(f.folder, { recursive: true, force: true }); }
+  }
+});
 test('Portable restores a nonfatal rollback status and keeps recovery evidence on the next launch',async()=>{
   const f=await fixture();
   try{

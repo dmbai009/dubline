@@ -42,6 +42,17 @@ async function guest(url, userData, expected, next, { media = false } = {}) {
       preferences: Object.keys(window.dublinePreferences || {}).sort(), hostBridge: !!window.dublineDesktop,
       requireType: typeof require, desktopUi: document.body.classList.contains('desktop-mode') }));
     assert.deepEqual(state, { language: expected, preferences: ['language', 'setLanguage'], hostBridge: false, requireType: 'undefined', desktopUi: false });
+    const { clientVersion, mismatch } = require('../src/public/guest-version');
+    const agent = await page.evaluate(() => navigator.userAgent);
+    assert.ok(clientVersion(agent), 'Existing Electron guests report their actual app version in User-Agent');
+    await waitFor(page, () => socket.connected);
+    await page.evaluate(() => new Promise(resolve => socket.emit('time_sync', Date.now(), resolve)));
+    const different = mismatch(agent, require('../package.json').version);
+    assert.equal(await page.evaluate(() => !!document.querySelector('#guestVersionWarning.show')), !!different);
+    if (different) {
+      const warning = await page.$eval('#guestVersionWarning', node => node.textContent);
+      assert.ok(warning.includes(different.guest) && warning.includes(different.host), 'Guest warning contains both actual versions');
+    }
     if (next) {
       await page.evaluate(async code => { await DublineI18n.setLanguage(code); await dublinePreferences.setLanguage(code); }, next);
       assert.equal(JSON.parse(fs.readFileSync(path.join(userData, 'language.json'), 'utf8')), next);

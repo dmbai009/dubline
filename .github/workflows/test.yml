@@ -78,4 +78,5 @@ jobs:
       - run: npm run test:electron:editor
       - run: npm run test:electron:ui
       - run: npm run test:electron:hosting
+      - run: npm run test:electron:updates
       - run: npm run test:electron:workflow

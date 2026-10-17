@@ -7,17 +7,17 @@ const { spawn } = require('node:child_process');
 const { launch, wait } = require('./packaged-test-driver');
 const { fileHash, verifyTree, MANIFEST_PATH, changesBetween } = require('../src/electron-managed-files');
 const root = path.resolve(__dirname, '..');
-const aVersion = require('../package.json').version, bParts = aVersion.split('.').map(Number); bParts[2]++;
-const bVersion = bParts.join('.');
+const { nextTestVersion, isBeta } = require('../src/update-version');
+const aVersion = require('../package.json').version, bVersion = nextTestVersion(aVersion);
 const aRoot = path.join(root, 'dist', 'portable'), bOutput = path.join(root, 'build', 'update-qa', bVersion);
 async function until(fn, timeout = 45000) {
   const deadline = Date.now() + timeout; let last;
   while (Date.now() < deadline) { try { last = await fn(); if (last) return last; } catch (_) {} await wait(100); }
   throw Error('Artifact update smoke timed out: ' + JSON.stringify(last));
 }
-async function browserFor(running) {
+async function browserFor(running, options = {}) {
   await until(async () => (await fetch(`http://127.0.0.1:${running.browserPort}/json/version`)).ok);
-  return puppeteer.connect({ browserURL: `http://127.0.0.1:${running.browserPort}` });
+  return puppeteer.connect({ browserURL: `http://127.0.0.1:${running.browserPort}`, ...options });
 }
 async function workspace(browser) {
   const launcher = await until(async () => (await browser.pages()).find(page => page.url().endsWith('electron-launcher.html')));
@@ -54,12 +54,13 @@ async function main() {
   for (const file of metadata.targetManifest.files) if (/ffmpeg\.exe|cloudflared\.exe|\.dll$/.test(file.path) && base.files.find(previous => previous.path === file.path)?.sha256 === file.sha256) {
     assert.equal(changes.changed.some(changed => changed.path === file.path), false, `unchanged binary ${file.path}`);
   }
-  const assets = [metadata.full, ...metadata.patches], release = { tag_name: 'v' + bVersion, draft: false, prerelease: false,
+  const assets = [metadata.full, ...metadata.patches], release = { tag_name: 'v' + bVersion, draft: false, prerelease: isBeta(bVersion),
     assets: ['portable-update.json', ...assets.map(asset => asset.asset)].map(name => ({ name, browser_download_url: `https://github.com/dmbai009/dubline/releases/download/v${bVersion}/${name}` })) };
   let downloaded = 0; const requests = [];
   const fixture = http.createServer((request, response) => {
     const name = path.posix.basename(new URL(request.url, 'http://fixture').pathname);
     if (request.url.startsWith('/api.github.com/repos/dmbai009/dubline/releases/latest')) { response.setHeader('Content-Type', 'application/json'); response.end(JSON.stringify(release)); return; }
+    if (request.url.startsWith('/api.github.com/repos/dmbai009/dubline/releases?')) { response.setHeader('Content-Type', 'application/json'); response.end(JSON.stringify([release])); return; }
     if (name === 'portable-update.json') { response.setHeader('Content-Type', 'application/json'); response.end(JSON.stringify(metadata)); return; }
     const asset = assets.find(asset => asset.asset === name);
     if (!asset) { response.writeHead(404); response.end(); return; }
@@ -88,6 +89,7 @@ async function main() {
       assert.equal(beforeBuild.commit, base.commit); assert.equal(beforeBuild.electronVersion, require('electron/package.json').version);
       await importFixture(page);
       const identity = await page.evaluate(() => ({ clientId, scene: session.activeSessionId, count: session.sessionList.length }));
+      if (isBeta(bVersion)) assert.equal((await page.evaluate(() => window.dublineDesktop.setExperimentalUpdates(true))).ok, true);
       await running.inspector.evaluate('globalThis.__dublineTestUpdater().check()');
       const status = await page.evaluate(() => window.dublineDesktop.getUpdateStatus());
       if (status.state === 'error') await running.inspector.evaluate('globalThis.__dublineTestUpdater().checkAndStage()');

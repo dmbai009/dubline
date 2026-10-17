@@ -1,31 +1,23 @@
 const https = require('https');
+const { parseVersion, isNewerVersion, isAppVersion, isBeta } = require('./update-version');
 
 const RELEASE_API = 'https://api.github.com/repos/dmbai009/dubline/releases/latest';
 const RELEASE_BASE = 'https://github.com/dmbai009/dubline/releases/tag/';
 
-function parseVersion(value) {
-  const match = String(value || '').trim().match(/^v?(\d+)\.(\d+)\.(\d+)(?:\+[0-9A-Za-z.-]+)?$/);
-  return match ? match.slice(1).map(Number) : null;
-}
-
-function isNewerVersion(candidate, current) {
-  const next = parseVersion(candidate);
-  const installed = parseVersion(current);
-  if (!next || !installed) return false;
-  for (let index = 0; index < 3; index++) {
-    if (next[index] !== installed[index]) return next[index] > installed[index];
-  }
-  return false;
-}
-
-function evaluateRelease(release, currentVersion) {
-  if (!release || release.draft || release.prerelease || !isNewerVersion(release.tag_name, currentVersion)) return null;
+function evaluateRelease(release, currentVersion, experimental = false) {
+  if (!release || release.draft || (!experimental && (release.prerelease || isBeta(release.tag_name))) || !isNewerVersion(release.tag_name, currentVersion)) return null;
   const tag = String(release.tag_name || '').trim();
-  if (!/^v?\d+\.\d+\.\d+(?:\+[0-9A-Za-z.-]+)?$/.test(tag)) return null;
+  if (!isAppVersion(tag.replace(/^v/, '')) || (release.prerelease && !isBeta(tag))) return null;
   return {
     version: tag.replace(/^v/i, ''),
     url: `${RELEASE_BASE}${encodeURIComponent(tag)}`
   };
+}
+
+function selectRelease(releases, currentVersion, experimental = false) {
+  if (!Array.isArray(releases)) throw Error('Invalid release list.');
+  return releases.filter(release => evaluateRelease(release, currentVersion, experimental))
+    .sort((a, b) => isNewerVersion(a.tag_name, b.tag_name) ? -1 : isNewerVersion(b.tag_name, a.tag_name) ? 1 : 0)[0] || null;
 }
 
 function checkLatestRelease(currentVersion, timeoutMs = 6000) {
@@ -57,4 +49,4 @@ function checkLatestRelease(currentVersion, timeoutMs = 6000) {
   });
 }
 
-module.exports = { parseVersion, isNewerVersion, evaluateRelease, checkLatestRelease };
+module.exports = { parseVersion, isNewerVersion, evaluateRelease, selectRelease, checkLatestRelease };

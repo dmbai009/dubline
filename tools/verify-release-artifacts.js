@@ -1,6 +1,7 @@
 const fs = require('node:fs'), fsp = fs.promises, path = require('node:path'), crypto = require('node:crypto'), zlib = require('node:zlib');
 const assert = require('node:assert/strict');
 const yaml = require('js-yaml');
+const { isBeta } = require('../src/update-version');
 const { verifyTree, fileHash, bytesHash, manifestBytes } = require('../src/electron-managed-files');
 const { validateMetadata } = require('../src/electron-portable-update');
 async function hash(file, algorithm) { const digest = crypto.createHash(algorithm); for await (const bytes of fs.createReadStream(file)) digest.update(bytes); return digest.digest('base64'); }
@@ -22,7 +23,7 @@ async function verify(folder) {
     const file = path.join(folder, artifact.asset); assert.equal((await fsp.stat(file)).size, artifact.size); assert.equal(await fileHash(file), artifact.sha256);
     checksums.push(`${artifact.sha256}  ${artifact.asset}`);
   }
-  const latest = yaml.load(await fsp.readFile(path.join(folder, 'latest.yml'), 'utf8'));
+  const latest = yaml.load(await fsp.readFile(path.join(folder, isBeta(inventory.version) ? 'beta.yml' : 'latest.yml'), 'utf8'));
   const setup = `Dubline-${inventory.version}-win-x64-Setup.exe`;
   assert.equal(latest.version, inventory.version); assert.equal(latest.path, setup); assert.equal(latest.files.length, 1); assert.equal(latest.files[0].url, setup);
   assert.equal(latest.sha512, await hash(path.join(folder, setup), 'sha512')); assert.equal(latest.files[0].sha512, latest.sha512); assert.equal(latest.files[0].size, (await fsp.stat(path.join(folder, setup))).size);

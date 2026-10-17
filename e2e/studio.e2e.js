@@ -1475,16 +1475,29 @@ describe('long phrases', { skip: skipReason }, () => {
   let browser;
   let page;
   const line = FIXTURE_LINES[0]; // 3.0–4.5 s
-  // Recording starts 2 s before the line: the phrase runs from 2.0 s of the file, loud until 4.7, a quiet tail until 5.0,
-  // so the player speaks 1.5 s longer than the original
+  // The phrase is timed from MediaRecorder.start, rather than microphone capture:
+  // permission/preparation work must not consume the fake voice before recording.
   const voice = { speechFrom: 2.0, loudUntil: 4.7, tailUntil: 5.0 };
 
   before(async () => {
     server = await startServer();
-    browser = await launchBrowser(server.port, { fakeAudioFile: buildVoiceFile(voice) });
+    browser = await launchBrowser(server.port);
     page = await openPlayer(browser, server.url('long'), 'Alice');
     await loadFixture(page);
     await claimAndSelect(page, line.id);
+    const fs = require('node:fs'), path = require('node:path'), voiceFile = buildVoiceFile(voice);
+    const encoded = fs.readFileSync(voiceFile).toString('base64'); fs.unlinkSync(voiceFile); fs.rmdirSync(path.dirname(voiceFile));
+    await page.evaluate(async encoded => {
+      const context = new AudioContext(); await context.resume();
+      const bytes = Uint8Array.from(atob(encoded), character => character.charCodeAt(0));
+      const buffer = await context.decodeAudioData(bytes.buffer), destination = context.createMediaStreamDestination();
+      navigator.mediaDevices.getUserMedia = async () => destination.stream;
+      const start = MediaRecorder.prototype.start;
+      MediaRecorder.prototype.start = function(...args) {
+        const result = start.apply(this, args), source = context.createBufferSource();
+        source.buffer = buffer; source.connect(destination); source.start(); return result;
+      };
+    }, encoded);
   });
 
   after(async () => {

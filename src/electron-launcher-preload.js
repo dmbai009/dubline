@@ -18,6 +18,8 @@ contextBridge.exposeInMainWorld('dublineLauncher', Object.freeze({
   openNetworkTool: tool => ipcRenderer.invoke('desktop:open-network-tool', tool),
   getBuildInfo: () => ipcRenderer.invoke('app:get-build-info'),
   getUpdateStatus: () => ipcRenderer.invoke('app:get-update-status'),
+  getUpdatePreferences: () => ipcRenderer.invoke('app:get-update-preferences'),
+  setExperimentalUpdates: enabled => ipcRenderer.invoke('app:set-experimental-updates', enabled),
   openUpdate: () => ipcRenderer.invoke('app:open-update'),
   openUpdateDetails: () => ipcRenderer.invoke('app:open-update-details'),
   projectAssociation: operation => ipcRenderer.invoke('app:project-association', operation),

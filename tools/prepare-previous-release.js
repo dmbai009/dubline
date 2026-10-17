@@ -1,16 +1,17 @@
-// One direct patch from the previous stable manifest-based Portable release.
+// One direct patch from the previous compatible manifest-based Portable release.
 // Legacy self-extracting releases are an explicit full-download migration.
 const fs = require('node:fs'), fsp = fs.promises, path = require('node:path');
 const { jsonFrom, download } = require('../src/electron-update-http');
 const { validateMetadata, extractUpdate } = require('../src/electron-portable-update');
 const { verifyTree } = require('../src/electron-managed-files');
 const { isNewerVersion } = require('../src/electron-update');
+const { isAppVersion, isBeta } = require('../src/update-version');
 const root = path.resolve(__dirname, '..');
 async function prepare() {
   const version = require('../package.json').version;
   const releases = await jsonFrom('https://api.github.com/repos/dmbai009/dubline/releases?per_page=100', 4 * 1024 ** 2);
   if (!Array.isArray(releases)) throw Error('Invalid official release list.');
-  const older = releases.filter(release => !release.draft && !release.prerelease && /^v\d+\.\d+\.\d+$/.test(release.tag_name) && isNewerVersion(version, release.tag_name.slice(1)))
+  const older = releases.filter(release => !release.draft && (isBeta(version) || !release.prerelease && !isBeta(release.tag_name)) && isAppVersion(String(release.tag_name).replace(/^v/, '')) && isNewerVersion(version, release.tag_name.slice(1)))
     .sort((a,b) => isNewerVersion(a.tag_name.slice(1),b.tag_name.slice(1)) ? -1 : 1);
   const previous = older[0];
   const info = previous?.assets?.find(asset => asset.name === 'portable-update.json');
