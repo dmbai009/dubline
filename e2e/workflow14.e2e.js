@@ -123,10 +123,15 @@ describe('1.4 dialogs, settings and bounded timeline', { skip: skipReason, timeo
     await waitFor(host, () => editorQueue.length === 0);
     const old = await host.evaluate(() => JSON.stringify(session.lines));
     await host.evaluate(() => { timelineContainer.scrollTop=0; renderTimeline(); });
+    const initialHeight = await host.$eval('[data-character=Hero]', node => node.getBoundingClientRect().height);
     const handle = await host.$('[data-character=Hero] .role-height-handle'); await handle.scrollIntoView(); const box = await handle.boundingBox();
     await host.mouse.move(box.x + 20, box.y + 2); await host.mouse.down(); await host.mouse.move(box.x + 20, box.y + 70, { steps:5 }); await host.mouse.up();
     const height = await host.$eval('[data-character=Hero]', node => node.getBoundingClientRect().height);
-    await host.reload(); await waitFor(host, () => session?.loaded);
+    assert.ok(height > initialHeight, 'the real pointer drag must increase the track height');
+    await host.reload();
+    // A received session precedes nickname admission and the visible studio.
+    // Measure the restored row only after layout, not while its ancestor is hidden.
+    await waitFor(host, () => session?.loaded && document.querySelector('[data-character=Hero]')?.getBoundingClientRect().height > 0);
     assert.equal(await host.$eval('[data-character=Hero]', node => node.getBoundingClientRect().height), height);
     assert.equal(await host.evaluate(() => JSON.stringify(session.lines)), old);
     await host.locator('[data-character=Hero] .role-height-handle').setTimeout(5000).click({ count:2 });
