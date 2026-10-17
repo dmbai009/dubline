@@ -1192,8 +1192,18 @@ function buildRoleRow(char, trackWidth, allowCharacterClaims, editing) {
     resize.onpointerdown = event => {
       if (event.button !== 0) return; event.preventDefault(); event.stopPropagation();
       const origin = event.clientY, height = row.getBoundingClientRect().height;
+      const sceneId = session.activeSessionId, room = currentRoom;
       let frame = null, pendingHeight = height, done = false;
-      const paint = () => { frame = null; applyRoleGeometry(row, laneOf, pendingHeight); };
+      // Media readiness and shared snapshots can replace this row mid-drag.
+      // Resolve the current row and lanes, retaining the original scene binding.
+      const paintHeight = (value, redraw = false) => {
+        if (currentRoom !== room || session?.activeSessionId !== sceneId) return false;
+        const liveRow = [...timeline.querySelectorAll('.track-row')].find(node => node.dataset.character === char);
+        if (!liveRow) return false;
+        applyRoleGeometry(liveRow, assignLanes(session.lines.filter(line => line.character === char)), value, redraw);
+        return true;
+      };
+      const paint = () => { frame = null; paintHeight(pendingHeight); };
       const move = next => { pendingHeight = Math.max(minimumHeight, Math.min(600, height + next.clientY - origin)); if (frame === null) frame = requestAnimationFrame(paint); };
       const finish = endEvent => {
         if (done) return; done = true;
@@ -1201,8 +1211,7 @@ function buildRoleRow(char, trackWidth, allowCharacterClaims, editing) {
         window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', finish); window.removeEventListener('pointercancel', finish);
         window.removeEventListener('blur', finish);
         const cancelled = endEvent?.type === 'pointercancel' || endEvent?.type === 'blur';
-        applyRoleGeometry(row, laneOf, cancelled ? height : pendingHeight, true);
-        if (cancelled) return;
+        if (!paintHeight(cancelled ? height : pendingHeight, true) || cancelled) return;
         roleHeights[heightKey] = pendingHeight;
         for (const key of Object.keys(roleHeights).slice(0, -200)) delete roleHeights[key];
         localStorage.setItem('dubline_role_heights', JSON.stringify(roleHeights));

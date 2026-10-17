@@ -340,11 +340,13 @@ describe('Authorized media delivery with optional P2P', { skip: skipReason }, ()
     const owner = await openPlayer(browser, server.url('media-stress'), 'Stress host');
     await owner.evaluate(() => loadSavedPack('stress-scene.zip')); await waitFor(owner, () => session?.videoSize > 32 * 1024 * 1024);
     const first = new Set();
+    let releasePrefixes;
+    const prefixesRead = new Promise(resolve => { releasePrefixes = resolve; });
     const rule = req => {
       if (!/^bytes=\d+-\d+$/.test(req.headers.range || '') || !req.url.endsWith('dub_video.mp4')) return;
       const key = require('node:crypto').createHash('sha256').update(req.headers.cookie || '').digest('hex');
       const truncate = !first.has(key); first.add(key);
-      return { ignoreRange: true, rate: 2 * 1024 * 1024, truncateAfter: truncate ? 524288 : null };
+      return { ignoreRange: true, rate: 2 * 1024 * 1024, truncateAfter: truncate ? 524288 : null, beforeTruncate: () => prefixesRead };
     };
     const tls = await mediaProxy(server.port, { tls: true, rule }), plain = await mediaProxy(server.port, { rule });
     let protectedBrowser, guests = [], inspectors = [], monitor, memory = { proxyRss: process.memoryUsage().rss, clientHeap: 0, clientBacking: 0 };
@@ -356,6 +358,13 @@ describe('Authorized media delivery with optional P2P', { skip: skipReason }, ()
         openPlayer(protectedBrowser, tls.url('media-stress'), 'Stress secure B', { beforeLoad: page => page.setCacheEnabled(false) }),
         openPlayer(insecure, plain.url('media-stress'), 'Stress HTTP', { beforeLoad: page => page.setCacheEnabled(false) })
       ]);
+      // Observe the real downloader; do not replace fetch or its reader. Only
+      // then close all three short responses and exercise the actual retry.
+      await Promise.all(guests.map(page => waitFor(page, () => {
+        const diagnostic = DublineMediaTransfer.stats().diagnostic;
+        return diagnostic?.role === 'video' && diagnostic.httpBytes === 524288;
+      })));
+      releasePrefixes();
       const sessions = await Promise.all(guests.map(page => page.createCDPSession())); let sampling = false;
       inspectors = sessions;
       const sample = async () => {
@@ -389,6 +398,7 @@ describe('Authorized media delivery with optional P2P', { skip: skipReason }, ()
         durationMs: Math.round(performance.now() - started), proxyRssMiB: +(memory.proxyRss / 1024 ** 2).toFixed(1),
         clientHeapMiB: +(memory.clientHeap / 1024 ** 2).toFixed(1), clientBackingMiB: +(memory.clientBacking / 1024 ** 2).toFixed(1) }));
     } finally {
+      releasePrefixes();
       clearInterval(monitor); await Promise.all(inspectors.map(session => session.detach().catch(() => {})));
       await Promise.all(guests.map(page => page.browserContext().close()));
       await protectedBrowser?.close(); await tls.close(); await plain.close(); await owner.browserContext().close();
