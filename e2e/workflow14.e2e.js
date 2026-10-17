@@ -123,19 +123,20 @@ describe('1.4 dialogs, settings and bounded timeline', { skip: skipReason, timeo
     await waitFor(host, () => editorQueue.length === 0);
     const old = await host.evaluate(() => JSON.stringify(session.lines));
     await host.evaluate(() => { timelineContainer.scrollTop=0; renderTimeline(); });
-    const initialHeight = await host.$eval('[data-character=Hero]', node => node.getBoundingClientRect().height);
+    const initialHeight = await host.evaluate(() => document.querySelector('[data-character=Hero]').getBoundingClientRect().height);
     const handle = await host.$('[data-character=Hero] .role-height-handle'); await handle.scrollIntoView(); const box = await handle.boundingBox();
     await host.mouse.move(box.x + 20, box.y + 2); await host.mouse.down(); await host.mouse.move(box.x + 20, box.y + 70, { steps:5 }); await host.mouse.up();
-    const height = await host.$eval('[data-character=Hero]', node => node.getBoundingClientRect().height);
+    const height = await host.evaluate(() => document.querySelector('[data-character=Hero]').getBoundingClientRect().height);
     assert.ok(height > initialHeight, 'the real pointer drag must increase the track height');
     await host.reload();
-    // A received session precedes nickname admission and the visible studio.
-    // Measure the restored row only after layout, not while its ancestor is hidden.
-    await waitFor(host, () => session?.loaded && document.querySelector('[data-character=Hero]')?.getBoundingClientRect().height > 0);
-    assert.equal(await host.$eval('[data-character=Hero]', node => node.getBoundingClientRect().height), height);
+    // Media readiness can replace the entire row between CDP selector lookup and
+    // $eval, leaving an ElementHandle to a detached node (whose height is zero).
+    // Query and measure atomically in the page, retaining that actual measurement.
+    const restoredHeight = await waitFor(host, () => session?.loaded && document.querySelector('[data-character=Hero]')?.getBoundingClientRect().height);
+    assert.equal(restoredHeight, height);
     assert.equal(await host.evaluate(() => JSON.stringify(session.lines)), old);
     await host.locator('[data-character=Hero] .role-height-handle').setTimeout(5000).click({ count:2 });
-    assert.ok(await host.$eval('[data-character=Hero]', node => node.getBoundingClientRect().height) < height);
+    assert.ok(await host.evaluate(() => document.querySelector('[data-character=Hero]').getBoundingClientRect().height) < height);
     assert.deepEqual(host.errors, []); assert.deepEqual(guest.errors, []);
   });
   test('real drag, both resize handles and keyboard cannot leave video bounds', async () => {
