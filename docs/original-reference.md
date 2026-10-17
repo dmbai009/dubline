@@ -31,6 +31,10 @@ never included in exported audio/video. Export continues to use the shared mix.
 The inspector's primary actions use 28px buttons for both scene kinds; a short
 Take label keeps long participant names in its tooltip instead of enlarging the
 button. Narrow panels can wrap the action row.
+The pin action follows Take, before Rerecord for an owned take. Take is also a
+toggle: a second press cancels either pending preparation or current playback.
+Natural completion and switching to another preview clear its pressed state;
+historical take audition retains its existing independent controls.
 
 Coverage: `original-reference.test.js` covers source priority, ambiguous backing,
 padding and offsets. `e2e/original-reference.e2e.js` imports an actual video/SRT,
@@ -47,3 +51,8 @@ expectation and an older test's obsolete global Shift-range expectation. The
 dedicated final reference suite passed 6/6, including mix refresh during playback.
 Playwright checked 109 layouts/screenshots. No distribution, commit or push was
 created by this change.
+
+Pin/Take follow-up: 30 take-history/reference browser cases passed, including
+native source stop, pending-start cancellation, natural completion and switching
+to Original. The 109-case Playwright layout profile passed again. A subsequent
+win-unpacked build was verified against the current UI sources.

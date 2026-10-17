@@ -863,10 +863,20 @@ window.addEventListener('DOMContentLoaded', () => {
 });
 
 // Play a take the way it will sound in the video: with effect, pitch and trimming
+let takePreview = null;
+window.refreshTakePreview = function() {
+  for (const button of document.querySelectorAll('[data-take-preview]')) button.setAttribute('aria-pressed', String(takePreview?.lineId === Number(button.dataset.takePreview)));
+};
 window.previewTake = async function(lineId) {
   const line = session.lines.find(l => l.id === lineId);
-  if (!line) return;
-  if (!await audio.previewTake(line)) alert(t('error.take'));
+  if (!line || !canHearLine(line)) return;
+  if (takePreview?.lineId === lineId) { audio.stopPreview(); return; }
+  audio.stopPreview(); window.DublineTakeHistory?.stop();
+  const current = { lineId }; takePreview = current; refreshTakePreview();
+  const finish = () => { if (takePreview === current) { takePreview = null; refreshTakePreview(); } };
+  try {
+    if (!await audio.previewTake(line, { onEnded: finish }) && takePreview === current) { finish(); showToast(t('error.take')); }
+  } catch { if (takePreview === current) { showToast(t('error.take')); audio.stopPreview(); finish(); } }
 };
 
 // ==========================================

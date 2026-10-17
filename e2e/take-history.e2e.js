@@ -65,6 +65,38 @@ describe('take history: real uploads, sockets, inspector and portable projects',
     assert.equal(retry.result.duplicate, true); assert.deepEqual(await read(), before);
     const late = await upload(host, { uploadId: 'evicted-old-upload', takeSequence: 1 }); assert.equal(late.result.superseded, true); assert.deepEqual(await read(), before);
   });
+  test('main actions put one pin between Take and Rerecord, including after inspector redraw', async () => {
+    const check = () => host.evaluate(()=>{
+      selectLine(session.lines[0]);const buttons=[...inspector.querySelectorAll('.insp-actions.primary button')];
+      return buttons.map(button=>button.hasAttribute('data-take-preview')?'take':button.dataset.historyAction||button.id||'other');
+    });
+    const buttons=await check();assert.deepEqual(buttons.slice(0,3),['take','pin','recBtn']);assert.equal(buttons.filter(action=>action==='pin').length,1);
+    const foreign=await moderator.evaluate(()=>{selectLine(session.lines[0]);return [...inspector.querySelectorAll('.insp-actions.primary button')].map(button=>button.hasAttribute('data-take-preview')?'take':button.dataset.historyAction||'other');});
+    assert.deepEqual(foreign.slice(0,2),['take','pin']);assert.equal(foreign.filter(action=>action==='delete').length,1);
+  });
+  test('Take toggles a real source off, cancels a pending start and resets on natural completion', async () => {
+    await host.evaluate(()=>{
+      window.testTakeSources=[];window.testNativeStart=AudioBufferSourceNode.prototype.start;window.testNativeStop=AudioBufferSourceNode.prototype.stop;
+      AudioBufferSourceNode.prototype.start=function(...args){if(this.context instanceof AudioContext)testTakeSources.push({node:this,stopped:false});return testNativeStart.apply(this,args);};
+      AudioBufferSourceNode.prototype.stop=function(...args){const entry=testTakeSources.find(entry=>entry.node===this);if(entry)entry.stopped=true;return testNativeStop.apply(this,args);};
+    });
+    try {
+      await host.click('[data-take-preview]');await waitFor(host,()=>testTakeSources.length===1);
+      assert.equal(await host.$eval('[data-take-preview]',node=>node.getAttribute('aria-pressed')),'true');
+      await host.click('[data-take-preview]');assert.equal(await host.evaluate(()=>testTakeSources[0].stopped),true);
+      assert.equal(await host.$eval('[data-take-preview]',node=>node.getAttribute('aria-pressed')),'false');
+      const pending=await host.evaluate(async()=>{const before=testTakeSources.length;await Promise.all([previewTake(1),previewTake(1)]);return{added:testTakeSources.length-before,pressed:document.querySelector('[data-take-preview]').getAttribute('aria-pressed')};});
+      assert.deepEqual(pending,{added:0,pressed:'false'});
+      await host.click('[data-take-preview]');await waitFor(host,()=>testTakeSources.length===2);
+      await waitFor(host,()=>document.querySelector('[data-take-preview]').getAttribute('aria-pressed')==='false',3000);
+      await host.click('[data-take-preview]');await waitFor(host,()=>testTakeSources.length===3);
+      await host.evaluate(()=>playAudio(session.lines[0].originalAudioUrl));
+      assert.equal(await host.evaluate(()=>testTakeSources[2].stopped),true);
+      assert.equal(await host.$eval('[data-take-preview]',node=>node.getAttribute('aria-pressed')),'false');
+    } finally {
+      await host.evaluate(()=>{audio.stopPreview();AudioBufferSourceNode.prototype.start=testNativeStart;AudioBufferSourceNode.prototype.stop=testNativeStop;});
+    }
+  });
   test('main pin moves with the take and oldest pinned history survives replacement', async () => {
     await clean(); await upload(); const old = await read();
     assert.equal((await update(host, 'pin', old.takeId, { value: true })).ok, true);
