@@ -81,3 +81,9 @@ Final targeted UI/column suite: 32/32; voice-chain suite: 16/16; unit suite: 477
 The full local run during diagnosis completed 628/632 before these follow-ups;
 all four failures were in resize gestures and their dependent preference checks.
 They pass in the final targeted suite. Full Actions is rerun on the final commit.
+
+Run 38993498595 also caught the rename-during-recording fixture starting before
+media readiness, and a height read taken while the reloaded workspace was still
+hidden. The rename scenario uses the shared readiness wait; height assertions
+wait for a rendered row before checking its exact expected size. No recording
+attempt is retried and no size assertion is relaxed.

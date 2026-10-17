@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const AdmZip = require('adm-zip');
 const { skipReason, startServer, launchBrowser, openPlayer, loadFixture, waitFor, waitUntil, wait,
-  answerTextPrompt, buildFixturePack, buildMultiTrackVideo, claimAndSelect } = require('./helpers');
+  answerTextPrompt, buildFixturePack, buildMultiTrackVideo, claimAndSelect, waitForRecordingReady } = require('./helpers');
 
 describe('audit: actual editor controls and recording queue', { skip: skipReason }, () => {
   let server, browser, host, guest, serial = 0;
@@ -258,6 +258,7 @@ describe('audit: actual editor controls and recording queue', { skip: skipReason
   });
   test('renaming during actual MediaRecorder processing keeps the completed take', async () => {
     await claimAndSelect(guest, 1);
+    await waitForRecordingReady(guest);
     await guest.evaluate(() => handleStudioRecord(1));
     await waitFor(guest, () => recordState === 'preparing' || recordState === 'recording'); await wait(300);
     await guest.evaluate(() => {
