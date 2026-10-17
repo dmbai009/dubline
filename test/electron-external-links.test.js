@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { WORKSHOP_URL, createWorkshopLinkHandler } = require('../electron-external-links');
+const { WORKSHOP_URL, createWorkshopLinkHandler } = require('../src/electron-external-links');
 const settle = () => new Promise(resolve => setImmediate(resolve));
 
 test('Workshop opens externally while Electron popups stay blocked', async () => {

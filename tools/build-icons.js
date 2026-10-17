@@ -6,9 +6,9 @@ const { spawnSync } = require('child_process');
 const ffmpegPath = require('ffmpeg-static');
 
 const root = path.join(__dirname, '..');
-const source = path.join(root, 'icon.png');
+const source = path.join(root, 'resources/icon.png');
 const buildDir = path.join(root, 'build');
-const publicDir = path.join(root, 'public');
+const publicDir = path.join(root, 'src/public');
 const sizes = [16, 20, 24, 32, 40, 48, 64, 128, 256];
 
 if (!fs.existsSync(source)) {

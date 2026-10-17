@@ -5,7 +5,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const ffmpegPath = require('ffmpeg-static');
-const { parseSubtitles, findEmbeddedSubtitleMap, sanitizeRoomId, sanitizeNick } = require('../server');
+const { parseSubtitles, findEmbeddedSubtitleMap, sanitizeRoomId, sanitizeNick } = require('../src/server');
 
 test('ASS parser extracts timing, actor and cleaned text', () => {
   const ass = `[Script Info]\nTitle: Test\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:01.20,0:00:03.40,Default,Alice,0,0,0,,{\\i1}Hello\\Nworld\n`;

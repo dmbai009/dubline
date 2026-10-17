@@ -4,7 +4,7 @@ const root = path.join(__dirname, '..');
 if (!process.versions.electron) {
   const { spawn } = require('node:child_process');
   const { fixtureVideoPath } = require('../e2e/helpers');
-  const { exportProject } = require('../server/projects');
+  const { exportProject } = require('../src/server/projects');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dubline-shell-native-'));
   const file = path.join(dir, 'Проєкт із пробілами.dubline');
   const scene = { loaded: true, title: 'Shell project', kind: 'custom', mode: 'edit', videoUrl: 'video', trackOrder: ['Role'], lines: [{ id: 1, character: 'Role', caption: 'Native shell', start: 1, end: 2 }], audioTracks: [] };
@@ -37,7 +37,7 @@ if (!process.versions.electron) {
   BrowserWindow.prototype.show = function() {};
   let confirms = 0, accepted = false, messages=[];
   dialog.showMessageBox = async (_window,options) => { confirms++;messages.push(options.message);return { response: accepted ? 1 : 0 }; };
-  app.setAppPath(root); require('../electron-main');
+  app.setAppPath(root); require('../src/electron-main');
   const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
   async function until(fn) { const end = Date.now() + 30000; while (Date.now() < end) { const result = await fn().catch(() => false); if (result) return result; await wait(50); } throw Error('Shell smoke timed out'); }
   async function secondInstance() {

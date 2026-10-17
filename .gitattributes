@@ -1,1 +1,1 @@
-public/vendor/rnnoise/rnnoise.js -text -whitespace
+src/public/vendor/rnnoise/rnnoise.js -text -whitespace

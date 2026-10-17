@@ -2,7 +2,7 @@ const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { readProject } = require('../server/projects');
+const { readProject } = require('../src/server/projects');
 const { skipReason, startServer, launchBrowser, openPlayer, loadFixture, claimAndSelect, waitFor } = require('./helpers');
 
 describe('clip mixing: real sockets, inspector and audio', { skip: skipReason, timeout: 90000 }, () => {
@@ -90,8 +90,8 @@ describe('clip mixing: real sockets, inspector and audio', { skip: skipReason, t
     const after = await lines(host);
     for (let i = 0; i < 2; i++) { assert.equal(after[i].pan, prior[i].pan); assert.equal(after[i].effect, prior[i].effect); }
     assert.equal(after[2].volume, prior[2].volume);
-    fs.mkdirSync(path.join(__dirname, '../docs/qa'), { recursive: true });
-    await host.screenshot({ path: path.join(__dirname, '../docs/qa/clip-mix-bulk.png') });
+    fs.mkdirSync(path.join(__dirname, '../audit/qa'), { recursive: true });
+    await host.screenshot({ path: path.join(__dirname, '../audit/qa/clip-mix-bulk.png') });
   });
 
   test('bulk effect, strength and pan apply in both modes; guest selection changes only own recordings', async () => {
@@ -110,7 +110,7 @@ describe('clip mixing: real sockets, inspector and audio', { skip: skipReason, t
     const caption = await host.$eval('#editorCaption', node => node.value);
     await change(host, 'pan', 100); await waitFor(guest, () => session.lines[0].pan === 1);
     assert.equal(await host.$eval('#editorCaption', node => node.value), caption, 'mix updates preserve unsaved editor drafts');
-    await host.screenshot({ path: path.join(__dirname, '../docs/qa/clip-mix-editor.png') });
+    await host.screenshot({ path: path.join(__dirname, '../audit/qa/clip-mix-editor.png') });
     await host.evaluate(() => { reloadEditorDraft(1); setStudioMode('dub'); }); await waitFor(host, () => session.mode === 'dub');
   });
 

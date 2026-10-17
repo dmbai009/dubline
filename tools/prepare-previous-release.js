@@ -1,10 +1,10 @@
 // One direct patch from the previous stable manifest-based Portable release.
 // Legacy self-extracting releases are an explicit full-download migration.
 const fs = require('node:fs'), fsp = fs.promises, path = require('node:path');
-const { jsonFrom, download } = require('../electron-update-http');
-const { validateMetadata, extractUpdate } = require('../electron-portable-update');
-const { verifyTree } = require('../electron-managed-files');
-const { isNewerVersion } = require('../electron-update');
+const { jsonFrom, download } = require('../src/electron-update-http');
+const { validateMetadata, extractUpdate } = require('../src/electron-portable-update');
+const { verifyTree } = require('../src/electron-managed-files');
+const { isNewerVersion } = require('../src/electron-update');
 const root = path.resolve(__dirname, '..');
 async function prepare() {
   const version = require('../package.json').version;

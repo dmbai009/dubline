@@ -2,6 +2,8 @@ node_modules/
 /node_modules
 public/uploads/
 public/packs/
+src/public/uploads/
+src/public/packs/
 *.log
 .env
 .DS_Store
@@ -15,18 +17,8 @@ dist/
 resources/cloudflared.exe
 resources/cloudflared.exe.download
 
-# Local development specifications, reports and generated QA media
-/docs/Dubline_1.4.0_TZ.md
-/docs/1.4.0-*.md
-/docs/large-projects-plan.md
-/docs/qa/
+# Private local notes and QA artifacts; public documentation is tracked explicitly.
+/docs/*
+!/docs/project-format.md
+!/docs/releases/
 /tools/prepare-main-push.js
-
-# Local hardening reports and manual QA notes
-/docs/editor-hardening-*.md
-
-# Private implementation reports and local ADR draft
-/docs/media-presence-hardening-plan.md
-/docs/windows-ci.md
-/docs/ui-cleanup-report.md
-/docs/adr/0002-idempotent-editor-operations.md

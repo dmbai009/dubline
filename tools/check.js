@@ -4,11 +4,11 @@ const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const root = path.join(__dirname, '..');
-const directories = ['server', 'public', 'test', 'e2e', 'tools'];
+const directories = ['src', 'test', 'e2e', 'tools'];
 function scriptsIn(directory) {
   const files = [];
   for (const entry of fs.readdirSync(path.join(root, directory), { withFileTypes: true })) {
-    if (directory === 'public' && ['uploads', 'packs', 'vendor'].includes(entry.name)) continue;
+    if (directory.replaceAll('\\', '/') === 'src/public' && ['uploads', 'packs', 'vendor'].includes(entry.name)) continue;
     const name = path.join(directory, entry.name);
     if (entry.isDirectory()) files.push(...scriptsIn(name));
     else if (entry.isFile() && /\.(?:js|mjs)$/.test(entry.name)) files.push(name);
@@ -21,7 +21,7 @@ const files = [
 ].sort();
 let failed = 0;
 for (const file of files) {
-  const moduleWorker = file.replaceAll('\\', '/') === 'public/noise-worker.js';
+  const moduleWorker = file.replaceAll('\\', '/') === 'src/public/noise-worker.js';
   const result = spawnSync(process.execPath, moduleWorker ? ['--check', '--input-type=module'] : ['--check', file],
     { cwd: root, encoding: 'utf8', ...(moduleWorker ? { input: fs.readFileSync(path.join(root, file), 'utf8') } : {}) });
   if (result.status !== 0) {

@@ -1,8 +1,8 @@
 const fs = require('node:fs'), fsp = fs.promises, path = require('node:path'), crypto = require('node:crypto'), zlib = require('node:zlib');
 const assert = require('node:assert/strict');
 const yaml = require('js-yaml');
-const { verifyTree, fileHash, bytesHash, manifestBytes } = require('../electron-managed-files');
-const { validateMetadata } = require('../electron-portable-update');
+const { verifyTree, fileHash, bytesHash, manifestBytes } = require('../src/electron-managed-files');
+const { validateMetadata } = require('../src/electron-portable-update');
 async function hash(file, algorithm) { const digest = crypto.createHash(algorithm); for await (const bytes of fs.createReadStream(file)) digest.update(bytes); return digest.digest('base64'); }
 async function verify(folder) {
   folder = path.resolve(folder);

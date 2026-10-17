@@ -1,5 +1,5 @@
 const { test } = require('node:test'), assert = require('node:assert/strict');
-const policy = require('../public/video-export-policy');
+const policy = require('../src/public/video-export-policy');
 test('export range validates numeric bounds and estimates only the requested duration', () => {
   assert.equal(policy.range(null, 12), null);
   assert.deepEqual(policy.range({ start: 2.137, end: 6.579 }, 12), { start: 2.137, end: 6.579 });

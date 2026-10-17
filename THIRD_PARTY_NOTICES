@@ -101,7 +101,7 @@ or other users rights beyond the permissions given by their owners.
 
 ## RNNoise and NoiseLab adaptation
 
-@shiguredo/rnnoise-wasm 2025.1.5 is bundled locally in public/vendor/rnnoise/rnnoise.js. The JavaScript/WASM wrapper is Apache-2.0; Xiph RNNoise code is BSD-3-Clause. The resampling and pipeline adaptation from NoiseLab is MIT (dmbai009, 2026). Exact licenses, revisions, archive/bundle hashes and provenance are retained under resources/licenses/rnnoise and copied to readable packaged resources/licenses/third-party/rnnoise.
+@shiguredo/rnnoise-wasm 2025.1.5 is bundled locally in src/public/vendor/rnnoise/rnnoise.js. The JavaScript/WASM wrapper is Apache-2.0; Xiph RNNoise code is BSD-3-Clause. The resampling and pipeline adaptation from NoiseLab is MIT (dmbai009, 2026). Exact licenses, revisions, archive/bundle hashes and provenance are retained under resources/licenses/rnnoise and copied to readable packaged resources/licenses/third-party/rnnoise.
 
 Upstream code: https://github.com/xiph/rnnoise
 Wrapper: https://github.com/shiguredo/rnnoise-wasm/tree/2025.1.5

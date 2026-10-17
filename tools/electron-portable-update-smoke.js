@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const puppeteer = require('puppeteer-core');
 const { spawn } = require('node:child_process');
 const { launch, wait } = require('./packaged-test-driver');
-const { fileHash, verifyTree, MANIFEST_PATH, changesBetween } = require('../electron-managed-files');
+const { fileHash, verifyTree, MANIFEST_PATH, changesBetween } = require('../src/electron-managed-files');
 const root = path.resolve(__dirname, '..');
 const aVersion = require('../package.json').version, bParts = aVersion.split('.').map(Number); bParts[2]++;
 const bVersion = bParts.join('.');

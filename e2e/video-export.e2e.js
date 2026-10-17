@@ -71,7 +71,7 @@ describe('video export: sources, guest rights, local rendering and bounded setti
       await page.select('#videoExportResolution', '240'); await waitFor(page, () => !startRenderBtn.disabled);
       await page.select('#videoExportFps', '15'); await waitFor(page, () => !startRenderBtn.disabled);
     });
-    const info = await require('../server/video-export-info').inspect(file);
+    const info = await require('../src/server/video-export-info').inspect(file);
     assert.ok(info.width <= bounds.info.width && info.height <= bounds.info.height);
     assert.equal(info.height, 240);
     assert.ok(Math.abs(info.fps - 15) < 0.01);
@@ -79,7 +79,7 @@ describe('video export: sources, guest rights, local rendering and bounded setti
   });
   test('guest WebM export encodes VP9/Opus with the selected geometry', async () => {
     const file = await download(guest, 'custom', async page => { await page.select('#videoExportFormat', 'webm'); await page.select('#videoExportResolution', '240'); await waitFor(page, () => !startRenderBtn.disabled); });
-    const info = await require('../server/video-export-info').inspect(file); assert.equal(info.codec, 'vp9'); assert.equal(info.height, 240);
+    const info = await require('../src/server/video-export-info').inspect(file); assert.equal(info.codec, 'vp9'); assert.equal(info.height, 240);
     ff(['-i', file, '-map', '0:a:0', '-f', 'null', '-']);
   });
   test('export lease uses server Blind Mode rules, owner identity and scene checks', async () => {
@@ -177,7 +177,7 @@ describe('video export: sources, guest rights, local rendering and bounded setti
       const file = await download(originalHost, 'original');
       const source = await originalHost.evaluate(() => session.videoUrl);
       assert.equal(videoHash(file), videoHash(path.join(server.dirs.uploads, source.slice('/uploads/'.length))));
-      assert.ok(Math.abs((await require('../server/video-export-info').inspect(file)).duration - 12) < 0.1); assert.deepEqual(originalHost.errors, []);
+      assert.ok(Math.abs((await require('../src/server/video-export-info').inspect(file)).duration - 12) < 0.1); assert.deepEqual(originalHost.errors, []);
     } finally { await originalHost.browserContext().close(); }
   });
   test('an ordinary insecure HTTP guest without AudioEncoder really renders a playable file with no file API', async () => {
@@ -187,7 +187,7 @@ describe('video export: sources, guest rights, local rendering and bounded setti
       assert.deepEqual(await insecure.evaluate(() => ({ secure: isSecureContext, encoder: typeof AudioEncoder, native: typeof dublineVideoExport })), { secure: false, encoder: 'undefined', native: 'undefined' });
       await waitFor(insecure, () => session?.loaded && localMedia?.videoBlob);
       const file = await download(insecure);
-      const info = await require('../server/video-export-info').inspect(file);
+      const info = await require('../src/server/video-export-info').inspect(file);
       assert.ok(Math.abs(info.duration - 12) < 0.35, JSON.stringify(info)); assert.ok(info.width <= 640 && info.height <= 360); assert.ok(info.fps > 10, JSON.stringify(info));
       assert.deepEqual(insecure.errors, []);
       await insecure.evaluate(() => { startVideoRender(); }); await waitFor(insecure, () => renderInProgress && !cancelVideoExportBtn.hidden);

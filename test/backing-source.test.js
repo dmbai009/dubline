@@ -7,7 +7,7 @@ const { startServer, waitUntil } = require('../e2e/helpers');
 const digest = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 
 test('an absent background cannot keep an invisible solo active in playback, monitoring or export', () => {
-  const model = require('../public/project-audio');
+  const model = require('../src/public/project-audio');
   const scene = { videoUrl: '/video.mp4', videoHasAudio: true, projectAudio: { original: { volume: .8 }, backing: { solo: true } } };
   const mix = model.normalize(scene);
   assert.deepEqual(model.gains(mix, model.sources(scene)), { original: .8, backing: 0, dub: 1 });

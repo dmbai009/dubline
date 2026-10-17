@@ -32,7 +32,7 @@ describe('desktop launcher', { skip: skipReason }, () => {
         onUpdateStatus: () => () => {}
       };
     });
-    await page.goto(pathToFileURL(path.resolve('electron-launcher.html')).href, { waitUntil: 'domcontentloaded' });
+    await page.goto(pathToFileURL(path.resolve('src/electron-launcher.html')).href, { waitUntil: 'domcontentloaded' });
     await waitFor(page, () => document.querySelectorAll('.mode').length === 4);
   });
 

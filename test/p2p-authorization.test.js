@@ -13,7 +13,7 @@ function fixture() {
     '../mediaAvailability': { peers: () => [{ socketId: 'target' }], allowed: () => new Set(['/video']) }
   };
   const context = { module: { exports: {} }, require: name => dependencies[name] };
-  vm.runInNewContext(fs.readFileSync('server/sockets/p2p.js', 'utf8'), context);
+  vm.runInNewContext(fs.readFileSync('src/server/sockets/p2p.js', 'utf8'), context);
   context.module.exports({ id: 'source', on: (event, callback) => handlers.set(event, callback) }, conn);
   return { handlers, conn, room, members, sent, logs };
 }

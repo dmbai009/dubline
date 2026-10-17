@@ -6,7 +6,7 @@ const { EventEmitter } = require('node:events');
 
 // Exercise the production main-process functions with child-process/network
 // boundaries mocked; no public tunnel or duplicate local server is created.
-const source = fs.readFileSync('electron-main.js', 'utf8');
+const source = fs.readFileSync('src/electron-main.js', 'utf8');
 const segment = (start, end) => source.slice(source.indexOf(start), source.indexOf(end, source.indexOf(start)));
 function fixture(mode = 'porthole') {
   const children = [], deadlines = new Map(); let serial = 0;

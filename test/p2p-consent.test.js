@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const { webcrypto } = require('node:crypto');
-const source = fs.readFileSync('public/p2p.js', 'utf8');
+const source = fs.readFileSync('src/public/p2p.js', 'utf8');
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
 function fixture(preferences = {}, { readFails = false, writeFails = false } = {}) {
   const saved = new Map(Object.entries(preferences)), handlers = new Map(), sent = [], pcs = [], nodes = new Map();

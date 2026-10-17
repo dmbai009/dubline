@@ -73,7 +73,7 @@ describe('optional voice levels and private recording checks', { skip: skipReaso
   test('portable version 11 preserves shared levels and private quality through explicit fields', async () => {
     assert.equal((await levels(host, true)).ok, true);
     const bytes = await host.evaluate(async () => { const barrier = await prepareSafeSnapshot('project'); const response = await fetch('/api/export-project', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ room: currentRoom, clientId, ...barrier }) }); if (!response.ok) throw Error(await response.text()); return [...new Uint8Array(await response.arrayBuffer())]; });
-    const project = require('../server/projects').readProject(Buffer.from(bytes)); assert.equal(project.manifest.formatVersion, 11); assert.equal(project.manifest.project.mix.normalizeVoices, true); assert.ok(project.manifest.project.lines.find(line => line.id === 2).take.quality.warnings.includes('clipped'));
+    const project = require('../src/server/projects').readProject(Buffer.from(bytes)); assert.equal(project.manifest.formatVersion, 11); assert.equal(project.manifest.project.mix.normalizeVoices, true); assert.ok(project.manifest.project.lines.find(line => line.id === 2).take.quality.warnings.includes('clipped'));
   });
   test('strict disk failure leaves the shared flag and revision unchanged', async () => {
     const before = await host.evaluate(() => structuredClone(session.projectAudio)), blocker = path.join(server.dirs.data, 'rooms.json.tmp'); assert.ok(blocker.startsWith(server.dirs.data + path.sep)); fs.mkdirSync(blocker);

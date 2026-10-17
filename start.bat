@@ -40,7 +40,7 @@ rem ==========================================
 rem 3. Server (the browser opens once it is ready)
 rem ==========================================
 if not defined DUBLINE_NO_BROWSER set "DUBLINE_OPEN_BROWSER=1"
-node server.js
+node src\server.js
 goto end
 
 :no_node

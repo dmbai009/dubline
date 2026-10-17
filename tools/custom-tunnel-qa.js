@@ -14,7 +14,7 @@ async function main(){
   },server.port);
   const launcherSetup=await browser.newPage();await launcherSetup.evaluateOnNewDocument(()=>{
    window.dublineLauncher={detectTools:async()=>({porthole:{},radmin:{},hamachi:{}}),setLanguage:async()=>{},startHost:async()=>({ok:true}),startSingle:async()=>({ok:true}),openProjectFile:async()=>({ok:true}),joinGuest:async()=>({ok:true}),openNetworkTool:async()=>{throw Error('Must not launch a tool in Custom mode');}};
-  });await launcherSetup.goto(pathToFileURL(path.resolve('electron-launcher.html')).href);
+  });await launcherSetup.goto(pathToFileURL(path.resolve('src/electron-launcher.html')).href);
   pw=await chromium.connectOverCDP(browser.wsEndpoint());const pages=pw.contexts().flatMap(c=>c.pages()),page=pages.find(p=>p.url()===setup.url()),launcher=pages.find(p=>p.url()===launcherSetup.url());
   for(const width of [900,1080])for(const language of ['en','ru','uk']){
    await launcher.setViewportSize({width,height:800});await launcher.locator('#language').selectOption(language);await launcher.locator('[data-mode=custom]').click();

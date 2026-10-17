@@ -32,7 +32,7 @@ if (!process.versions.electron) {
     : { canceled:false, filePaths:[process.env.DUBLINE_NATIVE_PROJECT_FILE+(process.env.DUBLINE_NATIVE_PROJECT_MODE==='bad'?'.invalid':'')] };
   BrowserWindow.prototype.show = function() {};
   app.setAppPath(root);
-  require('../electron-main');
+  require('../src/electron-main');
   const wait = ms => new Promise(resolve=>setTimeout(resolve,ms));
   async function until(fn,timeout=20000) { const end=Date.now()+timeout; while(Date.now()<end){ const value=await fn().catch(()=>false); if(value)return value; await wait(50); } throw Error('Native smoke condition timed out'); }
   app.whenReady().then(async()=>{
@@ -191,8 +191,8 @@ if (!process.versions.electron) {
         const packetHash=file=>{const result=require('node:child_process').spawnSync(require('ffmpeg-static'),['-hide_banner','-loglevel','error','-i',file,'-map','0:v:0','-c:v','copy','-f','hash','-hash','sha256','-'],{encoding:'utf8',windowsHide:true});assert.equal(result.status,0,result.stderr);return result.stdout;};
         assert.equal(packetHash(renderFile),packetHash(process.env.DUBLINE_NATIVE_VIDEO));
         console.log('Final video after both migrations preserves original video packets.');
-        const untrusted=new BrowserWindow({show:false,webPreferences:{preload:path.join(root,'electron-launcher-preload.js'),contextIsolation:true,nodeIntegration:false,sandbox:true}});
-        await untrusted.loadFile(path.join(root,'electron-launcher.html'));
+        const untrusted=new BrowserWindow({show:false,webPreferences:{preload:path.join(root,'src/electron-launcher-preload.js'),contextIsolation:true,nodeIntegration:false,sandbox:true}});
+        await untrusted.loadFile(path.join(root,'src/electron-launcher.html'));
         assert.equal(await untrusted.webContents.executeJavaScript("window.dublineLauncher.getStorage().then(()=>false,error=>error.message.includes('Untrusted'))"),true);
         assert.equal(await untrusted.webContents.executeJavaScript("window.dublineLauncher.chooseStorage().then(()=>false,error=>error.message.includes('Untrusted'))"),true);
         untrusted.destroy(); console.log('Untrusted native window cannot read/change storage.');

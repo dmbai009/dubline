@@ -31,7 +31,7 @@ if (!process.versions.electron) {
     assert.ok(options.properties.includes('showOverwriteConfirmation'));
     return cancelPicker ? { canceled: true } : { canceled: false, filePath: path.join(process.env.DUBLINE_NATIVE_EXPORT_DIR, filename) };
   };
-  require('../electron-main');
+  require('../src/electron-main');
   const until = async (fn, timeout = 20000) => { const end = Date.now() + timeout; while (Date.now() < end) { if (await fn().catch(() => false)) return; await new Promise(resolve => setTimeout(resolve, 50)); } throw Error('Native export condition timed out'); };
   app.whenReady().then(async () => {
     try {
@@ -51,7 +51,7 @@ if (!process.versions.electron) {
       await evaluate('window.exportSignals=0;window.NativeAudioContext=AudioContext;window.AudioContext=class extends NativeAudioContext{createOscillator(){window.exportSignals++;return super.createOscillator();}};void 0;');
       await evaluate('startVideoRender()');
       const movie = path.join(process.env.DUBLINE_NATIVE_EXPORT_DIR, filename); assert.ok(fs.statSync(movie).size > 1000);
-      const inspected = await require('../server/video-export-info').inspect(movie); assert.equal(inspected.width, 640); assert.equal(inspected.height, 360);
+      const inspected = await require('../src/server/video-export-info').inspect(movie); assert.equal(inspected.width, 640); assert.equal(inspected.height, 360);
       assert.ok(Math.abs(inspected.duration - 12) < 0.1); assert.equal(await evaluate('exportSignals'), 1);
       assert.equal(await evaluate('renderProgressBar.style.width'), '100%');
       assert.equal(await evaluate("['takes','audio','video','saving'].every(phase => document.querySelector('[data-phase=' + phase + ']').dataset.state === 'done')"), true);
@@ -61,7 +61,7 @@ if (!process.versions.electron) {
       filename = 'custom.webm';
       await evaluate("document.querySelector('[name=videoExportMode][value=custom]').click();videoExportFormat.value='webm';videoExportFormat.dispatchEvent(new Event('change'));videoExportResolution.value='240';videoExportResolution.dispatchEvent(new Event('change'));videoExportSound.checked=false;void 0;");
       await until(() => evaluate('!startRenderBtn.disabled')); await evaluate('startVideoRender()');
-      const custom = await require('../server/video-export-info').inspect(path.join(process.env.DUBLINE_NATIVE_EXPORT_DIR, filename));
+      const custom = await require('../src/server/video-export-info').inspect(path.join(process.env.DUBLINE_NATIVE_EXPORT_DIR, filename));
       assert.equal(custom.codec, 'vp9'); assert.equal(custom.height, 240); assert.equal(await evaluate('exportSignals'), 1);
       filename = 'cpu-retry.mp4';
       await evaluate("DublineVideoAcceleration.set('on');videoExportFormat.value='mp4';videoExportFormat.dispatchEvent(new Event('change'));void 0;");
@@ -69,7 +69,7 @@ if (!process.versions.electron) {
       await evaluate("(async()=>{const mb=await import('/vendor/mediabunny/mediabunny.min.mjs');window.hwNativePreference=DublineVideoAcceleration.encoderPreference;DublineVideoAcceleration.encoderPreference=async()=> 'no-preference';window.hwNativeFinalize=mb.Output.prototype.finalize;window.hwNativeCalls=0;mb.Output.prototype.finalize=async function(...args){const result=await hwNativeFinalize.apply(this,args);if(++hwNativeCalls===1)throw new DOMException('Simulated late driver loss','OperationError');return result;};await startVideoRender();})()");
       assert.equal(await evaluate('renderStatusText.dataset.state'), 'success');
       assert.equal(await evaluate("document.querySelector('[data-phase=video]').textContent.includes('CPU')"), true);
-      const retried = await require('../server/video-export-info').inspect(path.join(process.env.DUBLINE_NATIVE_EXPORT_DIR, filename));
+      const retried = await require('../src/server/video-export-info').inspect(path.join(process.env.DUBLINE_NATIVE_EXPORT_DIR, filename));
       assert.equal(retried.codec, 'avc'); assert.equal(retried.height, 240); assert.ok(Math.abs(retried.duration-12)<0.1);
       assert.equal(await evaluate('hwNativeCalls'),2);
       await evaluate("(async()=>{DublineVideoAcceleration.encoderPreference=hwNativePreference;(await import('/vendor/mediabunny/mediabunny.min.mjs')).Output.prototype.finalize=hwNativeFinalize;})()");
@@ -78,13 +78,13 @@ if (!process.versions.electron) {
       await until(() => evaluate('!startRenderBtn.disabled'));
       await evaluate('startVideoRender()');
       assert.equal(await evaluate('renderStatusText.dataset.state'), 'success');
-      const fragment = await require('../server/video-export-info').inspect(path.join(process.env.DUBLINE_NATIVE_EXPORT_DIR, filename));
+      const fragment = await require('../src/server/video-export-info').inspect(path.join(process.env.DUBLINE_NATIVE_EXPORT_DIR, filename));
       assert.ok(Math.abs(fragment.duration - 4.442) < .055); assert.equal(fragment.width, 640); assert.equal(fragment.height, 360);
       assert.equal(await evaluate("Number(document.querySelector('[data-phase=audio] progress').max)"), 4.442);
       await evaluate('DublineTimelineRange.clear();void 0;');
       // A selected ticket cannot write to a caller-supplied path.
       assert.equal(await evaluate("dublineVideoExport.write({ticket:'missing',sessionId:session.activeSessionId,position:0,bytes:new Uint8Array([1]),path:'C:\\\\arbitrary.mp4'}).then(result=>result.ok)"), false);
-      const untrusted = new BrowserWindow({ show: false, webPreferences: { preload: path.join(root, 'electron-guest-preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true } });
+      const untrusted = new BrowserWindow({ show: false, webPreferences: { preload: path.join(root, 'src/electron-guest-preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true } });
       await untrusted.loadURL(new URL('/api/health', window.webContents.getURL()).href);
       assert.equal(await untrusted.webContents.executeJavaScript("dublineVideoExport.choose({extension:'mp4',sessionId:'scene'}).then(()=>false,error=>error.message.includes('Untrusted'))"), true); untrusted.destroy();
       await evaluate("new Promise(resolve=>{const frame=document.createElement('iframe');frame.srcdoc='<body>Frame</body>';frame.onload=()=>{window.frameExportBridge=typeof frame.contentWindow.dublineVideoExport;frame.remove();resolve();};document.body.append(frame);})");

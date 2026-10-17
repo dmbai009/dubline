@@ -57,7 +57,7 @@ async function run() {
       await page.exposeFunction('benchmarkWrite', data => fs.appendFileSync(output, Buffer.from(data, 'base64')));
       fs.writeFileSync(output, '');
       await page.evaluate(async () => { for (let at = 0; at < benchmarkBlob.size; at += 1024 * 1024) { const bytes = new Uint8Array(await benchmarkBlob.slice(at, at + 1024 * 1024).arrayBuffer()); let text = ''; for (let i = 0; i < bytes.length; i += 32768) text += String.fromCharCode(...bytes.subarray(i, i + 32768)); await benchmarkWrite(btoa(text)); } });
-      const info = await require('../server/video-export-info').inspect(output); assert.ok(Math.abs(info.duration - 1500) < 0.1);
+      const info = await require('../src/server/video-export-info').inspect(output); assert.ok(Math.abs(info.duration - 1500) < 0.1);
       const hash = file => ff(['-i', file, '-map', '0:v:0', '-c:v', 'copy', '-f', 'hash', '-hash', 'sha256', '-']); assert.equal(hash(output), hash(movie));
       results.push({ name, ...result, peakBrowserWorkingSet: peak, samples, duration: info.duration }); console.log(JSON.stringify(results.at(-1)));
       await browser.close(); browser = null;

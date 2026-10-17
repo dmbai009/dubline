@@ -249,7 +249,7 @@ describe('scene presets, consistent controls and one-shot previews', { skip: ski
   });
   test('portable format 14 reopens only the scene catalogue, survives host restart, and preserves recordings', async () => {
     const bytes = await host.evaluate(async () => { const barrier = await prepareSafeSnapshot('project'), response = await fetch('/api/export-project', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ room: currentRoom, clientId, ...barrier }) }); if (!response.ok) throw Error(await response.text()); return Array.from(new Uint8Array(await response.arrayBuffer())); }); projectBytes = bytes;
-    const read = require('../server/projects').readProject(Buffer.from(bytes)); assert.equal(read.manifest.formatVersion, 14); assert.equal(read.manifest.project.voicePresets[savedId].revision, 4);
+    const read = require('../src/server/projects').readProject(Buffer.from(bytes)); assert.equal(read.manifest.formatVersion, 14); assert.equal(read.manifest.project.voicePresets[savedId].revision, 4);
     const old = await host.evaluate(() => session.activeSessionId);
     await host.evaluate(async bytes => { const form = new FormData(); form.append('clientId', clientId); form.append('sessionId', session.activeSessionId); form.append('project', new Blob([new Uint8Array(bytes)], { type: 'application/zip' }), 'presets.dubline'); const response = await fetch('/api/import-project?room=' + encodeURIComponent(currentRoom), { method: 'POST', body: form }); if (!response.ok) throw Error(await response.text()); }, projectBytes);
     await waitFor(actor, old => session.activeSessionId !== old && Object.keys(session.voicePresets || {}).length === 1, 20000, old);

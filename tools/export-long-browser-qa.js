@@ -62,7 +62,7 @@ const { startServer, launchBrowser, openPlayer, waitFor, waitUntil } = require('
       assert.equal(await guest.evaluate(() => longDone), true, 'Long browser export deadline');
       await waitUntil(() => fs.readdirSync(download).some(file => !previous.has(file) && file.endsWith('.mp4')) && !fs.readdirSync(download).some(file => file.endsWith('.crdownload')), 30000);
       const file = path.join(download, fs.readdirSync(download).find(file => !previous.has(file) && file.endsWith('.mp4')));
-      const info = await require('../server/video-export-info').inspect(file);
+      const info = await require('../src/server/video-export-info').inspect(file);
       assert.ok(Math.abs(info.duration - scene.videoDuration) < .15);
       if (name !== 'custom') assert.equal(hash(file), sourceHash);
       ff(['-i', file, '-map', '0:a:0', '-f', 'null', '-']);

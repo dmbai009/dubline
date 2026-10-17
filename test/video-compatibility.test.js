@@ -4,8 +4,8 @@ const fs = require('node:fs'), os = require('node:os'), path = require('node:pat
 const { spawnSync } = require('node:child_process');
 const { io } = require('socket.io-client');
 const { startServer, waitUntil } = require('../e2e/helpers');
-const { inspectVideo, requiresCompatibleProxy } = require('../server/video-compatibility');
-const { stageProjectDisk } = require('../server/project-archive');
+const { inspectVideo, requiresCompatibleProxy } = require('../src/server/video-compatibility');
+const { stageProjectDisk } = require('../src/server/project-archive');
 const hash = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 
 test('compatible working formats preserve supported AVC/AV1/VP9 and distinguish high-bit-depth AVC and incompatible audio', () => {
@@ -60,7 +60,7 @@ test('real codec inspection, selective conversion, MIME/Range and protected orig
     try {
       assert.equal(staged.fields.originalVideoName, name);
       assert.equal(hash(fs.readFileSync(staged.mediaFiles.find(value => value.video && !value.primary).path)), hash(fs.readFileSync(file)));
-      assert.ok(Math.abs(require('../server/media').probeAudioDuration(staged.mediaFiles.find(value => value.primary).path) - 2) < .25);
+      assert.ok(Math.abs(require('../src/server/media').probeAudioDuration(staged.mediaFiles.find(value => value.primary).path) - 2) < .25);
     } finally { staged.rollback(); }
   }
 });

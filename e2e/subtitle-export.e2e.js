@@ -1,7 +1,7 @@
 const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict'), fs = require('node:fs');
 const { skipReason, startServer, launchBrowser, openPlayer, loadFixture, waitFor, fixtureVideoPath } = require('./helpers');
-const { serialize } = require('../server/subtitle-export');
+const { serialize } = require('../src/server/subtitle-export');
 const sourceCues = [
   { start:1.234, end:3.567, character:'Нагито, [роль] &lt;', caption:'Первая строка\nВторая строка <i>не тег</i>' },
   { start:2, end:4, character:'Голоса на фоне', caption:'Имя: это текст\n\nЕщё абзац {\\p1} и буквальное \\N.' },

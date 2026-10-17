@@ -131,7 +131,7 @@ async function startServer(extraEnv = {}) {
 
   const server = { port, dirs, log: '', proc: null };
   server.start = () => new Promise((resolve, reject) => {
-    const proc = spawn(process.execPath, ['server.js'], {
+    const proc = spawn(process.execPath, ['src/server.js'], {
       cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
       env: { ...process.env, PORT: String(port), DUBLINE_DATA_DIR: dirs.data, DUBLINE_UPLOAD_DIR: dirs.uploads, DUBLINE_PACKS_DIR: dirs.packs, DUBLINE_OPEN_BROWSER: '', ...extraEnv }
     });
