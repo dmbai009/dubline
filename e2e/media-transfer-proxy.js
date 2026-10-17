@@ -31,8 +31,12 @@ async function mediaProxy(targetPort, { tls = false, rule = () => ({}) } = {}) {
         if (res.destroyed) return;
         if (plan.truncateAfter && observation.bytes + bytes.length >= plan.truncateAfter) {
           const piece = bytes.subarray(0, Math.max(0, plan.truncateAfter - observation.bytes));
-          res.end(piece); observation.bytes += piece.length; if (media) stats.bytes += piece.length;
+          res.write(piece); observation.bytes += piece.length; if (media) stats.bytes += piece.length;
           if (isVideo) { stats.videoBytes += piece.length; if (media) stats.managedVideoBytes += piece.length; }
+          // The fault is triggered after the consumer has read the planned
+          // prefix. HTTP/TLS flushing alone cannot guarantee that: a network
+          // error may discard bytes still queued inside the browser's stream.
+          Promise.resolve(plan.beforeTruncate?.()).then(() => res.end(), () => res.destroy());
           return;
         }
         observation.bytes += bytes.length;

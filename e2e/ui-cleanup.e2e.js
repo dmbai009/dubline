@@ -205,7 +205,11 @@ describe('UI cleanup and local audio devices', { skip: skipReason, timeout: 1200
         if (!node.isConnected || box.x !== current.x || box.y !== current.y || !node.contains(document.elementFromPoint(x, y))) return false;
         return { x, y };
       });
-      await page.mouse.move(point.x, point.y); await page.mouse.down(); await page.mouse.move(point.x, point.y + 34, { steps: 5 }); await page.mouse.up();
+      await page.mouse.move(point.x, point.y); await page.mouse.down();
+      // A media-ready or room snapshot redraw may arrive during a real drag.
+      // The gesture must update the replacement row, not its detached ancestor.
+      await page.evaluate(() => renderTimeline());
+      await page.mouse.move(point.x, point.y + 34, { steps: 5 }); await page.mouse.up();
       const resized = await page.evaluate(() => document.querySelector('.track-row[data-character="Hero"]').getBoundingClientRect().height);
       assert.ok(resized > 80);
       await page.reload();
