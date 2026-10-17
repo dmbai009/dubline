@@ -26,7 +26,7 @@ describe('storage launcher controls', {skip:skipReason}, () => {
         startSingle:async()=>({ok:true}),openProjectFile:async()=>({ok:true}),joinGuest:async()=>({ok:true})
       };
     });
-    await page.goto(pathToFileURL(path.resolve('electron-launcher.html')).href,{waitUntil:'domcontentloaded'});
+    await page.goto(pathToFileURL(path.resolve('src/electron-launcher.html')).href,{waitUntil:'domcontentloaded'});
     await waitFor(page,()=>document.getElementById('storagePath').textContent.includes('AppData'));
   });
   after(async()=>{if(browser)await browser.close();});

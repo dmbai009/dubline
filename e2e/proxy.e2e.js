@@ -56,7 +56,7 @@ describe('optimized video and original-quality export',{skip:skipReason,timeout:
   await host.click('[name=videoExportMode][value=custom]');await host.select('#videoExportSource','original');await waitFor(host,()=>!startRenderBtn.disabled);
   await host.select('#videoExportResolution','720');await host.select('#videoExportFps','15');await waitFor(host,()=>!startRenderBtn.disabled);
   await host.click('#startRenderBtn');await waitUntil(()=>fs.readdirSync(outputDir).some(name=>name.endsWith('.mp4')),60000);await waitFor(host,()=>!renderInProgress);
-  const info=await require('../server/video-export-info').inspect(path.join(outputDir,fs.readdirSync(outputDir).find(name=>name.endsWith('.mp4'))));assert.equal(info.width,1280);assert.equal(info.height,720);assert.ok(Math.abs(info.fps-15)<0.01);assert.ok(Math.abs(info.duration-12)<0.1);
+  const info=await require('../src/server/video-export-info').inspect(path.join(outputDir,fs.readdirSync(outputDir).find(name=>name.endsWith('.mp4'))));assert.equal(info.width,1280);assert.equal(info.height,720);assert.ok(Math.abs(info.fps-15)<0.01);assert.ok(Math.abs(info.duration-12)<0.1);
   assert.deepEqual(host.errors,[]);assert.deepEqual(guest.errors,[]);
  });
  test('cancelled large import leaves the existing project active and removes temporary files',async()=>{

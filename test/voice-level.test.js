@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { correction } = require('../public/voice-level');
+const { correction } = require('../src/public/voice-level');
 function signal(level = .1) { return Float32Array.from({ length: 4800 }, (_, i) => i < 960 || i > 3800 ? 0 : level * Math.sin(i * .12)); }
 test('speech level compares a take with its own processed windows and ignores silence and tails', () => {
   const dry = signal(), wet = Float32Array.from(dry, value => value * 4);

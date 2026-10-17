@@ -142,7 +142,7 @@ describe('voice chains: real DSP, inspector, author rights and scoped collaborat
       if (!response.ok) throw Error(await response.text()); return Array.from(new Uint8Array(await response.arrayBuffer()));
     });
     projectBytes = bytes;
-    const project = require('../server/projects').readProject(Buffer.from(bytes)); assert.equal(project.manifest.formatVersion, 8);
+    const project = require('../src/server/projects').readProject(Buffer.from(bytes)); assert.equal(project.manifest.formatVersion, 8);
     assert.equal(project.manifest.project.roleEffects.Friend.effects.length, 2);
     assert.equal(project.manifest.project.lines.find(line => line.id === 2).takeHistory[0].effects[0].type, 'echo');
   });

@@ -1,10 +1,10 @@
 const fs=require('node:fs'),fsp=fs.promises,path=require('node:path'),os=require('node:os'),assert=require('node:assert/strict');
 const {spawn}=require('node:child_process');
-const {createManifest,manifestBytes,bytesHash,changesBetween,verifyTree}=require('../electron-managed-files');
+const {createManifest,manifestBytes,bytesHash,changesBetween,verifyTree}=require('../src/electron-managed-files');
 if(process.versions.electron){
   const {app}=require('electron');
   app.whenReady().then(async()=>{
-    const {PortableUpdater}=require('../electron-portable-update');
+    const {PortableUpdater}=require('../src/electron-portable-update');
     const file=process.env.DUBLINE_HELPER_QA_JOB;
     const adapter=new PortableUpdater({current:{version:'1.4.0'},root:path.dirname(file),exit:()=>app.exit(0)});
     await adapter.startHelper(file,path.resolve(__dirname,'../resources/portable-update-helper.ps1'));

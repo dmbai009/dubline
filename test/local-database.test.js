@@ -6,7 +6,7 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
 function fixture() {
   const requests = [], transactions = [];
   const window = { indexedDB: { open() { const request = {}; requests.push(request); return request; } } };
-  vm.runInNewContext(fs.readFileSync('public/local-database.js', 'utf8'), { window });
+  vm.runInNewContext(fs.readFileSync('src/public/local-database.js', 'utf8'), { window });
   const database = () => ({ closed: false, close() { this.closed = true; }, transaction(name, mode) {
     const request = {}, transaction = { name, mode, request, objectStore() { return {
       put(value) { request.result = value.uploadId; return request; },
@@ -29,7 +29,7 @@ test('a blocked IndexedDB open closes a late connection without replacing the su
 });
 test('pending take transactions preserve successful results and settle aborts into the existing memory fallback', async () => {
   const f = fixture(), context = { window: f.window };
-  const source = fs.readFileSync('public/recording.js', 'utf8');
+  const source = fs.readFileSync('src/public/recording.js', 'utf8');
   vm.runInNewContext(source.slice(source.indexOf('const takeStore ='), source.indexOf('function refreshPendingUi')) + '\nthis.takeStoreApi = takeStore;', context);
   const saved = context.takeStoreApi.put({ uploadId: 'take' }), database = f.database();
   f.requests[0].result = database; f.requests[0].onsuccess(); await tick();

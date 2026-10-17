@@ -3,12 +3,12 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 
-const html = fs.readFileSync('public/index.html', 'utf8');
+const html = fs.readFileSync('src/public/index.html', 'utf8');
 const CLIENT_MODULES = ['player.js', 'recording.js', 'import.js', 'export.js', 'room.js', 'editor.js', 'backing-source.js', 'features.js', 'p2p.js', 'chat.js', 'ui.js', 'video-export-ui.js'];
-const app = CLIENT_MODULES.map(name => fs.readFileSync(`public/${name}`, 'utf8')).join('\n');
+const app = CLIENT_MODULES.map(name => fs.readFileSync(`src/public/${name}`, 'utf8')).join('\n');
 // Server code is split into modules under server/: check all of them together with the entry point
-const serverFiles = ['server.js', ...fs.readdirSync('server', { recursive: true })
-  .filter(name => name.endsWith('.js')).map(name => `server/${name}`)];
+const serverFiles = ['src/server.js', ...fs.readdirSync('src/server', { recursive: true })
+  .filter(name => name.endsWith('.js')).map(name => `src/server/${name}`)];
 const server = serverFiles.map(file => fs.readFileSync(file, 'utf8')).join('\n');
 
 test('every inline HTML handler has a client implementation', () => {
@@ -51,7 +51,7 @@ test('state module owns persisted settings and compatibility aliases', () => {
     crypto: { randomUUID: () => 'client-test-id' }
   };
   context.window = context;
-  vm.runInNewContext(fs.readFileSync('public/state.js', 'utf8'), context);
+  vm.runInNewContext(fs.readFileSync('src/public/state.js', 'utf8'), context);
   assert.equal(context.DublineState.data.myName, 'Mira');
   assert.equal(context.DublineState.data.clientId, 'client-test-id');
   assert.equal(context.DublineState.data.autoDuckAmount, 0.65);
@@ -62,7 +62,7 @@ test('state module owns persisted settings and compatibility aliases', () => {
 test('audio module exposes bounded take timing without leaking playback internals', () => {
   const context = {
     window: {
-      DublineTakeMix: require('../public/take-mix'),
+      DublineTakeMix: require('../src/public/take-mix'),
       DublineAudioFx: {
         effectTailSeconds: effect => effect === 'cave' ? 2 : 0,
         fetchAndDecode: async () => null,
@@ -74,7 +74,7 @@ test('audio module exposes bounded take timing without leaking playback internal
     clearTimeout,
     Audio: function Audio() {}
   };
-  vm.runInNewContext(fs.readFileSync('public/audio.js', 'utf8'), context);
+  vm.runInNewContext(fs.readFileSync('src/public/audio.js', 'utf8'), context);
   const controller = context.window.DublineAudio.createController({
     video: { volume: 1 },
     backing: { volume: 1 },
@@ -100,8 +100,8 @@ test('all interface translation keys exist in English, Russian and Ukrainian', (
     localStorage: { getItem: () => null, setItem() {} },
     CustomEvent: function CustomEvent() {}
   };
-  for (const language of ['en', 'ru', 'uk']) vm.runInNewContext(fs.readFileSync('public/locale/' + language + '.js', 'utf8'), context);
-  vm.runInNewContext(fs.readFileSync('public/i18n.js', 'utf8'), context);
+  for (const language of ['en', 'ru', 'uk']) vm.runInNewContext(fs.readFileSync('src/public/locale/' + language + '.js', 'utf8'), context);
+  vm.runInNewContext(fs.readFileSync('src/public/i18n.js', 'utf8'), context);
   const { messages } = context.window.DublineI18n;
   const markupKeys = [...html.matchAll(/data-i18n(?:-placeholder|-title)?=["']([^"']+)["']/g)].map(match => match[1]);
   const appKeys = [...app.matchAll(/\bt\(['`]([^'`${}]+)['`](?!\s*\+)/g)].map(match => match[1]);
@@ -120,13 +120,13 @@ test('all interface translation keys exist in English, Russian and Ukrainian', (
 
 test('client and server expose the same non-destructive voice effects', () => {
   const context = { window: {} };
-  vm.runInNewContext(fs.readFileSync('public/audio-fx.js', 'utf8'), context);
+  vm.runInNewContext(fs.readFileSync('src/public/audio-fx.js', 'utf8'), context);
   const clientEffects = Object.keys(context.window.DublineAudioFx.VOICE_EFFECTS).sort();
   const whitelist = server.match(/const VOICE_EFFECTS = \[([^\]]+)\]/);
   assert.ok(whitelist, 'server effect whitelist is missing');
   const serverEffects = [...whitelist[1].matchAll(/['"]([^'"]+)['"]/g)].map(match => match[1]).sort();
   // Parameterized pitch belongs to the shared chain schema, not the legacy scalar effect whitelist.
-  assert.deepEqual(clientEffects, [...new Set([...serverEffects, ...require('../public/voice-chain-model').TYPES])].sort());
+  assert.deepEqual(clientEffects, [...new Set([...serverEffects, ...require('../src/public/voice-chain-model').TYPES])].sort());
   assert.ok(context.window.DublineAudioFx.effectTailSeconds('behindDoor') > 0);
   assert.ok(context.window.DublineAudioFx.effectTailSeconds('thoughts') >= 0.5);
   assert.ok(context.window.DublineAudioFx.effectTailSeconds('cave') >= 1.5);

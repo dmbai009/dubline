@@ -125,7 +125,7 @@ describe('Role presets, bulk assignment and spatial Shift selection', { skip: sk
   });
   test('project round trip and restart retain named role links and bulk preset links', async () => {
     const bytes = await host.evaluate(async () => { const snapshot = await prepareSafeSnapshot('project'); const response = await fetch('/api/export-project', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ room: currentRoom, clientId, ...snapshot }) }); if (!response.ok) throw Error(await response.text()); return [...new Uint8Array(await response.arrayBuffer())]; });
-    const read = require('../server/projects').readProject(Buffer.from(bytes)); assert.equal(read.manifest.project.roleEffects.Hero.voicePresetId, heroId); assert.equal(read.manifest.project.lines.every(line => line.take.voicePresetId === 'phone'), true);
+    const read = require('../src/server/projects').readProject(Buffer.from(bytes)); assert.equal(read.manifest.project.roleEffects.Hero.voicePresetId, heroId); assert.equal(read.manifest.project.lines.every(line => line.take.voicePresetId === 'phone'), true);
     await server.restart(); await waitFor(host, () => socket.connected && hasSceneMediaAccess() && session.roleEffects.Hero?.voicePresetId);
     assert.equal(await host.evaluate(id => session.roleEffects.Hero.voicePresetId === id && session.lines.every(line => line.voicePresetId === 'phone'), heroId), true);
     for (const page of [host, actor, other]) assert.deepEqual(page.errors, []);

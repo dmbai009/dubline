@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const AdmZip = require('adm-zip');
-const { readProject } = require('../server/projects');
+const { readProject } = require('../src/server/projects');
 const { skipReason, startServer, launchBrowser, openPlayer, loadFixture, recordTake, waitFor, waitUntil } = require('./helpers');
 
 describe('portable project browser workflow', { skip: skipReason, timeout: 90000 }, () => {

@@ -51,7 +51,7 @@ async function startServer(extraEnv = {}) {
       process.send({ type: 'memory', id: message.id, rss, arrayBuffers, storedFiles });
     });
   `);
-  const proc = fork(path.join(ROOT, 'server.js'), [], {
+  const proc = fork(path.join(ROOT, 'src/server.js'), [], {
     cwd: ROOT,
     silent: true,
     execArgv: ['--expose-gc', '--require', memoryProbe],

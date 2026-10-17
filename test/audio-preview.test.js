@@ -11,7 +11,7 @@ function fixture() {
     pause() { this.reject?.(Object.assign(new Error('Playback interrupted'), { name: 'AbortError' })); }
   }
   const window = { Audio };
-  vm.runInNewContext(fs.readFileSync(require.resolve('../public/audio'), 'utf8'), { window, Audio, setTimeout, clearTimeout });
+  vm.runInNewContext(fs.readFileSync(require.resolve('../src/public/audio'), 'utf8'), { window, Audio, setTimeout, clearTimeout });
   const controller = window.DublineAudio.createController({ getVolumes: () => ({ recorded: 1, isMuted: false }) });
   return { controller, elements };
 }

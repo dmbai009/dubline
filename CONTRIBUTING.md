@@ -37,9 +37,8 @@ unrelated code or works.
 
 ## Development and review
 
-Read [AGENTS.md](AGENTS.md), [PRODUCT.md](PRODUCT.md),
-[ARCHITECTURE.md](ARCHITECTURE.md), [BEHAVIOR.md](BEHAVIOR.md), and
-[TESTING.md](TESTING.md). Keep changes focused and explain the problem, the
+Read [AGENTS.md](AGENTS.md), [README.md](README.md), and the relevant code and
+tests. Keep changes focused and explain the problem, the
 resulting behavior, and the checks you ran. Run `npm run check` and the tests
 appropriate to your change; document checks that were not run.
 

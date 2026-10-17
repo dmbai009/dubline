@@ -6,14 +6,14 @@ test('syntax checking discovers new owned scripts while excluding vendor and use
   const root = fs.mkdtempSync(path.join(os.tmpdir(),'dubline-check-coverage-'));
   t.after(()=> { assert.ok(root.startsWith(path.resolve(os.tmpdir())+path.sep)); fs.rmSync(root,{recursive:true,force:true}); });
   const write = (file,source) => { const target=path.join(root,file); fs.mkdirSync(path.dirname(target),{recursive:true}); fs.writeFileSync(target,source); };
-  for (const file of ['entry.js','server/sockets/editor.js','public/widget.js','public/locale/en.js','test/new.test.js','e2e/new.e2e.js','tools/new-tool.js']) write(file,'const ready = true;');
-  for (const file of ['public/vendor/library.js','public/uploads/user.js','public/packs/archive.js']) write(file,'invalid syntax !');
+  for (const file of ['entry.js','src/electron-main.js','src/server/sockets/editor.js','src/public/widget.js','src/public/locale/en.js','test/new.test.js','e2e/new.e2e.js','tools/new-tool.js']) write(file,'const ready = true;');
+  for (const file of ['src/public/vendor/library.js','src/public/uploads/user.js','src/public/packs/archive.js']) write(file,'invalid syntax !');
   const source = fs.readFileSync('tools/check.js','utf8');
   const run = () => {
     let status=0,stderr='';
     vm.runInNewContext(source,{__dirname:path.join(root,'tools'),require(name){
       if(name==='fs')return {...fs,readdirSync(directory,options){
-        assert.ok(!/^public[\\/](?:vendor|uploads|packs)(?:[\\/]|$)/.test(path.relative(root,directory)),'external directories must not even be traversed');
+        assert.ok(!/^src[\\/]public[\\/](?:vendor|uploads|packs)(?:[\\/]|$)/.test(path.relative(root,directory)),'external directories must not even be traversed');
         return fs.readdirSync(directory,options);
       }};
       return require(name);
@@ -21,6 +21,9 @@ test('syntax checking discovers new owned scripts while excluding vendor and use
     return {status,stderr};
   };
   assert.deepEqual(run(),{status:0,stderr:''});
+  write('src/new-entry.js','const broken = ;');
+  assert.equal(run().status,1,'new source entry points are checked without a manual list');
+  write('src/new-entry.js','const restored = true;');
   write('e2e/new-unlisted.e2e.js','const broken = ;');
   const failed=run(); assert.equal(failed.status,1); assert.match(failed.stderr,/new-unlisted\.e2e\.js/);
   write('e2e/new-unlisted.e2e.js','const restored = true;');

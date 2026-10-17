@@ -121,7 +121,7 @@ describe('Equalizer, palette dragging and isolated role presets', { skip: skipRe
   });
   test('portable v15 and restart retain EQ, isolated role ownership and source revisions', async () => {
     const bytes=await host.evaluate(async()=>{const snapshot=await prepareSafeSnapshot('project');const response=await fetch('/api/export-project',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({room:currentRoom,clientId,...snapshot})});if(!response.ok)throw Error(await response.text());return [...new Uint8Array(await response.arrayBuffer())];});
-    const projects=require('../server/projects'),read=projects.readProject(Buffer.from(bytes));assert.equal(read.manifest.formatVersion,15);
+    const projects=require('../src/server/projects'),read=projects.readProject(Buffer.from(bytes));assert.equal(read.manifest.formatVersion,15);
     const role=read.manifest.project.roleEffects.Hero,preset=read.manifest.project.voicePresets[role.voicePresetId];assert.equal(preset.role,'Hero');assert.deepEqual(preset.effects[0].parameters.gains,[5,-3,0,0,0]);
     const old=structuredClone(read.manifest);old.formatVersion=14;assert.throws(()=>projects.validateManifest(old),/version 15/);
     const staged=projects.stageProject(Buffer.from(bytes),server.dirs.uploads);try{assert.deepEqual(staged.commit().voicePresets[preset.id],preset);}finally{staged.rollback();}

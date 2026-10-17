@@ -4,7 +4,7 @@ const fsp = fs.promises;
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const yazl = require('yazl');
-const { MANIFEST_PATH, createManifest, manifestBytes, bytesHash, fileHash, changesBetween, verifyTree } = require('../electron-managed-files');
+const { MANIFEST_PATH, createManifest, manifestBytes, bytesHash, fileHash, changesBetween, verifyTree } = require('../src/electron-managed-files');
 const root = path.resolve(__dirname, '..');
 const qaVersion = process.env.DUBLINE_QA_VERSION;
 if (qaVersion && !/^\d+\.\d+\.\d+$/.test(qaVersion)) throw new Error('Invalid QA build version.');
@@ -73,7 +73,7 @@ async function buildPortable(baseFolder) {
   if (baseFolder) {
     const base = JSON.parse(await fsp.readFile(path.join(baseFolder, ...MANIFEST_PATH.split('/')), 'utf8'));
     await verifyTree(baseFolder, base);
-    const { isNewerVersion } = require('../electron-update');
+    const { isNewerVersion } = require('../src/electron-update');
     if (!isNewerVersion(marker.version, base.version)) throw new Error('Patch target must be newer than its base.');
     const changes = changesBetween(base, manifest);
     const patchName = `Dubline-${base.version}-to-${marker.version}-win-x64-Patch.zip`, patchFile = path.join(output, patchName);

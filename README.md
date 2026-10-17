@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="public/icon-256.png" alt="Dubline" width="180">
+<img src="src/public/icon-256.png" alt="Dubline" width="180">
 
 # Dubline
 
@@ -15,164 +15,103 @@
 
 </div>
 
-Dubline is a dubbing studio and party game for recording scenes together.
+Dubline is a dubbing studio for recording scenes together. The Windows host runs the room; friends join through Chrome, Edge or Dubline.
 
-- Claim characters and record in parallel.
+- Claim characters and record in parallel, or dub every role in Single Player.
 - Edit captions and timing on a shared timeline.
-- Import your video, subtitles or Voxalike packs.
-- Mix dialogue, background audio and recorded voices.
-- Export a finished video, character WAV stems or an editable pack.
-- Host from the Windows app; friends join through Chrome, Edge or Dubline.
+- Import video, subtitles or Voxalike packs.
+- Mix original dialogue, background audio and recorded voices.
+- Shape voices with effect chains, scene presets and built-in RNNoise noise reduction.
+- Save complete scenes as portable `.dubline` projects.
+- Export finished video, a selected fragment, character WAV stems, SRT/ASS/VTT subtitles or an editable Voxalike pack.
 
-## Coming Soon
+The `main` branch contains development work for **1.4**. Download a published release for the released version. [Release history](docs/releases/).
 
-**Dubline 1.4 — projects and smoother workflows.** These features are being prepared for the next release and are available in the development version on [main](https://github.com/dmbai009/dubline/tree/main).
+## Getting started
 
-- **Single Player:** dub every role yourself and invite friends into the same project later.
-- **Portable projects:** save and reopen a complete scene as `.dubline`, including media, recordings and mix settings.
-- **Large video optimization:** use a smaller working copy and keep the original for final export.
-- **Clip mixing:** individual or bulk volume, stereo pan and adjustable voice-effect amount, with author/host/moderator permissions.
-- **Choose your storage drive:** move project media, recordings and the library to another disk.
-- **Timeline and audio improvements:** smoother auto-ducking, clearer loading status, reliable fullscreen and audio-track controls, precise group editing and adjustable role heights.
-- **Clearer settings:** separate personal monitoring and microphone preferences from the shared project mix.
+1. Download the Windows Setup or Portable ZIP. Keep the entire extracted Portable folder together.
+2. Start Dubline and choose Single Player, Host Multiplayer Room, Join Multiplayer Room or Open Project.
+3. Import a video with optional subtitles/audio, a Voxalike pack, or a `.dubline` project.
+4. Claim a role, select a line and record. Use Edit Mode to change roles, captions and timings.
+5. Export through Files. Save Project preserves the scene, media, current recordings and mix settings in a portable archive.
 
-## Get started
+Ordinary edits are saved in the host's workspace. Opening a project imports a new scene rather than replacing existing scenes. Personal monitoring, devices and layout settings do not change the shared project mix or exported audio.
 
-1. Download the Windows artifact from [GitHub Releases](https://github.com/dmbai009/dubline/releases). The next release provides the recommended **Setup.exe** and an optional **Portable.zip**; extract the entire ZIP before running its Dubline.exe. Older releases keep their original single-EXE layout.
-2. Create a room and choose **Cloudflare**, **Porthole** or **VPN**.
-3. Import a video or scene pack in **Files**. Open and save `.dubline` snapshots in its **Projects** tab.
-4. Share the invitation and PIN. Friends join, claim roles and record their lines.
-5. Review the scene together and export the result.
+## Connecting friends
 
-Cloudflare creates an HTTPS link that guests open in Chrome or Edge. Porthole uses a shared Steam lobby and the TCP port shown by Dubline. Radmin VPN and Hamachi users join the same network; guests open the invitation through **Dubline.exe → Join as a guest** so microphone access works.
+| Method | Use |
+| --- | --- |
+| Cloudflare | Automatic public HTTPS invitation. No additional app is needed by guests. |
+| Porthole | Steam-based port sharing; follow the instructions in the launcher. |
+| VPN | Connect through a private network such as Radmin VPN or Hamachi. |
+| Custom tunnel | Advanced instructions for a separately installed HTTPS tunnel. Forward it to the actual local port shown by Dubline; send the resulting HTTPS link and room PIN. |
 
-The host can switch connection methods without closing the scene. Keep the host window open during a session and use headphones while recording.
-
-## What Dubline can do
-
-### Scenes and imports
-
-Import MP4 or MKV video with optional Original audio, Background / M&E and ASS, SSA, SRT or VTT subtitles. Video-only import opens an empty scene for creating roles and lines manually. MKV subtitles and multiple audio tracks can be extracted automatically; the host chooses the Original and Background tracks.
-
-Separate audio supports WAV, MP3, M4A, AAC, OGG, OPUS and FLAC. Subtitle character names and timestamps become editable lines. Invalid subtitle cues are reported, and unwanted signs or lyrics can be removed in the editor.
-
-Voxalike and The Choicer Voicer ZIP packs can be imported from disk, the host's library or a [Voxalike Workshop](https://voxalike.com/workshop) link. Packs contain scene video, optional backing audio, captions, timestamps and reference voices. Every import creates a new session; previous scenes keep their media and recordings.
-
-### Shared editing
-
-In **Edit Mode**, collaborators create and rename roles, edit captions and timing, move lines between tracks, resize their edges and select groups. Overlapping lines appear in separate lanes. Timing supports milliseconds, and unsaved inspector drafts survive ordinary room updates.
-
-Undo restores your own edits while preserving later changes by other players. Deleted lines can be restored from session trash. **Dub Mode** locks source editing so actors can focus on recording and aligning their takes.
-
-Drag a track's handle to reorder it, or focus the handle and press Alt+↑/↓. Deleting a populated track offers a transfer of all its lines and takes to another track, or removal to session trash. Both paths use the shared editor's Undo and conflict checks.
-
-The host and room moderators can enable **Protect timings** in Edit Mode. Everyone can still edit text and assign lines to roles; moving or resizing timings and creating new lines stay locked until protection is disabled. The setting belongs to the scene and is saved in `.dubline` projects. Pending conflicts have individual and bulk review actions; unresolved edits stay on the current device until applied or explicitly discarded.
-
-### Recording and voice tools
-
-Claim a character or an individual line, then record while other actors work on theirs. The timeline and participant list show who is recording and how much of the scene is complete.
-
-Adjust microphone gain, noise suppression, preparation time and microphone-delay correction. Use the silent visual countdown, optional three-beep ADR cues and a video prompter. Recording can continue beyond the source line while you are still speaking.
-
-Trim and align takes without changing their original audio. Pitch shifting and robot, radio, monster, thoughts, cave, behind-a-door and megaphone effects apply during playback and export. Each line keeps one current take; recording again replaces it.
-
-If an upload is interrupted, the take stays on that device and retries after reconnection, including after a page reload. A delayed upload belongs to the scene in which it was recorded.
-
-Clip mix controls in the inspector set volume (0–300%), stereo pan (1% steps), and effect amount (0–100%, original/processed blend). Actors can change their own recordings after releasing a role; the host and moderators can change any clip. Ctrl/Shift selection spans roles. Changing a bulk setting gives every editable recorded clip the same value and preserves unrelated settings. Preview, video export and stereo WAV stems use the same clip settings. Changed clip mixes use `.dubline` format 3; Needs Retake markers use format 4. Older formats 1/2/3 remain readable. The retake marker retains collaborators' Edit Mode access.
-
-### Audio and playback
-
-**Original**, **Background / M&E** and **Dub** share a project mixer with volume up to 150%, mute, solo and precise source offsets. Auto-ducking lowers reference and background audio while recorded dialogue plays. Project settings are used by the exported mix; **My monitoring** gives each listener a personal balance.
-
-Listen to individual takes, expand or fullscreen the video, and use **Watch Together** for a synchronized screening with host-controlled playback. Peers can share media to reduce repeated downloads from the host. A participant who already has the scene video or pack can select their local copy.
-
-### Room tools and interface
-
-Use chat, **Random Cast** to distribute roles and **Blind Mode** to hide takes until the group is ready to listen. Blind Mode prevents accidental spoilers in the interface; it does not make recordings private from authorized room members.
-
-Desktop invitations use a PIN. The host can set a room password, remove participants, switch scenes and pause the room. Saved sessions and their recordings survive restarts.
-
-The host can appoint multiple room moderators from a participant's action menu and revoke them while online or offline. Their role survives reconnects, nickname changes and host restarts. Moderators can switch Edit/Dub Mode, protect timings, manage role assignments, Blind Mode and the project mix, pause recording and adjust any take. Scene management, media imports, project saving, room security, kicking participants and moderator appointments remain host-only. Moderation grants no permission to record over another actor's claimed line.
-
-Resize the lobby, video, inspector and timeline panels; zoom the timeline around the cursor. Choose from six themes and an English, Russian or Ukrainian interface. Layout, language and personal preferences are remembered on each device.
-
-### Exports
-
-- **Finished video:** combine the scene video with the project mix. Supported browsers copy the video stream and encode the mixed soundtrack; a real-time fallback is available.
-- **Character stems:** export full-length, timeline-aligned WAV files with a TSV cue sheet for REAPER or another DAW.
-- **Voxalike pack:** export the edited scene with video, backing audio, captions, timing and source/reference voices. Recorded dubbing is exported through video or stems.
-
-### Projects and large media — in development
-
-**Single Player** lets you create, edit and record all roles locally. **Host Multiplayer** opens the same scene for collaboration. A `.dubline` project embeds one scene's video, audio, current takes, captions, roles, effects, timing and shared mix; it can be reopened in either mode.
-
-Project archives have no aggregate size ceiling. Working video is limited to **300 MB**. Larger local videos receive an H.264 working copy up to **720p**, with progress and cancellation. The original stays on the host, is included in the complete project archive, and supplies its unchanged video stream for final MP4/MKV export.
-
-Choose a storage folder in the launcher or **My Settings** to move existing project media, recordings, library and temporary exports to another drive. A change made during a session applies at the next workspace launch. Application preferences, Chromium cache and client identity keep their standard per-user locations. Project storage cannot overlap the application folder managed by updates.
-
-Upcoming workflow improvements also include smoother audio ducking, loading indicators, timeline bounds and group movement, local role-track heights, and separate personal and shared settings. See [PRODUCT.md](PRODUCT.md) and the [project format guide](docs/project-format.md) for development details.
-
-## Development hardening and Windows updates
-
-The development build adds verified resumable media chunks and partial seeding, independent media readiness, durable pending editor recovery, semantic edit leases and collaborator cursors. Search, filters and the footer minimap aid timeline navigation; preview rates preserve pitch while recording/export stay at 1x. Local master volume and subtitle/prompter visibility are personal controls.
-
-**Setup** provides a standard installation wizard: welcome, license, destination folder, installation progress and an optional launch on completion. It installs for the current user, creates desktop/Start menu shortcuts and appears in Windows Installed apps. It offers verified background downloads with explicit install/restart when work is idle; updates keep the chosen installation folder. **Portable** is an extracted folder, with direct patches when the installed manifest matches and a verified full ZIP fallback otherwise; apply uses a separate helper with rollback. Keep the entire Portable folder together. Project files, workspace history, chosen media storage and profile identity survive updates. Steam builds delegate updates to Steam. Legacy single-EXE users migrate by downloading a new artifact; old releases are not silently converted.
-
-Setup registers `.dubline` in Windows Open with. Portable registration/repair/removal is opt-in in its settings. Windows chooses the default app; each copy owns its own handler. Opening a file imports a snapshot as a new scene, preserving existing scenes. Multiplayer hosts confirm a shared switch; remote guests confirm leaving to open locally.
-
-See [Windows Setup](docs/windows-setup.md) for the installation wizard and its validation.
-
-**Save Project...** is one host-only command for an active-scene snapshot. The desktop chooses a destination every time and commits a verified temporary archive beside it; a browser host downloads the same archive. Ordinary edits use internal workspace autosave. A project file is not a live document and has no Ctrl+S/Save As link to the file originally opened. The safe snapshot dialog can retry, cancel or explicitly save current server state when a participant is not ready.
-
-Build information and advanced diagnostics are available in settings. Release CI prepares a complete verified draft; nothing is published automatically.
+The host keeps Dubline open throughout the session. If one method is unavailable, try another. Custom tunnel mode does not install or launch third-party tunnel software; the local port may change after a restart.
 
 ## Controls
 
 | Key | Action |
 | --- | --- |
-| `Space` | Play or pause |
+| `Space` | Play or pause; in Dub Mode a selected time range stops at its end |
 | `R` | Record the selected line |
 | `J` / `K` / `L` | Seek back 3 s / pause / seek forward 3 s |
 | `F` | Toggle video fullscreen |
-| `Left` / `Right` | Seek; in Edit Mode, move lines by 0.1 s (`Shift`: 1 s) |
+| `Left` / `Right` | Seek; in Edit Mode move lines by 0.1 s (`Shift`: 1 s) |
 | `Alt` + `Up` / `Down` | Move selected lines to an adjacent role track |
 | `Ctrl` / `Cmd` + `F` | Find captions, roles or chronological line numbers |
 | `Ctrl` + `Z` | Undo your last editor operation |
 | `Delete` / `Backspace` | Delete selected source lines in Edit Mode |
-| `Esc` | Close dialogs |
+| `Esc` | Close dialogs or clear a private time range |
 
-## Requirements and practical limits
+## Requirements and storage
 
-The portable Windows app includes its server, FFmpeg and Cloudflare helper. The host does not need to install them separately. Browser guests use **Chrome or Edge**; Firefox and Safari are not supported. Other connection methods require Porthole or the chosen VPN client.
+The Windows app includes its server, FFmpeg and Cloudflare helper. Browser guests use **Chrome or Edge**; Firefox and Safari are not supported. Other connection methods require their corresponding external tools.
 
-The room runs on the host's computer. If a public link is unreachable, try Porthole or VPN and check the invitation address, port and host window. Import large files locally on the host; tunnel uploads have a separate transfer limit shown in the interface.
+Long scenes, extracted audio, exports and project archives need free disk space. Browser exports and full-length WAV stems can also use substantial RAM. Working video and Voxalike imports have separate limits shown in the interface; `.dubline` archives have no aggregate size ceiling. Keep backups before deleting scenes or clearing application data.
 
-Long scenes, extracted audio, exports and complete project archives need free disk space. Browser soundtrack mixing and full-length WAV stems can also use substantial RAM. Subtitle files are limited to 20 MB; Voxalike packs and their export have separate limits. Keep backups of important recordings before deleting sessions or clearing application data.
+My Settings lets the desktop host choose another storage drive. Updates preserve the chosen workspace and profile. Setup installs for the current Windows user; Portable runs from its extracted folder. Steam builds use Steam updates.
 
 ## Run from source
 
-Use **Node.js 20.1 or newer**:
+Use **Node.js 20.1 or newer** (CI uses Node.js 24):
 
 ```bash
 git clone https://github.com/dmbai009/dubline.git
 cd dubline
-npm install
+npm ci
 npm start
 ```
 
-Build one Windows core with `npm run dist`; artifacts are `dist/Dubline-VERSION-win-x64-Setup.exe` and `dist/Dubline-VERSION-win-x64-Portable.zip`. Run the extracted Portable as `dist/portable/Dubline.exe`; `npm run dist:win:unpacked` builds the core alone. Development builds from `main` include the Coming Soon features.
-
-For a standalone browser server, run `npm run start:server` and open <http://localhost:3000>. On Windows, `start.bat` sets up and starts this server; `share.bat` creates a public link. The standalone server is intended for trusted groups and does not use the desktop app's PIN protection for media.
+For a standalone browser server, run `npm run start:server` and open <http://localhost:3000>. Windows users can also use `start.bat` and `share.bat`. The standalone server is intended for trusted groups and does not use the desktop app's PIN protection for media.
 
 ## Development
+
+| Directory | Contents |
+| --- | --- |
+| `src/` | Electron entry points and launcher, server entry point |
+| `src/server/` | Room/session logic, imports, projects, exports and network permissions |
+| `src/public/` | Browser UI, styles, locales and shared audio/data models |
+| `test/` | Unit and server integration tests |
+| `e2e/` | Browser scenarios with isolated temporary servers/media |
+| `tools/` | Build scripts, native Electron checks and QA utilities |
+| `resources/` | Branding, Windows helpers and third-party license provenance |
+| `docs/` | Portable project format and release history |
 
 ```bash
 npm run check
 npm test
 npm run test:e2e
+npm run test:electron:editor
+npm run test:electron:ui
+npm run test:electron:hosting
+npm run test:electron:workflow
 ```
 
-See [TESTING.md](TESTING.md) for native and packaged checks, [ARCHITECTURE.md](ARCHITECTURE.md) for the code structure, and [BEHAVIOR.md](BEHAVIOR.md) for project guarantees.
+Browser tests require Chrome or Edge; set `CHROME_PATH` if detection cannot find it. Tests use temporary data/media directories. Standalone development keeps existing workspace data in `data/` and media in `public/uploads/` and `public/packs/`; these runtime folders are ignored by Git and separate from `src/public/`.
+
+On Windows, `npm run dist:win:unpacked` builds `dist/win-unpacked/`. `npm run dist` builds the core, Setup and Portable ZIP. Artifacts and generated QA output are not source files. GitHub Actions runs syntax, unit/server, all browser shards and native Electron checks. Release CI prepares a verified draft without automatically publishing it.
+
+The portable file boundary is documented in [Project format](docs/project-format.md). Contributions and licensing requirements are in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 Inspired by Voxalike and The Choicer Voicer. Built with Electron, Node.js, Express, Socket.IO and browser audio/video APIs.
 
@@ -216,15 +155,3 @@ Third-party dependencies remain under their own licenses; see
 project and third-party notices under `resources/licenses/` in the extracted
 application. LICENSE contains the full terms, disclaimer of warranty, and
 limitation of liability.
-
-
-## RNNoise replacement
-
-RNNoise noise reduction is built in: My Settings → Audio, private audition and author settings per scene. Default intensity is 60%; existing projects remain disabled until enabled. No calibration or external model installation. See [noise reduction](docs/noise-reduction.md).
-
-
-## UI and scene presets
-
-Scene effect presets can stay linked to takes and roles. Edit shared preset keeps a private draft until Save and shows how many lines will change; Detach preserves the current sound. Copy Replace/Append remain available for independent settings. Preset pitch is optional. Old projects keep their copied settings. RNNoise/effect previews play once by default, and only hosts/moderators may request retakes.
-
-The optional recording sequence offers Listen, Keep and next, or Skip for your own missing/retake/filtered lines. Take history includes A/B comparison. Check scene summarizes progress and known problems without downloading every recording. Room / Project Settings → Audio offers shared voice volume correction, disabled by default; My Settings → Audio has optional recording-quality hints that never demand a retake. Export explains unavailable choices and reports the actual result. See [implementation, migration and validation](docs/live-presets-workflow.md).

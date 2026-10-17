@@ -6,7 +6,7 @@ const { startServer, launchBrowser, openPlayer, loadFixture, waitFor, recordTake
 // Produces reviewable screenshots and a generated playback sample, using temporary server data.
 (async () => {
   let server, browser;
-  const output = path.join(__dirname, '../docs/qa');
+  const output = path.join(__dirname, '../audit/qa');
   const screenshot = (page, name) => page.screenshot({ path: path.join(output, name) });
   try {
     server = await startServer({ DUBLINE_DESKTOP_ROOM: 'main', DUBLINE_DESKTOP_HOST_TOKEN: 'visual-secret', DUBLINE_SINGLE_PLAYER: '1', DUBLINE_ROOM_PIN: 'ABCD' });

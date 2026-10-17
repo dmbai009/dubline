@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { readHttpMedia, retryMedia, mediaError } = require('../public/transfer-utils');
+const { readHttpMedia, retryMedia, mediaError } = require('../src/public/transfer-utils');
 const options = overrides => ({ from: 0, to: 65535, size: 131072, onPart: () => {}, ...overrides });
 test('valid 206 checks bounds and emits exactly the requested transport frames', async () => {
   const bytes = new Uint8Array(65536).fill(42), parts = [];

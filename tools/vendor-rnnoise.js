@@ -5,7 +5,7 @@ if (metadata.version !== '2025.1.5') throw Error('Install the pinned RNNoise ver
 const bytes = fs.readFileSync(path.join(source, 'dist', 'rnnoise.js'));
 const expected = 'e6958293a0118bf9860cb2753332f7562531cc987c914552c426cd7d7180a63e';
 if (crypto.createHash('sha256').update(bytes).digest('hex') !== expected) throw Error('RNNoise artifact differs from the verified NoiseLab model.');
-const destination = path.join(root, 'public', 'vendor', 'rnnoise'); fs.mkdirSync(destination, { recursive: true });
+const destination = path.join(root, 'src/public', 'vendor', 'rnnoise'); fs.mkdirSync(destination, { recursive: true });
 fs.writeFileSync(path.join(destination, 'rnnoise.js'), bytes);
 const notices = path.join(root, 'resources', 'licenses', 'rnnoise'); fs.mkdirSync(notices, { recursive: true });
 fs.copyFileSync(path.join(source, 'LICENSE'), path.join(notices, 'LICENSE-APACHE'));

@@ -212,7 +212,7 @@ describe('bundled RNNoise: actual DSP, private drafts, acknowledged author setti
   test('project v9 reopen and restart retain author settings/history/original bytes', async () => {
     const before = await scene(guest);
     const bytes = await host.evaluate(async () => { const snapshot = await prepareSafeSnapshot('project'); const response = await fetch('/api/export-project', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({room:currentRoom,clientId,...snapshot}) }); if(!response.ok) throw Error(await response.text()); return [...new Uint8Array(await response.arrayBuffer())]; });
-    const project = require('../server/projects').readProject(Buffer.from(bytes)); assert.equal(project.manifest.formatVersion,9);
+    const project = require('../src/server/projects').readProject(Buffer.from(bytes)); assert.equal(project.manifest.formatVersion,9);
     assert.deepEqual(project.manifest.project.noiseReduction.actors,before.noiseReduction.actors);
     assert.equal(project.manifest.project.lines.find(l=>l.id===1).takeHistory.length,1);
     await server.restart(); await waitFor(guest, () => socket.connected && myName === 'Actor' && session.noiseReduction.actors.Actor?.strength === .75,15000);

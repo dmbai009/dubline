@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { PORT_MIN, PORT_MAX, isPrivateGuestHost, normalizeGuestUrl, findFreePort } = require('../electron-network');
+const { PORT_MIN, PORT_MAX, isPrivateGuestHost, normalizeGuestUrl, findFreePort } = require('../src/electron-network');
 
 test('guest mode accepts loopback and VPN addresses but rejects public HTTP', () => {
   assert.equal(isPrivateGuestHost('localhost'), true);

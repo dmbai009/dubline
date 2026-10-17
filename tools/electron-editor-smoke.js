@@ -1,7 +1,7 @@
 // Test the source renderer in real Electron; no packaged build or user profile needed.
 const path = require('node:path');
 const assert = require('node:assert/strict');
-const { WORKSHOP_URL, createWorkshopLinkHandler } = require('../electron-external-links');
+const { WORKSHOP_URL, createWorkshopLinkHandler } = require('../src/electron-external-links');
 
 if (!process.versions.electron) {
   const { spawn } = require('node:child_process');

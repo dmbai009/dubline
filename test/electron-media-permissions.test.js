@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { installRoomPermissions, roomPermissionAllowed } = require('../electron-media-permissions');
+const { installRoomPermissions, roomPermissionAllowed } = require('../src/electron-media-permissions');
 test('media, fullscreen and speaker selection are confined to the exact active room origin', () => {
   const expected = 'http://127.0.0.1:3000', contents = { getURL: () => expected + '/?room=main' };
   for (const permission of ['media', 'fullscreen', 'speaker-selection']) {

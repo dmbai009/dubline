@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { parseVersion, isNewerVersion, evaluateRelease } = require('../electron-update');
+const { parseVersion, isNewerVersion, evaluateRelease } = require('../src/electron-update');
 
 test('update versions are compared numerically', () => {
   assert.deepEqual(parseVersion('v1.12.3'), [1, 12, 3]);

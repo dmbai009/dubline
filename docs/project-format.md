@@ -1,6 +1,6 @@
-# Dubline Project formats 1–13
+# Dubline Project formats 1–15
 
-An archive uses the `.dubline` extension and a standard ZIP container. `project.json` is UTF-8 JSON with `format: "dubline-project"`, required `formatVersion` from 1 through 13, `project`, and `assets`. The serializer is `server/projects.js`; it never exports raw room persistence.
+An archive uses the `.dubline` extension and a standard ZIP container. `project.json` is UTF-8 JSON with `format: "dubline-project"`, required `formatVersion` from 1 through 15, `project`, and `assets`. The serializer is `src/server/projects.js`; it never exports raw room persistence.
 
 ## Manifest
 
@@ -14,7 +14,7 @@ Each asset declares its archive path, byte size, and SHA-256. All referenced ass
 
 ## Save/open
 
-Saving captures metadata and immutable disk copies synchronously before asynchronous ZIP generation. Files are hashed/read in bounded chunks; production IO uses server/project-archive.js (yazl/yauzl). Collaborative edits, source switches, take deletion, and take replacement during generation cannot produce mixed revisions. Missing media fails save explicitly.
+Saving captures metadata and immutable disk copies synchronously before asynchronous ZIP generation. Files are hashed/read in bounded chunks; production IO uses src/server/project-archive.js (yazl/yauzl). Collaborative edits, source switches, take deletion, and take replacement during generation cannot produce mixed revisions. Missing media fails save explicitly.
 
 Opening validates ZIP entry paths/count/sizes/types, the format/version, bounded schema, references, CRC and SHA-256 before staging files. FFmpeg then checks the staged video and audio can be read. The server rechecks session identity and host rights before committing generated paths and starting a fresh session. Failed validation removes staging and leaves existing sessions untouched. Imported recordings get fresh session/sequence identities; old queued requests cannot target them.
 
@@ -23,7 +23,7 @@ Runtime credentials, PIN/passwords, host/client IDs, online players, sockets, ch
 ## Current limits and compatibility
 
 - No fixed aggregate compressed/expanded .dubline size limit. Working video is limited to 300 MB, independently of other media/recordings; the embedded original in version 2 is exempt. The UI explains this before import/open/save. ZIP64 is generated automatically when needed and accepted by the disk reader.
-- Manifest: 4 MB; at most 2,000 lines/roles and 10,000 archive entries; captions retain the existing 2,000-character limit.
+- Manifest: 8 MiB; at most 2,000 lines/roles and 10,000 archive entries; captions retain the existing 2,000-character limit.
 - Imported media uses generated filenames, preserving Unicode in JSON rather than trusting original archive filenames. Absolute, traversal, backslash, encoded/drive paths, duplicate entries, symlinks, and executable files are rejected.
 - Save/open currently requires host rights and an exact session binding. Existing desktop PIN/media gates and guest restrictions are unchanged.
 - Save/open/download use bounded streams and temporary disk files. Saving needs free disk space for immutable copies and ZIP; synchronous snapshot/hash may briefly pause the server on slow storage. Browser downloads and native file open avoid whole-archive buffers. Completion/failure/disconnection cleans temporary data; an OS/process crash can leave temporary files.
@@ -31,7 +31,7 @@ Runtime credentials, PIN/passwords, host/client IDs, online players, sockets, ch
 
 Single Player and Multiplayer share this format. Launcher open uses the same transaction as working Files UI open. The archive mode does not force the runtime mode. FFmpeg confirms the actual staged video duration; out-of-media source timings are rejected before publishing a session. Cross-mode browser and native Electron workflows are covered in e2e/workflow14.e2e.js and tools/electron-project-smoke.js.
 
-Validation commands and large-project coverage are documented in [the testing guide](../TESTING.md).
+Validation commands are listed in [README](../README.md#development).
 
 The original is staged/probed as video and must match the working duration within 250 ms (container/audio padding tolerance). It receives a generated source_video filename that static HTTP refuses; the session stores its URL internally, and publicRoom exposes only presence, name and size. Both copies participate in immutable archive snapshots and session cleanup. No relinking is needed for a complete archive.
 
@@ -69,7 +69,7 @@ Scenes with role definitions or explicitly edited individual chains emit version
 
 Each active and historical take stores `effects`, `pitchMode` (`inherit`/`override`), `inheritRoleEffects` and `excludedRoleEffectIds`. The existing pitch field retains the explicit value. Role and take pitch do not sum. Exclusions reference role instances; stale exclusions are inert. Maximum eight entries per level, eight active combined stages, four heavy stages and 12 seconds of combined tails are validated against every active/historical take. Disabled stages and duplicate types with distinct IDs are preserved.
 
-All version-6/7 history, noise, trim, identity, pin and audio-asset rules still apply. Format 8 may omit noise state when no profiles exist. Formats 1–7 remain readable: a legacy effect becomes one effective stage with its existing amount, and existing pitch remains explicit. The legacy single-stage renderer preserves Monster and old effects' sound. New chain fields and Echo cannot be written into a legacy version. Original media/recordings are never rewritten during migration or export. See [voice-effects.md](voice-effects.md).
+All version-6/7 history, noise, trim, identity, pin and audio-asset rules still apply. Format 8 may omit noise state when no profiles exist. Formats 1–7 remain readable: a legacy effect becomes one effective stage with its existing amount, and existing pitch remains explicit. The legacy single-stage renderer preserves Monster and old effects' sound. New chain fields and Echo cannot be written into a legacy version. Original media/recordings are never rewritten during migration or export.
 
 ## RNNoise author settings in version 9
 
@@ -89,12 +89,12 @@ Formats 1–9 import an empty catalogue and reject a hidden voicePresets field. 
 
 Version 11 is emitted for explicit live preset links, project.mix.normalizeVoices=true or stored recording checks. project.voicePresets is required even if empty. Main/historical takes and roles may contain voicePresetId (null or validated catalogue ID) and usePresetPitch (boolean). Effective chains retain role inheritance and individual extras; references and resource limits are validated before assets are staged. Preset pitch is optional. Formats 1–10 reject these reference fields and remain independent copies.
 
-The shared mix normalizes missing normalizeVoices to false. A take quality field is null or a validated version-1 advisory report: duration, peak, rms, silenceRatio, clippedSamples and a distinct known warnings array. Runtime import stores reports separately in private takeChecks by immutable take ID, excluding them from public scene/take broadcasts. Archived audio bytes remain unchanged. Runtime editor receipts and client capability fields are excluded from the manifest. See live-presets-workflow.md for authority, cache, algorithm and validation details.
+The shared mix normalizes missing normalizeVoices to false. A take quality field is null or a validated version-1 advisory report: duration, peak, rms, silenceRatio, clippedSamples and a distinct known warnings array. Runtime import stores reports separately in private takeChecks by immutable take ID, excluding them from public scene/take broadcasts. Archived audio bytes remain unchanged. Runtime editor receipts and client capability fields are excluded from the manifest.
 
 
 ## Preset icons (format 12)
 
-A scene catalogue may include optional `icon` metadata from the fixed voice-preset-model icon keys. Icon-bearing scenes emit version 12, using the same explicit audio/reference/check fields as version 11. Earlier-version manifests reject icon metadata. Readers retain formats 1–11; icon-free scenes keep the lowest applicable version. The default voice icon is represented by omission. Icons do not affect PCM, chain order, preset links, pitch or cache keys. Runtime client capability 2 is separate from the archive. See [inspector-refresh.md](inspector-refresh.md).
+A scene catalogue may include optional `icon` metadata from the fixed voice-preset-model icon keys. Icon-bearing scenes emit version 12, using the same explicit audio/reference/check fields as version 11. Earlier-version manifests reject icon metadata. Readers retain formats 1–11; icon-free scenes keep the lowest applicable version. The default voice icon is represented by omission. Icons do not affect PCM, chain order, preset links, pitch or cache keys. Runtime client capability 2 is separate from the archive.
 
 ## Version 13: one own chain
 
@@ -105,8 +105,21 @@ historical takes retain this flag. Up to sixteen stored stages preserve old
 preset-plus-extras chains with disabled settings; active processing limits stay
 unchanged. Version 1–12 readers remain supported; earlier-version manifests reject
 new metadata. Staging migrates legacy overlays without changing their sound or
-media. See [single-chain behavior](single-effect-chain.md).
+media.
 
 The project metadata budget is 8 MiB, allowing complete private snapshots to
 preserve large legacy overlay projects. Media bounds, per-scene counts, asset
 verification and active DSP budgets are unchanged.
+
+## Version 14: pitch stages
+
+Pitch becomes an ordered effect stage with a semitone value from -12 to +12.
+Existing scalar pitch remains readable, and unedited legacy projects retain
+their audible processing order. Manifests containing pitch stages require version 14.
+
+## Version 15: graphic EQ and isolated role presets
+
+Equalizer stages and role-bound presets require version 15. A graphic EQ stores
+five band gains in the effect parameters. A role-bound preset carries its role
+identity; take presets cannot reference it. These fields reuse the existing
+chain, preset and asset validation. Formats 1–14 remain readable.

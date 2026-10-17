@@ -15,10 +15,10 @@ test('audio extraction deduplicates active work and can rebuild a missing stream
   const context = { process, console, Buffer, setTimeout, clearTimeout, module: { exports: {} }, require(name) {
     if (name === './files') return { diskPathForUrl: url => path.join(directory, path.basename(url)) };
     if (name === './log') return { logEvent() {} };
-    if (name === './config') return require('../server/config');
+    if (name === './config') return require('../src/server/config');
     return require(name);
   } };
-  vm.runInNewContext(fs.readFileSync('server/media.js','utf8'), context);
+  vm.runInNewContext(fs.readFileSync('src/server/media.js','utf8'), context);
   const { extractAudioTracks } = context.module.exports;
   const first = extractAudioTracks('/uploads/scene/video.mp4');
   assert.equal(extractAudioTracks('/uploads/scene/video.mp4'), first, 'parallel callers share one extraction job');
@@ -42,7 +42,7 @@ test('rapid playback-source replacement keeps one metadata callback and preserve
     removeEventListener(name,callback) { assert.equal(name,'loadedmetadata'); listeners.delete(callback); }
   };
   const context = { video, backing: {}, session: { activeSessionId:'scene',backingUrl:'' }, mediaUrl: url=>url, setMediaSource() {} };
-  const source = fs.readFileSync('public/import.js','utf8');
+  const source = fs.readFileSync('src/public/import.js','utf8');
   const start = source.indexOf('let restoreVideoMetadata') >= 0 ? source.indexOf('let restoreVideoMetadata') : source.indexOf('function swapVideoSource');
   vm.runInNewContext(source.slice(start,source.indexOf("localMediaInput.addEventListener('change'",start)),context);
   for (let i=0; i<40; i++) { video.paused=false; context.swapVideoSource('video-'+i); assert.equal(listeners.size,1); }

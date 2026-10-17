@@ -1,7 +1,7 @@
 const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs'), path = require('node:path');
-const { readProject } = require('../server/projects');
+const { readProject } = require('../src/server/projects');
 const { skipReason, startServer, launchBrowser, openPlayer, loadFixture, claimAndSelect, waitFor } = require('./helpers');
 describe('take history: real uploads, sockets, inspector and portable projects', { skip: skipReason, timeout: 180000 }, () => {
   let server, browser, host, moderator, stranger;

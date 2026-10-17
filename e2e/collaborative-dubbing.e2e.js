@@ -1,7 +1,7 @@
 const { describe, test, before, after, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs'), path = require('node:path');
-const { readProject } = require('../server/projects');
+const { readProject } = require('../src/server/projects');
 const { skipReason, startServer, launchBrowser, openPlayer, loadFixture, waitFor, waitUntil, claimAndSelect, recordTake, wait } = require('./helpers');
 
 describe('Collaborative actor workflow', { skip: skipReason }, () => {
