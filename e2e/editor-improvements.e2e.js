@@ -76,6 +76,35 @@ describe('Editor improvements in the browser', { skip: skipReason, timeout: 1200
     await page.evaluate(() => updateEditorLine(session.lines[0], { character: 'Friend' })); await waitFor(page, () => session.lines[0].character === 'Friend');
     assert.deepEqual(await page.evaluate(() => [session.lines[0].start, session.lines[0].end]), initial);
   });
+  test('protected single and bulk delete stay disabled; the destructive bulk action works after unlocking', async () => {
+    await page.evaluate(() => selectLine(session.lines[0]));
+    await page.click('#protectTimingsBtn'); await waitFor(page, () => session.protectTimings && document.querySelector('[data-editor-delete]')?.disabled);
+    const original = await page.evaluate(() => JSON.stringify(session.lines));
+    await page.evaluate(() => { multiSelection.add(1); multiSelection.add(2); showMultiInspector(); });
+    assert.equal(await page.$eval('[data-editor-delete]', button => button.disabled && button.classList.contains('btn-delete')), true);
+    await page.focus('[onclick="clearMultiSelection()"]'); await page.keyboard.press('Delete');
+    await page.evaluate(() => deleteEditorLines([...multiSelection]));
+    assert.equal(await page.evaluate(() => JSON.stringify(session.lines)), original);
+    assert.equal(await page.evaluate(() => !!document.querySelector('dialog.text-prompt[open]')), false);
+    await page.click('#protectTimingsBtn'); await waitFor(page, () => !session.protectTimings && !document.querySelector('[data-editor-delete]')?.disabled);
+    await page.click('[data-editor-delete]'); await confirm();
+    await waitFor(page, () => session.lines.length === 2 && !editorQueue.length);
+    assert.deepEqual(await page.evaluate(() => session.lines.map(line => line.id)), [3, 4]);
+  });
+  test('protection enabled during a bulk-delete confirmation prevents submitting the captured deletion', async () => {
+    const other = await guest();
+    await other.evaluate(() => { multiSelection.add(1); multiSelection.add(2); showMultiInspector(); });
+    await other.click('[data-editor-delete]'); await waitFor(other, () => !!document.querySelector('dialog.text-prompt[open]'));
+    await page.click('#protectTimingsBtn'); await waitFor(other, () => session.protectTimings);
+    await other.click('#textPromptSave');
+    await waitFor(other, () => !document.querySelector('dialog.text-prompt[open]'));
+    assert.equal(await other.evaluate(() => session.lines.length), 4);
+    assert.equal(await other.evaluate(() => editorQueue.length), 0);
+    await page.click('.track-row[data-character="Hero"] .track-delete-button'); await waitFor(page, () => document.querySelector('.track-delete-dialog').open);
+    assert.equal(await page.$eval('[data-track-decision=trash]', button => button.disabled), true);
+    assert.equal(await page.$eval('[data-track-decision=transfer]', button => button.disabled), false);
+    await page.click('[data-track-decision=cancel]');
+  });
   test('track handle reorders with pointer and keyboard and Undo restores the original order', async () => {
     const handle = await page.$('.track-row[data-character="Friend"] .track-drag-handle'); const bounds = await handle.boundingBox();
     const top = await page.$eval('.track-row[data-character="Hero"]', row => row.getBoundingClientRect().top);

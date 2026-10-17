@@ -155,6 +155,33 @@ describe('Track structure, protected timings and room moderators on the real ser
     assert.equal((await ack(player, 'editor_update_line', operation(await state(host), patch(line, { caption: 'Allowed', character: 'Friend' })))).ok, true);
     const saved = await state(host); assert.equal(saved.lines[0].start, line.start); assert.equal(saved.lines[0].end, line.end); assert.equal(saved.lines[0].caption, 'Allowed');
   });
+  for (const actor of ['Host', 'Moderator', 'Guest']) test(`timing protection blocks ${actor}'s single, bulk and track deletion without changing lines or trash`, async () => {
+    const host = await scene(), moderator = await join(host.room, 'Moderator'), guest = await join(host.room, 'Guest'); await grant(host, moderator);
+    const player = { Host: host, Moderator: moderator, Guest: guest }[actor], initial = await state(host);
+    const targets = initial.lines.slice(0, 2).map(line => ({ lineId: line.id, revision: line.revision || 0 }));
+    const delayed = operation(initial, { lines: targets });
+    await ack(host, 'set_protect_timings', { sessionId: initial.activeSessionId, enabled: true });
+    assert.equal((await ack(player, 'editor_delete_lines', operation(initial, { lines: targets.slice(0, 1) }))).reason, 'timingsProtected');
+    assert.equal((await ack(player, 'editor_delete_lines', delayed)).reason, 'timingsProtected');
+    assert.equal((await ack(player, 'editor_delete_track', operation(initial, deletion(initial, 'Hero')))).reason, 'timingsProtected');
+    player.socket.emit('host_delete_lines', { sessionId: initial.activeSessionId, lineIds: targets.map(item => item.lineId) });
+    const locked = await state(player);
+    assert.deepEqual(locked.lines, initial.lines); assert.deepEqual(locked.trackOrder, initial.trackOrder); assert.equal(locked.trashCount, initial.trashCount);
+    await ack(host, 'set_protect_timings', { sessionId: initial.activeSessionId, enabled: false });
+    assert.equal((await ack(player, 'editor_delete_lines', operation(await state(player), { lines: targets }))).count, 2);
+    assert.equal((await state(player)).lines.length, initial.lines.length - 2);
+  });
+  test('timing protection cannot be bypassed by undoing creation and does not consume the blocked Undo', async () => {
+    const host = await scene(), initial = await state(host);
+    const created = await ack(host, 'editor_create_line', operation(initial, { character: 'Hero', start: 0, end: 1, caption: 'Keep while protected' }));
+    assert.equal(created.ok, true);
+    await ack(host, 'set_protect_timings', { sessionId: initial.activeSessionId, enabled: true });
+    assert.equal((await ack(host, 'editor_undo', operation(await state(host)))).reason, 'timingsProtected');
+    assert.ok((await state(host)).lines.some(line => line.id === created.line.id));
+    await ack(host, 'set_protect_timings', { sessionId: initial.activeSessionId, enabled: false });
+    assert.equal((await ack(host, 'editor_undo', operation(await state(host)))).undone, 1);
+    assert.equal((await state(host)).lines.some(line => line.id === created.line.id), false);
+  });
   test('ordinary participant cannot toggle protection; an atomic timing batch never partially moves', async () => {
     const host = await scene(), guest = await join(host.room, 'Guest'), snapshot = await state(host);
     assert.equal((await ack(guest, 'set_protect_timings', { sessionId: snapshot.activeSessionId, enabled: true })).ok, false);

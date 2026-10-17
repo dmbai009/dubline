@@ -149,6 +149,7 @@ module.exports = function registerEditorHandlers(socket, conn) {
     if (!editorAllowed(conn, room)) return ack({ ok: false, reason: 'mode' });
     if (!room.trackOrder.includes(character) || !Array.isArray(expected) || !['transfer', 'trash'].includes(data.action)) return ack({ ok: false, reason: 'invalid' });
     const lines = room.lines.filter(line => line.character === character);
+    if (room.protectTimings && data.action === 'trash' && lines.length) return ack({ ok: false, reason: 'timingsProtected' });
     const expectedById = new Map(expected.map(item => [item?.lineId, item]));
     if (expectedById.size !== expected.length || expected.length !== lines.length || JSON.stringify(trackOrder) !== JSON.stringify(room.trackOrder) ||
         lines.some(line => { const item = expectedById.get(line.id); return !item || item.revision !== (line.revision || 0) || item.audioUrl !== line.audioUrl || item.takeMixRevision !== (line.takeMixRevision || 0) || item.claimedBy !== line.claimedBy; }) ||
@@ -336,6 +337,7 @@ module.exports = function registerEditorHandlers(socket, conn) {
     const room = getRoom(conn.roomId);
     if (!editorAllowed(conn, room)) return reply({ ok: false, reason: 'mode' });
     if (sessionId !== undefined && sessionId !== room.activeSessionId) return reply({ ok: false, reason: 'session' });
+    if (room.protectTimings) return reply({ ok: false, reason: 'timingsProtected' });
     if (!Array.isArray(lines) || !lines.length || lines.length > 2000) return reply({ ok: false, reason: 'invalid' });
     const ids = new Set();
     const current = [];
@@ -379,7 +381,7 @@ module.exports = function registerEditorHandlers(socket, conn) {
       try { require('../voiceChains').validateScene({ ...room, roleEffects: roles, lines, trackOrder: [...new Set([...room.trackOrder, ...lines.map(line => line.character)])] }); } catch { return reply({ ok: false, reason: 'fx.limit' }); }
     }
     if (pendingUndo?.type === 'removeTrack' && pendingUndo.roleEffects) { const roles = { ...room.roleEffects, [pendingUndo.character]: pendingUndo.roleEffects }; try { require('../voiceChains').validateScene({ ...room, roleEffects: roles, trackOrder: [...new Set([...room.trackOrder, pendingUndo.character])] }); } catch { return reply({ ok: false, reason: 'fx.limit' }); } }
-    if (room.protectTimings && pendingUndo?.lines?.some(item => item.changes.start || item.changes.end)) return reply({ ok: false, reason: 'timingsProtected' });
+    if (room.protectTimings && (pendingUndo?.type === 'create' || pendingUndo?.lines?.some(item => item.changes.start || item.changes.end))) return reply({ ok: false, reason: 'timingsProtected' });
     const entry = history.popFor(conn.roomId, room, conn.clientId);
     if (!entry) return reply({ ok: false, reason: 'empty' });
     normalizeEditorState(room);
