@@ -162,7 +162,14 @@ describe('voice chains: real DSP, inspector, author rights and scoped collaborat
     const added = await host.evaluate(() => new Promise(resolve => socket.emit('editor_add_track', { sessionId: session.activeSessionId, character: 'Empty role' }, resolve))); assert.equal(added.ok, true);
     await waitFor(host, () => document.querySelector('[data-character="Empty role"] .track-fx'));
     await waitFor(host, () => timelineContainer.clientHeight >= 120);
-    await host.locator('.track-row[data-character="Empty role"] .track-fx').click();
+    const point = await waitFor(host, () => {
+      const node = document.querySelector('.track-row[data-character="Empty role"] .track-fx');
+      node.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
+      const rect = node.getBoundingClientRect(), x = rect.x + rect.width / 2, y = rect.y + rect.height / 2;
+      return node.contains(document.elementFromPoint(x, y)) ? { x, y } : false;
+    });
+    await host.mouse.click(point.x, point.y);
+    await waitFor(host, () => fxDialog.open);
     assert.equal(await host.$eval('#fxRows', node => node.children.length), 0);
     await host.click('[data-fx-type="' + 'echo' + '"]'); assert.equal(await host.$eval('#fxPresetSave',node=>!!node.closest('[hidden]')),true); await host.click('#fxApply');
     await waitFor(host,()=>!fxDialog.open);
