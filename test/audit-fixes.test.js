@@ -239,13 +239,15 @@ describe('audit: scene and take integrity', () => {
     }
     // Windows kill() is a hard termination. Check actual persisted claims before
     // restarting instead of assuming a timer ran on a busy CI worker.
+    let persisted;
     await waitUntil(() => {
       try {
         const saved = JSON.parse(fs.readFileSync(`${server.dirs.data}/rooms.json`, 'utf8'))[host.room];
         const claims = saved.sessions[saved.activeSessionId].characterClaims;
+        persisted = claims;
         return ['constructor', '__proto__', 'toString', 'hasOwnProperty'].every(name => Object.hasOwn(claims, name) && claims[name] === host.nick);
-      } catch { return false; }
-    });
+      } catch (error) { persisted = error.message; return false; }
+    }).catch(error => { throw new Error(`${error.message}\nPersisted claims: ${JSON.stringify(persisted)}\nServer: ${server.log}`, { cause: error }); });
     await server.restart(); await waitUntil(async () => host.socket.connected);
     await waitUntil(async () => { try { return (await state(host)).loaded; } catch { return false; } });
     assert.equal((await state(host)).characterClaims.__proto__, 'constructor');

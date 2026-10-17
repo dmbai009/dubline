@@ -19,6 +19,10 @@ async function mediaProxy(targetPort, { tls = false, rule = () => ({}) } = {}) {
     let response, timer, complete = false;
     const upstream = http.request({ hostname: '127.0.0.1', port: targetPort, path: req.url, method: req.method, headers }, incoming => {
       response = incoming; incoming.pause(); const outHeaders = { ...incoming.headers };
+      // Deliver the complete planned prefix before closing an intentionally
+      // short body. A timed socket.destroy() can discard queued TLS records,
+      // making the observed prefix depend on runner/network scheduling.
+      if (plan.truncateAfter) outHeaders.connection = 'close';
       if (plan.badRange && incoming.statusCode === 206) outHeaders['content-range'] = 'bytes 9-10/11';
       const start = () => { if (!res.destroyed) { res.writeHead(incoming.statusCode, outHeaders); incoming.resume(); } };
       if (plan.delayHeaders) timer = later(start, plan.delayHeaders); else start();
@@ -27,9 +31,9 @@ async function mediaProxy(targetPort, { tls = false, rule = () => ({}) } = {}) {
         if (res.destroyed) return;
         if (plan.truncateAfter && observation.bytes + bytes.length >= plan.truncateAfter) {
           const piece = bytes.subarray(0, Math.max(0, plan.truncateAfter - observation.bytes));
-          res.write(piece); observation.bytes += piece.length; if (media) stats.bytes += piece.length;
+          res.end(piece); observation.bytes += piece.length; if (media) stats.bytes += piece.length;
           if (isVideo) { stats.videoBytes += piece.length; if (media) stats.managedVideoBytes += piece.length; }
-          timer = later(() => res.destroy(), 10); return;
+          return;
         }
         observation.bytes += bytes.length;
         if (media) { stats.bytes += bytes.length; stats.firstByteAt ??= performance.now(); }
