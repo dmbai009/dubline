@@ -274,8 +274,12 @@ async function main() {
     await host.evaluate(id => DublineVoiceEditor.open(id, 'takes'), created.line.id);
     await host.click('[data-fx-type="' + 'radio' + '"]');
     await host.$eval('#fxRows .fx-item:last-child input[type=range]', input => { input.value = '45'; input.dispatchEvent(new Event('input', { bubbles: true })); });
+    await host.waitForFunction(() => !document.getElementById('fxApply').disabled);
     await host.click('#fxApply');
-    await guest.waitForFunction(id => session.lines.find(line => line.id === id)?.effects?.some(effect => effect.type === 'radio' && effect.amount === .45), {}, created.line.id);
+    await guest.waitForFunction(id => session.lines.find(line => line.id === id)?.effects?.some(effect => effect.type === 'radio' && effect.amount === .45), {}, created.line.id).catch(async error => {
+      console.error('Packaged effect apply state:', JSON.stringify(await host.evaluate(id => ({ line: session.lines.find(line => line.id === id), open: document.getElementById('fxDialog').open, toast: document.getElementById('toast')?.textContent, status: document.getElementById('fxStatus')?.textContent, ranges: [...document.querySelectorAll('#fxRows input[type=range]')].map(input => ({ value: input.value, action: input.dataset.action })) }), created.line.id)));
+      throw error;
+    });
     const channels = await host.evaluate(async id => (await renderCharacterStem([session.lines.find(line => line.id === id)], 12)).numberOfChannels, created.line.id);
     assert.equal(channels, 2);
     process.stdout.write('Packaged clip author/host controls and stereo stem render passed.\n');
