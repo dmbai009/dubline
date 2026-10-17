@@ -24,7 +24,7 @@
     .screen { display:none; margin-top:16px; }
     .screen.active { display:block; }
     .lead { color:var(--muted); margin:0 0 14px; }
-    .modes { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; }
+    .modes { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; }
     .mode { min-height:122px; padding:14px; text-align:left; display:flex; flex-direction:column; }
     .mode.active { border-color:var(--accent2); box-shadow:0 0 0 1px var(--accent2) inset; background:#211934; }
     .mode strong { display:block; font-size:15px; margin-bottom:5px; }
@@ -57,7 +57,8 @@
     .update-close { padding:2px 7px; border:0; background:transparent; color:var(--muted); font-size:18px; }
     .app-meta { display:flex; justify-content:center; align-items:center; gap:7px; margin-top:16px; color:var(--muted); font-size:11px; }
     .app-meta button { padding:0; border:0; background:transparent; color:var(--accent2); font-size:11px; }
-    @media(max-width:850px) { .modes { grid-template-columns:1fr; } }
+    @media(max-width:850px) { .modes { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+    @media(max-width:480px) { .modes { grid-template-columns:1fr; } }
   </style>
 </head>
 <body>

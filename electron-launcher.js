@@ -112,7 +112,15 @@ for (const [key, values] of Object.entries({
     "Не вдалося перенести дані: {message}. Проєкти збережені в поточній папці."
   ]
 })) ['en', 'ru', 'uk'].forEach((code, index) => copy[code][key] = values[index]);
-const modes = ['cloudflare', 'porthole', 'vpn'];
+for (const [key, values] of Object.entries({
+  custom: ['Custom tunnel', 'Свой туннель', 'Власний тунель'],
+  advanced: ['For advanced users', 'Для опытных пользователей', 'Для досвідчених користувачів'],
+  customShort: ['An HTTPS tunnel you run yourself.', 'HTTPS-туннель, который вы запускаете сами.', 'HTTPS-тунель, який ви запускаєте самостійно.'],
+  customTitle: ['Use your own HTTPS tunnel', 'Подключение через свой HTTPS-туннель', 'Підключення через власний HTTPS-тунель'],
+  customBody: ['For advanced users who need an alternative to the built-in methods. Dubline starts its usual local server; it does not launch or download tunnel software. The actual port is shown in Connection settings and may change after restarting Dubline.', 'Для опытных пользователей, которым не подходят остальные способы. Dubline запускает обычный локальный сервер, не запускает и не скачивает программы для туннеля. Фактический порт показан в настройках подключения и может измениться после перезапуска Dubline.', 'Для досвідчених користувачів, яким не підходять інші способи. Dubline запускає звичайний локальний сервер, не запускає й не завантажує програми для тунелю. Фактичний порт показано в налаштуваннях підключення, він може змінитися після перезапуску Dubline.'],
+  customSteps: ['Install and start your chosen HTTPS tunnel.|Forward it to 127.0.0.1:<Dubline port>, using the actual port shown inside the room.|Send the public HTTPS link provided by your tunnel to participants together with the room PIN.', 'Установите и запустите выбранный HTTPS-туннель.|Направьте его на 127.0.0.1:<порт Dubline>, указав фактический порт из настроек подключения комнаты.|Полученную публичную HTTPS-ссылку отправьте участникам вместе с PIN комнаты.', 'Установіть і запустіть обраний HTTPS-тунель.|Спрямуйте його на 127.0.0.1:<порт Dubline>, вказавши фактичний порт із налаштувань підключення кімнати.|Отримане публічне HTTPS-посилання надішліть учасникам разом із PIN кімнати.']
+})) ['en', 'ru', 'uk'].forEach((code, index) => copy[code][key] = values[index]);
+const modes = ['cloudflare', 'porthole', 'vpn', 'custom'];
 let language = (window.dublineLauncher.language || localStorage.getItem('dubline_language') || 'en').slice(0, 2);
 if (!copy[language]) language = 'en';
 localStorage.setItem('dubline_language', language);
@@ -125,6 +133,7 @@ const tr = (key, params = {}) => (copy[language][key] || copy.en[key] || key).re
 
 function toolBadge(mode) {
   if (mode === 'cloudflare') return { text:tr('automatic'), css:'good' };
+  if (mode === 'custom') return { text:tr('advanced'), css:'' };
   if (!tools) return { text:tr('checking'), css:'' };
   const tool = mode === 'vpn' ? {
     installed: tools.radmin?.installed || tools.hamachi?.installed,
@@ -159,7 +168,7 @@ function render() {
   const steps = document.createElement('ol');
   tr(`${selectedMode}Steps`).split('|').forEach(value => { const li=document.createElement('li'); li.textContent=value; steps.append(li); });
   details.append(title, body, steps);
-  if (selectedMode !== 'cloudflare') {
+  if (selectedMode !== 'cloudflare' && selectedMode !== 'custom') {
     const toolNames = selectedMode === 'vpn' ? ['radmin', 'hamachi'] : [selectedMode];
     toolNames.forEach(tool => {
       const open = document.createElement('button'); open.className='tool-action';

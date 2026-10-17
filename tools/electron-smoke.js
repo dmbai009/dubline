@@ -90,7 +90,7 @@ async function main() {
       if (!launcher) await wait(250);
     }
     assert.ok(launcher, 'Launcher window did not open');
-    assert.equal(await launcher.$$eval('.mode', nodes => nodes.length), 3);
+    assert.equal(await launcher.$$eval('.mode', nodes => nodes.length), 4);
     await launcher.waitForFunction(() => document.getElementById('launcherVersion')?.textContent.startsWith('Dubline v'));
     assert.equal(await launcher.$eval('#launcherVersion', node => node.textContent), `Dubline v${require('../package.json').version}`);
     assert.equal(await launcher.evaluate(() => document.documentElement.lang), 'en', 'first launch must be English');

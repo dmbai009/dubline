@@ -77,14 +77,16 @@
         <button class="hosting-mode" data-hosting-mode="cloudflare" onclick="selectDesktopHostingMode('cloudflare')"><b>Cloudflare</b><span data-i18n="desktop.mode.cloudflare.help">Automatic public HTTPS link</span></button>
         <button class="hosting-mode" data-hosting-mode="porthole" onclick="selectDesktopHostingMode('porthole')"><b>Porthole</b><span data-i18n="desktop.mode.porthole.help">Port sharing through Steam</span></button>
         <button class="hosting-mode" data-hosting-mode="vpn" onclick="selectDesktopHostingMode('vpn')"><b data-i18n="desktop.mode.vpn">VPN</b><span data-i18n="desktop.mode.vpn.help">Radmin VPN or Hamachi</span></button>
+        <button class="hosting-mode" data-hosting-mode="custom" onclick="selectDesktopHostingMode('custom')"><b data-i18n="desktop.mode.custom">Custom tunnel</b><span data-i18n="desktop.mode.custom.help">Your own HTTPS tunnel</span><span class="hosting-advanced" data-i18n="desktop.advanced">For advanced users</span></button>
       </div>
       <div class="setting-card">
         <div class="setting-card-row">
           <div><div id="desktopHostingModeTitle" class="setting-label"></div><div id="desktopHostingStatus" class="hosting-mode-status"></div></div>
-          <div><span data-i18n="desktop.port">Port:</span> <span id="desktopHostingPort" class="hosting-port"></span></div>
+          <div class="hosting-port-row"><span data-i18n="desktop.port">Port:</span> <span id="desktopHostingPort" class="hosting-port"></span><button id="desktopCopyPortBtn" data-custom-copy-port class="btn-outline" onclick="copyDesktopPort()" data-i18n="desktop.copyPort" hidden>Copy port</button></div>
         </div>
         <p id="desktopHostingDescription" class="setting-sub"></p>
         <ol id="desktopHostingInstructions" class="hosting-instructions"></ol>
+        <p id="desktopCustomPortWarning" class="setting-sub custom-tunnel-warning" data-i18n="desktop.custom.portWarning" hidden>The port may change after restarting Dubline.</p>
         <div class="hosting-actions">
           <button id="desktopOpenToolBtn" class="btn-outline" onclick="openDesktopNetworkTool()">Open / install</button>
           <button id="desktopOpenHamachiBtn" class="btn-outline" onclick="openDesktopNetworkTool('hamachi')" data-i18n="desktop.openHamachi">Open Hamachi</button>
@@ -616,7 +618,7 @@
         </div>
         <div class="desktop-invite-details" id="desktopInvitePopover" role="dialog" aria-label="Invitation" data-i18n-aria="desktop.invite" hidden>
           <div class="desktop-invite-tabs" role="group" data-i18n-aria="desktop.hosting.title">
-            <button data-invite-mode="cloudflare" onclick="selectDesktopInviteMode('cloudflare')">Cloudflare</button><button data-invite-mode="porthole" onclick="selectDesktopInviteMode('porthole')">Porthole</button><button data-invite-mode="vpn" onclick="selectDesktopInviteMode('vpn')">VPN</button>
+            <button data-invite-mode="cloudflare" onclick="selectDesktopInviteMode('cloudflare')">Cloudflare</button><button data-invite-mode="porthole" onclick="selectDesktopInviteMode('porthole')">Porthole</button><button data-invite-mode="vpn" onclick="selectDesktopInviteMode('vpn')">VPN</button><button data-invite-mode="custom" onclick="selectDesktopInviteMode('custom')" data-i18n="desktop.mode.custom">Custom tunnel</button>
           </div>
           <div class="desktop-invite-row">
             <span id="desktopTunnelStatus" class="desktop-invite-status"></span>
@@ -624,7 +626,12 @@
           </div>
           <button id="desktopCloudflareToggle" class="btn-outline" onclick="toggleDesktopCloudflare()"></button>
           <p id="desktopInviteDescription" class="desktop-invite-note"></p>
-          <div class="desktop-invite-row">
+          <section id="desktopCustomTunnelGuide" class="custom-tunnel-guide" hidden>
+            <div class="hosting-port-row"><code id="desktopCustomTarget"></code><button class="btn-outline" data-custom-copy-port onclick="copyDesktopPort()" data-i18n="desktop.copyPort">Copy port</button></div>
+            <ol id="desktopCustomInstructions" class="hosting-instructions"></ol>
+            <p class="desktop-invite-note" data-i18n="desktop.custom.portWarning">The port may change after restarting Dubline.</p>
+          </section>
+          <div class="desktop-invite-row" id="desktopInviteLinkRow">
             <input id="desktopInviteUrl" class="desktop-link-input" type="text" readonly data-i18n-placeholder="desktop.linkPending" placeholder="The public link will appear here…">
             <button id="desktopCopyBtn" class="desktop-copy-btn" onclick="copyDesktopInvite()" disabled><span id="desktopCopyLabel" data-i18n="desktop.copy">Copy link</span></button>
           </div>

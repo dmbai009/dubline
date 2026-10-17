@@ -33,7 +33,7 @@ describe('desktop launcher', { skip: skipReason }, () => {
       };
     });
     await page.goto(pathToFileURL(path.resolve('electron-launcher.html')).href, { waitUntil: 'domcontentloaded' });
-    await waitFor(page, () => document.querySelectorAll('.mode').length === 3);
+    await waitFor(page, () => document.querySelectorAll('.mode').length === 4);
   });
 
   after(async () => { if (browser) await browser.close(); });
@@ -72,6 +72,23 @@ describe('desktop launcher', { skip: skipReason }, () => {
     await page.$eval('#joinGuest', button => button.click());
     await waitFor(page, () => window.__launcherAction?.type === 'guest');
     assert.deepEqual(await page.evaluate(() => window.__launcherAction), { type: 'guest', address: '26.10.20.30:38500' });
+  });
+
+  test('custom tunnel is an advanced instruction card with no tool integration in every language',async()=>{
+    await page.reload({waitUntil:'domcontentloaded'});
+    for(const language of ['en','ru','uk']){
+      await page.select('#language',language);await page.click('[data-mode=custom]');
+      assert.equal(await page.$eval('[data-mode=custom] .badge',node=>node.textContent),await page.evaluate(()=>tr('advanced')));
+      assert.equal(await page.$$eval('#modeDetails .tool-action',nodes=>nodes.length),0);
+      assert.equal(await page.$$eval('#modeDetails li',nodes=>nodes.length),3);
+      assert.match(await page.$eval('#modeDetails',node=>node.textContent),/127\.0\.0\.1:.*HTTPS.*PIN/s);
+      assert.equal(await page.$eval('#modeDetails p',node=>node.textContent),await page.evaluate(()=>tr('customBody')));
+    }
+    await page.click('#startHost');assert.deepEqual(await page.evaluate(()=>__launcherAction),{type:'host',mode:'custom'});
+    await page.evaluate(()=>{__launcherAction=null;document.getElementById('startHost').disabled=false;});
+    for(const mode of ['vpn','porthole','custom'])await page.click('[data-mode='+mode+']');
+    await page.select('#projectOpenMode','multiplayer');await page.click('#openProjectFile');assert.equal(await page.evaluate(()=>__launcherAction.mode),'custom');
+    await page.select('#language','en');
   });
 
   test('shows a dismissible manual GitHub update notice', async () => {
