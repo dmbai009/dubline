@@ -53,3 +53,12 @@ without filtering this error or weakening its assertions.
 
 Full GitHub Actions results are checked after this commit is pushed. The local
 checks do not establish external WAN/STUN/tunnel reliability or physical devices.
+
+## Follow-up from run 38992684555
+
+Source tests, native Electron and the first browser shard passed. Browser shard 2
+exposed one additional row-height fixture race: the post-reload snapshot detached
+its retained resize handle before Puppeteer's `scrollIntoView` call. Querying,
+scrolling and measuring the current handle in one browser task preserves the real
+pointer gesture, resize assertion and reload-persistence assertion. No production
+timeline behavior or test coverage was removed.

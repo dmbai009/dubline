@@ -189,7 +189,13 @@ describe('UI cleanup and local audio devices', { skip: skipReason, timeout: 1200
       assert.equal(await page.$$eval('[data-character="A very long character name beyond the label"] .line-block', nodes => new Set(nodes.map(node => node.style.top)).size), 2);
       await page.reload(); await waitFor(page, () => session?.loaded && !!document.querySelector('[data-character="Hero"] .role-badge.me'));
       assert.equal(await page.$eval('.track-row[data-character="Hero"]', node => node.getBoundingClientRect().height), 80);
-      const handle = await page.$('[data-character="Hero"] .role-height-handle'); await handle.scrollIntoView(); const box = await handle.boundingBox();
+      // Reload can deliver another snapshot between CDP calls. Query, scroll
+      // and measure the current handle in one browser task, without retaining
+      // an ElementHandle belonging to the previous timeline render.
+      const box = await page.$eval('.track-row[data-character="Hero"] .role-height-handle', node => {
+        node.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
+        const { x, y } = node.getBoundingClientRect(); return { x, y };
+      });
       await page.mouse.move(box.x + 12, box.y + 2); await page.mouse.down(); await page.mouse.move(box.x + 12, box.y + 36, { steps: 5 }); await page.mouse.up();
       const resized = await page.$eval('.track-row[data-character="Hero"]', node => node.getBoundingClientRect().height);
       assert.ok(resized > 80);
