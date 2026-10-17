@@ -10,11 +10,11 @@
     const title = t(label) + (action === 'pin' && take.pinned ? ' · ' + t('takeHistory.pinned') : '');
     return `<button type="button" class="btn-outline take-history-icon${active ? ' active' : ''}" data-history-action="${action}" data-history-take="${esc(take.id)}" title="${esc(title)}" aria-label="${esc(t(label))}"${action === 'pin' ? ` aria-pressed="${take.pinned}"` : ''}${enabled ? '' : ' disabled'}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">${icons[action === 'play' && active ? 'stop' : action]}</svg></button>`;
   }
-  function mainHtml(line) {
+  function mainHtml(line, action = 'all') {
     const take = model.extract(line); if (!take) return '';
     const edit = allowed(line, take) && !blocked() && !pending(line);
-    return button('pin', take, edit, take.pinned ? 'takeHistory.unpin' : 'takeHistory.pin', take.pinned) +
-      (getLineOwner(line) !== myName && allowed(line, take) ? button('delete', take, edit, 'takeHistory.delete') : '');
+    return (action !== 'delete' ? button('pin', take, edit, take.pinned ? 'takeHistory.unpin' : 'takeHistory.pin', take.pinned) : '') +
+      (action !== 'pin' && getLineOwner(line) !== myName && allowed(line, take) ? button('delete', take, edit, 'takeHistory.delete') : '');
   }
   function html(line) {
     if (line.takeHistory != null && !Array.isArray(line.takeHistory)) return `<p class="take-hint">${esc(t('takeHistory.invalid'))}</p>`;

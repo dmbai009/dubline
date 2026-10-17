@@ -648,10 +648,11 @@ function showInspector(line) {
     : '';
 
   // Main actions in one row right under the line text
+  const pinBtn = window.DublineTakeHistory?.mainHtml(line, 'pin') || '';
   let primary = '';
   if (isOwnedByMe) {
     primary = line.audioUrl
-      ? `<button class="btn-play" onclick="previewTake(${line.id})">${t('playTake')}</button>
+      ? `<button class="btn-play" data-take-preview="${line.id}" aria-pressed="false" onclick="previewTake(${line.id})">${t('playTake')}</button>${pinBtn}
          <button class="btn-record grow" id="recBtn" ${renderInProgress ? 'disabled' : ''} onclick="handleStudioRecord(${line.id})">${t('rerecord')}</button>
          ${originalBtn}
          <button class="btn-delete" onclick="deleteLineAudio(${line.id})" title="${esc(t('confirm.delete'))}">🗑</button>`
@@ -659,10 +660,10 @@ function showInspector(line) {
   } else {
     // A finished take can always be played, even if the line was released or roles were reset
     const listen = line.audioUrl && canHearLine(line)
-      ? `<button class="btn-play grow" onclick="previewTake(${line.id})" title="${esc(author ? t('listenTake', { owner: author }) : t('listenTakeAnon'))}">${t('playTake')}</button>`
+      ? `<button class="btn-play grow" data-take-preview="${line.id}" aria-pressed="false" onclick="previewTake(${line.id})" title="${esc(author ? t('listenTake', { owner: author }) : t('listenTakeAnon'))}">${t('playTake')}</button>`
       : '';
     const claim = isFree ? `<button class="btn-claim grow" onclick="claimSingleLine(${line.id})">${t('claim.line')}</button>` : '';
-    primary = claim + listen + originalBtn;
+    primary = claim + listen + pinBtn + originalBtn;
   }
 
   // Secondary actions as small buttons
@@ -718,7 +719,7 @@ function showInspector(line) {
     ${retakeControlHtml(line)}
     ${characterRow}
     ${pendingNotice}
-    <div class="insp-actions primary">${primary}${window.DublineTakeHistory?.mainHtml(line) || ''}</div>
+    <div class="insp-actions primary">${primary}${window.DublineTakeHistory?.mainHtml(line, 'delete') || ''}</div>
     ${secondary.length || deleteLineBtn ? `<div class="insp-actions secondary">${secondary.join('')}${deleteLineBtn}</div>` : ''}
     ${hint}
     ${window.DublineTakeAnalysis?.html(line) || ''}${window.DublineTakeHistory?.html(line) || ''}
@@ -729,6 +730,7 @@ function showInspector(line) {
   `;
   window.DublineInspector?.arrange(line);
   window.refreshOriginalPreview?.();
+  window.refreshTakePreview?.();
   window.DublineRetakes?.restoreFocus(retakeFocus);
   window.DublineTakeHistory?.restoreFocus(historyFocus);
 }
