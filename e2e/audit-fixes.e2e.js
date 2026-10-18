@@ -102,6 +102,10 @@ describe('audit: actual editor controls and recording queue', { skip: skipReason
     await blankClick(guest, 'Empty', 6);
     const created = await waitFor(host, () => session.lines.find(line => line.id > 4));
     assert.ok(Math.abs(created.start - 6) < 0.025, JSON.stringify(created));
+    // The host's broadcast can precede the creator's ACK. That ACK selects and
+    // reveals the first line, so finish it before scrolling to the video end.
+    await waitFor(guest, id => selectedLine?.id === id && !editorQueue.length && revealLineId === null,
+      5000, created.id);
     await guest.evaluate(() => { timelineContainer.scrollLeft = 11.98 * pxPerSec - 80; });
     await blankClick(guest, 'Empty', 11.98);
     const end = await waitFor(host, () => session.lines.find(line => line.id > 5));
