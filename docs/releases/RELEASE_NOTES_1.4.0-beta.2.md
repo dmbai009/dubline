@@ -36,6 +36,7 @@ Download only the distribution you use. The other release assets support automat
 - Balanced browser tests using measured Windows CI durations and expanded them from three to six parallel groups.
 - Split native Electron checks into three independent groups. Regular CI and release verification now share the same check definitions.
 - Release packaging and installation/update checks run alongside the other tests. Draft release uploads still wait for every required check and artifact verification to succeed.
+- Fixed clean-environment packaging by preparing Electron before copying its required runtime license notices; building no longer depends on an earlier native test or application launch.
 - Removed the duplicate ordinary CI run for release tags; the release workflow runs the complete shared checks instead.
 - Corrected race-prone browser checks for competing recording claims and project snapshots after a participant disconnects, without weakening the application assertions.
 - Added checks that every browser suite is scheduled exactly once and that failed verification cannot proceed to release upload.

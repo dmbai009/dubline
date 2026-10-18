@@ -47,6 +47,9 @@ async function freshOutput(file) {
   await fsp.rm(resolved, { force: true });
 }
 async function buildUnpacked() {
+  // Electron now downloads its runtime lazily. beforePack needs its license
+  // files, so a clean build must not depend on a prior native test/app launch.
+  command(process.execPath, [require.resolve('electron/install.js')]);
   command(process.execPath, ['tools/build-icons.js']);
   command(process.execPath, ['tools/download-cloudflared.js']);
   builder(['--win', '--x64', '--dir']);
@@ -117,4 +120,4 @@ async function main() {
   if (mode === 'all') await inventory();
 }
 if (require.main === module) main().catch(error => { console.error(error); process.exitCode = 1; });
-module.exports = { zipFiles, buildPortable, distribution };
+module.exports = { zipFiles, buildUnpacked, buildPortable, distribution };
