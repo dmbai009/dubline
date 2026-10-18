@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const AdmZip = require('adm-zip');
-const { skipReason, startServer, launchBrowser, openPlayer, loadFixture, waitFor, wait } = require('./helpers');
+const { skipReason, startServer, launchBrowser, openPlayer, loadFixture, waitFor, wait, waitForRecordingReady } = require('./helpers');
 
 describe('Collaborative editor hardening', { skip: skipReason }, () => {
   let server, browser, page, serial = 0;
@@ -332,6 +332,7 @@ describe('Collaborative editor hardening', { skip: skipReason }, () => {
     try {
       await page.evaluate(() => { setStudioMode('dub'); });
       await waitFor(page, () => session.mode === 'dub');
+      await waitForRecordingReady(page);
       await page.evaluate(() => { selectLine(session.lines[0]); document.activeElement.blur(); });
       await page.keyboard.press('r');
       await waitFor(page, () => recordState === 'preparing' && session.lines[0].claimedBy === 'Alice');
@@ -347,6 +348,7 @@ describe('Collaborative editor hardening', { skip: skipReason }, () => {
     const bob = await collaborator();
     try {
       await page.evaluate(() => setStudioMode('dub')); await waitFor(bob, () => session.mode === 'dub');
+      await Promise.all([page, bob].map(waitForRecordingReady));
       for (const actor of [page, bob]) await actor.evaluate(() => {
         selectLine(session.lines.find(line => line.id === 3));
         window.raceRecorderStarts = 0;
