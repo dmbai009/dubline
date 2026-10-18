@@ -347,10 +347,33 @@ describe('Collaborative editor hardening', { skip: skipReason }, () => {
     const bob = await collaborator();
     try {
       await page.evaluate(() => setStudioMode('dub')); await waitFor(bob, () => session.mode === 'dub');
-      for (const actor of [page, bob]) await actor.evaluate(() => selectLine(session.lines.find(line => line.id === 3)));
+      for (const actor of [page, bob]) await actor.evaluate(() => {
+        selectLine(session.lines.find(line => line.id === 3));
+        window.raceRecorderStarts = 0;
+        const start = MediaRecorder.prototype.start, emit = socket.emit;
+        MediaRecorder.prototype.start = function(...args) { raceRecorderStarts++; return start.apply(this, args); };
+        window.restoreRaceRecorder = () => { MediaRecorder.prototype.start = start; socket.emit = emit; };
+        socket.emit = function(event, ...args) {
+          if (event === 'claim_line') {
+            const callback = args.pop();
+            // A slow losing reply must not make the winner's valid transition
+            // from preparation to recording look like a failed claim race.
+            args.push((...reply) => reply.at(-1)?.ok === false ? setTimeout(() => callback(...reply), 1250) : callback(...reply));
+          }
+          return emit.call(this, event, ...args);
+        };
+      });
       await Promise.all([page.evaluate(() => recordSelectedLine()), bob.evaluate(() => recordSelectedLine())]);
-      const states = await Promise.all([page.evaluate(() => recordState), bob.evaluate(() => recordState)]);
-      assert.equal(states.filter(state => state === 'preparing').length, 1);
+      const states = await Promise.all([page, bob].map(actor => actor.evaluate(() => ({
+        state: recordState, starts: raceRecorderStarts, recorder: mediaRecorder?.state ?? null,
+        lineId: recordingLineId, nick: myName, owner: getLineOwner(session.lines.find(line => line.id === 3))
+      }))));
+      assert.deepEqual(states.map(state => state.starts).sort(), [0, 1], JSON.stringify(states));
+      const winner = states.find(state => state.starts === 1), loser = states.find(state => state.starts === 0);
+      assert.ok(['preparing', 'recording'].includes(winner.state), JSON.stringify(states));
+      assert.equal(winner.recorder, 'recording'); assert.equal(winner.lineId, 3); assert.equal(winner.owner, winner.nick);
+      assert.equal(loser.state, 'idle');
+      for (const actor of [page, bob]) await actor.evaluate(() => restoreRaceRecorder());
       await Promise.all([page.evaluate(() => finishRecording({ discard: true })), bob.evaluate(() => finishRecording({ discard: true }))]);
       await bob.evaluate(() => claimSingleLine(2));
       await waitFor(bob, () => session.lines.find(line => line.id === 2).claimedBy === 'Bob');
