@@ -70,6 +70,8 @@ jobs:
       - run: npm ci
       - name: Verify previous compatible Portable patch base
         run: node tools/prepare-previous-release.js
+        env:
+          GH_TOKEN: ${{ github.token }}
       - name: Build one core, Setup and Portable
         run: npm run dist
       - run: node tools/verify-release-artifacts.js

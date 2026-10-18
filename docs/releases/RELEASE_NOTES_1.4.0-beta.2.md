@@ -37,6 +37,7 @@ Download only the distribution you use. The other release assets support automat
 - Split native Electron checks into three independent groups. Regular CI and release verification now share the same check definitions.
 - Release packaging and installation/update checks run alongside the other tests. Draft release uploads still wait for every required check and artifact verification to succeed.
 - Fixed clean-environment packaging by preparing Electron before copying its required runtime license notices; building no longer depends on an earlier native test or application launch.
+- Release CI now authenticates its GitHub release-list lookup instead of sharing the hosted runner's anonymous API allowance. Downloaded Portable bases still undergo the same metadata, hash, and file-tree verification.
 - Removed the duplicate ordinary CI run for release tags; the release workflow runs the complete shared checks instead.
 - Corrected race-prone checks for competing recording claims, project snapshots after a participant disconnects, applying effects after a packaged client changes its take mix, and scrolling after line creation, without weakening the application assertions.
 - Added checks that every browser suite is scheduled exactly once and that failed verification cannot proceed to release upload.

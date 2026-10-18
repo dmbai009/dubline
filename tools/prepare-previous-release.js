@@ -7,9 +7,18 @@ const { verifyTree } = require('../src/electron-managed-files');
 const { isNewerVersion } = require('../src/electron-update');
 const { isAppVersion, isBeta } = require('../src/update-version');
 const root = path.resolve(__dirname, '..');
+async function releaseList({ env = process.env, execute = require('node:child_process').execFile, json = jsonFrom } = {}) {
+  // Hosted runners share anonymous API limits. Keep CI authentication in gh's
+  // environment, never in asset URLs or the application's update HTTP client.
+  if (env.GITHUB_ACTIONS !== 'true' || !env.GH_TOKEN) return json('https://api.github.com/repos/dmbai009/dubline/releases?per_page=100', 4 * 1024 ** 2);
+  const text = await new Promise((resolve, reject) => execute('gh', ['api', 'repos/dmbai009/dubline/releases?per_page=100'],
+    { env, encoding: 'utf8', maxBuffer: 4 * 1024 ** 2, timeout: 60000, windowsHide: true },
+    (error, stdout) => error ? reject(Error('Authenticated previous-release lookup failed.')) : resolve(stdout)));
+  return JSON.parse(text);
+}
 async function prepare() {
   const version = require('../package.json').version;
-  const releases = await jsonFrom('https://api.github.com/repos/dmbai009/dubline/releases?per_page=100', 4 * 1024 ** 2);
+  const releases = await releaseList();
   if (!Array.isArray(releases)) throw Error('Invalid official release list.');
   const older = releases.filter(release => !release.draft && (isBeta(version) || !release.prerelease && !isBeta(release.tag_name)) && isAppVersion(String(release.tag_name).replace(/^v/, '')) && isNewerVersion(version, release.tag_name.slice(1)))
     .sort((a,b) => isNewerVersion(a.tag_name.slice(1),b.tag_name.slice(1)) ? -1 : 1);
@@ -33,4 +42,4 @@ async function prepare() {
   return portable;
 }
 if(require.main===module)prepare().catch(error=>{console.error(error);process.exitCode=1;});
-module.exports={prepare};
+module.exports={prepare,releaseList};
