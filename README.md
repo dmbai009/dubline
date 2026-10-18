@@ -25,7 +25,7 @@ Dubline is a dubbing studio for recording scenes together. The Windows host runs
 - Save complete scenes as portable `.dubline` projects.
 - Export finished video, a selected fragment, character WAV stems, SRT/ASS/VTT subtitles or an editable Voxalike pack.
 
-The `main` branch contains **1.4.0-beta.1**. This is an experimental pre-release; the stable download remains 1.3.1. See the [complete beta changelog](docs/releases/RELEASE_NOTES_1.4.0-beta.1.md) or [release history](docs/releases/).
+The `main` branch contains **1.4.0-beta.2**. This is an experimental pre-release; the stable download remains 1.3.1. See the [latest beta changelog](docs/releases/RELEASE_NOTES_1.4.0-beta.2.md), the [full 1.4 overview](docs/releases/RELEASE_NOTES_1.4.0-beta.1.md), or [release history](docs/releases/).
 
 ## Getting started
 
