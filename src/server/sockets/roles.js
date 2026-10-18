@@ -206,7 +206,7 @@ module.exports = function registerRoleHandlers(socket, conn) {
       if (applied.pitch !== undefined) applied.pitchMode = 'override';
       if (Array.isArray(line.effects) && (applied.effect !== undefined || applied.effectAmount !== undefined)) applied.effects = applied.effect !== undefined ? (applied.effect === 'none' ? [] : [{ id: require('crypto').randomUUID(), type: applied.effect, enabled: true, amount: applied.effectAmount ?? 1, parameters: {} }]) : [{ ...line.effects[0], amount: applied.effectAmount }];
       if (applied.audioStart !== undefined && line.audioUrl) {
-        const min = Math.max(-5, line.start - MAX_TAKE_SHIFT);
+        const min = Math.max(require('../../public/take-mix').minimumStart(line), line.start - MAX_TAKE_SHIFT);
         applied.audioStart = Number(Math.max(min, Math.min(line.start + MAX_TAKE_SHIFT, applied.audioStart)).toFixed(3));
       } else delete applied.audioStart;
       Object.assign(line, applied);

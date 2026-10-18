@@ -219,7 +219,7 @@ window.handleStudioRecord = async function(lineId) {
   recordingLineId = lineId;
 
   mediaRecorder = recorder;
-  const operation = { recorder, stream: recordingMic, discarded: false, nick: recordingNick, room: recordingRoom, sessionId: recordingSessionId, takeSequence, lineId };
+  const operation = { recorder, stream: recordingMic, discarded: false, nick: recordingNick, room: recordingRoom, sessionId: recordingSessionId, takeSequence, lineId, audioStart: recordingStartTime };
   processingRecordings.add(operation);
   activeRecording = operation;
   const mayUpdateUi = () => !activeRecording && mediaRecorder === recorder && recordState === 'idle' &&
@@ -278,7 +278,7 @@ window.handleStudioRecord = async function(lineId) {
       takeSequence,
       ...historyConsent,
       quality, duration,
-      audioStart: recordingStartTime,
+      audioStart: operation.audioStart,
       trimStart: speech ? speech.start : null,
       trimEnd: speech ? speech.end : null,
       blob: audioBlob,
@@ -293,6 +293,17 @@ window.handleStudioRecord = async function(lineId) {
     audioDest.stream.getTracks().forEach(track => track.stop());
     showToast(t('audio.device.recordingInterrupted')); return;
   }
+  // Start the preparation clock only once the recorder actually captures. A
+  // permission/device/encoder delay must not shorten the player's pre-roll.
+  const captureReady = new Promise(resolve => {
+    const timeout = setTimeout(() => { finishRecording({ discard: true }); showToast(t('error.mic')); }, 8000);
+    operation.cancelStart = () => { clearTimeout(timeout); resolve(false); };
+    recorder.onstart = () => {
+      clearTimeout(timeout);
+      operation.captureStartedAt = performance.now();
+      resolve(true);
+    };
+  });
   try { recorder.start(100); }
   catch {
     finishRecording({ discard: true }); finishRecordingProcessing(operation);
@@ -300,6 +311,21 @@ window.handleStudioRecord = async function(lineId) {
     audioDest.stream.getTracks().forEach(track => track.stop());
     showToast(t('error.mic')); return;
   }
+  if (!await captureReady || activeRecording !== operation) return;
+  // Seeking and video.play() may take time while microphone samples are already
+  // being captured. Anchor those samples to the first actual playback, not the
+  // requested seek position. Keep the result on this take through async upload.
+  const alignRecording = () => {
+    if (activeRecording !== operation) return;
+    operation.audioStart = Number((video.currentTime - (performance.now() - operation.captureStartedAt) / 1000).toFixed(3));
+    if (operation.audioStart < window.DublineTakeMix.MIN_RECORDED_START) {
+      finishRecording({ discard: true }); showToast(t('record.playbackFailed')); return;
+    }
+    operation.playbackAligned = true;
+    currentRecordingStartTime = operation.audioStart;
+  };
+  video.addEventListener('playing', alignRecording, { once: true });
+  operation.cleanupTiming = () => video.removeEventListener('playing', alignRecording);
   const playbackAt = performance.now() + holdSeconds * 1000;
   let lastProgressAt = playbackAt, lastVideoTime = startTime;
   const playbackFailed = () => {
@@ -338,7 +364,7 @@ window.handleStudioRecord = async function(lineId) {
   clearInterval(recordSpeechInterval);
   recordSpeechInterval = setInterval(() => {
     if (recordState === 'idle') return clearInterval(recordSpeechInterval);
-    if (performance.now() < playbackAt || video.seeking) return;
+    if (!operation.playbackAligned || performance.now() < playbackAt || video.seeking) return;
     if (video.currentTime >= line.start - 0.05) {
       clearInterval(recordSpeechInterval);
       recordSpeechInterval = null;
@@ -374,7 +400,7 @@ window.handleStudioRecord = async function(lineId) {
 
     const now = video.currentTime;
     // Measure microphone noise at the start of the pre-roll while the player is still silent
-    if (performance.now() < playbackAt || now < line.start - 0.6) {
+    if (!operation.playbackAligned || now < line.start - 0.6) {
       noiseSum += level;
       noiseCount++;
     }
@@ -384,7 +410,7 @@ window.handleStudioRecord = async function(lineId) {
 
     // Keep measuring microphone noise during the held frame, but do not stop
     // preparation. After playback starts, an actual video ending still stops it.
-    if (performance.now() < playbackAt) return;
+    if (!operation.playbackAligned) return;
 
     const pastLine = now - line.end;
     const silentFor = (performance.now() - lastVoiceAt) / 1000;
@@ -402,6 +428,8 @@ const MIN_OVERRUN_LIMIT = 4;     // minimum time allowed to speak past the line
 function finishRecording({ discard = false } = {}) {
   const operation = activeRecording;
   if (!operation) return;
+  operation.cancelStart?.();
+  operation.cleanupTiming?.();
   clearInterval(recordStopTimeout);
   clearTimeout(recordPlayTimeout);
   clearInterval(recordSpeechInterval);
@@ -410,7 +438,7 @@ function finishRecording({ discard = false } = {}) {
   if (recordingLineId != null) socket.emit('recording_status', { lineId: recordingLineId, recording: false, sessionId: operation.sessionId });
   recordState = 'idle';
   if (window.refreshStudioTransport) window.refreshStudioTransport();
-  operation.discarded = operation.discarded || discard;
+  operation.discarded = operation.discarded || discard || !operation.playbackAligned;
   if (operation.discarded) socket.emit('reserve_take', { lineId: operation.lineId, sessionId: operation.sessionId, cancelSequence: operation.takeSequence }, () => {});
   discardTake = operation.discarded; // compatibility alias, never used by another operation's handler
   activeRecording = null;

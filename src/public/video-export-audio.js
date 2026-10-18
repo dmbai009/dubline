@@ -64,7 +64,7 @@
     param.setValueAtTime(value, 0);
     for (const [at, level] of events) if (at > begin && at <= end) param.linearRampToValueAtTime(level, at - begin);
   }
-  async function* chunks(mb, snapshot, duration, progress, check) {
+  async function* chunks(mb, snapshot, duration, progress, check, { stem = false } = {}) {
     const operations=snapshot.exportOperations;
     const wait=(name,fn,data)=>operations ? operations.run(name,fn,data) : fn();
     const range = DublineVideoExportPolicy.range(snapshot.exportRange, duration) || { start: 0, end: duration };
@@ -88,7 +88,7 @@
         const begin = Math.max(0, position - WARMUP), end = Math.min(duration, position + WINDOW);
         const context = new OfflineAudioContext(2, Math.max(1, Math.round((end - begin) * RATE)), RATE);
         const limiter = context.createDynamicsCompressor();
-        limiter.threshold.value = -2; limiter.knee.value = 0; limiter.ratio.value = 20; limiter.attack.value = 0.003; limiter.release.value = 0.1; limiter.connect(context.destination);
+        limiter.threshold.value = stem ? -1 : -2; limiter.knee.value = 0; limiter.ratio.value = 20; limiter.attack.value = 0.003; limiter.release.value = stem ? 0.25 : 0.1; limiter.connect(context.destination);
         const place = (buffer, gain, at, from, to, destination, take) => {
           const start = Math.max(at + from, begin), stop = Math.min(at + to, end);
           if (stop <= start) return;

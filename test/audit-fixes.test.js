@@ -184,21 +184,22 @@ describe('audit: scene and take integrity', () => {
     await waitUntil(async () => { try { return (await state(host)).loaded; } catch { return false; } });
     assert.equal((await state(host)).lines[0].recordedBy, 'Bobby');
   });
-  test('resetting a take at frame zero preserves its negative preparation start', async () => {
+  for (const preparationStart of [-3, -5.65]) test(`resetting a take at frame zero preserves its ${preparationStart}s actual preparation start`, async () => {
     const host = await scene(); await claim(host);
     const snapshot = await state(host);
     // Model a source line at 0:00 through the collaborative editor.
     host.socket.emit('set_session_mode', { mode: 'edit', sessionId: (await state(host)).activeSessionId }); await state(host);
     await ack(host, 'editor_update_line', { lineId: 1, revision: 0, sessionId: snapshot.activeSessionId, start: 0, end: 1.5 });
     host.socket.emit('set_session_mode', { mode: 'dub', sessionId: (await state(host)).activeSessionId }); await state(host);
-    await upload(host, await reserve(host));
+    await upload(host, await reserve(host), { audioStart: preparationStart });
     const current = (await state(host)).lines[0];
+    assert.equal(current.audioStart, preparationStart); assert.equal(current.recordedStart, preparationStart);
     host.socket.emit('set_take_props', { lineId: 1, sessionId: snapshot.activeSessionId, audioUrl: current.audioUrl, audioStart: -3 });
     assert.equal((await state(host)).lines[0].audioStart, -3);
     host.socket.emit('set_take_props', { lineId: 1, sessionId: snapshot.activeSessionId, audioUrl: current.audioUrl, audioStart: -99 });
-    assert.equal((await state(host)).lines[0].audioStart, -5);
+    assert.equal((await state(host)).lines[0].audioStart, Math.min(-5, preparationStart));
     host.socket.emit('set_take_props', { lineId: 1, sessionId: snapshot.activeSessionId, audioUrl: current.audioUrl, audioStart: current.recordedStart });
-    assert.equal((await state(host)).lines[0].audioStart, -3);
+    assert.equal((await state(host)).lines[0].audioStart, preparationStart);
   });
   for (const length of [499, 500, 501, 2000, 2001]) test(`caption length ${length} is preserved or explicitly refused`, async () => {
     const host = await scene(); host.socket.emit('set_session_mode', { mode: 'edit', sessionId: (await state(host)).activeSessionId });

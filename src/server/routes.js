@@ -815,8 +815,9 @@ app.post('/api/upload-line-audio', acceptFile('audio', MAX_TAKE_MB, requireConfi
     try { fs.fsyncSync(takeFd); } finally { fs.closeSync(takeFd); }
 
     next.audioUrl = newUrl;
-    // A line at 0:00 may include a short preparation recording before the first frame.
-    next.audioStart = audioStart !== null ? Math.max(-5, audioStart) : line.start;
+    // Preparation near frame zero and a delayed playback start both precede
+    // the first frame. Do not clamp that captured lead-in back to planned time.
+    next.audioStart = audioStart !== null ? Math.max(require('../public/take-mix').MIN_RECORDED_START, audioStart) : line.start;
     next.recordedStart = next.audioStart;
     next.recordedBy = userName;
     next.uploadId = uploadId; next.takeSequence = takeSequence; next.takeUploadedSequence = takeSequence;

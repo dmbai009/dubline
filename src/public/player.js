@@ -582,7 +582,7 @@ function enableTakeDrag(el, lineId) {
         el.classList.add('dragging');
         el.appendChild(hint);
       }
-      newRaw = Math.max(-5, origRaw + dx / pxPerSec);
+      newRaw = Math.max(window.DublineTakeMix.minimumStart(line), origRaw + dx / pxPerSec);
       if (canvas) canvas.style.left = `${(newRaw - latency - line.start) * pxPerSec}px`;
       const shift = newRaw - (line.recordedStart ?? origRaw);
       hint.innerText = `${shift >= 0 ? '+' : ''}${shift.toFixed(2)}s`;
@@ -686,7 +686,7 @@ window.setTakeProps = function(lineId, props) {
 
 window.nudgeTake = function(lineId, delta) {
   const line = session.lines.find(l => l.id === lineId);
-  if (line) setTakeProps(lineId, { audioStart: Number(Math.max(-5, rawTakeStart(line) + delta).toFixed(3)) });
+  if (line) setTakeProps(lineId, { audioStart: Number(Math.max(window.DublineTakeMix.minimumStart(line), rawTakeStart(line) + delta).toFixed(3)) });
 };
 
 window.resetTakeShift = function(lineId) {

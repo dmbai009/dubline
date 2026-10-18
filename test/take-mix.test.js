@@ -18,6 +18,14 @@ test('legacy clip defaults and author/host rights survive released or reassigned
   assert.equal(mix.canEdit({}, 'Bob', false, 'Bob'), true);
 });
 
+test('manual shifts keep the legacy floor but retain delayed recording alignment below -5 seconds', () => {
+  assert.equal(mix.minimumStart({}), -5);
+  assert.equal(mix.minimumStart({ recordedStart: -3 }), -5);
+  assert.equal(mix.minimumStart({ recordedStart: -5.65 }), -5.65);
+  assert.equal(mix.minimumStart({ recordedStart: -999 }), mix.MIN_RECORDED_START);
+  for (const recordedStart of [NaN, Infinity, '-6']) assert.equal(mix.minimumStart({ recordedStart }), -5);
+});
+
 function fixture(t, source = false) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dubline-clip-project-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
@@ -27,6 +35,15 @@ function fixture(t, source = false) {
     trackOrder: ['Hero'], lines: [{ id: 1, character: 'Hero', start: 0, end: 1, audioUrl: 'take.wav', recordedBy: 'Alice',
       volume: 0.37, pan: -0.64, effectAmount: 0.25, effect: 'monster', pitch: 3, takeMixRevision: 81 }] } };
 }
+
+test('portable projects preserve actual negative capture alignment through save and import', async t => {
+  const f = fixture(t);
+  Object.assign(f.scene.lines[0], { audioStart: -5.65, recordedStart: -5.65 });
+  const saved = await exportProject(f.scene, f.resolve), staged = stageProject(saved.buffer, f.dir);
+  t.after(() => staged.rollback());
+  assert.equal(staged.fields.lines[0].audioStart, -5.65);
+  assert.equal(staged.fields.lines[0].recordedStart, -5.65);
+});
 
 for (const source of [false, true]) test(`format 3 round-trip keeps clip mixes and ${source ? 'original/proxy media' : 'a regular video'}`, async t => {
   const f = fixture(t, source), saved = await exportProject(f.scene, f.resolve), parsed = readProject(saved.buffer);

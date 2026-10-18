@@ -267,62 +267,78 @@ async function renderCharacterStem(lines, duration, sampleRate = 48000, snapshot
   return ctx.startRendering();
 }
 
+let stemsExportBusy = false;
 window.downloadReaperStems = async function() {
+  if (stemsExportBusy) return;
   if (!session || !session.loaded) return alert(t('error.noScene'));
-  await confirmHiddenTakes();
-  const snapshot = createExportSnapshot(), takes = snapshot.takes;
-  if (!takes.length) return alert(t('error.noTakes'));
-  const grouped = new Map();
-  takes.forEach(line => {
-    if (!grouped.has(line.character)) grouped.set(line.character, []);
-    grouped.get(line.character).push(line);
-  });
-  const status = document.getElementById('stemsStatus');
-  const button = document.getElementById('downloadStemsBtn');
-  status.style.display = 'block';
-  status.style.color = '#a78bfa';
-  button.disabled = true;
+  stemsExportBusy = true;
   try {
-    if (!Number.isFinite(video.duration) || video.duration <= 0) {
-      await new Promise(resolve => {
-        const done = () => resolve();
-        video.addEventListener('loadedmetadata', done, { once: true });
-        setTimeout(done, 5000);
-        video.load();
-      });
+    await confirmHiddenTakes();
+    const snapshot = createExportSnapshot(), takes = snapshot.takes;
+    if (!takes.length) return alert(t('error.noTakes'));
+    const grouped = new Map();
+    takes.forEach(line => {
+      if (!grouped.has(line.character)) grouped.set(line.character, []);
+      grouped.get(line.character).push(line);
+    });
+    const status = document.getElementById('stemsStatus');
+    const button = document.getElementById('downloadStemsBtn');
+    status.style.display = 'block';
+    status.style.color = '#a78bfa';
+    button.disabled = true;
+    try {
+      if (!Number.isFinite(video.duration) || video.duration <= 0) {
+        await new Promise(resolve => {
+          const done = () => resolve();
+          video.addEventListener('loadedmetadata', done, { once: true });
+          setTimeout(done, 5000);
+          video.load();
+        });
+      }
+      assertExportScene(snapshot);
+      const totalFrames = Math.ceil(Math.max(Number(video.duration) || 0, ...takes.map(line => exportTakeStart(line, snapshot.scene) + Math.max(1, line.end - line.start) + 1)) * 48000);
+      const duration = totalFrames / 48000;
+      const zip = window.DublineStemArchive.createZip();
+      const header = window.DublineStemArchive.wavHeader(totalFrames);
+      let index = 0;
+      for (const [character, lines] of grouped) {
+        index++;
+        status.textContent = t('stems.progress', { current: index, total: grouped.size, name: character });
+        const safeName = String(character || `Character_${index}`).replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').slice(0, 80);
+        async function* wav() {
+          yield header;
+          let frames = 0;
+          // Use the same bounded mixer as video export, with the existing stem
+          // limiter settings and no original/background sources or private range.
+          const stemSnapshot = { ...snapshot, takes: lines, originalUrl: '', backingUrl: '', exportRange: null };
+          for await (const { buffer } of window.DublineVideoExportAudio.chunks(null, stemSnapshot, duration, () => {}, () => assertExportScene(snapshot), { stem: true })) {
+            frames += buffer.length;
+            yield new Uint8Array(audioBufferToWav(buffer), 44);
+          }
+          if (frames !== totalFrames) throw new Error('Incomplete stem render');
+        }
+        await zip.add(`${String(index).padStart(2, '0')}_${safeName}.wav`, wav());
+      }
+      await zip.add('timeline.tsv', [new TextEncoder().encode(window.DublineStemArchive.timeline(takes, line => exportTakeStart(line, snapshot.scene)))]);
+      status.textContent = t('stems.mixing');
+      assertExportScene(snapshot);
+      const archive = zip.finish();
+      const safeProject = String(snapshot.scene.title || 'dubline').replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_');
+      const url = URL.createObjectURL(archive);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${safeProject}_stems.zip`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      status.textContent = t('stems.done');
+      status.style.color = '#10b981';
+    } catch (err) {
+      status.textContent = t('error.generic', { message: err.message });
+      status.style.color = '#ef4444';
+    } finally {
+      button.disabled = false;
     }
-    assertExportScene(snapshot);
-    const duration = Math.max(Number(video.duration) || 0, ...takes.map(line => exportTakeStart(line, snapshot.scene) + Math.max(1, line.end - line.start) + 1));
-    const Zip = await DublineLazyScripts.jszip();
-    const zip = new Zip();
-    const manifest = [];
-    let index = 0;
-    for (const [character, lines] of grouped) {
-      index++;
-      status.textContent = t('stems.progress', { current: index, total: grouped.size, name: character });
-      const stem = await renderCharacterStem(lines, duration, 48000, snapshot);
-      const safeName = String(character || `Character_${index}`).replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').slice(0, 80);
-      zip.file(`${String(index).padStart(2, '0')}_${safeName}.wav`, audioBufferToWav(stem));
-      lines.forEach(line => manifest.push(`${character}\t${exportTakeStart(line, snapshot.scene).toFixed(3)}\t${line.id}\t${line.caption || ''}`));
-    }
-    zip.file('timeline.tsv', `character\tstart_seconds\tline_id\tcaption\n${manifest.join('\n')}\n`);
-    status.textContent = t('stems.mixing');
-    const archive = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 3 } });
-    const safeProject = String(snapshot.scene.title || 'dubline').replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_');
-    const url = URL.createObjectURL(archive);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${safeProject}_stems.zip`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 60000);
-    status.textContent = t('stems.done');
-    status.style.color = '#10b981';
-  } catch (err) {
-    status.textContent = t('error.generic', { message: err.message });
-    status.style.color = '#ef4444';
-  } finally {
-    button.disabled = false;
-  }
+  } finally { stemsExportBusy = false; }
 };
 
 let projectExportBusy = false;

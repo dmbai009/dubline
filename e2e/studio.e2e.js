@@ -491,8 +491,8 @@ describe('studio', { skip: skipReason }, () => {
       submitTake = async entry => { receive(entry); return true; };
       try {
         await handleStudioRecord(id);
-        const start = currentRecordingStartTime;
         await new Promise(resolve => setTimeout(resolve, 250));
+        const start = currentRecordingStartTime;
         finishRecording();
         await decoding;
         session.activeSessionId = 'another-session-during-decoding';
