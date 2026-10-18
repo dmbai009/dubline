@@ -9,11 +9,14 @@ on:
         required: true
         type: string
 permissions:
-  contents: write
+  contents: read
 jobs:
-  windows:
+  revision:
     runs-on: windows-latest
-    timeout-minutes: 90
+    timeout-minutes: 10
+    outputs:
+      sha: ${{ steps.revision.outputs.sha }}
+      tag: ${{ steps.revision.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -24,6 +27,7 @@ jobs:
           node-version: 24
           cache: npm
       - name: Verify exact tag and package version
+        id: revision
         shell: pwsh
         env:
           RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
@@ -32,26 +36,38 @@ jobs:
           $packageVersion = node -p "require('./package.json').version"
           if ($env:RELEASE_TAG -ne "v$packageVersion") { throw 'Tag/package version mismatch.' }
           $tagCommit = git rev-parse "$($env:RELEASE_TAG)^{commit}"
+          if ($LASTEXITCODE -ne 0) { throw 'Release tag could not be resolved.' }
           $headCommit = git rev-parse HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'Checkout commit could not be resolved.' }
           if ($tagCommit -ne $headCommit) { throw 'Checkout does not match the exact tag.' }
-          "DUBLINE_RELEASE_SHA=$headCommit" >> $env:GITHUB_ENV
+          "sha=$headCommit" >> $env:GITHUB_OUTPUT
+          "tag=$($env:RELEASE_TAG)" >> $env:GITHUB_OUTPUT
+
+  checks:
+    needs: revision
+    uses: ./.github/workflows/checks.yml
+    with:
+      ref: ${{ needs.revision.outputs.sha }}
+      release: true
+
+  windows:
+    # Packaging and its install/update checks run alongside source/browser checks.
+    # Only the final draft job may write a release, after both branches succeed.
+    needs: revision
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      DUBLINE_RELEASE_SHA: ${{ needs.revision.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.revision.outputs.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
       - run: npm ci
-      - run: npm run check
-      - run: npm test
-      - name: Require an installed browser
-        run: node tools/require-browser.js
-        env:
-          DUBLINE_REQUIRE_BROWSER: '1'
-      - run: npm run test:e2e
-        env:
-          # Release verification must not pass with every browser test skipped.
-          DUBLINE_REQUIRE_BROWSER: '1'
-      - run: npm run test:electron:projects
-      - run: npm run test:electron:editor
-      - run: npm run test:electron:take-mix
-      - run: node tools/electron-shell-smoke.js
-      - run: npm run test:electron:updates
-      - run: node tools/electron-portable-helper-smoke.js
       - name: Verify previous compatible Portable patch base
         run: node tools/prepare-previous-release.js
       - name: Build one core, Setup and Portable
@@ -67,6 +83,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: verified-windows-release
+          if-no-files-found: error
           path: |
             dist/Dubline-*-Setup.exe
             dist/Dubline-*-Setup.exe.blockmap
@@ -77,12 +94,34 @@ jobs:
             dist/portable-update.json
             dist/release-artifacts.json
             dist/SHA256SUMS.txt
+
+  draft:
+    needs: [revision, checks, windows]
+    runs-on: windows-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: verified-windows-release
+          path: dist
       - name: Upload complete artifact set to a draft
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+          RELEASE_TAG: ${{ needs.revision.outputs.tag }}
+          RELEASE_SHA: ${{ needs.revision.outputs.sha }}
+          GH_REPO: ${{ github.repository }}
         run: |
+          $inventory = Get-Content dist/release-artifacts.json -Raw | ConvertFrom-Json
+          if ($inventory.commit -ne $env:RELEASE_SHA -or "v$($inventory.version)" -ne $env:RELEASE_TAG) { throw 'Downloaded artifacts do not match the verified revision.' }
+          $assets = @($inventory.artifacts | ForEach-Object {
+            if ($_.asset -notmatch '^[A-Za-z0-9.-]+$') { throw 'Invalid release asset name.' }
+            $assetPath = Join-Path dist $_.asset
+            if ((Get-Item -LiteralPath $assetPath).Length -ne $_.size -or (Get-FileHash -LiteralPath $assetPath -Algorithm SHA256).Hash.ToLower() -ne $_.sha256) { throw "Downloaded artifact failed verification: $($_.asset)" }
+            $assetPath
+          }) + @('dist/release-artifacts.json', 'dist/SHA256SUMS.txt')
           $existing = gh release view $env:RELEASE_TAG --json isDraft 2>$null
           if ($LASTEXITCODE -eq 0) {
             if (!(($existing | ConvertFrom-Json).isDraft)) { throw 'Refusing to change an already published release.' }
@@ -95,8 +134,6 @@ jobs:
           $isBetaRelease = ($env:RELEASE_TAG -match '-beta\.\d+$').ToString().ToLower()
           gh release edit $env:RELEASE_TAG "--prerelease=$isBetaRelease"
           if ($LASTEXITCODE -ne 0) { throw 'Could not set the draft release channel.' }
-          $inventory = Get-Content dist/release-artifacts.json -Raw | ConvertFrom-Json
-          $assets = @($inventory.artifacts | ForEach-Object { Join-Path dist $_.asset }) + @('dist/release-artifacts.json', 'dist/SHA256SUMS.txt')
           gh release upload $env:RELEASE_TAG @assets --clobber
           if ($LASTEXITCODE -ne 0) { throw 'Draft upload failed; it must remain unpublished.' }
           # Publishing the complete draft remains an explicit maintainer action.

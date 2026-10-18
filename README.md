@@ -117,7 +117,11 @@ npm run test:electron:workflow
 
 Browser tests require Chrome or Edge; set `CHROME_PATH` if detection cannot find it. Tests use temporary data/media directories. Standalone development keeps existing workspace data in `data/` and media in `public/uploads/` and `public/packs/`; these runtime folders are ignored by Git and separate from `src/public/`.
 
-On Windows, `npm run dist:win:unpacked` builds `dist/win-unpacked/`. `npm run dist` builds the core, Setup and Portable ZIP. Artifacts and generated QA output are not source files. GitHub Actions runs syntax, unit/server, all browser shards and native Electron checks. Release CI prepares a verified draft without automatically publishing it.
+On Windows, `npm run dist:win:unpacked` builds `dist/win-unpacked/`. `npm run dist` builds the core, Setup and Portable ZIP. Artifacts and generated QA output are not source files.
+
+GitHub Actions shares the same checks between regular CI and releases: one syntax/unit/server job, six browser shards and three native Electron groups on separate Windows runners. Browser shards use the complete `test:e2e` list from `package.json`, balanced by recorded Windows CI durations in `tools/e2e-durations.json`; new suites use a test-count estimate until timings are refreshed. To inspect a shard locally, run `node tools/e2e-shard.js --list 1 6`.
+
+Release packaging and its Portable/Setup install/update checks run alongside those checks, all against the same verified tag commit. Only after every job succeeds can the complete verified artifact set be uploaded to a draft. Publishing remains an explicit maintainer action.
 
 The portable file boundary is documented in [Project format](docs/project-format.md). Contributions and licensing requirements are in [CONTRIBUTING.md](CONTRIBUTING.md).
 

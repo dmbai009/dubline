@@ -1,0 +1,104 @@
+name: Shared Windows checks
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Immutable commit to check
+        required: true
+        type: string
+      release:
+        description: Include additional native release checks
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  source:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+
+  browser:
+    # Separate runners avoid CPU, memory and native window-focus contention.
+    # All files in package.json test:e2e run once, balanced by measured CI time.
+    runs-on: windows-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6]
+    env:
+      DUBLINE_REQUIRE_BROWSER: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Require an installed browser
+        run: node tools/require-browser.js
+      - name: Run browser shard ${{ matrix.shard }} of 6
+        shell: bash
+        run: node tools/e2e-shard.js ${{ matrix.shard }} 6 2>&1 | tee shard-${{ matrix.shard }}.log
+      - name: Name the suites that failed
+        if: failure()
+        shell: bash
+        run: node tools/annotate-failures.js shard-${{ matrix.shard }}.log
+      - name: Keep the shard log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-shard-${{ matrix.shard }}-log
+          path: shard-${{ matrix.shard }}.log
+          retention-days: 7
+
+  electron:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [ui, hosting, core]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run test:electron:ui
+        if: matrix.group == 'ui'
+      - run: npm run test:electron:hosting
+        if: matrix.group == 'hosting'
+      - run: npm run test:electron:editor
+        if: matrix.group == 'core'
+      - run: npm run test:electron:updates
+        if: matrix.group == 'core'
+      - run: npm run test:electron:workflow
+        if: matrix.group == 'core'
+      - run: npm run test:electron:projects
+        if: matrix.group == 'core' && inputs.release
+      - run: npm run test:electron:take-mix
+        if: matrix.group == 'core' && inputs.release
+      - run: node tools/electron-shell-smoke.js
+        if: matrix.group == 'core' && inputs.release
+      - run: node tools/electron-portable-helper-smoke.js
+        if: matrix.group == 'core' && inputs.release
