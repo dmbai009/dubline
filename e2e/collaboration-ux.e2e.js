@@ -61,16 +61,35 @@ describe('Collaboration latency and UX', { skip: skipReason }, () => {
     await page.keyboard.down('Alt'); await page.keyboard.press('ArrowDown'); await page.keyboard.up('Alt');
     await waitFor(page, () => session.lines.find(line => line.id === 1).character === 'Friend');
   });
-  test('captured pointer publishes its actual track to two collaborators and clears outside the timeline', async () => {
+  for (const dropped of [0, 2]) test(`captured pointer reaches both collaborators after ${dropped} dropped final-position packets and clears outside the timeline`, async () => {
     const second = await guest('Second'), third = await guest('Third');
     await waitFor(page, () => DublineCursorPresence.stats().actors === 2);
     await page.bringToFront();
     const rect = await beginDrag();
+    await page.evaluate(dropped => {
+      const emit = socket.emit;
+      window.friendCursorDrops = 0;
+      window.friendCursorSends = 0;
+      socket.emit = function(event, data, ...args) {
+        if (event === 'cursor_fallback' && data.packet?.active && data.packet.rowKey === 'Friend') {
+          friendCursorSends++;
+          if (friendCursorDrops < dropped) { friendCursorDrops++; return this; }
+        }
+        return emit.call(this, event, data, ...args);
+      };
+    }, dropped);
     const row = await page.$eval('.track-row[data-character="Friend"]', node => { const box = node.getBoundingClientRect(); return { y: box.top + box.height / 2 }; });
     await page.mouse.move(rect.x, row.y, { steps: 4 });
     for (const other of [second, third]) await waitFor(other, () => [...DublineCursorPresence.samples.values()].some(sample => sample.packet.active && sample.packet.rowKey === 'Friend'));
+    assert.equal(await page.evaluate(() => friendCursorDrops), dropped);
+    await wait(300);
+    const sent = await page.evaluate(() => friendCursorSends);
+    await wait(200);
+    assert.equal(await page.evaluate(() => friendCursorSends), sent, 'a stopped pointer does not start an endless heartbeat');
     await page.mouse.move(rect.x, 5); await page.mouse.up();
     for (const other of [second, third]) await waitFor(other, () => [...DublineCursorPresence.samples.values()].every(sample => !sample.packet.active));
+    await wait(250);
+    for (const other of [second, third]) assert.equal(await other.evaluate(() => [...DublineCursorPresence.samples.values()].every(sample => !sample.packet.active)), true, 'delayed retries cannot reactivate a cursor outside the timeline');
   });
   test('host and moderator drag foreign takes; guests and Shift do not, and revocation cancels a gesture', async () => {
     const owner = await guest('Owner'), mod = await guest('Moderator');

@@ -2,6 +2,7 @@
   const direct = new Map(), samples = new Map(), receiveRates = new Map(), earlyCandidates = new Map();
   let actors = new Map(), scene = null, sequence = 0, hz = 15, latest = null, timer = null, frame = null, subscription = '';
   let jumpExpiry = null;
+  let remainingSends = 0;
   let visible = true; try { visible = localStorage.getItem('dubline_cursors') !== '0'; } catch { /* private profile */ }
   const layer = document.createElement('div'); layer.id = 'collaboratorCursors'; layer.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:29;'; document.body.append(layer);
   const personal = document.createElement('label'); personal.className = 'setting-card';
@@ -13,7 +14,7 @@
   function directAllowed() { return window.DublineP2P?.allowed() === true; }
   function current(peer, id) { return directAllowed() && direct.get(id) === peer && peer.sessionId === scene; }
   function close(id, expected) { const peer = direct.get(id); if (!peer || expected && expected !== peer) return; direct.delete(id); clearTimeout(peer.timer); try { peer.channel?.close(); peer.pc.close(); } catch { /* closed */ } }
-  function clear() { for (const id of [...direct.keys()]) close(id); samples.clear(); receiveRates.clear(); earlyCandidates.clear(); layer.replaceChildren(); latest = null; subscription = ''; clearTimeout(jumpExpiry); window.refreshCollaboratorJumpButtons?.(); }
+  function clear() { for (const id of [...direct.keys()]) close(id); samples.clear(); receiveRates.clear(); earlyCandidates.clear(); layer.replaceChildren(); latest = null; remainingSends = 0; clearTimeout(timer); timer = null; subscription = ''; clearTimeout(jumpExpiry); window.refreshCollaboratorJumpButtons?.(); }
   function rowFor(packet) {
     if (packet.rowType === 'role') return [...document.querySelectorAll('.track-row[data-character]')].find(row => row.dataset.character === packet.rowKey);
     if (packet.rowType === 'audio') return document.querySelector(`.studio-audio-row[data-audio-channel="${packet.rowKey}"]`);
@@ -132,7 +133,16 @@
     }
     if (fallback.length) socket.volatile.emit('cursor_fallback', { to: fallback.slice(0, 64), packet: data });
   }
-  function flush() { timer = null; if (latest) { publish(latest); latest = null; } }
+  function flush() {
+    timer = null;
+    if (!latest) return;
+    publish(latest);
+    // Both cursor transports are intentionally lossy. Repeat the final position
+    // for two more ticks so a dropped/rate-limited packet cannot leave a stopped
+    // pointer on the previous track. Never turn this into an idle heartbeat.
+    if (--remainingSends > 0) timer = setTimeout(flush, 1000 / hz);
+    else latest = null;
+  }
   timelineContainer.addEventListener('pointermove', event => {
     if (session?.mode !== 'edit' || document.querySelector('.modal-overlay[style*="display: flex"]')) return;
     const bounds = timelineContainer.getBoundingClientRect();
@@ -147,9 +157,10 @@
     const rect = row.getBoundingClientRect(), origin = timeline.getBoundingClientRect();
     if (event.clientX < timelineContainer.getBoundingClientRect().left + labelWidth) { hide(); return; }
     latest = { active: true, time: Math.max(0, Math.min(43200, (event.clientX - origin.left - labelWidth) / pxPerSec)), rowType: row.dataset.character ? 'role' : row.dataset.audioChannel ? 'audio' : 'ruler', rowKey: row.dataset.character || row.dataset.audioChannel || 'ruler', relativeY: Math.max(0, Math.min(1, (event.clientY - rect.top) / Math.max(1, rect.height))) };
+    remainingSends = 3;
     if (timer === null) timer = setTimeout(flush, 1000 / hz);
   });
-  const hide = () => { clearTimeout(timer); timer = null; latest = null; publish({ active: false }); };
+  const hide = () => { clearTimeout(timer); timer = null; latest = null; remainingSends = 0; publish({ active: false }); };
   timelineContainer.addEventListener('pointerleave', hide); window.addEventListener('blur', hide);
   document.addEventListener('visibilitychange', () => { if (document.hidden) hide(); else paint(); });
   timelineContainer.addEventListener('scroll', paint, { passive: true }); window.addEventListener('resize', paint);
