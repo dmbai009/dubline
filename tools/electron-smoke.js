@@ -265,12 +265,26 @@ async function main() {
       input.value = '64'; input.dispatchEvent(new Event('change', { bubbles: true }));
     }, created.line.id);
     await host.waitForFunction(id => session.lines.find(line => line.id === id)?.volume === 0.64, {}, created.line.id);
-    await host.evaluate(id => {
+    const panRevision = await host.evaluate(id => {
       selectLine(session.lines.find(line => line.id === id));
+      const revision = session.lines.find(line => line.id === id).takeMixRevision || 0;
+      // Delivery to one participant says nothing about another participant's
+      // current revision. Exercise that gap before opening an effect draft.
+      const deliver = applyTakeUpdates;
+      window.smokeRestoreTakeUpdates = () => { applyTakeUpdates = deliver; };
+      applyTakeUpdates = (...args) => {
+        if (args[1]?.some(line => line.id === id && line.pan === -.35)) setTimeout(() => deliver(...args), 750);
+        else deliver(...args);
+      };
       const input = document.querySelector('[data-clip-field=pan]');
       input.value = '-35'; input.dispatchEvent(new Event('change', { bubbles: true }));
+      return revision;
     }, created.line.id);
-    await guest.waitForFunction(id => session.lines.find(line => line.id === id)?.pan === -0.35, {}, created.line.id);
+    for (const page of [host, guest]) await page.waitForFunction((id, previousRevision) => {
+      const line = session.lines.find(line => line.id === id);
+      return line?.volume === .64 && line.pan === -.35 && line.takeMixRevision === previousRevision + 1;
+    }, {}, created.line.id, panRevision);
+    await host.evaluate(() => { smokeRestoreTakeUpdates(); delete window.smokeRestoreTakeUpdates; });
     await host.evaluate(id => DublineVoiceEditor.open(id, 'takes'), created.line.id);
     await host.click('[data-fx-type="' + 'radio' + '"]');
     await host.$eval('#fxRows .fx-item:last-child input[type=range]', input => { input.value = '45'; input.dispatchEvent(new Event('input', { bubbles: true })); });
